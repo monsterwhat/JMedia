@@ -191,6 +191,32 @@ public class WindowsPlatformOperations implements PlatformOperations {
         }
         return false;
     }
+
+    @Override
+    public boolean isDenoInstalled() {
+        return findDenoExecutable() != null;
+    }
+
+    /**
+     * @return "deno" when on PATH, its absolute path at the known
+     *         %USERPROFILE%\.deno\bin location, or null when not installed
+     */
+    private String findDenoExecutable() {
+        try {
+            if (isCommandAvailable("deno")) {
+                return "deno";
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Deno PATH probe failed: {}", e.getMessage());
+        }
+
+        String knownPath = System.getProperty("user.home")
+                + File.separator + ".deno" + File.separator + "bin" + File.separator + "deno.exe";
+        if (new File(knownPath).exists()) {
+            return knownPath;
+        }
+        return null;
+    }
     
     @Override
     public void installPackageManger(Long profileId) throws Exception {
@@ -203,6 +229,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
             executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
             broadcastInstallationProgress("choco", 100, false, profileId);
             broadcast("Chocolatey installation completed\n", profileId);
+            broadcast("[CHOCO_INSTALLATION_FINISHED]", profileId);
         } catch (Exception e) {
             broadcast("ERROR: Failed to install Chocolatey: " + e.getMessage() + "\n", profileId);
             throw new Exception("Chocolatey installation failed: " + e.getMessage());
@@ -352,6 +379,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
             executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
             broadcastInstallationProgress("ytdlp", 100, false, profileId);
             broadcast("yt-dlp installation completed via Chocolatey\n", profileId);
+            broadcast("[YTDLP_INSTALLATION_FINISHED]", profileId);
         } catch (Exception e) {
             broadcast("Chocolatey installation failed, trying pip...\n", profileId);
             broadcastInstallationProgress("ytdlp", 50, true, profileId);
@@ -360,9 +388,10 @@ public class WindowsPlatformOperations implements PlatformOperations {
             String pythonExecutable = findPythonExecutable();
             String pipInstallScript = pythonExecutable + " -m pip install yt-dlp";
             executeCommand(pipInstallScript, profileId);
-            
+
             broadcastInstallationProgress("ytdlp", 100, false, profileId);
             broadcast("yt-dlp installation completed via pip\n", profileId);
+            broadcast("[YTDLP_INSTALLATION_FINISHED]", profileId);
         }
     }
     
@@ -453,6 +482,68 @@ public class WindowsPlatformOperations implements PlatformOperations {
             broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
         }
     }
+
+    @Override
+    public void installDeno(Long profileId) throws Exception {
+        broadcastInstallationProgress("deno", 0, true, profileId);
+        broadcast("Installing Deno via per-user PowerShell script (no admin required)...\n", profileId);
+
+        try {
+            executePerUserPowerShellInstall(profileId);
+            broadcastInstallationProgress("deno", 100, false, profileId);
+            broadcast("Deno installation completed\n", profileId);
+            broadcast("[DENO_INSTALLATION_FINISHED]", profileId);
+        } catch (Exception e) {
+            broadcast("PowerShell installation failed, trying Chocolatey...\n", profileId);
+            broadcastInstallationProgress("deno", 50, true, profileId);
+
+            try {
+                executePowerShellCommandAsAdmin("choco install deno -y", profileId);
+                broadcastInstallationProgress("deno", 100, false, profileId);
+                broadcast("Deno installation completed via Chocolatey\n", profileId);
+                broadcast("[DENO_INSTALLATION_FINISHED]", profileId);
+            } catch (Exception e2) {
+                broadcast("ERROR: Failed to install Deno: " + e2.getMessage() + "\n", profileId);
+                throw new Exception("Deno installation failed: " + e2.getMessage(), e2);
+            }
+        }
+    }
+
+    private void executePerUserPowerShellInstall(Long profileId) throws Exception {
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-Command", "irm https://deno.com/install.ps1 | iex");
+            pb.redirectErrorStream(true);
+
+            process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        broadcast(line.trim() + "\n", profileId);
+                    }
+                }
+            }
+
+            boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+            if (!finished) {
+                LOGGER.warn("Deno install script timed out after 10 min");
+                process.destroyForcibly();
+                throw new Exception("Deno install script timed out");
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                throw new Exception("Deno install script failed with exit code: " + exitCode);
+            }
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+    }
     
     @Override
     public void uninstallPython(Long profileId) throws Exception {
@@ -492,6 +583,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
             executeCommand("choco uninstall yt-dlp -y", profileId);
             broadcastInstallationProgress("ytdlp", 100, false, profileId);
             broadcast("yt-dlp uninstallation completed via Chocolatey\n", profileId);
+            broadcast("[YTDLP_UNINSTALLATION_FINISHED]", profileId);
         } catch (Exception e) {
             // Fallback to pip uninstallation
             String pythonExecutable = findPythonExecutable();
@@ -499,6 +591,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
             executeCommand(pipUninstallScript, profileId);
             broadcastInstallationProgress("ytdlp", 100, false, profileId);
             broadcast("yt-dlp uninstallation completed via pip\n", profileId);
+            broadcast("[YTDLP_UNINSTALLATION_FINISHED]", profileId);
         }
     }
     
@@ -544,6 +637,104 @@ public class WindowsPlatformOperations implements PlatformOperations {
             broadcastInstallationProgress("tesseract", 100, false, profileId);
             broadcast("Tesseract uninstallation completed with warnings\n", profileId);
             broadcast("[TESSERACT_UNINSTALLATION_FINISHED]", profileId);
+        }
+    }
+    
+    @Override
+    public void updateYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Updating yt-dlp...\n", profileId);
+        
+        try {
+            // Pip first: the [default] extra pulls the yt-dlp-ejs challenge-solver package that choco/self-update miss
+            String pythonExecutable = findPythonExecutable();
+            String pipUpdateScript = pythonExecutable + " -m pip install --upgrade yt-dlp[default]";
+            executePipCommand(pipUpdateScript, profileId);
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp update completed via pip\n", profileId);
+        } catch (Exception e) {
+            broadcast("pip update failed, trying Chocolatey upgrade...\n", profileId);
+            
+            try {
+                executePowerShellCommandAsAdmin("choco upgrade yt-dlp -y", profileId);
+                broadcastInstallationProgress("ytdlp", 100, false, profileId);
+                broadcast("yt-dlp update completed via Chocolatey\n", profileId);
+            } catch (Exception e2) {
+                broadcast("yt-dlp update failed. Please check logs for details.\n", profileId);
+                throw new Exception("yt-dlp update failed via both pip and Chocolatey: " + e2.getMessage(), e2);
+            }
+        }
+    }
+    
+    @Override
+    public void updateFFmpeg(Long profileId) throws Exception {
+        broadcastInstallationProgress("ffmpeg", 0, true, profileId);
+        broadcast("Updating FFmpeg via Chocolatey...\n", profileId);
+        
+        try {
+            executePowerShellCommandAsAdmin("choco upgrade ffmpeg -y", profileId);
+            broadcastInstallationProgress("ffmpeg", 100, false, profileId);
+            broadcast("FFmpeg update completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey upgrade failed, falling back to full installation...\n", profileId);
+            installFFmpeg(profileId);
+        }
+    }
+    
+    @Override
+    public void updateDeno(Long profileId) throws Exception {
+        broadcastInstallationProgress("deno", 0, true, profileId);
+        broadcast("Updating Deno...\n", profileId);
+
+        String denoExecutable = findDenoExecutable();
+        if (denoExecutable != null) {
+            try {
+                runDenoUpgrade(denoExecutable, profileId);
+                broadcastInstallationProgress("deno", 100, false, profileId);
+                broadcast("Deno update completed\n", profileId);
+                return;
+            } catch (Exception e) {
+                broadcast("Deno upgrade failed, re-running installer...\n", profileId);
+            }
+        } else {
+            broadcast("Deno not found, running installer...\n", profileId);
+        }
+
+        installDeno(profileId);
+    }
+
+    private void runDenoUpgrade(String denoExecutable, Long profileId) throws Exception {
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(denoExecutable, "upgrade");
+            pb.redirectErrorStream(true);
+
+            process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        broadcast(line.trim() + "\n", profileId);
+                    }
+                }
+            }
+
+            boolean finished = process.waitFor(10, TimeUnit.MINUTES);
+            if (!finished) {
+                LOGGER.warn("Deno upgrade timed out after 10 min");
+                process.destroyForcibly();
+                throw new Exception("Deno upgrade timed out");
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                throw new Exception("Deno upgrade failed with exit code: " + exitCode);
+            }
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
     
@@ -692,6 +883,38 @@ public class WindowsPlatformOperations implements PlatformOperations {
     @Override
     public String getTesseractInstallMessage() {
         return "Tesseract OCR is not installed or not found in PATH. Please install Tesseract.";
+    }
+    
+    @Override
+    public String getDenoVersion() {
+        String denoExecutable = findDenoExecutable();
+        if (denoExecutable == null) {
+            return null;
+        }
+
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(denoExecutable, "--version");
+            pb.redirectErrorStream(true);
+            process = pb.start();
+
+            String firstLine = null;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                firstLine = reader.readLine();
+            }
+
+            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+            if (finished && process.exitValue() == 0 && firstLine != null && !firstLine.trim().isEmpty()) {
+                return firstLine.trim();
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Failed to get Deno version: {}", e.getMessage());
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+        return null;
     }
     
     @Override

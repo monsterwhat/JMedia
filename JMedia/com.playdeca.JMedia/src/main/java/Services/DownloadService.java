@@ -45,6 +45,9 @@ public class DownloadService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    JsRuntimeResolver jsRuntimeResolver;
+
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private volatile Process currentProcess;
@@ -314,6 +317,18 @@ public class DownloadService {
                         command.add("--player-client");
                         command.add(settings.getYoutubePlayerClient());
                     }
+                }
+
+                // yt-dlp requires --js-runtimes before the positional URL/ytsearch argument
+                try {
+                    JsRuntimeResolver.Resolution jsRuntime = jsRuntimeResolver.resolve();
+                    if (!jsRuntime.getYtDlpArgs().isEmpty()) {
+                        LOGGER.debug("Using {} for yt-dlp (--js-runtimes {})",
+                                jsRuntime.getRuntimeName(), jsRuntime.getYtDlpArgs().get(1));
+                        Collections.addAll(command, jsRuntime.getYtDlpArgs().toArray(new String[0]));
+                    }
+                } catch (Exception e) {
+                    LOGGER.debug("Could not resolve a JavaScript runtime for yt-dlp: " + e.getMessage());
                 }
 
                 if (isSongSearchQuery(url)) {

@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class MacOSPlatformOperations implements PlatformOperations {
@@ -83,6 +84,31 @@ public class MacOSPlatformOperations implements PlatformOperations {
     @Override
     public boolean isTesseractInstalled() {
         return isCommandAvailable("tesseract");
+    }
+
+    @Override
+    public boolean isDenoInstalled() {
+        return findDenoExecutable() != null;
+    }
+
+    /**
+     * @return "deno" when on PATH, its absolute path at the known
+     *         ~/.deno/bin location, or null when not installed
+     */
+    private String findDenoExecutable() {
+        try {
+            if (isCommandAvailable("deno")) {
+                return "deno";
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Deno PATH probe failed: {}", e.getMessage());
+        }
+
+        String knownPath = System.getProperty("user.home") + "/.deno/bin/deno";
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(knownPath))) {
+            return knownPath;
+        }
+        return null;
     }
     
     @Override
@@ -237,6 +263,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         if (success) {
             broadcastInstallationProgress("ytdlp", 100, false, profileId);
             broadcast("yt-dlp installation completed\n", profileId);
+            broadcast("[YTDLP_INSTALLATION_FINISHED]", profileId);
         }
     }
     
@@ -258,7 +285,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         broadcast("FFmpeg installation completed\n", profileId);
     }
     
-    @Override
+	@Override
     public void installTesseract(Long profileId) throws Exception {
         broadcastInstallationProgress("tesseract", 0, true, profileId);
         
@@ -275,6 +302,91 @@ public class MacOSPlatformOperations implements PlatformOperations {
         broadcastInstallationProgress("tesseract", 100, false, profileId);
         broadcast("Tesseract installation completed\n", profileId);
         broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+    }
+    
+    @Override
+    public void installDeno(Long profileId) throws Exception {
+        LOGGER.info("Starting Deno installation for profile: {}", profileId);
+        broadcastInstallationProgress("deno", 0, true, profileId);
+
+        try {
+            if (isCommandAvailable("brew")) {
+                broadcast("Installing Deno using Homebrew...\n", profileId);
+                runProcessWithTimeout(new ProcessBuilder("brew", "install", "deno"), 10, profileId);
+            } else {
+                broadcast("Homebrew not found, installing Deno via the official per-user install script...\n", profileId);
+                runUserInstallScript(profileId);
+            }
+
+            broadcastInstallationProgress("deno", 100, false, profileId);
+            broadcast("Deno installation completed\n", profileId);
+            broadcast("[DENO_INSTALLATION_FINISHED]", profileId);
+        } catch (Exception e) {
+            broadcast("ERROR: Failed to install Deno: " + e.getMessage() + "\n", profileId);
+            throw new Exception("Deno installation failed: " + e.getMessage(), e);
+        }
+    }
+
+    private void runUserInstallScript(Long profileId) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", "curl -fsSL https://deno.land/install.sh | sh");
+        pb.redirectErrorStream(true);
+        runProcessWithTimeout(pb, 10, profileId);
+    }
+
+    private void runProcessWithTimeout(ProcessBuilder pb, long timeoutMinutes, Long profileId) throws Exception {
+        Process process = null;
+        try {
+            process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        broadcast(line.trim() + "\n", profileId);
+                    }
+                }
+            }
+
+            boolean finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES);
+            if (!finished) {
+                LOGGER.warn("Command timed out after {} min: {}", timeoutMinutes, pb.command());
+                process.destroyForcibly();
+                throw new Exception("Command timed out: " + pb.command());
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                throw new Exception("Command failed with exit code: " + exitCode + ": " + pb.command());
+            }
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    @Override
+    public void updateDeno(Long profileId) throws Exception {
+        broadcastInstallationProgress("deno", 0, true, profileId);
+        broadcast("Updating Deno...\n", profileId);
+
+        String denoExecutable = findDenoExecutable();
+        if (denoExecutable != null) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(denoExecutable, "upgrade");
+                pb.redirectErrorStream(true);
+                runProcessWithTimeout(pb, 10, profileId);
+                broadcastInstallationProgress("deno", 100, false, profileId);
+                broadcast("Deno update completed\n", profileId);
+                return;
+            } catch (Exception e) {
+                broadcast("Deno upgrade failed, re-running installer...\n", profileId);
+            }
+        } else {
+            broadcast("Deno not found, running installer...\n", profileId);
+        }
+
+        installDeno(profileId);
     }
     
     @Override
@@ -350,6 +462,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("ytdlp", 100, false, profileId);
         broadcast("yt-dlp uninstallation completed\n", profileId);
+        broadcast("[YTDLP_UNINSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -501,6 +614,38 @@ public class MacOSPlatformOperations implements PlatformOperations {
     @Override
     public String getTesseractInstallMessage() {
         return "Tesseract is not installed. Please install Tesseract using Homebrew: brew install tesseract";
+    }
+    
+    @Override
+    public String getDenoVersion() {
+        String denoExecutable = findDenoExecutable();
+        if (denoExecutable == null) {
+            return null;
+        }
+
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(denoExecutable, "--version");
+            pb.redirectErrorStream(true);
+            process = pb.start();
+
+            String firstLine = null;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                firstLine = reader.readLine();
+            }
+
+            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+            if (finished && process.exitValue() == 0 && firstLine != null && !firstLine.trim().isEmpty()) {
+                return firstLine.trim();
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Failed to get Deno version: {}", e.getMessage());
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+        return null;
     }
     
     @Override

@@ -14,6 +14,7 @@ public interface PlatformOperations {
     boolean isFFmpegInstalled();
     boolean isParakeetInstalled();
     boolean isTesseractInstalled();
+    boolean isDenoInstalled();
     
 // Installation methods
     void installPackageManger(Long profileId) throws Exception;
@@ -24,6 +25,7 @@ public interface PlatformOperations {
     void installFFmpeg(Long profileId) throws Exception;
     void installParakeet(Long profileId) throws Exception;
     void installTesseract(Long profileId) throws Exception;
+    void installDeno(Long profileId) throws Exception;
     
 // Uninstallation methods
     void uninstallPython(Long profileId) throws Exception;
@@ -34,6 +36,17 @@ public interface PlatformOperations {
     void uninstallParakeet(Long profileId) throws Exception;
     void uninstallTesseract(Long profileId) throws Exception;
     
+// Update methods (defaults = force reinstall via the installX methods, which are upgrade-capable/idempotent)
+    default void updatePackageManger(Long profileId) throws Exception { installPackageManger(profileId); }
+    default void updatePython(Long profileId) throws Exception { installPython(profileId); }
+    default void updateNode(Long profileId) throws Exception { installNode(profileId); }
+    default void updateSpotdl(Long profileId) throws Exception { installSpotdl(profileId); }
+    default void updateYtdlp(Long profileId) throws Exception { installYtdlp(profileId); }
+    default void updateFFmpeg(Long profileId) throws Exception { installFFmpeg(profileId); }
+    default void updateParakeet(Long profileId) throws Exception { installParakeet(profileId); }
+    default void updateTesseract(Long profileId) throws Exception { installTesseract(profileId); }
+    default void updateDeno(Long profileId) throws Exception { installDeno(profileId); }
+    
     // Command execution
     void executeCommand(String command, Long profileId) throws Exception;
     void executeCommandAsAdmin(String command, Long profileId) throws Exception;
@@ -42,6 +55,7 @@ public interface PlatformOperations {
     String findPythonExecutable() throws Exception;
     String getParakeetPythonExecutable() throws Exception;
     String findNodeExecutable() throws Exception;
+    String getDenoVersion();
     
 // Installation status messages
     String getPackageManagerName();
