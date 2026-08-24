@@ -8,18 +8,21 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.websocket.CloseReason;
+import jakarta.websocket.EndpointConfig;
 import jakarta.websocket.OnClose;
 import jakarta.websocket.OnError;
 import jakarta.websocket.OnMessage;
 import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
+import jakarta.websocket.server.HandshakeRequest;
 import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.LoggerFactory;
 
-@ServerEndpoint("/api/music/ws/{profileId}")
+@ServerEndpoint(value = "/api/music/ws/{profileId}", configurator = WebSocketAuthConfigurator.class)
 @ApplicationScoped
 public class MusicSocket {
 
@@ -32,10 +35,22 @@ public class MusicSocket {
     @Inject
     DesktopController viewSession;
 
+    @Inject
+    WebSocketAuthService webSocketAuthService;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @OnOpen
-    public void onOpen(Session session, @PathParam("profileId") Long profileId) {
+    public void onOpen(Session session, EndpointConfig config, @PathParam("profileId") Long profileId) {
+        HandshakeRequest handshake = (HandshakeRequest) config.getUserProperties()
+                .get(WebSocketAuthConfigurator.HANDSHAKE_REQUEST_KEY);
+        if (!webSocketAuthService.isAuthorized(handshake, profileId)) {
+            try {
+                session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "Profile access denied"));
+            } catch (IOException ignored) {
+            }
+            return;
+        }
         CompletableFuture.runAsync(() -> {
             webSocketManager.addSession(session, profileId);
             sendCurrentState(session, profileId);

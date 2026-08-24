@@ -27,8 +27,11 @@
         var self = this;
         try {
             var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // Path param required by the server endpoint; default '1' for legacy callers.
-            var pid = this.profileId || '1';
+            var pid = this.profileId;
+            if (!pid) {
+                console.warn('[VideoWebSocketManager] No profileId; not connecting');
+                return;
+            }
             var wsUrl = protocol + '//' + window.location.host + '/api/video/ws/' + encodeURIComponent(pid);
             console.log('[VideoWebSocketManager] Connecting to', wsUrl, 'profileId=', this.profileId);
             this.ws = new WebSocket(wsUrl);
@@ -38,11 +41,12 @@
                 if (self.reconnectTimer) { clearTimeout(self.reconnectTimer); self.reconnectTimer = null; }
                 if (self.onOpen) { try { self.onOpen(); } catch (e) { console.error('[VideoWebSocketManager] onOpen error', e); } }
             };
-            this.ws.onclose = function () {
+            this.ws.onclose = function (event) {
                 self.connected = false;
                 console.log('[VideoWebSocketManager] WebSocket disconnected (video)');
                 if (self.onClose) { try { self.onClose(); } catch (e) { console.error('[VideoWebSocketManager] onClose error', e); } }
-                if (!self.closedByUser) { self.scheduleReconnect(1500); }
+                var code = event ? event.code : null;
+                if (!self.closedByUser && code !== 1008 && code !== 1003) { self.scheduleReconnect(1500); }
             };
             this.ws.onerror = function (error) {
                 console.error('[VideoWebSocketManager] WebSocket error (video)', error);

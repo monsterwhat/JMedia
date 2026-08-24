@@ -124,8 +124,9 @@
             
             this.profileIdPromise = new Promise((resolve) => {
                 const checkProfile = () => {
-                    if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined') {
-                        resolve(window.globalActiveProfileId);
+                    const pid = window.globalActiveProfileId;
+                    if (pid && pid !== 'undefined' && window.profileInitialized) {
+                        resolve(pid);
                     } else {
                         setTimeout(checkProfile, 50);
                     }
@@ -268,6 +269,13 @@
          */
         processStateMessage: function(message) {
             const state = message.payload;
+            if (!state) return;
+
+            const boundPid = window.globalActiveProfileId;
+            if (state.profileId != null && boundPid != null && String(state.profileId) !== String(boundPid)) {
+                window.Helpers.log('WebSocketManager dropping foreign-profile state: ' + state.profileId + ' !== ' + boundPid);
+                return;
+            }
             
             // Check for play/pause conflicts with local actions
             const currentState = window.StateManager?.getState();
@@ -500,6 +508,7 @@
         reconnect: function() {
             window.Helpers.log('WebSocketManager reconnecting...');
             this.reconnectAttempts = 0;
+            this.profileIdPromise = null;
             
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
