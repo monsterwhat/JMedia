@@ -319,7 +319,7 @@ public class SubtitleAPI {
             // spawn one tesseract per PGS cue on every fetch and pin the CPU against
             // active video transcodes. OCR now runs lazily on first track selection
             // (streamSubtitle -> getOrCreateWebVTT) or once at import time
-            // (SubtitleDiscoveryQueueProcessor), both gated by PgsOcrService against
+            // (VideoMetadataService), both gated by PgsOcrService against
             // active transcoding.
 
             Map<String, Object> response = new HashMap<>();
