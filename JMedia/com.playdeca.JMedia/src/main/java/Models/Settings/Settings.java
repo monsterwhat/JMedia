@@ -114,9 +114,19 @@ public class Settings extends PanacheEntity {
     private String defaultPlayer = "simple";
 
     // Streaming / transcoding configuration
-    private Integer maxConcurrentTranscodes = 0; // Max concurrent transcode sessions (0 = auto: CPU-based, capped)
+    private Integer maxConcurrentTranscodes = 0; // -1 = off, 0 = auto (CPU-based, capped), N = manual
     private Integer maxCompleteCacheFiles = 15; // Max complete (concatenated) video cache files kept (LRU eviction)
     private Boolean hardwareAccelerationEnabled = true; // Enable hardware-accelerated transcoding
+
+    // System / thread pool configuration (-1 = off, 0 = auto: hardware-derived, N = manual thread count)
+    private Integer audioAnalysisThreads = 0;
+    private Integer analysisWorkerBatchSize = 2;
+    private Integer djEnrichmentAnalysisThreads = 0;
+    private Integer djEnrichmentMetadataThreads = 0;
+    private Integer musicScanThreads = 0;
+    private Integer videoScanThreads = 0;
+    private Integer streamCheckThreads = 0;
+    private Integer videoEnrichmentThreads = 0;
 
     // YouTube (yt-dlp) advanced options
     private Boolean youtubeForceIpv4 = false;
