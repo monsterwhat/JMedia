@@ -34,9 +34,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutorCompletionService;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
@@ -44,16 +41,12 @@ import javax.imageio.stream.ImageOutputStream;
 import Utils.MediaPathResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import jakarta.annotation.PreDestroy;
 
 @ApplicationScoped
 public class ThumbnailService {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(ThumbnailService.class);
     private static final String THUMBNAIL_DIR = "thumbnails";
-    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
-    
-    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
 
     @Inject
     @PersistenceUnit("video")
@@ -337,52 +330,7 @@ public class ThumbnailService {
         }
         return (seriesTitle + "_s" + season + "e" + episode).toLowerCase().trim();
     }
-    
-    /**
-     * Generate thumbnails for multiple videos with intelligent caching
-     * @param videoIds List of video IDs
-     * @param isBatchMode If true, use series-level caching aggressively
-     * @return Map of videoId -> thumbnail path
-     */
-    public Map<Long, String> generateThumbnailsBatch(List<Long> videoIds, boolean isBatchMode) {
-        if (videoIds == null || videoIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        
-        LOGGER.info("Generating thumbnails for batch of {} videos (batchMode={})", videoIds.size(), isBatchMode);
-        
-        Map<Long, String> results = new ConcurrentHashMap<>();
-        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(executor);
-        
-        for (Long videoId : videoIds) {
-            completion.submit(() -> {
-                Video video = entityManager.find(Video.class, videoId);
-                if (video != null) {
-                    String path = generateThumbnailWithContext(videoId, video.path, isBatchMode);
-                    if (path != null) results.put(videoId, path);
-                    return path;
-                }
-                return null;
-            });
-        }
-        
-        int completed = 0;
-        while (completed < videoIds.size()) {
-            try {
-                var future = completion.take();
-                completed++;
-                if (completed % 100 == 0) {
-                    LOGGER.info("Thumbnail batch progress: {}/{}", completed, videoIds.size());
-                }
-            } catch (Exception e) {
-                LOGGER.error("Error generating thumbnail: {}", e.getMessage());
-            }
-        }
-        
-        LOGGER.info("Thumbnail batch completed for {} videos", videoIds.size());
-        return results;
-    }
-    
+
     /**
      * Generate thumbnail with context awareness
      * @param videoId Video ID
@@ -1282,20 +1230,6 @@ public class ThumbnailService {
             }
         } catch (Exception e) {
             LOGGER.error("Error renaming thumbnail for video {}: {}", videoId, e.getMessage());
-        }
-    }
-
-    @PreDestroy
-    public void shutdownExecutor() {
-        LOGGER.info("Shutting down ThumbnailService executor");
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
         }
     }
 
