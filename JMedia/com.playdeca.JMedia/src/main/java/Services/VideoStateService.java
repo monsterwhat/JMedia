@@ -21,6 +21,9 @@ public class VideoStateService {
     SettingsService settingsService;
 
     @Inject
+    ProfileService profileService;
+
+    @Inject
     ProfileSessionStateService profileSessionStateService;
 
     @Transactional
@@ -30,7 +33,7 @@ public class VideoStateService {
 
     @Transactional
     public VideoState getOrCreate(Video video, Long profileId) {
-        Profile activeProfile = profileId != null ? settingsService.getActiveProfile(profileId) : settingsService.getActiveProfile();
+        Profile activeProfile = profileId != null ? profileService.findById(profileId) : settingsService.getActiveProfile();
         if (activeProfile == null || video == null) {
             return null;
         }
@@ -78,7 +81,7 @@ public class VideoStateService {
 
     @Transactional
     public void updateProgress(Video video, double currentTimeSeconds, Long profileId) {
-        Profile activeProfile = profileId != null ? settingsService.getActiveProfile(profileId) : settingsService.getActiveProfile();
+        Profile activeProfile = profileId != null ? profileService.findById(profileId) : settingsService.getActiveProfile();
         if (activeProfile == null || video == null) {
             return;
         }

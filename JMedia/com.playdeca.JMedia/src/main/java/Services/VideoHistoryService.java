@@ -26,6 +26,9 @@ public class VideoHistoryService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    ProfileService profileService;
+
     private boolean isMainProfileActive() {
         Profile activeProfile = settingsService.getActiveProfile();
         return activeProfile != null && activeProfile.isMainProfile;
@@ -33,6 +36,11 @@ public class VideoHistoryService {
 
     @Transactional
     public void add(Long mediaFileId) {
+        add(mediaFileId, null);
+    }
+
+    @Transactional
+    public void add(Long mediaFileId, Long profileId) {
         if (mediaFileId == null) {
             return;
         }
@@ -41,7 +49,7 @@ public class VideoHistoryService {
             return;
         }
 
-        Profile activeProfile = settingsService.getActiveProfile();
+        Profile activeProfile = profileId != null ? profileService.findById(profileId) : settingsService.getActiveProfile();
         if (activeProfile == null) {
             return;
         }
@@ -72,6 +80,11 @@ public class VideoHistoryService {
      */
     @Transactional
     public void addFromVideoId(Long videoId) {
+        addFromVideoId(videoId, null);
+    }
+
+    @Transactional
+    public void addFromVideoId(Long videoId, Long profileId) {
         if (videoId == null) return;
         
         Models.Video.Video video = Models.Video.Video.findById(videoId);
@@ -86,7 +99,7 @@ public class VideoHistoryService {
         
         MediaFile mediaFile = MediaFile.find("path", video.path).firstResult();
         if (mediaFile != null) {
-            add(mediaFile.id);
+            add(mediaFile.id, profileId);
         } else {
             LOGGER.warning("Cannot record history: No MediaFile found for path '" + video.path + "' (video ID " + videoId + ")");
         }
