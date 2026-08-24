@@ -18,7 +18,7 @@
         var assCanvas   = document.getElementById('assCanvas');
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
-        var profileId = localStorage.getItem('activeProfileId');
+        var profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
         var volumeKey = 'jmedia_video_volume_' + profileId;
         var muteKey = 'jmedia_video_mute_' + profileId;
 
@@ -362,7 +362,7 @@
                     playerOpt.style.borderColor = '#48c774';
                     playerOpt.style.color = '#48c774';
                     if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
-                    var profileId = localStorage.getItem('activeProfileId');
+                    var profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                     fetch('/api/settings/' + profileId + '/default-player', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -600,7 +600,15 @@
 
         function _initWebSocket() {
             if (!window.VideoWebSocketManager) return;
-            if (!pid) return;
+            if (!pid) {
+                pid = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            }
+            if (!pid) {
+                if (!window.profileInitialized) {
+                    document.body.addEventListener('profileReady', function once() { _initWebSocket(); }, { once: true });
+                }
+                return;
+            }
             _wsManager = new window.VideoWebSocketManager({
                 profileId: pid,
                 onOpen: function() { _wsConnectedAt = Date.now(); },

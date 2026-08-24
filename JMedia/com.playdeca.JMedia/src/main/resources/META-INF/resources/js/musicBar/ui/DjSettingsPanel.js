@@ -142,7 +142,7 @@
         if (JMedia.Helpers && typeof JMedia.Helpers.getActiveProfileId === 'function') {
             return JMedia.Helpers.getActiveProfileId();
         }
-        return window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+        return window.globalActiveProfileId || localStorage.getItem('activeProfileId');
     }
 
     function log() {

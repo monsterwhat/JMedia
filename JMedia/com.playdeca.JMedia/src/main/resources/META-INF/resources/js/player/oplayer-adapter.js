@@ -68,7 +68,7 @@
             return isFinite(d) && d > 0 ? d : NaN;
         }
 
-        var profileId = localStorage.getItem('activeProfileId') || '1';
+        var profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
         var volumeKey = 'jmedia_video_volume_' + profileId;
         var muteKey = 'jmedia_video_mute_' + profileId;
 
@@ -623,7 +623,7 @@
                     playerOpt.style.borderColor = '#48c774';
                     playerOpt.style.color = '#48c774';
                     if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
-                    var profileId = localStorage.getItem('activeProfileId') || '1';
+                    var profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                     fetch('/api/settings/' + profileId + '/default-player', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -840,8 +840,13 @@
         /* ---------- WebSocket state sync ---------- */
         function _initWebSocket() {
             if (!window.VideoWebSocketManager) return;
-            var pid = localStorage.getItem('activeProfileId');
-            if (!pid) return;
+            var pid = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            if (!pid) {
+                if (!window.profileInitialized) {
+                    document.body.addEventListener('profileReady', function once() { _initWebSocket(); }, { once: true });
+                }
+                return;
+            }
             _wsManager = new window.VideoWebSocketManager({
                 profileId: pid,
                 onOpen: function() { _wsConnectedAt = Date.now(); },
@@ -1252,7 +1257,7 @@
                                     onChange: function onChange(_ref2) {
                                         var value = _ref2.value;
                                         if (window.Toast) window.Toast.info('Switching to ' + value + '...');
-                                        var profileId = localStorage.getItem('activeProfileId') || '1';
+                                        var profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                                         fetch('/api/settings/' + profileId + '/default-player', {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
@@ -1561,7 +1566,7 @@
                 currentVideoId: videoId,
                 playing: !video.paused,
                 currentTime: (video.currentTime || 0) + _streamStartOffset,
-                profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
+                profileId: (window.globalActiveProfileId || localStorage.getItem('activeProfileId')) ? Number(window.globalActiveProfileId || localStorage.getItem('activeProfileId')) : null
             });
         }
 
@@ -1870,7 +1875,7 @@
                         currentVideoId: videoId,
                         playing: false,
                         currentTime: (video.currentTime || 0) + _streamStartOffset,
-                        profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
+                        profileId: (window.globalActiveProfileId || localStorage.getItem('activeProfileId')) ? Number(window.globalActiveProfileId || localStorage.getItem('activeProfileId')) : null
                     });
                 } catch (e) {}
             }

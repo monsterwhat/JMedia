@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AudioEngine - Audio element management with atomic operations
  * Handles audio element initialization, source management, and playback control
  */
@@ -258,7 +258,7 @@
                 // still proceed with a warning rather than getting stuck
                 this._nextPreloadTimer = setTimeout(() => {
                     this._nextPreloadFailed = true;
-                    window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
+                    window.Helpers.log('[AudioEngine] âš ï¸ Preload timed out for ' + songId + ' after 8s');
                 }, 8000);
                 
                 nextPlayer._currentSongId = songId;
@@ -271,14 +271,14 @@
                     nextPlayer.currentTime = startTime;
                 };
             } else {
-                // Already has the source — consider it ready
+                // Already has the source â€” consider it ready
                 this._nextPreloadReady = true;
             }
         },
 
         crossfadeTo: function(songId, entryTime, duration) {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked crossfadeTo — video is active');
+                console.log('[AudioEngine] Blocked crossfadeTo â€” video is active');
                 this._isCrossfading = false;
                 return;
             }
@@ -503,7 +503,7 @@
                             window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
                         }
                         
-                        // Apply final volume — use pending volume if user changed it during crossfade
+                        // Apply final volume â€” use pending volume if user changed it during crossfade
                         var finalVolume = targetVolume;
                         if (this._pendingVolume !== null) {
                             finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
@@ -556,7 +556,7 @@
                 });
             };
 
-            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA — enough buffered to play
+            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA â€” enough buffered to play
                 startPlayback();
             } else {
                 nextPlayer.addEventListener('canplay', function onReady() {
@@ -569,7 +569,7 @@
         setVolume: function(volume, source = 'unknown') {
             // During crossfade, don't apply the volume change to gain nodes
             // (they have active ramps that would be corrupted).
-            // Instead, save it as pending — it will be applied after the crossfade completes.
+            // Instead, save it as pending â€” it will be applied after the crossfade completes.
             if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) {
                 this._pendingVolume = volume;
                 // Update UI immediately so the slider responds
@@ -619,7 +619,7 @@
         // Rest of the wrapper methods use getActivePlayer()
         play: function() {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked play() — video is active');
+                console.log('[AudioEngine] Blocked play() â€” video is active');
                 return Promise.resolve();
             }
             if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
@@ -645,7 +645,7 @@
             
             const player = this.getActivePlayer();
             const gain = this.getActiveGain();
-            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId')}/${currentSong.id}`;
             player._currentSongId = currentSong.id;
             
             if (player.src !== url) {
@@ -700,14 +700,14 @@
         loadAudioSourceOnly: function(currentSong, seekTime) {
             if (window.videoPlaying) return;
             if (window.SynchronizationManager) {
-                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 window.SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
                     return this.performSetSource(opId, currentSong, null, null, true, seekTime);
                 });
                 return;
             }
             const player = this.getActivePlayer();
-            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId')}/${currentSong.id}`;
             player._currentSongId = currentSong.id;
             player.src = url;
             player.onloadedmetadata = () => {
@@ -748,10 +748,10 @@
 
         setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0, retryCount = 0) {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked setSource — video is active');
+                console.log('[AudioEngine] Blocked setSource â€” video is active');
                 return false;
             }
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             if (!window.SynchronizationManager) return false;
 
             // CROSSFADE GUARD: Check BOTH players. During a crossfade, the next song 
@@ -787,7 +787,7 @@
             });
 
             if (result === false && retryCount < 10) {
-                // Audio lock was held by another operation — retry instead of silently
+                // Audio lock was held by another operation â€” retry instead of silently
                 // dropping. A dropped setSource left the UI state ahead of the audio
                 // element ("skip doesn't work"), then the stale element's 'ended'
                 // echoed another next and skipped past the song.
@@ -809,7 +809,7 @@
         },
 
         getStreamUrl: function(songId) {
-            return `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${songId}`;
+            return `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId')}/${songId}`;
         },
 
         preloadSong: function(songId, startTime) {
@@ -849,8 +849,8 @@
             for (let i = 0; i < samples; i++) {
                 const t = i / samples;
                 // Use sine-based curves for natural constant power crossfade
-                // Fade out: cos(π/2 * t) goes from 1 to 0
-                // Fade in: sin(π/2 * t) goes from 0 to 1
+                // Fade out: cos(Ï€/2 * t) goes from 1 to 0
+                // Fade in: sin(Ï€/2 * t) goes from 0 to 1
                 if (type === 'out') {
                     curve[i] = startVol * Math.cos((Math.PI / 2) * t);
                 } else {
