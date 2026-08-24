@@ -49,6 +49,15 @@ public class VideoStreamResource {
     // much shorter than the 30s wait deadline so a truly dead writer fails fast.
     private static final long WRITER_GONE_GRACE_MS = 5_000;
 
+    // A seek target this far (in seconds) PAST a growing segment's written frontier
+    // is not worth waiting on the segment to reach: the encoder is too far behind
+    // (common on slow-encoder servers — CPU/iGPU transcoding near real-time), so
+    // waitForTimeCovered would burn its full timeout then fall through anyway.
+    // Instead, skip the wait and start a fresh transcode at the seek point right
+    // away (latest-seek-wins). Targets within this window are close enough that
+    // waiting is the efficient path.
+    private static final double FAR_SEEK_AHEAD_SECONDS = 15.0;
+
     // Suppress per-range-request spam: log hot-path stream events once per session.
     private static final long STREAM_SESSION_GAP_MS = 120_000;
     private static final int STREAM_LOG_MAX_ENTRIES = 4096;
@@ -358,8 +367,22 @@ public class VideoStreamResource {
             Long off = coverage.byteOffset;
             if (off == null) {
                 // Target lies beyond the segment's written end (still growing): wait for the
-                // fragment containing the seek point, then re-probe.
-                if (segmentCacheService.waitForTimeCovered(coverage.file, startSeconds, 10_000L)) {
+                // fragment containing the seek point, then re-probe. But if the target is FAR
+                // past the segment's written frontier, the encoder is too far behind to catch
+                // up within the wait timeout (common on slow-encoder servers — CPU/iGPU near
+                // real-time). Waiting would burn the full 10s then fall through anyway, which
+                // reads as "skip forward doesn't work". Skip the wait and start a fresh
+                // transcode at the seek point immediately (latest-seek-wins).
+                boolean waitForGrow = false;
+                double writtenFrontier = coverage.startSeconds;
+                try {
+                    writtenFrontier = coverage.startSeconds + FragmentedMp4Seeker.endTimeSeconds(coverage.file);
+                    waitForGrow = startSeconds - writtenFrontier <= FAR_SEEK_AHEAD_SECONDS;
+                } catch (IOException e) {
+                    LOG.debug("Failed to read written frontier of segment {}: {}", coverage.file, e.getMessage());
+                    waitForGrow = false;
+                }
+                if (waitForGrow && segmentCacheService.waitForTimeCovered(coverage.file, startSeconds, 10_000L)) {
                     try {
                         // Segments are 0-based relative; convert the video-absolute target.
                         double relTarget = Math.max(0.0, startSeconds - coverage.startSeconds);
@@ -369,8 +392,14 @@ public class VideoStreamResource {
                         off = null;
                     }
                 } else {
-                    LOG.info("Segment {} did not cover time {}s within timeout; falling back to direct transcode",
-                             coverage.file.getFileName(), startSeconds);
+                    if (waitForGrow) {
+                        LOG.info("Segment {} did not cover time {}s within timeout; falling back to direct transcode",
+                                 coverage.file.getFileName(), startSeconds);
+                    } else {
+                        LOG.info("Segment {} far behind seek target {}s (written frontier {}s); starting fresh transcode",
+                                 coverage.file.getFileName(), startSeconds,
+                                 String.format(java.util.Locale.ROOT, "%.1f", writtenFrontier));
+                    }
                 }
             }
             if (off != null) {

@@ -91,10 +91,14 @@ public class TranscodingService {
     private static final long TRANSCODE_STALL_TTL_MS = 10 * 60 * 1000L; // no output for 10min => abandoned
     private static final long PARTIAL_CACHE_GRACE_MS = 60 * 60 * 1000L; // delete partial (no .done) after 1h idle
     private static final long TRANSCODE_FILE_REMOVED_GRACE_MS = 5_000L; // waiters allow this long for a writer to re-create the temp file
+    // Mirror of VideoStreamResource.FAR_SEEK_AHEAD_SECONDS: a seek target this far past a
+    // growing segment's written frontier is served by a fresh transcode, not the segment.
+    private static final double FAR_SEEK_AHEAD_SECONDS = 15.0;
 
     private static final int AUTO_MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 4, 4));
     private volatile java.util.concurrent.Semaphore transcodePermits; // swapped live by updateMaxConcurrentTranscodes(); each acquire/release pair uses the instance captured at acquire time
     private volatile int transcodePoolSize; // current pool size (mirrors transcodePermits.availablePermits() at creation time)
+    private volatile boolean transcodingDisabled = false;
 
     private final AtomicLong transcodeAttemptCount = new AtomicLong(0);
     private final AtomicLong transcodeFailureCount = new AtomicLong(0);
@@ -158,10 +162,33 @@ public class TranscodingService {
     void init() {
         cacheCleanupExecutor.scheduleAtFixedRate(this::cleanupOldCacheFiles, 1, 1, TimeUnit.HOURS);
         cleanupExecutor.scheduleAtFixedRate(this::sweepStalledProcesses, 1, 1, TimeUnit.MINUTES);
+        Integer configured = readConfiguredMaxConcurrentTranscodes();
+        if (configured != null && configured < 0) {
+            disableTranscoding();
+            return;
+        }
         int poolSize = resolveMaxConcurrentTranscodes();
         transcodePoolSize = poolSize;
         transcodePermits = new java.util.concurrent.Semaphore(poolSize, true);
         LOG.info("Max concurrent transcodes: {} ({} available processors)", poolSize, Runtime.getRuntime().availableProcessors());
+    }
+
+    private Integer readConfiguredMaxConcurrentTranscodes() {
+        try {
+            Settings settings = settingsService.getSettingsOrNull();
+            return settings != null ? settings.getMaxConcurrentTranscodes() : null;
+        } catch (Exception e) {
+            LOG.warn("Failed to read maxConcurrentTranscodes setting: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void disableTranscoding() {
+        int oldSize = transcodePoolSize;
+        transcodingDisabled = true;
+        transcodePoolSize = 0;
+        transcodePermits = new java.util.concurrent.Semaphore(0, true);
+        LOG.info("Max concurrent transcodes set to OFF (-1), was: {}", oldSize);
     }
 
     private int resolveMaxConcurrentTranscodes() {
@@ -186,6 +213,11 @@ public class TranscodingService {
      * so the new pool's permit count can never drift and the swap cannot over-commit.
      */
     public void updateMaxConcurrentTranscodes(int configured) {
+        if (configured < 0) {
+            disableTranscoding();
+            return;
+        }
+        transcodingDisabled = false;
         int newSize = configured > 0 ? Math.max(1, configured) : AUTO_MAX_CONCURRENT_TRANSCODES;
         int oldSize = transcodePoolSize;
         transcodePoolSize = newSize;
@@ -890,6 +922,9 @@ public class TranscodingService {
         // leak one of the pool permits and black out all streaming. The pool instance
         // is captured once here: runFFmpegWithPermit may outlive a live resize, and the
         // release must return to the same pool the permit came from, never the new one.
+        if (transcodingDisabled) {
+            throw new IOException("Transcoding is disabled in system settings (maxConcurrentTranscodes)");
+        }
         java.util.concurrent.Semaphore permit = transcodePermits;
         if (!permit.tryAcquire()) {
             LOG.warn("Transcode permit pool exhausted (available: {}), request for {} queued",
@@ -1743,6 +1778,22 @@ public class TranscodingService {
         SegmentCacheService.SegmentCoverage coverage = sourcePath != null
                 ? segmentCacheService.findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath)
                 : null;
+        // The coverage-segment protection below only applies while this request is genuinely
+        // served from that segment. A seek target FAR past the segment's written frontier is
+        // NOT served from it — the stream path skips the wait and starts a fresh transcode at
+        // the seek point (VideoStreamResource.streamRemuxedMKV). In that case the old writer
+        // is superseded: keeping it alive would waste a permit + CPU transcribing content the
+        // user has skipped past, so it must be killed like any other stale process.
+        boolean coverageProtectsWriter = false;
+        if (coverage != null) {
+            double writtenFrontier = coverage.startSeconds;
+            try {
+                writtenFrontier = coverage.startSeconds + FragmentedMp4Seeker.endTimeSeconds(coverage.file);
+            } catch (java.io.IOException e) {
+                LOG.debug("Failed to read written frontier of segment {}: {}", coverage.file, e.getMessage());
+            }
+            coverageProtectsWriter = startSeconds - writtenFrontier <= FAR_SEEK_AHEAD_SECONDS;
+        }
         String keepProcessPrefix = getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight).getFileName().toString();
         for (String processKey : keys) {
             if (processKey.startsWith(keepProcessPrefix)) {
@@ -1763,8 +1814,9 @@ public class TranscodingService {
             // The reader-count guard above can't catch the seeking request itself (it has
             // not acquired its reader yet), so also skip killing the writer of the exact
             // segment this request will read — otherwise the segment freezes at the kill
-            // point and waitForFile spins to timeout while the player dies.
-            if (coverage != null && segmentFile != null
+            // point and waitForFile spins to timeout while the player dies. Only applies
+            // when the request will truly be served from that segment (not a far seek).
+            if (coverageProtectsWriter && coverage != null && segmentFile != null
                     && coverage.file.toAbsolutePath().normalize().equals(segmentFile.toAbsolutePath().normalize())) {
                 LOG.debug("Skipping kill of superseded transcode {}, segment {} covers new request start={}s",
                         processKey, segmentFile.getFileName(), startSeconds);
