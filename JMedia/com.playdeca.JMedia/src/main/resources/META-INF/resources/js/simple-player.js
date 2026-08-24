@@ -315,8 +315,13 @@ if (typeof window.SimplePlayer === 'undefined') {
 
         _initWebSocket() {
             if (!window.VideoWebSocketManager) return;
-            const profileId = this.container.dataset.profileId || localStorage.getItem('activeProfileId');
-            if (!profileId) return;
+            const profileId = this.container.dataset.profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            if (!profileId) {
+                if (!window.profileInitialized) {
+                    document.body.addEventListener('profileReady', () => this._initWebSocket(), { once: true });
+                }
+                return;
+            }
 
             this._wsManager = new window.VideoWebSocketManager({
                 profileId: profileId,
@@ -500,7 +505,7 @@ if (typeof window.SimplePlayer === 'undefined') {
         _broadcastState() {
             if (!this._wsManager || !this._wsManager.connected || this._applyingServerState || this._swapInProgress) return;
 
-            const profileId = this.container.dataset.profileId || localStorage.getItem('activeProfileId');
+            const profileId = this.container.dataset.profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             const playing = !this.video.paused;
 
             const subtitleEls = this.container.querySelectorAll('.subtitle-option:not(#sub-off)');

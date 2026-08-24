@@ -9,7 +9,7 @@
         initState() {
             const p = this.player;
 
-            p.profileId = localStorage.getItem('activeProfileId') || '1';
+            p.profileId = localStorage.getItem('activeProfileId');
             p.deviceToken = sessionStorage.getItem('jmedia_device_token');
             if (!p.deviceToken) {
                 p.deviceToken = (crypto.randomUUID && crypto.randomUUID()) || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -232,7 +232,7 @@
 
         _postAutoSkipSetting(section, enabled) {
             const p = this.player;
-            const profileId = localStorage.getItem('activeProfileId') || '1';
+            const profileId = localStorage.getItem('activeProfileId');
             const key = 'autoSkip' + section.charAt(0).toUpperCase() + section.slice(1);
             const body = {};
             body[key] = enabled;

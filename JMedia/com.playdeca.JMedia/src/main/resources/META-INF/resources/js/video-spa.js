@@ -799,7 +799,7 @@ class VideoSPA {
         }
 
         try {
-            const profileId = localStorage.getItem('activeProfileId') || '1';
+            const profileId = localStorage.getItem('activeProfileId');
             const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
             const json = await res.json();
             if (res.ok && json.data && layout) {

@@ -333,7 +333,7 @@
                         playerOpt.style.borderColor = '#48c774';
                         playerOpt.style.color = '#48c774';
                         if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
-                        var profileId = localStorage.getItem('activeProfileId') || '1';
+                        var profileId = localStorage.getItem('activeProfileId');
                         fetch('/api/settings/' + profileId + '/default-player', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },

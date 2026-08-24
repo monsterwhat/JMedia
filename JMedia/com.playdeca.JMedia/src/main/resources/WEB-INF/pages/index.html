@@ -18,7 +18,7 @@
             document.addEventListener('alpine:init', () => {
                 Alpine.store('profile', { currentProfile: null });
             });
-            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId');
         </script>
 
         <!-- CSS -->

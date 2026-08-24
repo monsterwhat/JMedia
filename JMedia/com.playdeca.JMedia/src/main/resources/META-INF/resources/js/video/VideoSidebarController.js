@@ -39,7 +39,7 @@
                         st.duration].join('|');
             }
             try {
-                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 const res = await fetch('/api/video/playback/current?profileId=' + encodeURIComponent(profileId));
                 const data = await res.json();
                 if (data.success) {

@@ -3721,6 +3721,7 @@ window.addEventListener('popstate', () => {
 
 // Wire logout
 document.getElementById('logout-btn')?.addEventListener('click', function() {
+  localStorage.removeItem('activeProfileId');
   fetch('/api/auth/logout', { method: 'POST' }).then(() => {
     window.location.href = '/login.html';
   });

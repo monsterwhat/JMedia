@@ -1,11 +1,17 @@
 package API.Rest;
 
 import Controllers.VideoController;
+import Models.Settings.Profile;
+import Models.Settings.Session;
+import Models.Settings.User;
 import Models.Video.ProfileSessionState;
 import Models.Video.Video;
 import Models.Video.VideoState;
-import Services.VideoStateService;
+import Services.ProfileService;
 import Services.ProfileSessionStateService;
+import Services.SessionService;
+import Services.UserService;
+import Services.VideoStateService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -14,6 +20,8 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.concurrent.ExecutorService;
@@ -36,6 +44,15 @@ public class VideoPlaybackAPI {
     
     @Inject
     Services.VideoMetadataService videoMetadataService;
+
+    @Inject
+    Services.ProfileService profileService;
+
+    @Inject
+    SessionService sessionService;
+
+    @Inject
+    UserService userService;
     
     @Inject
     ExecutorService executor;
@@ -43,11 +60,44 @@ public class VideoPlaybackAPI {
     @Inject
     API.WS.VideoSocket videoSocket;
 
+    private User currentUser(HttpHeaders headers) {
+        String sessionId = getSessionId(headers);
+        if (sessionId == null) return null;
+        Session session = sessionService.findBySessionId(sessionId);
+        if (session == null || !session.active) return null;
+        try {
+            return userService.findById(Long.parseLong(session.userId));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String getSessionId(HttpHeaders headers) {
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            return headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        return null;
+    }
+
+    private Response requireProfileAccess(Long profileId, User user) {
+        if (profileId == null) return null;
+        if (user == null) {
+            return Response.status(Response.Status.UNAUTHORIZED).entity("{\"error\":\"Authentication required\"}").build();
+        }
+        Profile profile = profileService.findById(profileId);
+        if (profile == null || profile.userId == null || !profile.userId.equals(user.id)) {
+            return Response.status(Response.Status.FORBIDDEN).entity("{\"error\":\"Profile access denied\"}").build();
+        }
+        return null;
+    }
+
     @POST
     @Path("/toggle")
     @Blocking
-    public Response togglePlay(@QueryParam("profileId") Long profileId) {
+    public Response togglePlay(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             // togglePlay() already broadcasts the authoritative state (playing=true/false)
             // to every video WS session; a redundant broadcastCommand("toggle-play") would
             // make clients apply the state AND toggle again, net-undoing the pause/play.
@@ -62,8 +112,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/play/{videoId}")
     @Blocking
-    public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime, @QueryParam("profileId") Long profileId) {
+    public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime, @QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             videoController.selectVideo(videoId, startTime, profileId);
             
             // Check if we need to enrich with IntroDB data on-demand
@@ -100,8 +152,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/play")
     @Blocking
-    public Response play(@QueryParam("profileId") Long profileId) {
+    public Response play(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             var currentState = profileId != null ? videoController.getState(profileId) : profileSessionStateService.getOrCreate();
             if (currentState != null && currentState.currentVideoId != null) {
                 videoController.togglePlay(profileId);
@@ -119,8 +173,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/pause")
     @Blocking
-    public Response pauseVideo(@QueryParam("profileId") Long profileId) {
+    public Response pauseVideo(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             var state = videoController.getState(profileId);
             if (state != null && state.playing) {
                 videoController.togglePlay(profileId);
@@ -135,8 +191,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/next")
     @Blocking
-    public Response nextVideo(@QueryParam("profileId") Long profileId) {
+    public Response nextVideo(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             videoController.next(profileId);
             videoSocket.broadcastCommand("next", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(), profileId);
             return Response.ok("{\"success\":true,\"message\":\"Next video\"}").build();
@@ -149,8 +207,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/previous")
     @Blocking
-    public Response previousVideo(@QueryParam("profileId") Long profileId) {
+    public Response previousVideo(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             videoController.previous(profileId);
             videoSocket.broadcastCommand("previous", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(), profileId);
             return Response.ok("{\"success\":true,\"message\":\"Previous video\"}").build();
@@ -163,8 +223,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/seek/{seconds}")
     @Blocking
-    public Response seekTo(@PathParam("seconds") double seconds, @QueryParam("profileId") Long profileId) {
+    public Response seekTo(@PathParam("seconds") double seconds, @QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             videoController.setSeconds(seconds, profileId);
             com.fasterxml.jackson.databind.node.ObjectNode seekPayload = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
             seekPayload.put("value", seconds);
@@ -179,8 +241,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/volume/{level}")
     @Blocking
-    public Response setVolume(@PathParam("level") float level, @QueryParam("profileId") Long profileId) {
+    public Response setVolume(@PathParam("level") float level, @QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             // Validate volume level (0.0 to 1.0)
             if (level < 0.0f || level > 1.0f) {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -198,19 +262,23 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/volume")
     @Blocking
-    public Response setVolumeFromQuery(@QueryParam("level") Float level, @QueryParam("profileId") Long profileId) {
+    public Response setVolumeFromQuery(@QueryParam("level") Float level, @QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Response denied = requireProfileAccess(profileId, currentUser(headers));
+        if (denied != null) return denied;
         if (level == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                        .entity("{\"success\":false,\"error\":\"Volume level parameter required\"}").build();
         }
-        return setVolume(level.floatValue(), profileId);
+        return setVolume(level.floatValue(), profileId, headers);
     }
 
     @POST
     @Path("/progress")
     @Blocking
-    public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing, @QueryParam("profileId") Long profileId) {
+    public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing, @QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             if (videoId != null) {
                 Video video = Video.findById(videoId);
                 if (video != null) {
@@ -241,8 +309,10 @@ public class VideoPlaybackAPI {
     @GET
     @Path("/current")
     @Blocking
-    public Response getCurrentVideo(@QueryParam("profileId") Long profileId) {
+    public Response getCurrentVideo(@QueryParam("profileId") Long profileId, @Context HttpHeaders headers) {
         try {
+            Response denied = requireProfileAccess(profileId, currentUser(headers));
+            if (denied != null) return denied;
             // The sidebar/remote controller pins its own profile via query param; the
             // fallback keeps the user-context resolve for callers that omit it.
             var currentState = profileId != null ? videoController.getState(profileId) : videoController.getState();

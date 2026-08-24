@@ -84,6 +84,7 @@
     };
 
     window.handleLogout = function() {
+        localStorage.removeItem('activeProfileId');
         fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html');
     };
 

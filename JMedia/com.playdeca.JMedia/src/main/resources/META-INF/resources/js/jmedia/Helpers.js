@@ -70,7 +70,7 @@
         },
 
         getActiveProfileId: function() {
-            return window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            return window.globalActiveProfileId || localStorage.getItem('activeProfileId');
         },
 
         buildApiUrl: function(path, params = {}) {

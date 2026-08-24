@@ -2,7 +2,7 @@ let externalHlsInstance = null;
 let externalProgressInterval = null;
 
 function getProfileId() {
-    return localStorage.getItem('activeProfileId') || '1';
+    return localStorage.getItem('activeProfileId');
 }
 
 function initExternalVideoView() {

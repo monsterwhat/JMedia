@@ -256,7 +256,7 @@ public class VideoController {
             Video newVideo = findVideo(id);
             if (newVideo != null) {
                 // Record history when a new video is selected
-                videoHistoryService.addFromVideoId(id);
+                videoHistoryService.addFromVideoId(id, st.profileId != null ? st.profileId : profileId);
 
                 // Resume (at start) from the per-profile saved position unless an
                 // explicit start time was provided. the WS phantom re-seek that
@@ -303,7 +303,7 @@ public class VideoController {
         ProfileSessionState st = getState(profileId);
 
         if (st.currentVideoId != null) {
-            videoHistoryService.addFromVideoId(st.currentVideoId);
+            videoHistoryService.addFromVideoId(st.currentVideoId, st.profileId != null ? st.profileId : profileId);
         }
 
         if (st.cue == null || st.cue.isEmpty()) {
