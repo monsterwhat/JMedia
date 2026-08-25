@@ -1,4 +1,4 @@
-# 🎵🎬 JMedia v1.3.4
+# 🎵🎬 JMedia v1.3.5  
 ### A Decentralized, Private, and Efficient Media Streaming Application
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
@@ -220,7 +220,7 @@ JMedia provides comprehensive media management with separate interfaces for musi
 - Responsive web interface (desktop, tablet, mobile)
 - Real-time WebSocket updates (music state, video state, import status)
 - Comprehensive REST API (42 endpoint classes)
-- Background service mode with tray icon (Windows)
+- Background service mode with system tray icon (runs behind a tray icon where the desktop supports it)
 - Library maintenance tools (scan, reload, cleanup, duplicate removal)
 - Setup wizard for initial configuration (4-step)
 - Automated dependency installation (Python, FFmpeg, SpotDL, yt-dlp, Whisper, Tesseract, Deno, Node)

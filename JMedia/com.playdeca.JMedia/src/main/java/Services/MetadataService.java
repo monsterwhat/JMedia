@@ -170,7 +170,7 @@ public class MetadataService {
     
     /**
      * Extracts custom JMedia fields from the COMMENT tag.
-     * Format: mbz:{musicbrainzId};app:JMedia v1.3.4 | ReleaseDate:2024-01-15 | Explicit
+     * Format: mbz:{musicbrainzId};app:JMedia v1.3.5 | ReleaseDate:2024-01-15 | Explicit
      */
     private void extractCustomFields(Tag tag, Song song) {
         String comment = tag.getFirst(FieldKey.COMMENT);

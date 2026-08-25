@@ -45,7 +45,7 @@ public class MetadataWriteService {
     
     // Marker for custom app data stored in comments
     private static final String APP_MARKER = "JMedia";
-    private static final String APP_VERSION = "1.3.4";
+    private static final String APP_VERSION = "1.3.5";
 
     @Inject
     Executor executor;

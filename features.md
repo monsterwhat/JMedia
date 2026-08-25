@@ -263,7 +263,7 @@
 | System Logging | Comprehensive system logging with log levels (SLF4J). | Desktop / Mobile | ✅ |
 | Library Maintenance | Scan, reload, clear songs, clear history, delete duplicates. | Desktop / Mobile | ✅ |
 | Cross-Platform Support | Windows, macOS, and Linux platform-specific operations. | Desktop / Mobile | ✅ |
-| Background Service Mode | Run as system tray application (Windows). | Desktop | ✅ |
+| Background Service Mode | Run as system tray application (any desktop OS supporting the system tray). | Desktop | ✅ |
 
 ---
 
