@@ -1118,7 +1118,13 @@ public class VideoConversionService {
                     subtitleTypeIndex++;
                 }
             }
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                LOG.warn("FFprobe subtitle probe timed out for: {}", inputPath);
+                return new SubtitleProbeResult(Collections.emptyList(), Collections.emptyList());
+            }
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 LOG.warn("FFprobe subtitle probe failed (exit {}), skipping subtitle mapping", exitCode);
                 return new SubtitleProbeResult(Collections.emptyList(), Collections.emptyList());

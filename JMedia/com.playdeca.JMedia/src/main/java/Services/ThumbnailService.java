@@ -437,6 +437,7 @@ public class ThumbnailService {
     }
 
     private boolean runFfmpegFrameExtract(String ffmpegPath, String videoPath, String outputPath, long seekSeconds, String hwDecoder) {
+        Process process = null;
         try {
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
@@ -484,10 +485,16 @@ public class ThumbnailService {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             
-            Process process = pb.start();
+            process = pb.start();
             String stderr = new String(process.getInputStream().readAllBytes());
             boolean finished = process.waitFor(20, TimeUnit.SECONDS);
-            
+
+            if (!finished) {
+                // Timeout: kill it or it keeps running as a ghost process.
+                process.destroyForcibly();
+                LOGGER.warn("FFmpeg frame extraction timed out for: {}", videoPath);
+            }
+
             if (finished && process.exitValue() == 0) {
                 return true;
             }
@@ -497,6 +504,9 @@ public class ThumbnailService {
             return false;
             
         } catch (Exception e) {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
             LOGGER.error("FFmpeg frame extract run failed: " + e.getMessage());
             return false;
         }

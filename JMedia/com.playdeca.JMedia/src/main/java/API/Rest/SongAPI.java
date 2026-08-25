@@ -20,12 +20,17 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/song") // A more general path for song-related operations
 @Produces(MediaType.APPLICATION_JSON) // Default to JSON for a REST API
 public class SongAPI {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SongAPI.class);
 
     @PersistenceContext(unitName = "music")
     EntityManager em;
@@ -83,6 +88,7 @@ public class SongAPI {
         java.nio.file.Path songPath = Paths.get(musicFolder.getAbsolutePath(), song.getPath());
         System.out.println("Full path to song: " + songPath.toString());
 
+        Process process = null;
         try {
             // Validate model parameter to prevent command injection
             if (!model.matches("^[a-zA-Z0-9._-]+$")) {
@@ -108,7 +114,7 @@ public class SongAPI {
             System.out.println("Starting Whisper process with command: " + String.join(" ", pb.command()));
             pb.environment().put("PYTHONIOENCODING", "utf-8");
             pb.environment().put("PYTHONUTF8", "1");
-            Process process = pb.start();
+            process = pb.start();
 
             StringBuilder output = new StringBuilder();
             Pattern downloadProgressPattern = Pattern.compile("^\\s*(\\d{1,3})%"); // Corrected regex for leading percentage
@@ -120,12 +126,17 @@ public class SongAPI {
 
                     Matcher matcher = downloadProgressPattern.matcher(line);
                     if (matcher.find()) {
-                        settings.addLog("[Whisper Download Progress] " + matcher.group(1) + "%");
+                        LOGGER.info("[Whisper Download Progress] " + matcher.group(1) + "%");
                     }
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(60, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("Whisper process timed out after 60 minutes");
+            }
+            int exitCode = process.exitValue();
 
             // Whisper --output_dir - writes to stdout, nothing to clean up
 
@@ -172,6 +183,9 @@ public class SongAPI {
 
             return Response.ok(lyrics).build();
         } catch (IOException | InterruptedException e) {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
             System.out.println("Failed to execute Whisper process for song ID: " + id);
             e.printStackTrace();
             Thread.currentThread().interrupt(); // Restore interrupted status

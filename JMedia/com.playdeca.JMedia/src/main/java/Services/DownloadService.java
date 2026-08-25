@@ -1155,6 +1155,11 @@ public class DownloadService {
     
     @PreDestroy
     public void shutdown() {
+        Process p = currentProcess;
+        if (p != null && p.isAlive()) {
+            LOGGER.info("Terminating in-flight download process (pid {}) on shutdown", p.pid());
+            p.destroyForcibly();
+        }
         if (downloadExecutor != null && !downloadExecutor.isShutdown()) {
             LOGGER.info("Shutting down DownloadService executor");
             downloadExecutor.shutdown();

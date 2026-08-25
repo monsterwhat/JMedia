@@ -2,6 +2,7 @@ package Services;
 
 import Models.Video.Video;
 import Models.Video.SubtitleTrack;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.BufferedReader;
@@ -122,6 +123,15 @@ public class ParakeetService {
         GenerationState state = generationState.get();
         state.running = false;
         state.error = "Generation cancelled";
+    }
+
+    @PreDestroy
+    void shutdown() {
+        Process p = currentProcess.get();
+        if (p != null && p.isAlive()) {
+            LOG.info("Terminating in-flight Parakeet process (pid {}) on shutdown", p.pid());
+            p.destroyForcibly();
+        }
     }
 
     public java.util.Map<String, Object> getGenerationStatus() {

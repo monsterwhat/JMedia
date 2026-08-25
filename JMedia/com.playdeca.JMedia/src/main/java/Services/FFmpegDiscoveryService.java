@@ -52,6 +52,9 @@ public class FFmpegDiscoveryService {
                         return line.trim();
                     }
                 }
+            } else if (process.isAlive()) {
+                process.destroyForcibly();
+                LOG.debug("where.exe {} timed out, process destroyed", tool);
             }
         } catch (Exception e) {
             LOG.debug("where.exe {} failed: {}", tool, e.getMessage());
@@ -247,7 +250,11 @@ public class FFmpegDiscoveryService {
             Process process = pb.start();
             String output = new String(process.getInputStream().readAllBytes());
             String errorOutput = new String(process.getErrorStream().readAllBytes());
-            process.waitFor();
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                LOG.warn("ffmpeg -encoders probe timed out");
+                return availableHardwareEncoders;
+            }
             String allOutput = output + errorOutput;
 
             for (String encoder : priorityEncoders) {
@@ -306,7 +313,11 @@ public class FFmpegDiscoveryService {
                 ProcessBuilder pb = new ProcessBuilder(ffmpeg, "-hide_banner", "-encoders");
                 Process process = pb.start();
                 String output = new String(process.getInputStream().readAllBytes());
-                process.waitFor();
+                if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    LOG.warn("ffmpeg -encoders probe timed out");
+                    return result;
+                }
 
                 if (output.contains("libx264")) result.get("h264").add(new CodecCapability("libx264", false));
                 if (output.contains("libx265")) result.get("hevc").add(new CodecCapability("libx265", false));
@@ -430,6 +441,11 @@ public class FFmpegDiscoveryService {
                             if (parts.length >= 2) supportedDecoders.add(parts[1]);
                         }
                     }
+                    s.close();
+                    if (!p.waitFor(15, TimeUnit.SECONDS)) {
+                        p.destroyForcibly();
+                        LOG.debug("ffmpeg -decoders probe timed out");
+                    }
                 } catch (Exception ignored) {}
             }
         }
@@ -500,6 +516,10 @@ public class FFmpegDiscoveryService {
             pb.redirectErrorStream(true);
             Process p = pb.start();
             boolean finished = p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                LOG.debug("Encoder probe timed out for '{}'", encoder);
+            }
             boolean success = finished && p.exitValue() == 0;
             
             if (success) {

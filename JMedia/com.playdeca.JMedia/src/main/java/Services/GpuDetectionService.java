@@ -216,6 +216,10 @@ public class GpuDetectionService {
             if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
                 return "ffmpeg";
             }
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                LOG.debug("ffmpeg -version timed out, process destroyed");
+            }
         } catch (Exception e) {
             LOG.debug("ffmpeg not found via PATH: {}", e.getMessage());
         }
@@ -251,6 +255,10 @@ public class GpuDetectionService {
             Process p = pb.start();
             String output = new String(p.getInputStream().readAllBytes());
             boolean finished = p.waitFor(10, TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                LOG.debug("GPU probe timed out for '{}', process destroyed", deviceType);
+            }
             boolean success = finished && p.exitValue() == 0;
             if (success) {
                 LOG.info("GPU: '{}' device type is usable", deviceType);
@@ -269,7 +277,10 @@ public class GpuDetectionService {
             ProcessBuilder pb = new ProcessBuilder(ffmpeg, "-hide_banner", "-encoders");
             Process process = pb.start();
             String output = new String(process.getInputStream().readAllBytes());
-            process.waitFor();
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                LOG.debug("Encoder probe timed out for '{}', process destroyed", encoderName);
+            }
             return output.contains(encoderName);
         } catch (Exception e) {
             LOG.debug("Failed to probe encoder '{}': {}", encoderName, e.getMessage());

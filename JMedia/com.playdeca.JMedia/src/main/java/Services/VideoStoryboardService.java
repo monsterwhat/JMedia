@@ -247,6 +247,7 @@ public class VideoStoryboardService {
     }
 
     private boolean runStoryboardFfmpeg(String ffmpegPath, Video video, String filter, Path tempPath, Path outputPath, Long videoId, String hwDecoder) {
+        Process process = null;
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -272,7 +273,7 @@ public class VideoStoryboardService {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         try {
-            Process process = pb.start();
+            process = pb.start();
 
             StringBuilder output = new StringBuilder();
             try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
@@ -306,10 +307,16 @@ public class VideoStoryboardService {
                 return false;
             }
         } catch (InterruptedException e) {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
             Thread.currentThread().interrupt();
             LOGGER.debug("Storyboard generation interrupted for video {}", videoId);
             return false;
         } catch (Exception e) {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
             LOGGER.error("Error running FFmpeg for storyboard for video " + videoId, e);
             return false;
         }

@@ -2370,6 +2370,9 @@ public class TranscodingService {
                 try {
                     finished = process.waitFor(30, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
+                    if (process != null && process.isAlive()) {
+                        process.destroyForcibly();
+                    }
                     Thread.currentThread().interrupt();
                     return null;
                 }

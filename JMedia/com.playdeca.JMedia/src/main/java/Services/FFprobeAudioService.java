@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Service for extracting audio track information using FFprobe
@@ -121,7 +122,11 @@ public class FFprobeAudioService {
                 }
             }
             
-            process.waitFor();
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                LOGGER.warn("FFprobe audio track probe timed out for: {}", videoPath);
+            }
             
         } catch (IOException | InterruptedException e) {
             LOGGER.error("Error extracting audio tracks with FFprobe", e);

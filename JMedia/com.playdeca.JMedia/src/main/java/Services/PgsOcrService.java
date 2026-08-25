@@ -181,7 +181,12 @@ public class PgsOcrService {
             command.add(tempSup.toAbsolutePath().toString());
 
             Process process = new ProcessBuilder(command).start();
-            if (process.waitFor() != 0) {
+            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("FFmpeg timed out extracting PGS stream");
+            }
+            if (process.exitValue() != 0) {
                 throw new IOException("FFmpeg failed to extract PGS stream (exit " + process.exitValue() + ")");
             }
 
