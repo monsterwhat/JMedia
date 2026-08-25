@@ -72,13 +72,13 @@
         },
 
         rescanSong: function(songId) {
-            if (window.WebSocketManager && typeof window.WebSocketManager.send === 'function') {
-                window.WebSocketManager.send('rescanLibrary', { songId: songId });
-            }
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            return fetch(`/api/settings/${profileId}/rescan-song/${songId}`, {method: 'POST'});
         },
 
         deleteSong: function(songId) {
-            return fetch(`/api/music/songs/${songId}`, {method: 'DELETE'});
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            return fetch(`/api/settings/${profileId}/songs/${songId}`, {method: 'DELETE'});
         },
 
         getCurrentSongId: function() {

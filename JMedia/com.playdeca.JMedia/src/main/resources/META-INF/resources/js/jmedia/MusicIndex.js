@@ -371,11 +371,11 @@
         switch (action) {
             case 'queue': url = `/api/music/queue/add/${profileId}/${songId}`; break;
             case 'queue-similar': url = `/api/music/queue/similar/${profileId}/${songId}`; break;
-            case 'rescan': url = `/api/music/ui/rescan-song/${songId}`; break;
+            case 'rescan': url = `/api/settings/${profileId}/rescan-song/${songId}`; break;
             case 'enrich': url = `/api/metadata/enrich/${songId}`; break;
             case 'delete':
                 if (confirm('Are you sure you want to delete this song?')) {
-                    url = `/api/music/ui/delete-song/${songId}`;
+                    url = `/api/settings/${profileId}/songs/${songId}`;
                     method = 'DELETE';
                 } else return;
                 break;

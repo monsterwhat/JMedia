@@ -999,10 +999,18 @@
          * Rescan song
          */
         rescanSong: function(songId) {
-            // Emit rescan request
-            window.dispatchEvent(new CustomEvent('requestRescanSong', {
-                detail: { songId }
-            }));
+            const profileId = window.globalActiveProfileId || '1';
+            fetch(`/api/settings/${profileId}/rescan-song/${songId}`, {method: 'POST'})
+                .then(response => {
+                    if (window.showToast) {
+                        window.showToast(response.ok ? 'Song rescanned' : 'Rescan failed', response.ok ? 'success' : 'error');
+                    }
+                    window.dispatchEvent(new CustomEvent('requestSongListRefresh', {}));
+                })
+                .catch(error => {
+                    window.Helpers.log('ResponsiveModals: Error rescanning song:', error);
+                    if (window.showToast) window.showToast('Rescan failed', 'error');
+                });
         },
         
         /**
@@ -1012,10 +1020,20 @@
             const confirmed = confirm('Are you sure you want to delete this song? This action cannot be undone.');
             if (!confirmed) return;
             
-            // Emit delete request
-            window.dispatchEvent(new CustomEvent('requestDeleteSong', {
-                detail: { songId }
-            }));
+            const profileId = window.globalActiveProfileId || '1';
+            fetch(`/api/settings/${profileId}/songs/${songId}`, {method: 'DELETE'})
+                .then(response => {
+                    if (window.showToast) {
+                        window.showToast(response.ok ? 'Song deleted' : 'Delete failed', response.ok ? 'success' : 'error');
+                    }
+                    if (response.ok) {
+                        window.dispatchEvent(new CustomEvent('requestSongListRefresh', {}));
+                    }
+                })
+                .catch(error => {
+                    window.Helpers.log('ResponsiveModals: Error deleting song:', error);
+                    if (window.showToast) window.showToast('Delete failed', 'error');
+                });
         },
         
         /**
