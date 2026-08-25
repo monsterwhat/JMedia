@@ -1,6 +1,5 @@
 package Services;
 
-import Models.Settings.Profile;
 import Models.Music.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -33,13 +32,13 @@ public class SongService {
     PlaybackHistoryService playbackHistoryService;
 
     @Inject
-    PlaybackStateService playbackStateService;
-
-    @Inject
     ImportService importService; // Inject ImportService
 
     @Inject
     SettingsService settingsService; // Inject SettingsService
+
+    @Inject
+    SongEnrichmentService songEnrichmentService;
 
     @Transactional
     public void save(Song song) {
@@ -58,15 +57,9 @@ public class SongService {
 
     @Transactional
     public void clearSongsByDirectory(String dirPath) {
-        // Reset playback state for all profiles
-        List<Profile> profiles = Profile.listAll();
-        for (Profile p : profiles) {
-            try {
-                playbackStateService.resetState(p.id);
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Could not reset playback state for profile " + p.id);
-            }
-        }
+        // Bulk-reset playback state for all profiles; rows are recreated lazily with
+        // defaults by PlaybackStateService.getOrCreateState() on next access.
+        em.createQuery("DELETE FROM PlaybackState").executeUpdate();
 
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
@@ -454,6 +447,13 @@ public class SongService {
                     updatedSong.setAnalysis(song.getAnalysis());
                 }
                 em.merge(updatedSong);
+                // Refresh the cache with the freshly rescanned (possibly manually-edited)
+                // metadata, so a later library clear + rescan restores it.
+                try {
+                    songEnrichmentService.save(updatedSong);
+                } catch (Exception cacheException) {
+                    LOGGER.log(Level.WARNING, "Failed to cache rescanned metadata for song: " + song.getPath(), cacheException);
+                }
                 LOGGER.log(Level.INFO, "Successfully rescanned and updated song: {0}", song.getTitle());
             } else {
                 LOGGER.log(Level.WARNING, "Failed to extract metadata during rescan for song: {0}", song.getPath());

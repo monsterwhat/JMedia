@@ -229,8 +229,14 @@ public class DjEnrichmentService {
                 song.getGenre() != null ? song.getGenre() : "missing",
                 song.getBpm() > 0 ? song.getBpm() : "missing");
 
-            // Single-threaded — no lock needed, but sleep after each call for rate limiting
-            musicEnrichmentService.enrichSong(song);
+            // Only call external APIs when the song actually lacks metadata. Songs that
+            // already have artwork + genre + BPM skip the network entirely — this is the
+            // common case after an import, and keeps the queue cheap.
+            if (needsMetadata(song)) {
+                musicEnrichmentService.enrichSong(song);
+            } else {
+                LOG.info("DjEnrichmentService [metadata]: '{}' already has artwork+genre+bpm, skipping API enrichment", title);
+            }
 
             LOG.info("DjEnrichmentService [metadata]: done for '{}' — artwork={}, genre={}, bpm={}",
                 title,
@@ -303,17 +309,22 @@ public class DjEnrichmentService {
             LOG.info("DjEnrichmentService [analysis]: '{}' — starting audio analysis", title);
 
             SongAnalysis result = audioAnalysisService.analyzeSongAsync(song).join();
-            if (result != null) {
-                if (result.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
+            // Re-read the persisted analysis — the entity returned through the async future
+            // can be detached/stale (beatCount read as null even when analysis succeeded).
+            SongAnalysis analysis = result != null
+                    ? SongAnalysis.find("song.id", song.id).firstResult()
+                    : null;
+            if (analysis != null) {
+                if (analysis.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
                     analysisDone.incrementAndGet();
-                    if (result.getBeatCount() != null && result.getBeatCount() > 0) {
+                    if (analysis.getBeatCount() != null && analysis.getBeatCount() > 0) {
                         LOG.info("DjEnrichmentService [analysis]: done for '{}' — {} beats, BPM: {}",
-                            title, result.getBeatCount(), result.getAverageBpm());
+                            title, analysis.getBeatCount(), analysis.getAverageBpm());
                     } else {
                         LOG.info("DjEnrichmentService [analysis]: done for '{}' — no beats detected (non-percussive?)", title);
                     }
-                } else if (result.getStatus() == SongAnalysis.AnalysisStatus.FAILED) {
-                    LOG.warn("DjEnrichmentService [analysis]: failed for '{}': {}", title, result.getErrorMessage());
+                } else if (analysis.getStatus() == SongAnalysis.AnalysisStatus.FAILED) {
+                    LOG.warn("DjEnrichmentService [analysis]: failed for '{}': {}", title, analysis.getErrorMessage());
                 }
             }
 
@@ -339,6 +350,27 @@ public class DjEnrichmentService {
         pending.incrementAndGet();
         LOG.debug("DjEnrichmentService: queued song {} for metadata (metadata queue: {}, analysis queue: {})",
             songId, metadataQueue.size(), analysisQueue.size());
+    }
+
+    /**
+     * Queues a song only when it actually needs work (missing metadata or missing analysis).
+     * Songs that already have artwork + genre + BPM and a completed analysis are skipped —
+     * after an import most songs fall into this bucket, so the queue stays tiny and the
+     * background worker does not re-hit external APIs for them. Must run in a request
+     * context because {@link #needsAnalysis} reads the DB.
+     *
+     * @return true when the song was queued
+     */
+    @ActivateRequestContext
+    public boolean queueSongIfNeeded(Song song) {
+        if (song == null || song.id == null) {
+            return false;
+        }
+        if (needsMetadata(song) || needsAnalysis(song)) {
+            queueSong(song.id);
+            return true;
+        }
+        return false;
     }
 
     public void queueAllUnenriched() {
@@ -383,8 +415,7 @@ public class DjEnrichmentService {
 
     private boolean needsMetadata(Song song) {
         return song.getArtworkBase64() == null
-            || song.getGenre() == null
-            || song.getBpm() <= 0;
+            || song.getGenre() == null;
     }
 
     private boolean needsAnalysis(Song song) {

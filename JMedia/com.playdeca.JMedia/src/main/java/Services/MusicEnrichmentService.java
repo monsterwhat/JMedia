@@ -48,14 +48,14 @@ public class MusicEnrichmentService {
             .build();
 
     @Inject
-    LoggingService loggingService;
-
-    @Inject
     AlbumArtService albumArtService;
 
     @Inject
     SettingsService settingsService;
-    
+
+    @Inject
+    SongEnrichmentService songEnrichmentService;
+
     @PersistenceContext(unitName = "music")
     EntityManager em;
 
@@ -89,12 +89,34 @@ public class MusicEnrichmentService {
             return;
         }
 
+        // Re-attach to this transaction's persistence context: callers pass a detached entity
+        // whose row may have been deleted concurrently (clear+rescan during DJ queue drain).
+        // Merging a stale copy throws StaleObjectStateException and loses the enrichment.
+        if (song.id != null) {
+            Song current = em.find(Song.class, song.id);
+            if (current == null) {
+                LOGGER.info("Song {} no longer exists (deleted concurrently), skipping enrichment", song.id);
+                return;
+            }
+            song = current;
+        }
+
         String artist = song.getArtist();
         String title = song.getTitle();
 
         if (artist == null || title == null || artist.isBlank() || title.isBlank()) {
             LOGGER.debug("Cannot enrich song without artist and title: {}", song.getPath());
             return;
+        }
+
+        // Cache hit before needs* flags are computed, so a full hit skips all API calls.
+        boolean cacheApplied = false;
+        if (!overwriteBasicInfo) {
+            try {
+                cacheApplied = songEnrichmentService.applyToSong(song);
+            } catch (Exception e) {
+                LOGGER.warn("Failed to apply cached enrichment for {} - {}: {}", artist, title, e.getMessage());
+            }
         }
 
         Settings settings = settingsService.getOrCreateSettings();
@@ -111,6 +133,11 @@ public class MusicEnrichmentService {
         boolean needsTheAudioDb = song.getArtworkBase64() == null;
 
         if (!needsMusicBrainz && !needsAcousticBrainz && !needsDeezer && !needsTheAudioDb && !overwriteBasicInfo) {
+            // Persist cache-restored fields — song may be detached (scan/DJ worker) and would lose them.
+            if (cacheApplied) {
+                song.setUpdatedAt(java.time.LocalDateTime.now());
+                em.merge(song);
+            }
             return;
         }
 
@@ -253,6 +280,13 @@ public class MusicEnrichmentService {
                     Thread.currentThread().interrupt();
                 }
             }
+        }
+
+        // Persist the enrichment snapshot so it survives song deletion / library clears.
+        try {
+            songEnrichmentService.save(song);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to cache enrichment for {} - {}: {}", artist, title, e.getMessage());
         }
     }
 

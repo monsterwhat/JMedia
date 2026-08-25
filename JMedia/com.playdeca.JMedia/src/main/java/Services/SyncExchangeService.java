@@ -12,6 +12,7 @@ import Models.DTOs.SyncSongData;
 import Models.DTOs.SyncSubtitleData;
 import Models.DTOs.SyncVideoData;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
@@ -30,6 +31,9 @@ public class SyncExchangeService {
 
     @PersistenceContext(unitName = "video")
     EntityManager videoEm;
+
+    @Inject
+    SongEnrichmentService songEnrichmentService;
 
     /**
      * Owns the full transactional exchange: validates the request (null -> empty
@@ -87,6 +91,12 @@ public class SyncExchangeService {
                             && remoteSong.updatedAt.isAfter(localSong.getUpdatedAt())) {
                         updateSongFromSyncData(localSong, remoteSong);
                         musicEm.merge(localSong);
+                        try {
+                            songEnrichmentService.save(localSong);
+                        } catch (Exception cacheException) {
+                            LOGGER.log(Level.WARNING, "[SyncExchange] Failed to cache synced metadata for "
+                                    + remoteSong.musicbrainzId, cacheException);
+                        }
                         if (response.updatedIds != null) {
                             response.updatedIds.add(remoteSong.musicbrainzId);
                         }

@@ -133,6 +133,19 @@ public class AudioAnalysisService {
      */
     @Transactional
     public SongAnalysis analyzeSong(Song song) {
+        // Re-attach to this transaction's persistence context: the caller (DJ worker /
+        // AnalysisWorker) may pass a detached entity whose row was deleted concurrently
+        // (clear+rescan). Merging a stale copy throws StaleObjectStateException and loses
+        // the analysis; operating on the current row never clobbers fresher scan data.
+        if (song != null && song.id != null) {
+            Song current = em.find(Song.class, song.id);
+            if (current == null) {
+                LOG.info("Song {} no longer exists (deleted concurrently), skipping analysis", song.id);
+                return null;
+            }
+            song = current;
+        }
+
         String libraryPath = settingsService.getOrCreateSettings().getLibraryPath();
         if (libraryPath == null || libraryPath.isBlank()) {
             LOG.error("No library path configured, cannot analyze song");

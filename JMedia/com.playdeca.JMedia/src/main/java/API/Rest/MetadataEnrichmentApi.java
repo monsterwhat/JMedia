@@ -50,6 +50,9 @@ public class MetadataEnrichmentApi {
     @Inject
     Services.DjEnrichmentService djEnrichmentService;
 
+    @Inject
+    Services.SongEnrichmentService songEnrichmentService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -394,7 +397,15 @@ public class MetadataEnrichmentApi {
                     if (base64Artwork != null && !base64Artwork.trim().isEmpty()) {
                         song.setArtworkBase64(base64Artwork);
                         songService.save(song);
-                        
+
+                        // Async completion thread → cache save opens its own transaction.
+                        try {
+                            songEnrichmentService.save(song);
+                        } catch (Exception cacheException) {
+                            LOGGER.warn("Failed to cache enrichment with artwork for song ID {}: {}",
+                                    song.id, cacheException.getMessage());
+                        }
+
                         LOGGER.info("Successfully updated album art in database for song ID: {}", song.id);
                         
                         if (shouldEmbedArtworkInFile(song)) {
@@ -424,6 +435,12 @@ public class MetadataEnrichmentApi {
         }
         
         songService.save(song);
+
+        try {
+            songEnrichmentService.save(song);
+        } catch (Exception cacheException) {
+            LOGGER.warn("Failed to cache enrichment for song ID {}: {}", song.id, cacheException.getMessage());
+        }
     }
 
     /**
@@ -492,6 +509,12 @@ public class MetadataEnrichmentApi {
         
         // Save updated song
         songService.save(song);
+
+        try {
+            songEnrichmentService.save(song);
+        } catch (Exception cacheException) {
+            LOGGER.warn("Failed to cache enrichment for song ID {}: {}", song.id, cacheException.getMessage());
+        }
     }
 
     /**
