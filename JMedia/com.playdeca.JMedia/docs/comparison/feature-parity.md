@@ -297,7 +297,7 @@
 
 ---
 
-> **Note:** This table reflects JMedia v1.3.2. Feature status may change with new releases.
+> **Note:** This table reflects JMedia v1.3.3. Feature status may change with new releases.
 > Plex and Jellyfin feature status is based on latest public releases as of mid-2026.
 > Some JMedia features are available via configurable ffmpeg/player options.
 

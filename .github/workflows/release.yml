@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -32,6 +33,23 @@ jobs:
         id: version
         run: echo "version=$(mvn -B -q help:evaluate -Dexpression=project.version -DforceStdout)" >> "$GITHUB_OUTPUT"
 
+      - name: Decide whether to release
+        id: decide
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Tag push $GITHUB_REF -> releasing"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION is already released -> skipping"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION is unreleased -> releasing"
+          fi
+
       - name: Verify tag matches pom version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -42,26 +60,25 @@ jobs:
             exit 1
           fi
 
-      - name: Create tag for manual dispatch
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create missing tag
+        if: steps.decide.outputs.release == 'true' && !startsWith(github.ref, 'refs/tags/')
         run: |
           TAG="v${{ steps.version.outputs.version }}"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            echo "Tag $TAG already exists, reusing it"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "$TAG"
-            git push origin "$TAG"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Package uber jar
+        if: steps.decide.outputs.release == 'true'
         run: mvn -B -ntp package -DskipTests
 
       - name: Stage release artifact
+        if: steps.decide.outputs.release == 'true'
         run: cp target/JMedia-runner.jar "JMedia-${{ steps.version.outputs.version }}-runner.jar"
 
       - name: Publish GitHub Release
+        if: steps.decide.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}

@@ -1,4 +1,4 @@
-# 🎵🎬 JMedia v1.3.2  
+# 🎵🎬 JMedia v1.3.3  
 ### A Decentralized, Private, and Efficient Media Streaming Application  
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
@@ -272,10 +272,11 @@ These builds will run standalone without needing a separate Java installation.
 
 ### 🚢 **Releasing**
 
-The version lives in `JMedia/com.playdeca.JMedia/pom.xml` — bump it (SemVer) and either:
+The version lives in `JMedia/com.playdeca.JMedia/pom.xml` and releases are fully automatic:
 
-- **Push a tag**: `git tag v1.3.2 && git push origin v1.3.2` — the workflow fails if the tag doesn't match the pom version.
-- **Run manually**: Actions → *Release* → *Run workflow* — it reads the version from the pom, creates the matching tag if missing, builds the uber jar and publishes the GitHub Release with `JMedia-<version>-runner.jar` attached.
+- **Just bump the version (SemVer) and push to main** — the Release workflow detects the unreleased version, tags it `v<version>`, builds the uber jar and publishes a GitHub Release with `JMedia-<version>-runner.jar` attached. Pushes whose version is already released are skipped.
+- **Tag push** also works: `git tag v1.3.3 && git push origin v1.3.3` — fails if the tag doesn't match the pom version.
+- **Manual**: Actions → *Release* → *Run workflow*.
 
 ### 🏗️ **Project Structure**
 ```
