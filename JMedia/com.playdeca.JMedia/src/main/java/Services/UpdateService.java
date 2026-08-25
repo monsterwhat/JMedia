@@ -30,6 +30,11 @@ public class UpdateService {
 
     @Inject
     SettingsService settingsService;
+
+    // Actual built version, populated from the Maven project version at Quarkus build time.
+    @Inject
+    @ConfigProperty(name = "quarkus.application.version", defaultValue = "0.0.0")
+    String appVersion;
     
     private static final String GITHUB_API_URL = "https://api.github.com";
     private static final String GITHUB_OWNER = "monsterwhat";
@@ -42,7 +47,14 @@ public class UpdateService {
     public UpdateInfo checkForUpdates() {
         try {
             Settings settings = settingsService.getOrCreateSettings();
-            String currentVersion = settings.getCurrentVersion();
+            // Compare against the built version, not the persisted field: installs upgraded
+            // from older builds carry a stale default ("0.9.0") here, which made every new
+            // release look installed. Re-align the row so the stored value stays truthful.
+            String currentVersion = appVersion;
+            if (settings.getCurrentVersion() == null || !settings.getCurrentVersion().equals(appVersion)) {
+                settings.setCurrentVersion(appVersion);
+                settingsService.save(settings);
+            }
             
             // Fetch latest releases from GitHub
             List<GitHubRelease> releases = fetchReleases();
