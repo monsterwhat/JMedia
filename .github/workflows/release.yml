@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish uber jar to GitHub Releases
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: JMedia/com.playdeca.JMedia
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Resolve version from pom
+        id: version
+        run: echo "version=$(mvn -B -q help:evaluate -Dexpression=project.version -DforceStdout)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches pom version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          expected="v${{ steps.version.outputs.version }}"
+          actual="${GITHUB_REF#refs/tags/}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Tag $actual does not match pom version $expected. Fix the tag or the pom."
+            exit 1
+          fi
+
+      - name: Create tag for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "Tag $TAG already exists, reusing it"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Package uber jar
+        run: mvn -B -ntp package -DskipTests
+
+      - name: Stage release artifact
+        run: cp target/JMedia-runner.jar "JMedia-${{ steps.version.outputs.version }}-runner.jar"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: JMedia v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: JMedia/com.playdeca.JMedia/JMedia-*-runner.jar
