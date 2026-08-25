@@ -37,7 +37,7 @@ jobs:
         run: mvn -B -ntp package -DskipTests
 
       - name: Upload runnable uber jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: JMedia-runner
           path: JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
