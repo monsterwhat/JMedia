@@ -75,7 +75,7 @@ jobs:
 
       - name: Stage release artifact
         if: steps.decide.outputs.release == 'true'
-        run: cp target/JMedia-runner.jar "JMedia-${{ steps.version.outputs.version }}-runner.jar"
+        run: cp target/JMedia-runner.jar JMedia-runner.jar
 
       - name: Publish GitHub Release
         if: steps.decide.outputs.release == 'true'
@@ -84,4 +84,4 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: JMedia v${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: JMedia/com.playdeca.JMedia/JMedia-*-runner.jar
+          files: JMedia/com.playdeca.JMedia/JMedia-runner.jar
