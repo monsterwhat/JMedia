@@ -4,6 +4,10 @@ import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
+import org.jaudiotagger.tag.TagField;
+import org.jaudiotagger.tag.id3.AbstractID3v2Frame;
+import org.jaudiotagger.tag.id3.AbstractID3v2Tag;
+import org.jaudiotagger.tag.id3.framebody.FrameBodyAPIC;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
 import org.slf4j.Logger;
@@ -14,6 +18,7 @@ import jakarta.inject.Inject;
 import java.io.*;
 import java.nio.file.*;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -28,6 +33,57 @@ public class AudioArtworkService {
 
     @Inject
     Executor executor;
+
+    /**
+     * Extracts embedded artwork bytes, tolerating non-standard picture types.
+     *
+     * <p>jaudiotagger's {@code getFirstArtwork()} fails on files whose APIC picture-type byte
+     * is invalid (e.g. 255): the type is stored via {@code NumberHashMap}, which leaves the
+     * value null on an unknown byte, and {@code createArtwork()} then NPEs calling
+     * {@code getPictureType()}. The image data itself is intact — it lives in the separate
+     * {@code PictureData} frame field parsed after the type — so this method falls back to
+     * reading the raw APIC frame body directly, bypassing picture-type validation.
+     *
+     * @return the raw image bytes, or null when no artwork is present or readable
+     */
+    public static byte[] extractArtworkBytes(Tag tag) {
+        if (tag == null) {
+            return null;
+        }
+        try {
+            Artwork artwork = tag.getFirstArtwork();
+            if (artwork != null) {
+                byte[] data = artwork.getBinaryData();
+                if (data != null && data.length > 0) {
+                    return data;
+                }
+            }
+        } catch (Exception firstArtworkException) {
+            LOGGER.debug("getFirstArtwork() failed (invalid picture type?): {}", firstArtworkException.getMessage());
+        }
+
+        if (tag instanceof AbstractID3v2Tag) {
+            try {
+                List<TagField> apicFrames = ((AbstractID3v2Tag) tag).getFrame("APIC");
+                if (apicFrames != null) {
+                    for (TagField field : apicFrames) {
+                        if (field instanceof AbstractID3v2Frame) {
+                            AbstractID3v2Frame frame = (AbstractID3v2Frame) field;
+                            if (frame.getBody() instanceof FrameBodyAPIC) {
+                                byte[] data = ((FrameBodyAPIC) frame.getBody()).getImageData();
+                                if (data != null && data.length > 0) {
+                                    return data;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception apicException) {
+                LOGGER.debug("Raw APIC extraction failed: {}", apicException.getMessage());
+            }
+        }
+        return null;
+    }
 
     /**
      * Embeds artwork into an audio file asynchronously with backup protection.
@@ -98,7 +154,7 @@ public class AudioArtworkService {
             
             AudioFile audioFile = AudioFileIO.read(file);
             Tag tag = audioFile.getTag();
-            return tag != null && tag.getFirstArtwork() != null;
+            return tag != null && extractArtworkBytes(tag) != null;
             
         } catch (Exception e) {
             LOGGER.debug("Could not check existing artwork for {}: {}", songPath, e.getMessage());
@@ -125,12 +181,22 @@ public class AudioArtworkService {
                 return new int[]{0, 0};
             }
             
-            Artwork artwork = tag.getFirstArtwork();
-            if (artwork == null) {
+            byte[] imageData = extractArtworkBytes(tag);
+            if (imageData == null) {
                 return new int[]{0, 0};
             }
             
-            return new int[]{artwork.getWidth(), artwork.getHeight()};
+            // Decode dimensions from the raw image bytes (getFirstArtwork's dimensions
+            // are unavailable when the picture type is invalid, so decode independently).
+            try {
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new ByteArrayInputStream(imageData));
+                if (img != null) {
+                    return new int[]{img.getWidth(), img.getHeight()};
+                }
+            } catch (Exception ignore) {
+                // fall through to {0,0} — treated as "small/unknown", replaceable
+            }
+            return new int[]{0, 0};
             
         } catch (Exception e) {
             LOGGER.debug("Could not get artwork dimensions for {}: {}", songPath, e.getMessage());
