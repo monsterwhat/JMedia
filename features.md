@@ -185,7 +185,7 @@
 | Embedded Track Extraction | Extract embedded subtitle tracks from video files via FFprobe. | Desktop / Mobile | ✅ |
 | External File Matching | Automatic .srt/.vtt/.ass/.ssa file matching to videos. | Desktop / Mobile | ✅ |
 | OpenSubtitles Integration | Search and download subtitles from OpenSubtitles.org. | Desktop / Mobile | ✅ |
-| Whisper AI Generation | AI-powered subtitle generation via OpenAI Whisper. | Desktop / Mobile | ✅ |
+| AI Subtitle Generation | AI-powered subtitle generation via NVIDIA Parakeet TDT 0.6B v3. | Desktop / Mobile | ✅ |
 | Format Conversion | Automatic SRT/ASS/SSA to WebVTT conversion with timestamp offset. | Desktop / Mobile | ✅ |
 | Subtitle Preference Engine | Intelligent auto-selection by language, style, and user preference. | Desktop / Mobile | ✅ |
 | Per-Video Preferences | Subtitle preferences stored per video. | Desktop / Mobile | ✅ |
@@ -256,12 +256,11 @@
 | Feature | Description | Platform | Status |
 |----------|--------------|-----------|---------|
 | Update Checking | GitHub Releases API integration for version comparison. | Desktop / Mobile | ✅ |
-| Dependency Installation | Automated installation of Python, FFmpeg, SpotDL, Whisper. | Desktop / Mobile | ✅ |
+| Dependency Installation | Automated installation of Python, FFmpeg, SpotDL, yt-dlp, Parakeet, Tesseract, Deno, Node. | Desktop / Mobile | ✅ |
 | Installation Status | Track installation progress per dependency. | Desktop / Mobile | ✅ |
 | Setup Wizard | 4-step guided initial configuration wizard. | Desktop / Mobile | ✅ |
-| HTTPS Certificate Management | Automatic HTTPS certificate setup. | Desktop / Mobile | ✅ |
-| System Logging | Comprehensive system logging with log levels. | Desktop / Mobile | ✅ |
-| Live Log Streaming | Real-time log viewing via WebSocket. | Desktop / Mobile | ✅ |
+| Reverse Proxy / HTTPS | Serves plain HTTP on :8080; remote clients require HTTPS (Secure cookie) via reverse proxy; local network defined by `jmedia.local-network-cidrs`. | Desktop / Mobile | ✅ |
+| System Logging | Comprehensive system logging with log levels (SLF4J). | Desktop / Mobile | ✅ |
 | Library Maintenance | Scan, reload, clear songs, clear history, delete duplicates. | Desktop / Mobile | ✅ |
 | Cross-Platform Support | Windows, macOS, and Linux platform-specific operations. | Desktop / Mobile | ✅ |
 | Background Service Mode | Run as system tray application (Windows). | Desktop | ✅ |
@@ -317,4 +316,4 @@
 | **System Features** | ~80% — Updates, dependencies, setup wizard, logging, cross-platform |
 | **Frontend** | ~80% — SPA with HTMX, responsive, theming; some UI polish items remain |
 | **Native Builds** | ~50% — GraalVM native configuration exists; builds pending |
-| **Testing** | 0% — No test suite yet |
+| **Testing** | Early — 3 unit tests (IntroDbService, SmartNamingService, FragmentedMp4Seeker) |
