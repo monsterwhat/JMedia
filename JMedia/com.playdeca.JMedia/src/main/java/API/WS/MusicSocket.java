@@ -18,6 +18,8 @@ import jakarta.websocket.Session;
 import jakarta.websocket.server.HandshakeRequest;
 import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
+import io.quarkus.arc.Arc;
+import io.quarkus.arc.ManagedContext;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.LoggerFactory;
@@ -40,6 +42,29 @@ public class MusicSocket {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * Dispatch on the common pool WITH an active CDI request context. WebSocket
+     * threads carry no request context (unlike REST threads), so a
+     * {@code @Transactional(NOT_SUPPORTED)} settings-DB read nested inside a
+     * service JTA tx (ProfileService.findById, SettingsService.getActiveProfile)
+     * SUSPENDS the tx and then fails with ContextNotActiveException when
+     * acquireSession finds neither an active transaction nor a request context.
+     * Activating the request context gives that suspended-tx fallback a
+     * request-scoped Hibernate session, matching REST-thread behavior. No JTA tx
+     * is opened here, so the dual-PU enlistment hazard (XAER_RMERR) stays avoided.
+     */
+    private void runAsync(Runnable task) {
+        CompletableFuture.runAsync(() -> {
+            ManagedContext requestContext = Arc.container().requestContext();
+            requestContext.activate();
+            try {
+                task.run();
+            } finally {
+                requestContext.terminate();
+            }
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
+    }
+
     @OnOpen
     public void onOpen(Session session, EndpointConfig config, @PathParam("profileId") Long profileId) {
         HandshakeRequest handshake = (HandshakeRequest) config.getUserProperties()
@@ -51,33 +76,33 @@ public class MusicSocket {
             }
             return;
         }
-        CompletableFuture.runAsync(() -> {
+        runAsync(() -> {
             webSocketManager.addSession(session, profileId);
             sendCurrentState(session, profileId);
             viewSession.clientConnected();
-        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
+        });
     }
 
     @OnClose
     public void onClose(Session session) {
-        CompletableFuture.runAsync(() -> {
+        runAsync(() -> {
             webSocketManager.removeSession(session);
             viewSession.clientDisconnected();
-        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
+        });
     }
 
     @OnError
     public void onError(Session session, Throwable throwable) {
         System.err.println("[MusicSocket] Error in session " + session.getId() + ": " + throwable.getMessage());
-        CompletableFuture.runAsync(() -> {
+        runAsync(() -> {
             webSocketManager.removeSession(session);
             viewSession.clientDisconnected();
-        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
+        });
     }
 
     @OnMessage
     public void onMessage(Session session, String message) {
-        CompletableFuture.runAsync(() -> {
+        runAsync(() -> {
             try {
                 ObjectNode node = mapper.readValue(message, ObjectNode.class);
                 String type = node.get("type").asText();
@@ -111,7 +136,7 @@ public class MusicSocket {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
+        });
     }
 
     private void sendCurrentState(Session session, Long profileId) {

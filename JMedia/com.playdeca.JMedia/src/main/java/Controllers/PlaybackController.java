@@ -17,6 +17,7 @@ import Services.ProfileService;
 import Services.SongService;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.control.RequestContextController;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
@@ -65,6 +66,8 @@ public class PlaybackController {
     AudioAnalysisService audioAnalysisService;
     @Inject
     DjTransitionService djTransitionService;
+    @Inject
+    RequestContextController requestContextController;
 
     private ScheduledExecutorService scheduler;
     private final Map<Long, ScheduledFuture<?>> playbackTasks = new ConcurrentHashMap<>();
@@ -109,7 +112,13 @@ public class PlaybackController {
         }
 
         task = scheduler.scheduleAtFixedRate(() -> {
-            processPlaybackTick(profileId);
+            // Scheduler threads lack a request context, which NOT_SUPPORTED reads (ProfileService.findById) require.
+            requestContextController.activate();
+            try {
+                processPlaybackTick(profileId);
+            } finally {
+                requestContextController.deactivate();
+            }
         }, 0, PLAYBACK_UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
         playbackTasks.put(profileId, task);
         LOGGER.info("Playback timer started for profile: " + profileId);
@@ -160,8 +169,7 @@ public class PlaybackController {
                 }
             }
         } catch (Exception e) {
-            LOGGER.severe("Error in playback timer task for profile " + profileId + ": " + e.getMessage());
-            e.printStackTrace();
+            LOGGER.log(java.util.logging.Level.SEVERE, "Error in playback timer task for profile " + profileId, e);
         }
     }
 
@@ -387,7 +395,7 @@ public class PlaybackController {
         if (current != null && current.id.equals(id)) {
             // Toggle play/pause
             st.setPlaying(!st.isPlaying());
-            currentSettings.addLog("Playback toggled for song: " + current.getTitle());
+            LOGGER.info("Playback toggled for song: " + current.getTitle());
             if (st.isPlaying()) {
                 startPlaybackTimer(profileId);
             } else {
@@ -411,7 +419,7 @@ public class PlaybackController {
             st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
             st.setPlaying(true);
             st.setCurrentTime(0);
-            currentSettings.addLog("Song selected: " + (newSong != null ? newSong.getTitle() : "Unknown Title"));
+            LOGGER.info("Song selected: " + (newSong != null ? newSong.getTitle() : "Unknown Title"));
             if (newSong != null) {
                 playbackQueueController.songSelected(newSong.id, profileId);
             }
@@ -707,12 +715,12 @@ public class PlaybackController {
     public synchronized void next(Long profileId, Long endedSongId) {
         if (endedSongId != null) {
             if (isEchoAdvance(profileId, endedSongId)) {
-                currentSettings.addLog("Ignoring echoed next for ended song " + endedSongId + " (already advanced).");
+                LOGGER.info("Ignoring echoed next for ended song " + endedSongId + " (already advanced).");
                 return;
             }
             PlaybackState st = getState(profileId);
             if (!endedSongId.equals(st.getCurrentSongId())) {
-                currentSettings.addLog("Ignoring stale next echo for song " + endedSongId + " (no longer current).");
+                LOGGER.info("Ignoring stale next echo for song " + endedSongId + " (no longer current).");
                 return;
             }
             handleSongEnded(profileId);
@@ -723,7 +731,7 @@ public class PlaybackController {
         PlaybackState st = getState(profileId);
         clearDjTransitionPlan(st);
 
-        currentSettings.addLog("Skipped to next song.");
+        LOGGER.info("Skipped to next song.");
         advanceSong(true, false, profileId);
     }
 
@@ -732,7 +740,7 @@ public class PlaybackController {
         PlaybackState st = getState(profileId);
         clearDjTransitionPlan(st);
         
-        currentSettings.addLog("Skipped to previous song.");
+        LOGGER.info("Skipped to previous song.");
 
         // 1. If song has been playing for more than 3 seconds, just restart it.
         if (st.getCurrentTime() > 3) {
@@ -841,7 +849,7 @@ public class PlaybackController {
             // Keep djEntryTime — advanceSong needs it for the next song's start position
         }
         
-        currentSettings.addLog("Song ended naturally.");
+        LOGGER.info("Song ended naturally.");
         advanceSong(true, true, profileId); // Automatic advance due to song end
     }
 
@@ -851,7 +859,7 @@ public class PlaybackController {
         state.setPlaying(false);
         stopPlaybackTimer(profileId);
         updateState(profileId, state, true);
-        currentSettings.addLog("Playback paused (force).");
+        LOGGER.info("Playback paused (force).");
     }
 
     public synchronized void resumePlayback(Long profileId) {
@@ -867,11 +875,11 @@ public class PlaybackController {
         state.setPlaying(true);
         startPlaybackTimer(profileId);
         updateState(profileId, state, true);
-        currentSettings.addLog("Playback resumed (direct).");
+        LOGGER.info("Playback resumed (direct).");
     }
 
     public synchronized void togglePlay(Long profileId) {
-        currentSettings.addLog("Playback toggled.");
+        LOGGER.info("Playback toggled.");
         System.out.println("Toggle");
         PlaybackState state = getState(profileId);
 
@@ -932,7 +940,7 @@ public class PlaybackController {
             planNextDjTransition(state, profileId);
         }
 
-        currentSettings.addLog("Shuffle mode set to: " + mode);
+        LOGGER.info("Shuffle mode set to: " + mode);
         updateState(profileId, state, true);
     }
 
@@ -973,7 +981,7 @@ public class PlaybackController {
             planNextDjTransition(state, profileId);
         }
 
-        currentSettings.addLog("Shuffle mode set to: " + newMode);
+        LOGGER.info("Shuffle mode set to: " + newMode);
         updateState(profileId, state, true);
     }
 
@@ -1002,14 +1010,14 @@ public class PlaybackController {
             }
             rebuildDjCueForPool(state, profileId);
             planNextDjTransition(state, profileId);
-            currentSettings.addLog("DJ Mode activated (set)");
+            LOGGER.info("DJ Mode activated (set)");
         } else {
             // Deactivate DJ Mode
             Integer originalCrossfade = state.getOriginalCrossfadeDuration();
             state.setCrossfadeDuration(originalCrossfade != null ? originalCrossfade : 0);
             state.setOriginalCrossfadeDuration(0);
             clearDjTransitionPlan(state);
-            currentSettings.addLog("DJ Mode deactivated (set)");
+            LOGGER.info("DJ Mode deactivated (set)");
         }
         
         // Force-persist immediately (don't rely on throttled maybePersist)
@@ -1036,14 +1044,14 @@ public class PlaybackController {
             rebuildDjCueForPool(state, profileId);
             // Plan transition for current song
             planNextDjTransition(state, profileId);
-            currentSettings.addLog("DJ Mode activated manually");
+            LOGGER.info("DJ Mode activated manually");
         } else {
             // Deactivate DJ Mode
             Integer originalCrossfade = state.getOriginalCrossfadeDuration();
             state.setCrossfadeDuration(originalCrossfade != null ? originalCrossfade : 0);
             state.setOriginalCrossfadeDuration(0);
             clearDjTransitionPlan(state);
-            currentSettings.addLog("DJ Mode deactivated manually");
+            LOGGER.info("DJ Mode deactivated manually");
         }
         
         // Force-persist immediately - DJ mode must survive page reloads
@@ -1151,7 +1159,7 @@ public class PlaybackController {
     public synchronized void toggleRepeat(Long profileId) {
         PlaybackState state = getState(profileId);
         playbackQueueController.toggleRepeat(state, profileId);
-        currentSettings.addLog("Repeat mode toggled to: " + state.getRepeatMode());
+        LOGGER.info("Repeat mode toggled to: " + state.getRepeatMode());
         updateState(profileId, state, true);
     }
 

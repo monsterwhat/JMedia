@@ -21,12 +21,17 @@ public class ProfileService {
         return profile;
     }
 
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    // NOT_SUPPORTED on purpose: settings-DB read called from inside music/video-DB
+    // transactions (e.g. PlaybackStateService.getOrCreateState). REQUIRES_NEW would
+    // suspend/resume the caller's JTA transaction mid-flight and corrupt its enlisted
+    // connections -> "Enlisted connection used without active transaction" (XAER_RMERR).
+    // Same convention as SettingsService.getActiveProfile(). Returns a detached Profile.
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public Profile findById(Long id) {
         return Profile.findById(id);
     }
 
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public List<Profile> findByUserId(Long userId) {
         return Profile.list("userId", userId);
     }
