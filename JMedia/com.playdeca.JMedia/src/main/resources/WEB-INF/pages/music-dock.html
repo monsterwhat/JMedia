@@ -26,9 +26,10 @@
         <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
-        <link rel="stylesheet" href="/css/music-dock.css?v=10">
+        <link rel="stylesheet" href="/css/music-dock.css?v=14">
         <link rel="stylesheet" href="/css/subtitle-styling.css">
         <link rel="stylesheet" href="/css/video-sidebar.css">
+        <link rel="stylesheet" href="/css/episode-sidebar.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <!-- SPA Scripts -->
@@ -55,7 +56,7 @@
         <script src="/js/musicBar/controls/TimeController.js?v=2" defer></script>
         <script src="/js/musicBar/controls/VolumeController.js?v=2" defer></script>
         <script src="/js/musicBar/ui/UIUpdater.js?v=2" defer></script>
-        <script src="/js/music-dock.js?v=3" defer></script>
+        <script src="/js/music-dock.js?v=5" defer></script>
         <script src="/js/musicBar/ui/EventBindings.js?v=2" defer></script>
         <script src="/js/musicBar/ui/DjSettingsPanel.js?v=1" defer></script>
         <script src="/js/musicBar/ui/ImageManager.js?v=2" defer></script>
@@ -99,6 +100,19 @@
 
     </head>
     <body class="music-page">
+        <!-- Glass Navbar (mirrors the video page cinema-nav: logo left, action button right) -->
+        <nav class="cinema-nav">
+            <div class="cinema-nav-left">
+                <a href="/" class="cinema-nav-logo"><img src="/logo.png" alt="JMedia" class="cinema-nav-logo-img"></a>
+            </div>
+
+            <div class="cinema-nav-right">
+                <button type="button" class="cinema-nav-classic-btn" id="dockNavBtn" title="Browse music">
+                    <i class="pi pi-bars"></i> Browse
+                </button>
+            </div>
+        </nav>
+
         <div class="standard-layout sidebar-right" id="standard-layout">
             
             <!-- Persistent Sidebar -->
@@ -246,9 +260,6 @@
 
                         <a href="javascript:void(0)" class="nav-item" data-tab="playlist-creator">
                             <i class="pi pi-plus-circle"></i> <span>Playlists</span>
-                        </a>
-                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="logs">
-                            <i class="pi pi-list"></i> <span>Logs</span>
                         </a>
                         <a href="javascript:void(0)" class="nav-item admin-only" data-tab="user-management">
                             <i class="pi pi-users"></i> <span>Users</span>
@@ -411,6 +422,29 @@
                             <span id="musicTotalTime">0:00</span>
                         </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Music Navigation Sidebar (episode-sidebar liquid glass, like the video player subtitles sidebar) -->
+        <div class="episode-sidebar-backdrop" id="dockNavBackdrop"></div>
+        <div class="episode-sidebar" id="dockNavSidebar">
+            <div class="episode-sidebar-glass">
+                <div class="episode-sidebar-glass-shimmer"></div>
+                <div class="episode-sidebar-glass-blob"></div>
+            </div>
+            <div class="episode-sidebar-header">
+                <span class="episode-sidebar-title">Browse</span>
+                <button type="button" class="episode-sidebar-close" id="dockNavClose" aria-label="Close"><i class="pi pi-times"></i></button>
+            </div>
+            <div class="episode-sidebar-list dock-nav-list">
+                <button type="button" class="dock-nav-item" data-dock-tab="albums"><i class="pi pi-disc"></i> Albums</button>
+                <button type="button" class="dock-nav-item" data-dock-tab="genres"><i class="pi pi-tags"></i> Genres</button>
+                <button type="button" class="dock-nav-item" data-dock-tab="playlists"><i class="pi pi-list"></i> Playlists</button>
+                <button type="button" class="dock-nav-item" data-dock-tab="queue"><i class="pi pi-list"></i> Queue</button>
+                <button type="button" class="dock-nav-item" data-dock-tab="history"><i class="pi pi-history"></i> History</button>
+            </div>
+            <div class="dock-nav-footer">
+                <button type="button" class="dock-nav-classic-btn" id="dockClassicPageBtn"><i class="pi pi-th-large"></i> Classic Music Page</button>
             </div>
         </div>
 

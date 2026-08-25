@@ -151,6 +151,64 @@
         }
     }
 
+    var dockNavSidebar = null;
+    var dockNavBackdrop = null;
+
+    function openDockNav() {
+        if (dockNavSidebar) dockNavSidebar.classList.add('open');
+        if (dockNavBackdrop) dockNavBackdrop.classList.add('active');
+        var btn = document.getElementById('dockNavBtn');
+        if (btn) btn.classList.add('active');
+    }
+
+    function closeDockNav() {
+        if (dockNavSidebar) dockNavSidebar.classList.remove('open');
+        if (dockNavBackdrop) dockNavBackdrop.classList.remove('active');
+        var btn = document.getElementById('dockNavBtn');
+        if (btn) btn.classList.remove('active');
+    }
+
+    function toggleDockNav() {
+        if (dockNavSidebar && dockNavSidebar.classList.contains('open')) {
+            closeDockNav();
+        } else {
+            openDockNav();
+        }
+    }
+
+    function setupNavSidebar() {
+        dockNavSidebar = document.getElementById('dockNavSidebar');
+        dockNavBackdrop = document.getElementById('dockNavBackdrop');
+
+        var btn = document.getElementById('dockNavBtn');
+        if (btn) btn.addEventListener('click', toggleDockNav);
+
+        var close = document.getElementById('dockNavClose');
+        if (close) close.addEventListener('click', closeDockNav);
+
+        if (dockNavBackdrop) dockNavBackdrop.addEventListener('click', closeDockNav);
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && dockNavSidebar && dockNavSidebar.classList.contains('open')) {
+                closeDockNav();
+            }
+        });
+
+        document.querySelectorAll('.dock-nav-item[data-dock-tab]').forEach(function(item) {
+            item.addEventListener('click', function() {
+                var tab = item.dataset.dockTab;
+                if (tab && typeof window.switchToTab === 'function') {
+                    try {
+                        window.switchToTab(tab);
+                    } catch (e) {
+                        console.error('[MusicDock] switchToTab(' + tab + ') failed:', e);
+                    }
+                }
+                closeDockNav();
+            });
+        });
+    }
+
     function init() {
         hero = document.getElementById('musicHero');
         heroArtwork = document.getElementById('musicHeroArtwork');
@@ -160,6 +218,7 @@
         heroBadge = document.querySelector('.music-hero-badge');
 
         setupSearchButton();
+        setupNavSidebar();
         setupScrollListener();
         updateHero();
 

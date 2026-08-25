@@ -21,6 +21,19 @@
      (pi-play/pi-pause, pi-volume-*) because JS swaps classes.
    ============================================================ */
 
+/* ---------------- THEME: the dock page is always dark cinema ---------------- */
+/* The app theme ([data-theme]) flips --standard-*/--glass-* to light values,
+   which washes out the glass pills, hero and navbar (e.g. dark navbar text on
+   a dark gradient). Pinning the dark palette on body.music-page keeps the dock
+   identical to the video cinema view in either theme. */
+body.music-page {
+    --standard-bg: #0a0a0a;
+    --standard-text: #f5f5f5;
+    --standard-text-dim: rgba(255, 255, 255, 0.5);
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
 /* ---------------- Container: pinned to viewport, transparent, click-through ---------------- */
 /* The page scrolls now (fixed shell is broken above), so the player container
    must be fixed to the bottom of the viewport for the dock to stay visible. */
@@ -622,9 +635,16 @@ body.music-page #musicPlayerContainer .dock-search-dropdown .scroll-end {
     display: none !important;
 }
 
-/* The injected music search bar stays hidden on the dock page; the dock's own
-   glass shell is the search UI here. */
-body.music-page #mobileMusicSearchContainer {
+/* The injected search bars + breadcrumbs stay hidden on the dock page: the
+   Browse sidebar shows whole lists (albums/genres/playlists/queue/history),
+   not search-filtered views, and the dock nav is the navigation chrome. */
+body.music-page #mobileMusicSearchContainer,
+body.music-page #mobileQueueSearchContainer,
+body.music-page #mobileHistorySearchContainer,
+body.music-page #mobileAlbumSearchContainer,
+body.music-page #mobileGenreSearchContainer,
+body.music-page #mobilePlaylistSearchContainer,
+body.music-page #breadcrumb-nav {
     display: none !important;
 }
 
@@ -902,4 +922,157 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
         height: 2.95rem;   /* matches the shrunken pills on small screens */
         padding: 0 0.5rem 0 0.9rem;
     }
+}
+
+/* ============================================================
+   TOP — Glass navbar (copied from the video page cinema-nav)
+   ------------------------------------------------------------
+   Mirrors the video view's glass navbar: logo left, action
+   button right. Uses the dock's own --glass-*/--standard-* vars
+   (cinema-home.css is not loaded here) and is scoped under
+   body.music-page so the shared class names can't collide if
+   cinema-home.css is ever added to this page.
+   ============================================================ */
+
+body.music-page .cinema-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.25) 50%, transparent 100%);
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+body.music-page .cinema-nav-left {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+}
+
+body.music-page .cinema-nav-logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #ffffff;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+}
+
+body.music-page .cinema-nav-logo-img {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
+}
+
+body.music-page .cinema-nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* The Browse pill — opens the music nav sidebar (same spot as the video
+   page's cinema-nav-classic-btn, but toggles the dock nav drawer instead). */
+body.music-page .cinema-nav-classic-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 0.45rem 1rem;
+    border-radius: 999px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+body.music-page .cinema-nav-classic-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+body.music-page .cinema-nav-classic-btn.active {
+    background: rgba(72, 199, 116, 0.18);
+    color: #48c774;
+}
+
+/* ---------------- MUSIC NAV SIDEBAR (episode-sidebar liquid glass) ---------------- */
+body.music-page .dock-nav-list {
+    flex: 1;
+    padding: 8px;
+    gap: 2px;
+}
+
+body.music-page .dock-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: none;
+    background: transparent;
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    font-weight: 500;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+body.music-page .dock-nav-item i {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.5);
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+body.music-page .dock-nav-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+}
+
+body.music-page .dock-nav-item:hover i {
+    color: #fff;
+}
+
+body.music-page .dock-nav-footer {
+    flex-shrink: 0;
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    z-index: 1;
+}
+
+body.music-page .dock-nav-classic-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.65rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+body.music-page .dock-nav-classic-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
 }
