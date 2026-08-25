@@ -347,7 +347,7 @@ public class SettingsApi {
         }
 
         settingsService.save(settings);
-        settingsController.addLog("Video library settings updated. Path: " + path);
+        LOGGER.info("Video library settings updated. Path: " + path);
 
         return Response.ok(ApiResponse.success("Video library settings updated.")).build();
     }
@@ -382,7 +382,7 @@ public class SettingsApi {
         if (toggles.containsKey("imdbDevEnabled")) settings.setImdbDevEnabled(toggles.get("imdbDevEnabled"));
         if (toggles.containsKey("introDbEnabled")) settings.setIntroDbEnabled(toggles.get("introDbEnabled"));
         settingsService.save(settings);
-        settingsController.addLog("Metadata source toggles updated");
+        LOGGER.info("Metadata source toggles updated");
         return Response.ok(ApiResponse.success("Metadata toggles saved")).build();
     }
 
@@ -406,7 +406,7 @@ public class SettingsApi {
             settings.setTmdbApiKey(null);
         }
         settingsService.save(settings);
-        settingsController.addLog("TMDB API key updated");
+        LOGGER.info("TMDB API key updated");
         return Response.ok(ApiResponse.success("TMDB API key saved")).build();
     }
 
@@ -428,7 +428,7 @@ public class SettingsApi {
         settings.setOpenSubtitlesUsername(username != null && !username.isBlank() ? username : null);
         settings.setOpenSubtitlesPassword(password != null && !password.isBlank() ? password : null);
         settingsService.save(settings);
-        settingsController.addLog("OpenSubtitles credentials updated");
+        LOGGER.info("OpenSubtitles credentials updated");
         return Response.ok(ApiResponse.success("OpenSubtitles credentials saved")).build();
     }
 
@@ -601,12 +601,12 @@ public class SettingsApi {
             }
             
             settingsService.save(settings);
-            settingsController.addLog("Import source configuration updated");
+            LOGGER.info("Import source configuration updated");
             
             return Response.ok(ApiResponse.success(settings)).build();
              
         } catch (Exception e) {
-            settingsController.addLog("Failed to update import sources: " + e.getMessage(), e);
+            LOGGER.error("Failed to update import sources", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Failed to update import sources"))
                     .build();
@@ -633,17 +633,17 @@ public class SettingsApi {
                 try {
                     // Channel is logged for traceability only; pip always delivers the latest stable
                     installationService.updateComponent("ytdlp", profileId);
-                    settingsController.addLog("yt-dlp updated (requested channel: " + updateChannel.getChannelName() + ")");
+                    LOGGER.info("yt-dlp updated (requested channel: " + updateChannel.getChannelName() + ")");
                 } catch (Exception e) {
                     LOGGER.error("Failed to update yt-dlp", e);
-                    settingsController.addLog("Failed to update yt-dlp: " + e.getMessage(), e);
+                    LOGGER.error("Failed to update yt-dlp", e);
                 }
             });
             
             return Response.ok(ApiResponse.success("yt-dlp update initiated to " + updateChannel.getChannelName() + " channel")).build();
             
         } catch (Exception e) {
-            settingsController.addLog("Failed to update yt-dlp: " + e.getMessage(), e);
+            LOGGER.error("Failed to update yt-dlp", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Failed to update yt-dlp: " + e.getMessage()))
                     .build();
@@ -671,7 +671,7 @@ public class SettingsApi {
         settingsController.setMusicLibraryPath(path);
         playbackHistoryService.clearHistoryForAllProfiles();
         songService.clearAllSongs();
-        settingsController.addLog("Cleared existing songs and history.");
+        LOGGER.info("Cleared existing songs and history.");
 
         executor.submit(() -> {
             settingsController.scanLibrary();
@@ -734,23 +734,14 @@ public class SettingsApi {
                         videoImportService.scanAndProcess(Paths.get(videoPath));
                     }
                 }
-                settingsController.addLog("Video scan completed");
+                LOGGER.info("Video scan completed");
             } catch (Exception e) {
                 LOGGER.error("Video scan failed", e);
-                settingsController.addLog("Video scan failed: " + e.getMessage());
             }
         }, "VideoScanThread");
 
         String msg = directoryId != null ? "Video scan started for directory" : "Video scan started";
         return Response.ok(ApiResponse.success(msg)).build();
-    }
-
-    @POST
-    @Path("/{profileId}/clearLogs")
-    public Response clearLogs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
-        settingsController.clearLogs();
-        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 
     @POST
@@ -774,10 +765,10 @@ public class SettingsApi {
             }
             songService.clearSongsByDirectory(dirPath);
             String msg = directoryId != null ? "Songs cleared for directory" : "All songs cleared";
-            settingsController.addLog(msg + " from database.");
+            LOGGER.info(msg + " from database.");
             return Response.ok(ApiResponse.success(msg)).build();
         } catch (Exception e) {
-            settingsController.addLog("Failed to clear songs DB: " + e.getMessage());
+            LOGGER.error("Failed to clear songs DB", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to clear songs")).build();
         }
     }
@@ -828,18 +819,18 @@ public class SettingsApi {
     public Response installRequirements(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
-            settingsController.addLog("Installation process started for profile: " + profileId);
+            LOGGER.info("Installation process started for profile: " + profileId);
             executor.submit(() -> {
                 try {
                     settingsController.getImportService().installRequirements(profileId);
-                    settingsController.addLog("Installation process completed successfully");
+                    LOGGER.info("Installation process completed successfully");
                 } catch (Exception e) {
-                    settingsController.addLog("Installation failed: " + e.getMessage(), e);
+                    LOGGER.error("Installation failed", e);
                 }
             }, "InstallationThread");
             return Response.ok(ApiResponse.success("Installation process started")).build();
         } catch (Exception e) {
-            settingsController.addLog("Failed to start installation: " + e.getMessage(), e);
+            LOGGER.error("Failed to start installation", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to start installation: " + e.getMessage())).build();
         }
     }
@@ -881,7 +872,7 @@ public class SettingsApi {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             songService.rescanSong(id);
-            settingsController.addLog("Rescan started for song ID: " + id);
+            LOGGER.info("Rescan started for song ID: " + id);
             return Response.ok(ApiResponse.success("Rescan started")).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to rescan song: " + e.getMessage())).build();
@@ -894,7 +885,7 @@ public class SettingsApi {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             songService.deleteSong(id);
-            settingsController.addLog("Song deleted with ID: " + id);
+            LOGGER.info("Song deleted with ID: " + id);
             return Response.ok(ApiResponse.success("Song deleted")).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete song: " + e.getMessage())).build();
@@ -1003,7 +994,7 @@ public class SettingsApi {
         }
 
         settingsService.save(settings);
-        settingsController.addLog("Auto-skip settings updated");
+        LOGGER.info("Auto-skip settings updated");
         return Response.ok(ApiResponse.success("Auto-skip settings updated")).build();
     }
 
@@ -1056,7 +1047,7 @@ public class SettingsApi {
             settings.setMaxConcurrentTranscodes(max);
             settingsService.save(settings);
             transcodingService.updateMaxConcurrentTranscodes(max);
-            settingsController.addLog("Max concurrent transcodes set to " + display);
+            LOGGER.info("Max concurrent transcodes set to " + display);
             if (max < 0) {
                 return Response.ok(ApiResponse.success(
                     "Max concurrent transcodes set to off. Transcoding requests will fail fast until re-enabled.")).build();
@@ -1159,7 +1150,7 @@ public class SettingsApi {
             if (data.containsKey("streamCheckThreads")) streamCheckExecutor.reconfigure();
             if (data.containsKey("musicScanThreads")) settingsController.reconfigureMusicScanPool();
 
-            settingsController.addLog("System performance updated: " + data.keySet());
+            LOGGER.info("System performance updated: " + data.keySet());
             return Response.ok(ApiResponse.success(systemPerformanceSnapshot(settings))).build();
         } catch (Exception e) {
             LOGGER.error("Failed to update system performance settings", e);
@@ -1204,7 +1195,7 @@ public class SettingsApi {
             Settings settings = settingsController.getOrCreateSettings();
             settings.setMaxCompleteCacheFiles(max);
             settingsService.save(settings);
-            settingsController.addLog("Max complete cache files set to " + max + " (applies at next cache cleanup)");
+            LOGGER.info("Max complete cache files set to " + max + " (applies at next cache cleanup)");
             return Response.ok(ApiResponse.success("Max complete cache files set to " + max + ". Applies at the next hourly cache cleanup.")).build();
         } catch (Exception e) {
             LOGGER.error("Failed to update max complete cache files setting", e);
@@ -1242,7 +1233,7 @@ public class SettingsApi {
             Settings settings = settingsController.getOrCreateSettings();
             settings.setDefaultPlayer(player);
             settingsService.save(settings);
-            settingsController.addLog("Default player set to: " + player);
+            LOGGER.info("Default player set to: " + player);
             return Response.ok(ApiResponse.success("Default player updated to " + player)).build();
         } catch (Exception e) {
             LOGGER.error("Failed to update default player", e);

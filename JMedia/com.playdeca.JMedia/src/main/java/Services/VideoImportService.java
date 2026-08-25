@@ -48,9 +48,6 @@ public class VideoImportService {
     SmartNamingService smartNamingService;
 
     @Inject
-    LoggingService loggingService;
-
-    @Inject
     UnifiedVideoEntityCreationService entityCreationService;
 
     @Inject
@@ -182,7 +179,7 @@ public class VideoImportService {
     @ActivateRequestContext
     public List<Video> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback, boolean forceFullScan) {
         if (videoScanExecutor.isDisabled()) {
-            loggingService.addLog("Video scanning is disabled in system settings (videoScanThreads). Scan aborted.");
+            LOGGER.info("Video scanning is disabled in system settings (videoScanThreads). Scan aborted.");
             return new ArrayList<>();
         }
         String scanType = forceFullScan ? "full" : "incremental";
@@ -192,23 +189,23 @@ public class VideoImportService {
         boolean isResuming = false;
         
         if (previousScan != null && !forceFullScan) {
-            loggingService.addLog("Found interrupted scan from previous session. Will resume from where it left off.");
+            LOGGER.info("Found interrupted scan from previous session. Will resume from where it left off.");
             completeScanState(previousScan, "interrupted", "App restarted mid-scan", 0);
             
             if (previousScan.processedPaths != null) {
                 processedPaths.addAll(previousScan.processedPaths);
-                loggingService.addLog("Resuming: will skip " + processedPaths.size() + " already-processed files");
+                LOGGER.info("Resuming: will skip " + processedPaths.size() + " already-processed files");
                 isResuming = true;
             }
         }
         
-        loggingService.addLog("Starting video scan of directory: " + directory + " (" + scanType + ")");
+        LOGGER.info("Starting video scan of directory: " + directory + " (" + scanType + ")");
         List<Video> discoveredMedia = new ArrayList<>();
         
         ScanState scanState = null;
         try {
             ScanContext ctx = loadScanContext();
-            loggingService.addLog("Loaded " + ctx.mediaFileByPath.size() + " existing media records, " 
+            LOGGER.info("Loaded " + ctx.mediaFileByPath.size() + " existing media records, " 
                 + ctx.videoByPath.size() + " videos");
             
             String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
@@ -222,7 +219,7 @@ public class VideoImportService {
             AtomicInteger skippedFiles = new AtomicInteger();
             AtomicInteger processedCount = new AtomicInteger();
             
-            loggingService.addLog("Scanning filesystem...");
+            LOGGER.info("Scanning filesystem...");
             try (Stream<Path> paths = Files.walk(directory)) {
                 List<Path> videoFiles = paths.filter(Files::isRegularFile)
                         .filter(this::isVideoFile)
@@ -262,7 +259,7 @@ public class VideoImportService {
             int totalFiles = submittedTasks.get();
             int skipped = skippedFiles.get();
             if (skipped > 0) {
-                loggingService.addLog("Skipped " + skipped + " unchanged files (incremental scan)");
+                LOGGER.info("Skipped " + skipped + " unchanged files (incremental scan)");
             }
             
             try {
@@ -289,13 +286,13 @@ public class VideoImportService {
                         
                         if ((i + 1) % 50 == 0) {
                             String status = "Discovered " + (i + 1) + " / " + totalFiles + " files...";
-                            loggingService.addLog(status);
+                            LOGGER.info(status);
                             if (callback != null) {
                                 callback.onProgress(discoveredMedia.size(), totalFiles, status);
                             }
                         }
                     } catch (Exception e) {
-                        LOGGER.error("Error during parallel discovery: " + e.getMessage(), e);
+                        LOGGER.error("Error during parallel discovery", e);
                     }
                 }
             } finally {
@@ -304,9 +301,9 @@ public class VideoImportService {
                     completeScanState(scanState, "COMPLETED", null, processedCount.get());
                 }
             }
-            loggingService.addLog("Discovery phase completed. Found " + discoveredMedia.size() + " new or updated items.");
+            LOGGER.info("Discovery phase completed. Found " + discoveredMedia.size() + " new or updated items.");
         } catch (IOException e) {
-            loggingService.addLog("Error scanning directory: " + directory, e);
+            LOGGER.error("Error scanning directory: " + directory, e);
             if (scanState != null) {
                 completeScanState(scanState, "failed", e.getMessage(), 0);
             }
@@ -321,7 +318,7 @@ public class VideoImportService {
 
     @ActivateRequestContext
     public List<Video> scanAndCreate(Path directory, boolean forceFullScan) {
-        loggingService.addLog("Starting scan for directory: " + directory);
+        LOGGER.info("Starting scan for directory: " + directory);
         return scan(directory, false, null, forceFullScan);
     }
     
@@ -350,17 +347,17 @@ public class VideoImportService {
     public void reloadMetadata(Long videoId) {
         Video video = Video.findById(videoId);
         if (video == null) {
-            loggingService.addLog("Video not found: " + videoId);
+            LOGGER.info("Video not found: " + videoId);
             return;
         }
         MediaFile mediaFile = MediaFile.find("path", video.path).firstResult();
         if (mediaFile == null) {
-            loggingService.addLog("MediaFile missing for video: " + videoId);
+            LOGGER.info("MediaFile missing for video: " + videoId);
             return;
         }
         Path path = Paths.get(mediaFile.path);
         if (!Files.exists(path)) {
-            loggingService.addLog("File missing on disk: " + mediaFile.path);
+            LOGGER.info("File missing on disk: " + mediaFile.path);
             return;
         }
         
@@ -374,29 +371,29 @@ public class VideoImportService {
             videoMetadataService.fetchAndEnrichMetadata(updatedVideo);
         }
         
-        loggingService.addLog("Reloaded metadata for: " + path.getFileName());
+        LOGGER.info("Reloaded metadata for: " + path.getFileName());
     }
 
     @Transactional
     public void resetVideoDatabase() {
-        loggingService.addLog("Resetting video database...");
+        LOGGER.info("Resetting video database...");
         try {
             // Clear per-profile video progress (video_progress table)
             Models.Video.VideoState.deleteAll();
         } catch (Exception e) {
-            loggingService.addLog("Warning: Could not reset video progress: " + e.getMessage());
+            LOGGER.warn("Could not reset video progress: " + e.getMessage());
         }
         try {
             // Clear profile session states
             Models.Video.ProfileSessionState.deleteAll();
         } catch (Exception e) {
-            loggingService.addLog("Warning: Could not reset session states: " + e.getMessage());
+            LOGGER.warn("Could not reset session states: " + e.getMessage());
         }
         VideoHistory.deleteAll();
         try {
             Models.Video.VideoGenre.deleteAll();
         } catch (Exception e) {
-            loggingService.addLog("Warning: Could not clear video genres: " + e.getMessage());
+            LOGGER.warn("Could not clear video genres: " + e.getMessage());
         }
         try {
             Models.Video.SubtitleTrack.deleteAll();
@@ -428,13 +425,13 @@ public class VideoImportService {
                         try {
                             Files.deleteIfExists(file);
                         } catch (IOException e) {
-                            loggingService.addLog("Warning: Could not delete thumbnail file: " + file.getFileName());
+                            LOGGER.warn("Could not delete thumbnail file: " + file.getFileName());
                         }
                     });
                 }
             }
         } catch (IOException e) {
-            loggingService.addLog("Warning: Could not clear thumbnail directory: " + e.getMessage());
+            LOGGER.warn("Could not clear thumbnail directory: " + e.getMessage());
         }
 
         try {
@@ -445,18 +442,18 @@ public class VideoImportService {
                         try {
                             Files.deleteIfExists(file);
                         } catch (IOException e) {
-                            loggingService.addLog("Warning: Could not delete storyboard file: " + file.getFileName());
+                            LOGGER.warn("Could not delete storyboard file: " + file.getFileName());
                         }
                     });
                 }
             }
         } catch (IOException e) {
-            loggingService.addLog("Warning: Could not clear storyboard directory: " + e.getMessage());
+            LOGGER.warn("Could not clear storyboard directory: " + e.getMessage());
         }
 
         thumbnailService.clearThumbnailCache();
 
-        loggingService.addLog("Video database reset completed");
+        LOGGER.info("Video database reset completed");
     }
 
     @Transactional

@@ -1,7 +1,6 @@
 package Services;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,9 +19,6 @@ public class CertificateService {
     private static final String KEYSTORE_NAME = "keystore.p12";
     private static final String KEYSTORE_PASSWORD = "jmedia_secure";
     private static final String ALIAS = "jmedia";
-
-    @Inject
-    LoggingService loggingService;
 
     public boolean isHttpsConfigured() {
         Path keystorePath = Paths.get(KEYSTORE_NAME);

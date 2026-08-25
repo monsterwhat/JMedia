@@ -18,7 +18,6 @@ public class WebSocketManager {
     private static final Logger LOG = LoggerFactory.getLogger(WebSocketManager.class);
 
     private final Set<Session> musicSessions = ConcurrentHashMap.newKeySet();
-    private final Set<Session> logSessions = ConcurrentHashMap.newKeySet();
     private final Set<Session> videoSessions = ConcurrentHashMap.newKeySet();
 
     private final Map<String, Long> sessionProfileMap = new ConcurrentHashMap<>();
@@ -74,14 +73,6 @@ public class WebSocketManager {
         return profileSessionsMap.keySet().stream().collect(Collectors.toSet());
     }
 
-    public void addLogSession(Session session) {
-        logSessions.add(session);
-    }
-
-    public void removeLogSession(Session session) {
-        logSessions.remove(session);
-    }
-
     public void addVideoSession(Session session) {
         videoSessions.add(session);
     }
@@ -112,10 +103,6 @@ public class WebSocketManager {
     public void broadcastToMusic(String message) {
         broadcast(musicSessions, message);
     }
- 
-    public void broadcastToLogs(String message) {
-        broadcast(logSessions, message);
-    }
 
     public void broadcastToVideo(String message) { // Added for video sessions
         broadcast(videoSessions, message);
@@ -145,7 +132,6 @@ public class WebSocketManager {
     void cleanupStaleSessions() {
         int removed = 0;
         removed += cleanupSessionSet(musicSessions);
-        removed += cleanupSessionSet(logSessions);
         removed += cleanupSessionSet(videoSessions);
         if (removed > 0) {
             LOG.info("Cleaned up {} stale WebSocket session(s)", removed);

@@ -511,7 +511,7 @@ public class VideoController {
     // as they were tightly coupled to the old Video entity structure or services
     // - getPreviousVideo(), getNextVideo() -> This logic is inside advanceVideo/VideoQueueController
     // - getHistory() -> VideoHistoryService needs to be refactored to work with MediaFile IDs.
-    // - All settings-related methods like getSettings(), addLog() are kept via SettingsController injection.
+    // - All settings-related methods like getSettings() are kept via SettingsController injection.
     
     // A simplified history mechanism would be needed. The VideoHistoryService must be updated.
     public List<VideoHistory> getHistory() {

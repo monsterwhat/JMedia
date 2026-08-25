@@ -1,6 +1,5 @@
 package Services;
 
-import API.WS.LogSocket;
 import Models.Video.LiveChannel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -33,9 +32,6 @@ public class StreamCheckerService {
     @Inject
     LiveChannelService liveChannelService;
 
-    @Inject
-    LogSocket logSocket;
-
     @Scheduled(cron = "0 0 */6 * * ?")
     void scheduledCheck() {
         LocalDateTime cutoff = LocalDateTime.now().minus(RECHECK_INTERVAL);
@@ -45,7 +41,7 @@ public class StreamCheckerService {
 
         if (channels.isEmpty()) return;
 
-        addLog("Stream checker: checking " + channels.size() + " channels");
+        LOG.info("Stream checker: checking " + channels.size() + " channels");
         checkChannelsBatched(channels);
     }
 
@@ -53,17 +49,17 @@ public class StreamCheckerService {
     public void checkAllChannels() {
         List<LiveChannel> channels = LiveChannel.findAll().list();
         if (channels.isEmpty()) {
-            addLog("Stream checker: no channels found");
+            LOG.info("Stream checker: no channels found");
             return;
         }
 
-        addLog("Stream checker: checking " + channels.size() + " channels");
+        LOG.info("Stream checker: checking " + channels.size() + " channels");
         checkChannelsBatched(channels);
     }
 
     private void checkChannelsBatched(List<LiveChannel> channels) {
         if (streamCheckExecutor.isDisabled()) {
-            addLog("Stream checker: disabled in system settings (streamCheckThreads), skipping "
+            LOG.info("Stream checker: disabled in system settings (streamCheckThreads), skipping "
                 + channels.size() + " channels");
             return;
         }
@@ -103,7 +99,7 @@ public class StreamCheckerService {
                 else unchecked++;
 
                 if ((i + 1) % 100 == 0) {
-                    addLog("Stream check: processed " + (i + 1) + " / " + channels.size() + " channels...");
+                    LOG.info("Stream check: processed " + (i + 1) + " / " + channels.size() + " channels...");
                 }
             } catch (Exception e) {
                 LOG.warnf("[StreamChecker] Error checking channel: %s", e.getMessage());
@@ -112,7 +108,7 @@ public class StreamCheckerService {
         }
 
         long elapsed = (System.currentTimeMillis() - start) / 1000;
-        addLog("Stream check completed in " + elapsed + "s — " + working + " working, " + dead + " dead, " + unchecked + " unchecked out of " + channels.size());
+        LOG.info("Stream check completed in " + elapsed + "s — " + working + " working, " + dead + " dead, " + unchecked + " unchecked out of " + channels.size());
     }
 
     private String checkUrl(HttpClient client, String url) {
@@ -138,10 +134,5 @@ public class StreamCheckerService {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private void addLog(String message) {
-        LOG.info(message);
-        logSocket.broadcast(message);
     }
 }

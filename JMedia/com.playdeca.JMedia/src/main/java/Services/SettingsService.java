@@ -2,20 +2,12 @@ package Services;
 
 import Models.Settings.Profile;
 import Models.Settings.Settings;
-import Models.Settings.SettingsLog;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
-import jakarta.annotation.PostConstruct;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.io.File;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import jakarta.annotation.PreDestroy;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class SettingsService {
@@ -24,23 +16,8 @@ public class SettingsService {
     
     private static final ThreadLocal<Long> CURRENT_USER_ID = new ThreadLocal<>();
 
-    private static final int LOG_FLUSH_THRESHOLD = 20;
-    private static final long LOG_FLUSH_INTERVAL_MS = 5000;
-    private static final long LOG_CLEAR_INTERVAL_HOURS = 48;
-
-    private final List<String> logBuffer = new ArrayList<>();
-    private long lastFlushTime = System.currentTimeMillis();
-    private ScheduledExecutorService scheduler;
-    
     // Cache the settings ID to avoid repeated findAll queries
     private Long cachedSettingsId = null;
-
-    @PostConstruct
-    public void init() {
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(this::clearOldLogs, LOG_CLEAR_INTERVAL_HOURS, LOG_CLEAR_INTERVAL_HOURS, TimeUnit.HOURS);
-        LOGGER.info("Log cleanup scheduled to run every " + LOG_CLEAR_INTERVAL_HOURS + " hours");
-    }
 
     @Transactional
     public void save(Settings settings) {
@@ -77,77 +54,6 @@ public class SettingsService {
     }
 
     // ---------------- LOGS ----------------
-    public void addLog(Settings settings, String message) {
-        if (message == null || message.isBlank()) {
-            return;
-        }
-
-        synchronized (logBuffer) {
-            logBuffer.add(message);
-            long now = System.currentTimeMillis();
-            // Flush if buffer is full or enough time has passed
-            if (logBuffer.size() >= LOG_FLUSH_THRESHOLD || (now - lastFlushTime) >= LOG_FLUSH_INTERVAL_MS) {
-                flushLogs(settings != null ? settings.id : cachedSettingsId);
-                lastFlushTime = now;
-            }
-        }
-    }
-
-    @Transactional
-    public void flushLogs(Long settingsId) {
-        synchronized (logBuffer) {
-            if (logBuffer.isEmpty()) {
-                return;
-            }
-
-            // If we don't have a settingsId yet, try to find one
-            if (settingsId == null) {
-                Settings settings = getSettingsOrNull();
-                if (settings != null) {
-                    settingsId = settings.id;
-                }
-            }
-
-            if (settingsId == null) {
-                return;
-            }
-
-            for (String msg : logBuffer) {
-                SettingsLog log = new SettingsLog();
-                log.setMessage(msg);
-                log.settingsId = settingsId;
-                log.persist();
-            }
-
-            logBuffer.clear();
-        }
-    }
-
-    @Transactional
-    public void clearLogs(Settings settings) {
-        Long settingsId = settings != null ? settings.id : cachedSettingsId;
-        if (settingsId != null) {
-            SettingsLog.delete("settingsId = ?1", settingsId);
-        }
-    }
-
-    @Transactional
-    public void clearOldLogs() {
-        try {
-            Long settingsId = cachedSettingsId;
-            if (settingsId == null) {
-                Settings s = getSettingsOrNull();
-                if (s != null) settingsId = s.id;
-            }
-            
-            if (settingsId != null) {
-                SettingsLog.delete("settingsId = ?1", settingsId);
-            }
-        } catch (Exception e) {
-            LOGGER.warning("Failed to clear old logs: " + e.getMessage());
-        }
-    }
-
     @Transactional
     public void setLibraryPath(Settings settings, String path) {
         if (settings != null) {
@@ -221,42 +127,6 @@ public class SettingsService {
             settings = createAndSaveDefaultSettings();
         }
         return settings;
-    }
-
-    // ------------------- GET ALL LOGS -------------------
-    @Transactional
-    public List<SettingsLog> getAllLogs() {
-        return SettingsLog.findAll().list();
-    }
-
-    @Transactional
-    public List<SettingsLog> getLogs(Settings settings) {
-        Long settingsId = settings != null ? settings.id : cachedSettingsId;
-        if (settingsId != null) {
-            return SettingsLog.list("settingsId = ?1 ORDER BY timestamp ASC, id ASC", settingsId);
-        }
-        return List.of();
-    }
-    
-    @Transactional
-    public List<String> getRecentLogMessages(int limit) {
-        Long settingsId = cachedSettingsId;
-        if (settingsId == null) {
-            Settings s = getSettingsOrNull();
-            if (s != null) settingsId = s.id;
-        }
-        
-        if (settingsId != null) {
-            return SettingsLog.list("settingsId = ?1 ORDER BY timestamp DESC, id DESC", settingsId)
-                    .stream()
-                    .limit(limit)
-                    .map(e -> ((SettingsLog) e).getMessage())
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
-                        java.util.Collections.reverse(list);
-                        return list;
-                    }));
-        }
-        return List.of();
     }
 
     public static void setCurrentUserId(Long userId) {
@@ -400,38 +270,6 @@ return getActiveProfile(userId);
             settings.setActiveProfileIdsJson(mapper.writeValueAsString(profileMap));
         } catch (Exception e) {
             LOGGER.warning("Error serializing activeProfileIdsJson: " + e.getMessage());
-        }
-    }
-
-    public void shutdown() {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-    
-    @PreDestroy
-    public void shutdownScheduler() {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            LOGGER.info("Shutting down SettingsService scheduler");
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                     System.err.println("SettingsService scheduler did not terminate gracefully, forcing shutdown");
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                LOGGER.warning("Interrupted while waiting for SettingsService scheduler to terminate");
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
         }
     }
 }

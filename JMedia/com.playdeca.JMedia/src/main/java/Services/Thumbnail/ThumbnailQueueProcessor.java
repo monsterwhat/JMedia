@@ -2,7 +2,6 @@ package Services.Thumbnail;
 
 import Services.SettingsService;
 import Services.ThumbnailService;
-import Controllers.SettingsController;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -30,10 +29,7 @@ public class ThumbnailQueueProcessor {
     
     @Inject
     SettingsService settingsService;
-    
-    @Inject
-    SettingsController settingsController;
-    
+
     // Queue management
     private final PriorityBlockingQueue<ThumbnailJob> highPriorityQueue = 
         new PriorityBlockingQueue<>(100, this::compareJobs);
@@ -58,15 +54,10 @@ public class ThumbnailQueueProcessor {
     private long lastOnlineCheckTime = 0;
     
     /**
-     * Helper method to log to settings (UI) similar to file processing
+     * Helper method to log progress/status messages
      */
     private void logToSettings(String message) {
-        if (settingsController != null) {
-            settingsController.addLog(message);
-        } else {
-            // Fallback to console if settingsController not available
-            LOGGER.info("UI LOG: " + message);
-        }
+        LOGGER.info(message);
     }
     
     @PostConstruct

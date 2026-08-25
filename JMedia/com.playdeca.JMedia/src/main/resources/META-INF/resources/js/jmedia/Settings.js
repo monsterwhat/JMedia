@@ -110,15 +110,6 @@
             }
         },
 
-        clearLogs: async function () {
-            const profileId = getProfileId();
-            const res = await fetch(`/api/settings/${profileId}/clearLogs`, {method: "POST"});
-            if (res.ok) {
-                const logsPanel = document.getElementById("logsPanel");
-                if (logsPanel) logsPanel.innerHTML = "";
-            }
-        },
-
         clearSongsDB: async function () {
             const profileId = getProfileId();
             const res = await fetch(`/api/settings/${profileId}/clearSongs`, {method: "POST"});
@@ -361,50 +352,6 @@
             return null;
         },
 
-        setupLogWebSocket: function () {
-            const logsPanel = document.getElementById("logsPanel");
-            if (!logsPanel) return;
-            if (window.logWebSocket && window.logWebSocket.readyState <= 1) return;
-            if (!window.logWebSocketRetries) window.logWebSocketRetries = 0;
-            if (window.logWebSocketRetries >= 3) {
-                console.warn("[Logs] WebSocket connection failed after 3 attempts, disabling retries");
-                return;
-            }
-            const profileId = getProfileId();
-            const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-            const socket = new WebSocket(`${protocol}${window.location.host}/api/logs/ws/${profileId}`);
-            socket.onmessage = function (event) {
-                try {
-                    const message = JSON.parse(event.data);
-                    if (message.type === "log") {
-                        const p = document.createElement("p");
-                        p.style.margin = "0";
-                        p.style.padding = "2px 0";
-                        p.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
-                        p.style.color = "#48c774";
-                        p.textContent = message.payload;
-                        logsPanel.appendChild(p);
-                        while (logsPanel.children.length > 100) logsPanel.removeChild(logsPanel.firstChild);
-                        logsPanel.scrollTop = logsPanel.scrollHeight;
-                    }
-                } catch (e) {}
-            };
-            socket.onopen = () => {
-                console.log("[Logs] WebSocket connected");
-                window.logWebSocketRetries = 0;
-            };
-            socket.onerror = () => {
-                window.logWebSocketRetries++;
-                console.warn(`[Logs] WebSocket error (attempt ${window.logWebSocketRetries}/3)`);
-            };
-            socket.onclose = () => {
-                if (window.logWebSocketRetries < 3) {
-                    setTimeout(window.setupLogWebSocket, 5000);
-                }
-            };
-            window.logWebSocket = socket;
-        },
-
         fixHtmxSettingsEndpoints: function() {
             const profileId = getProfileId();
             const buttons = [
@@ -433,7 +380,6 @@
             setupClick("resetLibrary", window.resetLibrary, "Reset library path?");
             setupClick("scanLibrary", window.scanLibrary);
             setupClick("clearSongs", window.clearSongsDB, "Clear songs?");
-            setupClick("clearLogs", window.clearLogs, "Clear logs?");
             setupClick("clearPlaybackHistory", window.clearPlaybackHistory, "Clear all playback history?");
             setupClick("reloadMetadata", window.reloadMetadata, "Reload metadata?");
             setupClick("fixAlbums", window.fixAlbums, "Fix missing album names?");
@@ -497,7 +443,7 @@
                     if (window.Breadcrumbs) {
                         var tabNames = {
                             'library-management': 'Library', 'import-installation': 'Import Setup',
-                            'playlist-creator': 'Playlists', 'logs': 'Logs',
+                            'playlist-creator': 'Playlists',
                             'user-management': 'Users', 'session-management': 'Sessions',
                             'ai-subtitle-generator': 'AI Subtitles', 'sync-configuration': 'Sync'
                         };
@@ -521,7 +467,6 @@
                             console.error('[Settings] window.loadSessions is not defined!');
                         }
                     }
-                    if (target === 'logs') JMedia.Settings.setupLogWebSocket();
                     if (target === 'sync-configuration') {
                         if (JMedia.Sync && JMedia.Sync.loadAll) {
                             JMedia.Sync.loadAll();
@@ -540,7 +485,6 @@
             JMedia.Settings.loadUiSettings();
             JMedia.Settings.loadAutoSkipSettings();
             JMedia.Settings.refreshSettingsUI();
-            JMedia.Settings.setupLogWebSocket();
         },
 
         saveImportSettings: async function () {
@@ -1073,7 +1017,6 @@
     // Backward-compatible window aliases
     window.resetLibrary = JMedia.Settings.resetLibrary;
     window.scanLibrary = JMedia.Settings.scanLibrary;
-    window.clearLogs = JMedia.Settings.clearLogs;
     window.clearSongsDB = JMedia.Settings.clearSongsDB;
     window.showScanVideoDialog = JMedia.Settings.showScanVideoDialog;
     window.closeScanVideoDialog = JMedia.Settings.closeScanVideoDialog;
@@ -1087,7 +1030,6 @@
     window.saveVideoLibraryPath = JMedia.Settings.saveVideoLibraryPath;
     window.saveUiSettings = JMedia.Settings.saveUiSettings;
     window.loadUiSettings = JMedia.Settings.loadUiSettings;
-    window.setupLogWebSocket = JMedia.Settings.setupLogWebSocket;
     window.fixHtmxSettingsEndpoints = JMedia.Settings.fixHtmxSettingsEndpoints;
     window.initSettingsView = JMedia.Settings.initSettingsView;
     window.saveImportSettings = JMedia.Settings.saveImportSettings;

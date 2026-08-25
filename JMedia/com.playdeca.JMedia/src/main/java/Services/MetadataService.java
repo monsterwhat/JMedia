@@ -10,7 +10,6 @@ import org.jaudiotagger.audio.exceptions.InvalidAudioFrameException;
 import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
-// import org.jaudiotagger.tag.datatype.Artwork; // Commented out - class not available in jaudiotagger 3.0.1
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -18,13 +17,14 @@ import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import org.jaudiotagger.tag.TagException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class MetadataService {
-    
-    @Inject
-    LoggingService loggingService;
-    
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(MetadataService.class);
+
     /**
      * Extracts metadata from an audio file and creates a Song object.
      *
@@ -100,10 +100,18 @@ public class MetadataService {
                     }
                 }
 
-                // Skip artwork due to jaudiotagger compatibility issues
-                song.setArtworkBase64("");
-                song.setTitle(audioFile.getName().substring(0, audioFile.getName().lastIndexOf('.')));
-                song.setArtist("Unknown Artist");
+                // Artwork — mirrors SettingsController.processFile so manual tag edits
+                // (including embedded cover art) survive a rescan. Uses the tolerant
+                // extractor so files with non-standard APIC picture types (e.g. 255)
+                // still yield their artwork instead of being skipped.
+                try {
+                    byte[] artworkBytes = AudioArtworkService.extractArtworkBytes(tag);
+                    if (artworkBytes != null && artworkBytes.length > 0) {
+                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(artworkBytes));
+                    }
+                } catch (Exception artworkException) {
+                    LOGGER.error("Failed to extract artwork for " + audioFile.getName(), artworkException);
+                }
             }
 
             // Ensure no nulls for critical fields
@@ -112,7 +120,7 @@ public class MetadataService {
             return song;
 
         } catch (IOException | ReadOnlyFileException | InvalidAudioFrameException | TagException | CannotReadException e ) {
-            loggingService.addLog("Failed to extract metadata from file: " + audioFile.getAbsolutePath(), e);
+            LOGGER.error("Failed to extract metadata from file: " + audioFile.getAbsolutePath(), e);
             return null;
         }
     }
@@ -162,7 +170,7 @@ public class MetadataService {
     
     /**
      * Extracts custom JMedia fields from the COMMENT tag.
-     * Format: mbz:{musicbrainzId};app:JMedia v1.1.0 | ReleaseDate:2024-01-15 | Explicit
+     * Format: mbz:{musicbrainzId};app:JMedia v1.3.0 | ReleaseDate:2024-01-15 | Explicit
      */
     private void extractCustomFields(Tag tag, Song song) {
         String comment = tag.getFirst(FieldKey.COMMENT);
@@ -394,7 +402,7 @@ public class MetadataService {
      * Processes multiple audio files with progress reporting (like music scanning pattern)
      */
     public void processBatchMetadata(java.util.List<File> audioFiles) {
-        loggingService.addLog("Starting metadata extraction for " + audioFiles.size() + " audio files...");
+        LOGGER.info("Starting metadata extraction for " + audioFiles.size() + " audio files...");
         
         int totalProcessed = 0;
         int successCount = 0;
@@ -409,27 +417,27 @@ public class MetadataService {
                 
                 if (result != null) {
                     successCount++;
-                    loggingService.addLog("Successfully extracted metadata for: " + audioFile.getName() + 
+                    LOGGER.info("Successfully extracted metadata for: " + audioFile.getName() + 
                                        " - " + result.getTitle() + " by " + result.getArtist());
                 } else {
                     failedCount++;
-                    loggingService.addLog("Failed to extract metadata for: " + audioFile.getName() + " (no metadata found)");
+                    LOGGER.error("Failed to extract metadata for: " + audioFile.getName() + " (no metadata found)");
                 }
                 
                 // Progress reporting every 50 files (like music scanning)
                 if ((i + 1) % 50 == 0) {
-                    loggingService.addLog("Processed " + (i + 1) + " / " + audioFiles.size() + 
+                    LOGGER.info("Processed " + (i + 1) + " / " + audioFiles.size() +
                                        " metadata files (Success: " + successCount + ", Failed: " + failedCount + ")...");
                 }
                 
             } catch (Exception e) {
                 failedCount++;
                 totalProcessed++;
-                loggingService.addLog("Error processing metadata for " + audioFile.getName() + ": " + e.getMessage(), e);
+                LOGGER.error("Error processing metadata for " + audioFile.getName(), e);
             }
         }
         
-        loggingService.addLog("Metadata extraction completed. Total processed: " + totalProcessed + 
+        LOGGER.info("Metadata extraction completed. Total processed: " + totalProcessed +
                            ", Success: " + successCount + ", Failed: " + failedCount);
     }
 }

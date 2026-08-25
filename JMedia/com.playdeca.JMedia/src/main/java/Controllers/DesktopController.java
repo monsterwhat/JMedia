@@ -30,9 +30,6 @@ public class DesktopController {
     private static final Logger LOG = LoggerFactory.getLogger(DesktopController.class);
 
     @Inject
-    SettingsController settings;
-
-    @Inject
     SetupController setupController;
 
     @Inject
@@ -50,11 +47,11 @@ public class DesktopController {
                  "This program comes with ABSOLUTELY NO WARRANTY; for details see GPL-3.0.txt.\n" +
                  "This is free software, and you are welcome to redistribute it\n" +
                  "under certain conditions; see GPL-3.0.txt for details.");
-        settings.addLog("Application starting...");
+        LOG.info("Application starting...");
         // Skip tray icon in native builds to avoid AWT issues
         startTrayIcon();
         startBrowser();
-        settings.addLog("Application started.");
+        LOG.info("Application started.");
         
         // Check for updates on startup
         checkForUpdatesOnStartup();
@@ -178,13 +175,13 @@ public class DesktopController {
     }
 
     public void clientConnected() {
-        settings.addLog("Client connected.");
+        LOG.info("Client connected.");
         activeClients.incrementAndGet();
         hasHadClient = true;
     }
 
     public void clientDisconnected() {
-        settings.addLog("Client disconnected.");
+        LOG.info("Client disconnected.");
         int count = activeClients.decrementAndGet();
         if (count < 0) {
             activeClients.set(0);
@@ -202,7 +199,7 @@ public class DesktopController {
             SystemTray.getSystemTray().remove(trayIcon);
             trayIcon = null; // Clear the static reference
         }
-        settings.addLog("Application shutting down.");
+        LOG.info("Application shutting down.");
     }
 
 }

@@ -20,19 +20,19 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import Services.LoggingService;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/sync")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SyncAPI {
 
-    @Inject
-    LoggingService log;
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncAPI.class);
 
     @Inject
     SyncService syncService;
@@ -324,16 +324,16 @@ public class SyncAPI {
                     .entity(ApiResponse.error("API key is required")).build();
         }
 
-        log.addLog("Testing connection to sync server: " + url);
+        LOGGER.info("Testing connection to sync server: " + url);
         boolean reachable = remoteClient.checkConnection(url, apiKey);
         if (reachable) {
-            log.addLog("Connection test succeeded for " + url);
+            LOGGER.info("Connection test succeeded for " + url);
             return Response.ok(ApiResponse.success(Map.of(
                     "reachable", true,
                     "message", "Connection successful"
             ))).build();
         } else {
-            log.addLog("Connection test failed for " + url);
+            LOGGER.error("Connection test failed for " + url);
             return Response.ok(ApiResponse.success(Map.of(
                     "reachable", false,
                     "message", "Server is unreachable — check URL, API key, and that the remote server is running"
