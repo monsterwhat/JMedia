@@ -24,10 +24,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
@@ -36,11 +36,10 @@ jobs:
       - name: Package
         run: mvn -B -ntp package -DskipTests
 
-      - name: Upload runnable quarkus-app
+      - name: Upload runnable uber jar
         uses: actions/upload-artifact@v4
         with:
           name: JMedia-runner
-          path: JMedia/com.playdeca.JMedia/target/quarkus-app/
+          path: JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
           if-no-files-found: error
           retention-days: 30
-          compression-level: 9

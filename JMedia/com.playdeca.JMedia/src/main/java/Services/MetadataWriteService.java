@@ -45,13 +45,10 @@ public class MetadataWriteService {
     
     // Marker for custom app data stored in comments
     private static final String APP_MARKER = "JMedia";
-    private static final String APP_VERSION = "1.1.0";
+    private static final String APP_VERSION = "1.3.0";
 
     @Inject
     Executor executor;
-    
-    @Inject
-    LoggingService loggingService;
 
     /**
      * Writes all metadata from a Song object to its audio file.
