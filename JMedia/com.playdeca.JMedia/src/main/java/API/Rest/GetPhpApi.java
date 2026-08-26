@@ -57,13 +57,13 @@ public class GetPhpApi {
 
             if (isM3uPlus) {
                 m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
-                        ch.tvgId != null ? ch.tvgId : "",
-                        ch.tvgName != null ? ch.tvgName : (ch.name != null ? ch.name : ""),
-                        getLiveChannelLogo(ch),
-                        ch.groupTitle != null && !ch.groupTitle.isBlank() ? ch.groupTitle : (ch.playlist != null ? ch.playlist.name : "Live"),
-                        ch.name != null ? ch.name : "Unknown"));
+                        esc(ch.tvgId),
+                        esc(ch.tvgName != null ? ch.tvgName : ch.name),
+                        esc(getLiveChannelLogo(ch)),
+                        esc(ch.groupTitle != null && !ch.groupTitle.isBlank() ? ch.groupTitle : (ch.playlist != null ? ch.playlist.name : "Live")),
+                        esc(ch.name)));
             } else {
-                m3u.append(String.format("#EXTINF:-1,%s\n", ch.name != null ? ch.name : "Unknown"));
+                m3u.append(String.format("#EXTINF:-1,%s\n", esc(ch.name).replace("\r", " ").replace("\n", " ")));
             }
             m3u.append(String.format("%splayer_api.php/live/%s/%s/%d.%s\n",
                     serverUrl,
@@ -81,13 +81,13 @@ public class GetPhpApi {
 
             if (isM3uPlus) {
                 m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
-                        v.tmdbId != null ? v.tmdbId : "",
-                        v.title != null ? v.title : "",
-                        getImageUrl(v),
-                        genre,
-                        v.title != null ? v.title : "Unknown"));
+                        esc(v.tmdbId),
+                        esc(v.title),
+                        esc(getImageUrl(v)),
+                        esc(genre),
+                        esc(v.title)));
             } else {
-                m3u.append(String.format("#EXTINF:-1,%s\n", v.title != null ? v.title : "Unknown"));
+                m3u.append(String.format("#EXTINF:-1,%s\n", esc(v.title).replace("\r", " ").replace("\n", " ")));
             }
             m3u.append(String.format("%splayer_api.php/movie/%s/%s/%d.%s\n",
                     serverUrl,
@@ -105,13 +105,13 @@ public class GetPhpApi {
 
             if (isM3uPlus) {
                 m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
-                        ep.tmdbId != null ? ep.tmdbId : "",
-                        ep.title != null ? ep.title : "",
-                        getImageUrl(ep),
-                        groupTitle,
-                        ep.title != null ? ep.title : "Unknown"));
+                        esc(ep.tmdbId),
+                        esc(ep.title),
+                        esc(getImageUrl(ep)),
+                        esc(groupTitle),
+                        esc(ep.title)));
             } else {
-                m3u.append(String.format("#EXTINF:-1,%s\n", ep.title != null ? ep.title : "Unknown"));
+                m3u.append(String.format("#EXTINF:-1,%s\n", esc(ep.title).replace("\r", " ").replace("\n", " ")));
             }
             m3u.append(String.format("%splayer_api.php/series/%s/%s/%d.%s\n",
                     serverUrl,
@@ -155,5 +155,18 @@ public class GetPhpApi {
             return getExternalBaseUri() + "api/video/thumbnail/live/" + ch.id;
         }
         return "";
+    }
+
+    /**
+     * Escape a value for use inside a double-quoted #EXTINF attribute; unescaped
+     * quotes or line breaks from messy upstream M3U metadata truncate or corrupt
+     * the playlist entry.
+     */
+    private String esc(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", " ")
+                .replace("\n", " ");
     }
 }

@@ -305,7 +305,11 @@ public class XtreamCodesAPI {
                 StringBuilder rewritten = new StringBuilder();
                 for (String line : body.split("\n")) {
                     String trimmed = line.trim();
-                    if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                    if (trimmed.isEmpty()) {
+                        rewritten.append(line).append("\n");
+                    } else if (trimmed.startsWith("#EXT-X-KEY") || trimmed.startsWith("#EXT-X-MAP")) {
+                        rewritten.append(rewriteHlsAssetLine(line, baseUrl, proxyBase, pathUsername, pathPassword)).append("\n");
+                    } else if (trimmed.startsWith("#")) {
                         rewritten.append(line).append("\n");
                     } else {
                         String absoluteUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
@@ -343,6 +347,27 @@ public class XtreamCodesAPI {
                     .type(MediaType.APPLICATION_JSON)
                     .build();
         }
+    }
+
+    private String rewriteHlsAssetLine(String line, String baseUrl, String proxyBase, String pathUsername, String pathPassword) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("URI=\"([^\"]+)\"").matcher(line);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String uri = m.group(1);
+            if (!uri.startsWith("http")) {
+                try {
+                    uri = new java.net.URL(new java.net.URL(baseUrl), uri).toString();
+                } catch (Exception ignored) {
+                }
+            }
+            String proxied = proxyBase
+                    + java.net.URLEncoder.encode(uri, java.nio.charset.StandardCharsets.UTF_8)
+                    + "&username=" + java.net.URLEncoder.encode(pathUsername != null ? pathUsername : "", java.nio.charset.StandardCharsets.UTF_8)
+                    + "&password=" + java.net.URLEncoder.encode(pathPassword != null ? pathPassword : "", java.nio.charset.StandardCharsets.UTF_8);
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement("URI=\"" + proxied + "\""));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private String getExternalBaseUri() {
@@ -631,9 +656,18 @@ public class XtreamCodesAPI {
                 effectiveCategoryId = catId;
                 int firstUnderscore = catId.indexOf('_');
                 int secondUnderscore = catId.indexOf('_', firstUnderscore + 1);
+                Long parsedPlaylistId = null;
+                String parsedGroupHash = null;
                 if (secondUnderscore > 0) {
-                    Long playlistId = Long.parseLong(catId.substring(firstUnderscore + 1, secondUnderscore));
-                    String groupHash = catId.substring(secondUnderscore + 1);
+                    try {
+                        parsedPlaylistId = Long.parseLong(catId.substring(firstUnderscore + 1, secondUnderscore));
+                        parsedGroupHash = catId.substring(secondUnderscore + 1);
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                final Long playlistId = parsedPlaylistId;
+                final String groupHash = parsedGroupHash;
+                if (playlistId != null && groupHash != null && !groupHash.isBlank()) {
                     List<LiveChannel> playlistChannels = LiveChannel.find("playlist.id = ?1", playlistId).list();
                     channels = playlistChannels.stream()
                             .filter(ch -> ch.groupTitle != null && hashId(ch.groupTitle).equals(groupHash))
@@ -667,14 +701,24 @@ public class XtreamCodesAPI {
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
             s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             s.put("is_adult", "0");
-            s.put("category_id", effectiveCategoryId);
-            java.util.List<Integer> liveCategoryIds = new java.util.ArrayList<>();
-            if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-                java.util.Map<String, String> genreMap = genreIdByName();
-                String gid = genreMap.getOrDefault(ch.groupTitle.toLowerCase(), "0");
-                if (!"0".equals(gid)) liveCategoryIds.add(Integer.parseInt(gid));
+            // Report the same category id space that get_live_categories issues
+            // (playlist id, or g_<playlist>_<hash> when grouped): video-genre ids
+            // made client-side live filtering match nothing.
+            String channelCategoryId;
+            if (ch.playlist != null && ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+                channelCategoryId = "g_" + ch.playlist.id + "_" + hashId(ch.groupTitle);
+            } else if (ch.playlist != null) {
+                channelCategoryId = String.valueOf(ch.playlist.id);
+            } else {
+                channelCategoryId = "0";
             }
-            s.put("category_ids", liveCategoryIds);
+            if ("0".equals(effectiveCategoryId)) {
+                s.put("category_id", channelCategoryId);
+                s.put("category_ids", new ArrayList<>(List.of(channelCategoryId)));
+            } else {
+                s.put("category_id", effectiveCategoryId);
+                s.put("category_ids", new ArrayList<>(List.of(effectiveCategoryId)));
+            }
             s.put("custom_sid", "");
             s.put("tv_archive", 0);
             s.put("direct_source", "");

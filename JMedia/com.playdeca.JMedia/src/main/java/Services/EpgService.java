@@ -156,12 +156,21 @@ public class EpgService {
             return null;
         }
         try {
-            // XMLTV format: "20240101120000 +0000" — strip timezone offset
-            String timeOnly = xmltvTime.contains(" ")
-                ? xmltvTime.substring(0, xmltvTime.indexOf(' '))
-                : xmltvTime;
-            return LocalDateTime.parse(timeOnly, XMLTV_FORMAT);
-        } catch (DateTimeParseException e) {
+            // XMLTV times may carry an explicit offset ("20240101120000 +0200").
+            // Normalize everything to UTC: xmltv.php republishes entries as +0000
+            // and player_api.php converts them at ZoneOffset.UTC, so storing raw
+            // local wall-time shifted the whole guide for non-UTC sources.
+            String[] parts = xmltvTime.trim().split("\\s+");
+            LocalDateTime local = LocalDateTime.parse(parts[0], XMLTV_FORMAT);
+            if (parts.length < 2) {
+                return local;
+            }
+            String offsetText = parts[1].startsWith("GMT") ? parts[1].substring(3) : parts[1];
+            java.time.ZoneOffset offset = java.time.ZoneOffset.of(offsetText);
+            return local.atOffset(offset)
+                    .withOffsetSameInstant(java.time.ZoneOffset.UTC)
+                    .toLocalDateTime();
+        } catch (java.time.DateTimeException | IllegalArgumentException e) {
             LOG.warn("Failed to parse XMLTV time: {}", xmltvTime);
             return null;
         }

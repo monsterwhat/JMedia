@@ -242,7 +242,11 @@ public class XtreamStreamAPI {
                 StringBuilder rewritten = new StringBuilder();
                 for (String line : body.split("\n")) {
                     String trimmed = line.trim();
-                    if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                    if (trimmed.isEmpty()) {
+                        rewritten.append(line).append("\n");
+                    } else if (trimmed.startsWith("#EXT-X-KEY") || trimmed.startsWith("#EXT-X-MAP")) {
+                        rewritten.append(rewriteHlsAssetLine(line, baseUrl, proxyBase, pathUsername, pathPassword)).append("\n");
+                    } else if (trimmed.startsWith("#")) {
                         rewritten.append(line).append("\n");
                     } else {
                         String absoluteUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
@@ -280,6 +284,27 @@ public class XtreamStreamAPI {
                     .type(MediaType.APPLICATION_JSON)
                     .build();
         }
+    }
+
+    private String rewriteHlsAssetLine(String line, String baseUrl, String proxyBase, String pathUsername, String pathPassword) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("URI=\"([^\"]+)\"").matcher(line);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String uri = m.group(1);
+            if (!uri.startsWith("http")) {
+                try {
+                    uri = new java.net.URL(new java.net.URL(baseUrl), uri).toString();
+                } catch (Exception ignored) {
+                }
+            }
+            String proxied = proxyBase
+                    + java.net.URLEncoder.encode(uri, java.nio.charset.StandardCharsets.UTF_8)
+                    + "&username=" + java.net.URLEncoder.encode(pathUsername != null ? pathUsername : "", java.nio.charset.StandardCharsets.UTF_8)
+                    + "&password=" + java.net.URLEncoder.encode(pathPassword != null ? pathPassword : "", java.nio.charset.StandardCharsets.UTF_8);
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement("URI=\"" + proxied + "\""));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     @Context
