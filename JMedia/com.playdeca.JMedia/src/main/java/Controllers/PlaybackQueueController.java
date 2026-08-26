@@ -262,9 +262,12 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             if (targetBpm > 0) {
                 Collections.shuffle(songsInGenre);
                 songsInGenre.sort((a, b) -> {
-                    int aBpm = a.getBpm() > 0 ? a.getBpm() : targetBpm;
-                    int bBpm = b.getBpm() > 0 ? b.getBpm() : targetBpm;
-                    return Integer.compare(Math.abs(aBpm - targetBpm), Math.abs(bBpm - targetBpm));
+                    // Unknown BPM (0) must sort to the END of the genre group —
+                    // treating it as targetBpm made unanalyzed songs rank as
+                    // perfect matches ahead of analyzed ones during catch-up.
+                    int aDist = a.getBpm() > 0 ? Math.abs(a.getBpm() - targetBpm) : Integer.MAX_VALUE;
+                    int bDist = b.getBpm() > 0 ? Math.abs(b.getBpm() - targetBpm) : Integer.MAX_VALUE;
+                    return Integer.compare(aDist, bDist);
                 });
             } else {
                 // No current BPM to reference, just shuffle
@@ -306,11 +309,20 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         // 5. Update the state
         state.setCue(newCue);
         int newIndex = newCue.indexOf(state.getCurrentSongId());
-        state.setCueIndex(newIndex != -1 ? newIndex : 0);
 
-        // If current song was not found (shouldn't happen), set to first song
-        if (newIndex == -1 && !newCue.isEmpty()) {
-            state.setCurrentSongId(newCue.get(0));
+        // When DJ filtering dropped the currently-playing song (e.g. genre pool
+        // changed mid-play), do NOT swap the audible track out from under the
+        // user: keep it current with cueIndex -1 so the next advance starts from
+        // the rebuilt pool head. Only auto-select the first song when idle.
+        if (newIndex != -1) {
+            state.setCueIndex(newIndex);
+        } else if (!state.isPlaying()) {
+            state.setCueIndex(0);
+            if (!newCue.isEmpty()) {
+                state.setCurrentSongId(newCue.get(0));
+            }
+        } else {
+            state.setCueIndex(-1);
         }
         
         // 6. Pre-analyze upcoming songs for DJ Mode transitions
@@ -662,7 +674,12 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         // If the smart song is already in the cue and not next, move it.
         if (nextSongCurrentIndex != -1 && nextSongCurrentIndex != currentSongIndexInCue + 1) {
             Long songToMove = cue.remove(nextSongCurrentIndex);
-            int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+            // Removal shifts the current song left when the moved song sat before
+            // it — re-locate it or the insertion lands past "next" and a wrong
+            // song plays.
+            int refreshedCurrent = cue.indexOf(state.getCurrentSongId());
+            int anchor = refreshedCurrent != -1 ? refreshedCurrent : currentSongIndexInCue;
+            int insertionPoint = Math.min(anchor + 1, cue.size());
             cue.add(insertionPoint, songToMove);
         }
 
@@ -914,10 +931,18 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                     int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
                     cue.add(insertionPoint, nextSong.id);
                 } else if (nextSongCurrentIndex != currentSongIndexInCue + 1) {
-                    // Song is elsewhere in cue — move it to next position
+                    // Song is elsewhere in cue — move it to next position.
+                    // Removal shifts the current song left when the moved song sat
+                    // before it, so re-locate it before computing the insertion point
+                    // and persist the corrected index (planNextDjTransition reads it).
                     Long songToMove = cue.remove(nextSongCurrentIndex);
-                    int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+                    int refreshedCurrent = cue.indexOf(state.getCurrentSongId());
+                    int anchor = refreshedCurrent != -1 ? refreshedCurrent : currentSongIndexInCue;
+                    int insertionPoint = Math.min(anchor + 1, cue.size());
                     cue.add(insertionPoint, songToMove);
+                    if (refreshedCurrent != -1) {
+                        state.setCueIndex(refreshedCurrent);
+                    }
                 }
             }
         }
@@ -987,13 +1012,20 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return 1;
         }
         int streak = 1;
-        for (int i = currentIndex - 1; i >= 0; i--) {
-            Song song = songService.find(cue.get(i));
-            if (song != null && SongService.normalizeGenre(song.getGenre()).equals(SongService.normalizeGenre(currentGenre))) {
-                streak++;
-            } else {
-                break;
+        int i = currentIndex - 1;
+        while (i >= 0) {
+            int from = Math.max(0, i - 49);
+            java.util.Map<Long, Song> batchById = songService.findByIds(cue.subList(from, i + 1)).stream()
+                    .collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s, (a, b) -> a));
+            for (int j = i; j >= from; j--) {
+                Song song = batchById.get(cue.get(j));
+                if (song != null && SongService.normalizeGenre(song.getGenre()).equals(SongService.normalizeGenre(currentGenre))) {
+                    streak++;
+                } else {
+                    return streak;
+                }
             }
+            i = from - 1;
         }
         return streak;
     }
@@ -1008,12 +1040,17 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return 0;
         }
         List<Long> recent = playbackHistoryService.getRecentlyPlayedSongIds(12, profileId);
+        if (recent.isEmpty()) {
+            return 0;
+        }
+        java.util.Map<Long, Song> recentById = songService.findByIds(recent).stream()
+                .collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s, (a, b) -> a));
         int count = 0;
         for (Long id : recent) {
             if (id == null) {
                 break;
             }
-            Song song = songService.find(id);
+            Song song = recentById.get(id);
             if (song == null || song.getArtist() == null || song.getArtist().isBlank()) {
                 break;
             }

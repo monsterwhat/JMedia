@@ -279,10 +279,7 @@
                 
                 // Notify server that transition has started
                 if (this.transitionData.profileId) {
-                    fetch(`/api/music/playback/transition-started/${this.transitionData.profileId}`, { 
-                        method: 'POST', 
-                        credentials: 'same-origin' 
-                    }).catch(err => console.error('[DJ] Failed to notify server of transition start', err));
+                    this.notifyTransitionStarted(this.transitionData.profileId);
                 }
                 return;
             }
@@ -387,6 +384,33 @@
             }
             
             this.updateDjIndicator('none');
+        },
+        
+        /**
+         * Notify server that transition has started with retry logic
+         * @param {string} profileId - Profile ID
+         * @param {number} attempt - Current attempt number (1-3)
+         */
+        notifyTransitionStarted: function(profileId, attempt) {
+            attempt = attempt || 1;
+            var self = this;
+            fetch('/api/music/playback/transition-started/' + profileId, { 
+                method: 'POST', 
+                credentials: 'same-origin' 
+            }).then(function(response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+            }).catch(function(err) {
+                if (attempt < 3) {
+                    window.Helpers.log('[DJ] Transition-started POST failed (attempt ' + attempt + '/3), retrying in 1s: ' + err.message);
+                    setTimeout(function() {
+                        self.notifyTransitionStarted(profileId, attempt + 1);
+                    }, 1000);
+                } else {
+                    console.error('[DJ] Failed to notify server of transition start after 3 attempts', err);
+                }
+            });
         },
 
         /**

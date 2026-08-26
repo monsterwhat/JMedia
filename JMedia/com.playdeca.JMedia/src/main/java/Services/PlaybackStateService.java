@@ -105,6 +105,15 @@ existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjSkipsBeforeGenreChange(newState.getDjSkipsBeforeGenreChange() != null ? newState.getDjSkipsBeforeGenreChange() : 1);
         existingState.setDjYearMin(newState.getDjYearMin() != null ? newState.getDjYearMin() : 0);
         existingState.setDjYearMax(newState.getDjYearMax() != null ? newState.getDjYearMax() : 0);
+        // Persist DJ transition planning so a restart during DJ Mode restores the
+        // plan (exit times stay valid relative to persisted currentTime) instead
+        // of silently falling back to regular crossfade until the user acts.
+        existingState.setDjNextSongId(newState.getDjNextSongId());
+        existingState.setDjEntryTime(newState.getDjEntryTime());
+        existingState.setDjExitTime(newState.getDjExitTime());
+        existingState.setDjTransitionPlanned(newState.getDjTransitionPlanned());
+        existingState.setDjTransitionConfidence(newState.getDjTransitionConfidence());
+        existingState.setDjTransitionReason(newState.getDjTransitionReason());
         existingState.setServerTime(newState.getServerTime());
 
         em.merge(existingState);

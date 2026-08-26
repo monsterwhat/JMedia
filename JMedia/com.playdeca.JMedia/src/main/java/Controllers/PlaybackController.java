@@ -232,30 +232,6 @@ public class PlaybackController {
     }
     
     /**
-     * Find the next song in the queue after the current one.
-     */
-    private Song findNextSongInQueue(PlaybackState st) {
-        List<Long> cue = st.getCue();
-        if (cue == null || cue.isEmpty()) {
-            return null;
-        }
-        
-        int currentIndex = st.getCueIndex();
-        int nextIndex = currentIndex + 1;
-        
-        if (nextIndex >= cue.size()) {
-            // Wrap around
-            if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                nextIndex = 0;
-            } else {
-                return null;
-            }
-        }
-        
-        return songService.find(cue.get(nextIndex));
-    }
-    
-    /**
      * Clear DJ transition plan from state.
      */
     private void clearDjTransitionPlan(PlaybackState st) {
@@ -1584,7 +1560,12 @@ public class PlaybackController {
         if (transition != null) {
             st.setDjNextSongId(nextSongId);
             st.setDjEntryTime(transition.getEntryTime());
-            st.setDjExitTime(transition.getExitTime());
+            // Clamp exit so a transition planned mid-song (currentTime already past
+            // the natural exit point) always keeps its full 10s frontend-response
+            // window; otherwise processPlaybackTick's safeguard fires on the very
+            // next tick and the user gets an instant skip instead of a crossfade.
+            double exitFloor = st.getCurrentTime() - crossfadeSeconds;
+            st.setDjExitTime(Math.max(transition.getExitTime(), exitFloor));
             st.setDjTransitionPlanned(true);
             st.setDjTransitionConfidence(transition.getConfidence());
             st.setDjTransitionReason(transition.getReason());

@@ -360,7 +360,15 @@
                 djMaxConsecutiveByArtist: 0,
                 djSkipsBeforeGenreChange: 1,
                 djYearMin: 0,
-                djYearMax: 0
+                djYearMax: 0,
+                djModeActive: false,
+                djNextSongId: null,
+                djEntryTime: 0,
+                djExitTime: 0,
+                djTransitionPlanned: false,
+                djTransitionConfidence: 0,
+                djTransitionReason: '',
+                crossfadeDuration: 0
             };
             
             this.notifyStateChange(oldState, this.state, this.state, 'reset');

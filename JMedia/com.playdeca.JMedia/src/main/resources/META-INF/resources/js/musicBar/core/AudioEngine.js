@@ -559,7 +559,16 @@
             if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA â€” enough buffered to play
                 startPlayback();
             } else {
+                var crossfadeTimeout = setTimeout(() => {
+                    console.error('[AudioEngine] Crossfade timeout: nextPlayer never fired canplay after 8s');
+                    this._isCrossfading = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                }, 8000);
+                
                 nextPlayer.addEventListener('canplay', function onReady() {
+                    clearTimeout(crossfadeTimeout);
                     nextPlayer.removeEventListener('canplay', onReady);
                     startPlayback();
                 });

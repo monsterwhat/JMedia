@@ -219,6 +219,10 @@
             const currentState = window.StateManager.getState();
             const newMode = !currentState.djModeActive;
             
+            if (window.ActionTracker) {
+                window.ActionTracker.recordAction('djMode');
+            }
+            
             console.log('[DJ] toggleDjMode called, changing:', currentState.djModeActive, '->', newMode);
             window.StateManager.updateState({ djModeActive: newMode }, 'playbackController');
             

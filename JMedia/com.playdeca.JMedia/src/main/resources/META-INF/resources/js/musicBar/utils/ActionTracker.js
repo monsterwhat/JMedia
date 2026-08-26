@@ -8,12 +8,14 @@
     window.ActionTracker = {
         // Recent local actions tracking
         recentLocalActions: {
-            playPause: []
+            playPause: [],
+            djMode: []
         },
         
         // Configuration for action timeouts
         config: {
-            playpauseTimeout: 3000
+            playpauseTimeout: 3000,
+            djmodeTimeout: 3000
         },
         
         /**

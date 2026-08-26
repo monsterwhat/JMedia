@@ -325,6 +325,14 @@
                 crossfadeDuration: state.crossfadeDuration
             };
 
+            // A recent local DJ toggle wins over a stale server broadcast,
+            // mirroring the play/pause guard above.
+            if (currentState && state.djModeActive !== currentState.djModeActive
+                    && window.ActionTracker?.shouldSkipWebSocketMessage('djMode', state)) {
+                window.Helpers.log('WebSocketManager skipping WebSocket djMode override due to recent local DJ toggle');
+                stateUpdates.djModeActive = currentState.djModeActive;
+            }
+
             if (!window.videoPlaying) {
                 stateUpdates.playing = state.playing;
             }
