@@ -193,6 +193,39 @@ public class SongEnrichmentService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Orphan cleanup
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Transactional
+    public int deleteOrphanEnrichments() {
+        java.util.Set<String> liveKeys = new java.util.HashSet<>();
+        List<Song> songs = Song.findAll().list();
+        for (Song song : songs) {
+            String key = cacheKey(song.getArtist(), song.getTitle());
+            if (key != null) {
+                liveKeys.add(key);
+            }
+        }
+        liveKeys.add(BACKFILL_MARKER_KEY);
+
+        List<SongEnrichment> all = SongEnrichment.findAll().list();
+        int removed = 0;
+        for (SongEnrichment e : all) {
+            if (e.getCacheKey() != null && !liveKeys.contains(e.getCacheKey())) {
+                LOGGER.info("[OrphanEnrichment] Removing enrichment for: {} / {}", e.getArtist(), e.getTitle());
+                e.delete();
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            LOGGER.info("[OrphanEnrichment] Removed {} orphan enrichment rows (out of {} total)", removed, all.size());
+        } else {
+            LOGGER.info("[OrphanEnrichment] All {} enrichment rows have matching songs — nothing to remove", all.size());
+        }
+        return removed;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // One-time library backfill (old entity → cache migration)
     // ─────────────────────────────────────────────────────────────────────────
 

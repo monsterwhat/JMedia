@@ -544,6 +544,14 @@ public class SettingsController implements Serializable {
             LOGGER.error("The following " + failedSongs.size() + " songs failed to process:");
             failedSongs.forEach(f -> LOGGER.info("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
+
+        int orphansRemoved = songService.deleteOrphanSongs(musicLibraryPath);
+        if (orphansRemoved > 0) {
+            LOGGER.info("Orphan cleanup: removed " + orphansRemoved + " songs whose files no longer exist on disk.");
+        }
+
+        int enrichOrphansRemoved = songEnrichmentService.deleteOrphanEnrichments();
+
         musicSocket.broadcastLibraryUpdateToAllProfiles();
 
         if (!processedSongs.isEmpty()) {
@@ -658,6 +666,14 @@ public class SettingsController implements Serializable {
             LOGGER.error("The following " + failedSongs.size() + " songs failed to process:");
             failedSongs.forEach(f -> LOGGER.info("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
+
+        int orphansRemoved = songService.deleteOrphanSongs(musicLibraryPath);
+        if (orphansRemoved > 0) {
+            LOGGER.info("Orphan cleanup: removed " + orphansRemoved + " songs whose files no longer exist on disk.");
+        }
+
+        int enrichOrphansRemoved = songEnrichmentService.deleteOrphanEnrichments();
+
         musicSocket.broadcastLibraryUpdateToAllProfiles();
 
         if (!processedSongs.isEmpty()) {

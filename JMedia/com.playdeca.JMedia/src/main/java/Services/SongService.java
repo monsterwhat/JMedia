@@ -134,6 +134,63 @@ public class SongService {
                 .getResultList();
     }
 
+    /**
+     * Removes songs whose audio files no longer exist on disk.
+     *
+     * <p>Called after every library scan so that deleted/moved files don't
+     * leave ghost rows in the Song table (and their cascaded SongAnalysis).
+     * SongEnrichment rows are intentionally left alone — they are keyed by
+     * artist+title and serve as a cache for re-imports.
+     *
+     * @param libraryPath absolute path to the music library root
+     * @return number of orphan songs removed
+     */
+    @Transactional
+    public int deleteOrphanSongs(String libraryPath) {
+        if (libraryPath == null || libraryPath.isBlank()) {
+            LOGGER.log(Level.WARNING, "[OrphanCleanup] No library path configured — skipping orphan removal.");
+            return 0;
+        }
+
+        List<Song> allSongs = findAll();
+        List<Song> orphans = new ArrayList<>();
+
+        for (Song song : allSongs) {
+            if (song.getPath() == null || song.getPath().isBlank()) {
+                orphans.add(song);
+                continue;
+            }
+            File file = new File(libraryPath, song.getPath());
+            if (!file.exists()) {
+                orphans.add(song);
+            }
+        }
+
+        if (orphans.isEmpty()) {
+            LOGGER.log(Level.INFO, "[OrphanCleanup] All {0} songs have valid files on disk — nothing to remove.", allSongs.size());
+            return 0;
+        }
+
+        LOGGER.log(Level.INFO, "[OrphanCleanup] Found {0} orphan songs (out of {1} total) — removing...",
+                new Object[]{orphans.size(), allSongs.size()});
+
+        int removed = 0;
+        for (Song orphan : orphans) {
+            try {
+                LOGGER.log(Level.INFO, "[OrphanCleanup] Removing: {0} — {1} / {2}",
+                        new Object[]{orphan.id, orphan.getArtist(), orphan.getTitle()});
+                delete(orphan);
+                removed++;
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "[OrphanCleanup] Failed to remove orphan song ID " + orphan.id, e);
+            }
+        }
+
+        LOGGER.log(Level.INFO, "[OrphanCleanup] Removed {0} orphan songs. Library now has {1} songs.",
+                new Object[]{removed, allSongs.size() - removed});
+        return removed;
+    }
+
     public Song findByPath(String path) {
         try {
             return em.createQuery("SELECT s FROM Song s WHERE s.path = :path", Song.class)
