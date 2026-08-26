@@ -1219,7 +1219,7 @@ public class TranscodingService {
 
         if (seekSeconds > 0) {
             command.add("-async"); command.add("1");
-            command.add("-vsync"); command.add("vfr");
+            command.add("-fps_mode"); command.add("vfr");
             // Inert for tfdt on ffmpeg 8.x: the offset is added to pkt->dts/pts
             // in mux.c::write_packet BEFORE movenc, so it cancels inside
             // mov_write_tfdt_tag's `cluster[0].dts - start_dts`. Kept to align
