@@ -46,6 +46,10 @@ public class Settings extends PanacheEntity {
     
     // Cookies file path for yt-dlp on Linux
     private String cookiesFilePath;
+
+    // IPTV: opt-out for the Xtream proxy SSRF guard so private/LAN-hosted
+    // stream sources (self-hosted restreamers, HDHomeRun-style devices) can play
+    private Boolean xtreamAllowPrivateStreamSources = false;
     
     // Import source configuration
     private DownloadSource primarySource = DownloadSource.YOUTUBE;

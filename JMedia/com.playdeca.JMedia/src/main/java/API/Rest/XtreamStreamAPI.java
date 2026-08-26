@@ -24,6 +24,8 @@ public class XtreamStreamAPI {
 
     @Inject Services.SettingsService settingsService;
 
+    @Inject Services.HlsService hlsService;
+
     @GET
     @Path("/movie/{username}/{password}/{videoId}.{ext}")
     public Response streamMovie(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
@@ -33,7 +35,7 @@ public class XtreamStreamAPI {
         log.infof("Stream movie request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Movie not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
-        return proxyLocalVideo(video, ext, rangeHeader);
+        return streamVideoWithHls(video, videoId, ext, rangeHeader);
     }
 
     @GET
@@ -45,6 +47,25 @@ public class XtreamStreamAPI {
         log.infof("Stream series request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Series episode not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
+        return streamVideoWithHls(video, videoId, ext, rangeHeader);
+    }
+
+    /**
+     * TS/HLS-only IPTV apps request .m3u8; serve a transcoded HLS session for
+     * those and keep progressive byte-serving for direct-source extensions.
+     */
+    private Response streamVideoWithHls(Video video, Long videoId, String ext, String rangeHeader) {
+        if ("m3u8".equalsIgnoreCase(ext)) {
+            try {
+                Services.HlsService.HlsSession session =
+                        hlsService.createSession(videoId, 0.0, null, null, null, "xtream-" + videoId);
+                return Response.temporaryRedirect(
+                        java.net.URI.create("/api/hls/master/" + session.sessionId + ".m3u8")).build();
+            } catch (Exception e) {
+                log.warnf("HLS session failed for videoId=%d, falling back to progressive stream: %s",
+                        videoId, e.getMessage());
+            }
+        }
         return proxyLocalVideo(video, ext, rangeHeader);
     }
 
@@ -174,9 +195,14 @@ public class XtreamStreamAPI {
                 log.warnf("SSRF guard: blocked URL without host: %s", url);
                 return true;
             }
+            boolean allowPrivate = false;
+            try {
+                allowPrivate = Boolean.TRUE.equals(settingsService.getOrCreateSettings().getXtreamAllowPrivateStreamSources());
+            } catch (Exception ignored) {
+            }
             for (java.net.InetAddress addr : java.net.InetAddress.getAllByName(host)) {
-                if (addr.isAnyLocalAddress() || addr.isLoopbackAddress()
-                        || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()) {
+                if (!allowPrivate && (addr.isAnyLocalAddress() || addr.isLoopbackAddress()
+                        || addr.isLinkLocalAddress() || addr.isSiteLocalAddress())) {
                     log.warnf("SSRF guard: blocked local/reserved address %s for host %s (url=%s)",
                             addr.getHostAddress(), host, url);
                     return true;

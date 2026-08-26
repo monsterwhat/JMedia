@@ -386,6 +386,22 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Metadata toggles saved")).build();
     }
 
+    @POST
+    @Path("/xtream-toggles")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response saveXtreamToggles(Map<String, Boolean> toggles, @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        Settings settings = settingsController.getOrCreateSettings();
+        if (toggles.containsKey("xtreamAllowPrivateStreamSources")) {
+            settings.setXtreamAllowPrivateStreamSources(toggles.get("xtreamAllowPrivateStreamSources"));
+        }
+        settingsService.save(settings);
+        LOGGER.info("Xtream toggles updated");
+        return Response.ok(ApiResponse.success("Xtream toggles saved")).build();
+    }
+
     // -----------------------------
     // TMDB API KEY
     // -----------------------------

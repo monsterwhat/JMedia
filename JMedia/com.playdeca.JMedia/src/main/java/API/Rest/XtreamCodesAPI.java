@@ -198,9 +198,9 @@ public class XtreamCodesAPI {
         movieData.put("category_ids", vodCategoryIds.isEmpty() ? new ArrayList<>(List.of("0")) : vodCategoryIds);
         movieData.put("stream_icon", getImageUrl(v));
         movieData.put("year", v.releaseYear != null ? String.valueOf(v.releaseYear) : "");
-        movieData.put("container_extension", v.container != null ? v.container : "mp4");
+        movieData.put("container_extension", "m3u8");
         movieData.put("custom_sid", "");
-        movieData.put("direct_source", "");
+        movieData.put("direct_source", xtreamStreamUrl("movie", v.id, "m3u8"));
         
         response.put("movie_data", movieData);
         
@@ -237,9 +237,14 @@ public class XtreamCodesAPI {
                 log.warnf("SSRF guard: blocked URL without host: %s", url);
                 return true;
             }
+            boolean allowPrivate = false;
+            try {
+                allowPrivate = Boolean.TRUE.equals(settingsService.getOrCreateSettings().getXtreamAllowPrivateStreamSources());
+            } catch (Exception ignored) {
+            }
             for (java.net.InetAddress addr : java.net.InetAddress.getAllByName(host)) {
-                if (addr.isAnyLocalAddress() || addr.isLoopbackAddress()
-                        || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()) {
+                if (!allowPrivate && (addr.isAnyLocalAddress() || addr.isLoopbackAddress()
+                        || addr.isLinkLocalAddress() || addr.isSiteLocalAddress())) {
                     log.warnf("SSRF guard: blocked local/reserved address %s for host %s (url=%s)",
                             addr.getHostAddress(), host, url);
                     return true;
@@ -479,11 +484,11 @@ public class XtreamCodesAPI {
             ep.put("id", e.id);
             ep.put("episode_num", e.episodeNumber);
             ep.put("title", e.title != null ? e.title : "Episode " + e.episodeNumber);
-            ep.put("container_extension", e.container != null ? e.container : "mp4");
+            ep.put("container_extension", "m3u8");
             ep.put("season", e.seasonNumber != null ? e.seasonNumber : 1);
             ep.put("custom_sid", "");
             ep.put("added", e.dateAdded != null ? String.valueOf(e.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
-            ep.put("direct_source", "");
+            ep.put("direct_source", xtreamStreamUrl("series", e.id, "m3u8"));
             
             java.util.Map<String, Object> epInfo = new java.util.HashMap<>();
             epInfo.put("name", e.title != null ? e.title : "Episode " + e.episodeNumber);
@@ -594,7 +599,7 @@ public class XtreamCodesAPI {
             s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
             s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
             s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
-            s.containerExtension = v.container != null ? v.container : "mp4";
+            s.containerExtension = "m3u8";
             s.streamType = "movie";
             // Map genre IDs
             if (v.genres != null && !v.genres.isEmpty()) {
@@ -923,6 +928,10 @@ public class XtreamCodesAPI {
     private static String hashId(String value) {
         if (value == null) return "";
         return java.util.UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+
+    private String xtreamStreamUrl(String kind, Long id, String ext) {
+        return getExternalBaseUri() + "player_api.php/" + kind + "/" + username + "/" + password + "/" + id + "." + ext;
     }
 
     private String redactQuery(String rawQuery) {
