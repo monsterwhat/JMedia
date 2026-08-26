@@ -63,11 +63,7 @@ private PlaybackState createDefaultState(Long profileId) {
         state.setCue(new ArrayList<>());
         state.setLastSongs(new ArrayList<>());
         state.setOriginalCue(new ArrayList<>());
-        state.setSecondaryCue(new ArrayList<>());
-        state.setSecondaryOriginalCue(new ArrayList<>());
         state.setCueIndex(-1);
-        state.setSecondaryCueIndex(-1);
-        state.setUsingSecondaryQueue(false);
         return state;
     }
 
@@ -94,11 +90,7 @@ private PlaybackState createDefaultState(Long profileId) {
         existingState.setCue(new ArrayList<>(newState.getCue()));
         existingState.setLastSongs(new ArrayList<>(newState.getLastSongs()));
         existingState.setOriginalCue(new ArrayList<>(newState.getOriginalCue()));
-        existingState.setSecondaryCue(new ArrayList<>(newState.getSecondaryCue()));
-        existingState.setSecondaryOriginalCue(new ArrayList<>(newState.getSecondaryOriginalCue()));
         existingState.setCueIndex(newState.getCueIndex());
-        existingState.setSecondaryCueIndex(newState.getSecondaryCueIndex());
-        existingState.setUsingSecondaryQueue(newState.isUsingSecondaryQueue());
 existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjModeActive(newState.getDjModeActive() != null ? newState.getDjModeActive() : false);
         existingState.setDjGenrePool(newState.getDjGenrePool() != null ? new ArrayList<>(newState.getDjGenrePool()) : new ArrayList<>());
@@ -140,11 +132,7 @@ existingState.setRepeatMode(newState.getRepeatMode());
         state.setCue(new ArrayList<>(defaultState.getCue()));
         state.setLastSongs(new ArrayList<>(defaultState.getLastSongs()));
         state.setOriginalCue(new ArrayList<>(defaultState.getOriginalCue()));
-        state.setSecondaryCue(new ArrayList<>(defaultState.getSecondaryCue()));
-        state.setSecondaryOriginalCue(new ArrayList<>(defaultState.getSecondaryOriginalCue()));
         state.setCueIndex(defaultState.getCueIndex());
-        state.setSecondaryCueIndex(defaultState.getSecondaryCueIndex());
-        state.setUsingSecondaryQueue(defaultState.isUsingSecondaryQueue());
 state.setRepeatMode(defaultState.getRepeatMode());
         state.setDjModeActive(defaultState.getDjModeActive() != null ? defaultState.getDjModeActive() : false);
         state.setDjGenrePool(defaultState.getDjGenrePool() != null ? new ArrayList<>(defaultState.getDjGenrePool()) : new ArrayList<>());

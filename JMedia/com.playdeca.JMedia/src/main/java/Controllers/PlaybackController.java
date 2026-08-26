@@ -244,15 +244,10 @@ public class PlaybackController {
         int nextIndex = currentIndex + 1;
         
         if (nextIndex >= cue.size()) {
-            // Wrap around or check secondary queue
+            // Wrap around
             if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
                 nextIndex = 0;
             } else {
-                // Check secondary queue
-                List<Long> secondaryCue = st.getSecondaryCue();
-                if (secondaryCue != null && !secondaryCue.isEmpty()) {
-                    return songService.find(secondaryCue.get(0));
-                }
                 return null;
             }
         }
@@ -299,8 +294,6 @@ public class PlaybackController {
                 state = new PlaybackState();
             }
 
-// DON'T auto-populate primary queue - keep it empty for dual-queue system
-            // Only ensure currentSongId is valid if primary queue has songs
             if (!state.getCue().isEmpty() && state.getCurrentSongId() == null) {
                 state.setCurrentSongId(state.getCue().get(0));
                 state.setCueIndex(0);
@@ -334,6 +327,24 @@ public class PlaybackController {
             }
             if (state.getDjBpmMax() == null) {
                 state.setDjBpmMax(0);
+            }
+            if (state.getCrossfadeDuration() == null) {
+                state.setCrossfadeDuration(0);
+            }
+            if (state.getOriginalCrossfadeDuration() == null) {
+                state.setOriginalCrossfadeDuration(0);
+            }
+            if (state.getDjMaxConsecutiveByArtist() == null) {
+                state.setDjMaxConsecutiveByArtist(0);
+            }
+            if (state.getDjSkipsBeforeGenreChange() == null) {
+                state.setDjSkipsBeforeGenreChange(1);
+            }
+            if (state.getDjYearMin() == null) {
+                state.setDjYearMin(0);
+            }
+            if (state.getDjYearMax() == null) {
+                state.setDjYearMax(0);
             }
             System.out.println("[PlaybackController] Initial state loaded for profile " + profileId + ": " + safeSummary(state, profileId));
             return state;
@@ -645,6 +656,7 @@ public class PlaybackController {
                 }
                 
                 LOGGER.info("No next song found for profile " + profileId + ". Stopping playback.");
+                stopPlaybackTimer(profileId);
                 st.setPlaying(false);
                 st.setCurrentSongId(null);
                 updateState(profileId, st, true);
@@ -1342,6 +1354,7 @@ public class PlaybackController {
     public synchronized void clearQueue(Long profileId) {
         PlaybackState st = getState(profileId);
         playbackQueueController.clear(st, profileId);
+        stopPlaybackTimer(profileId);
         updateState(profileId, st, true);
     }
 

@@ -42,91 +42,36 @@ public void populateCue(PlaybackState state, List<Long> songIds, Long profileId)
         state.setCurrentSongId(songIds.isEmpty() ? null : songIds.get(0));
         state.setPlaying(!songIds.isEmpty());
         state.setCurrentTime(0);
-        state.setUsingSecondaryQueue(false); // Explicitly switch back to primary
-    }
-
-    public void initializeSecondaryQueue(PlaybackState state, Long profileId) {
-        // Fetch only IDs from the database to ensure they actually exist
-        List<Long> allSongIds = songService.findAll().stream()
-                // DJ Mode: only genre-pool-valid, year-range-valid songs may ever play
-                .filter(s -> !Boolean.TRUE.equals(state.getDjModeActive())
-                        || ((isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                            && isYearAllowed(state, s.getReleaseDate())))
-                .map(s -> s.id)
-                .collect(java.util.stream.Collectors.toList());
-        
-        state.setSecondaryCue(new ArrayList<>(allSongIds));
-        state.setSecondaryOriginalCue(new ArrayList<>());
-        state.setSecondaryCueIndex(-1); // Start at -1 so first advance goes to 0
-        
-        // Apply current shuffle mode to secondary queue
-        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SHUFFLE) {
-            initSecondaryShuffle(state);
-        } else if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            initSecondarySmartShuffle(state, profileId);
-        }
-    }
-
-    public void switchToPrimaryQueue(PlaybackState state, Long newSongId, Long profileId) {
-        state.setUsingSecondaryQueue(false);
-        state.setCueIndex(state.getCue().indexOf(newSongId));
-        state.setCurrentSongId(newSongId);
-        
-        // Update song metadata
-        Song newSong = songService.find(newSongId);
-        state.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
-        state.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
-        state.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
-        state.setCurrentTime(0);
-        state.setPlaying(true);
     }
 
 public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
-        // Priority 1: Check primary queue first
-        if (state.getCue() != null && !state.getCue().isEmpty()) {
-            state.setUsingSecondaryQueue(false);
-            return advanceInQueue(state, forward, true, skippedEarly, profileId); // true = primary queue
+        // When the single queue is empty, refill from the song pool (DJ-filtered if active)
+        if (state.getCue() == null || state.getCue().isEmpty()) {
+            refillCueFromPool(state, profileId);
         }
-        
-        // DJ Mode with a restricted genre pool and empty primary cue: build a pool-aware
-        // primary queue instead of falling back to the unfiltered all-songs secondary queue,
-        // so the genre pool applies live to whatever actually plays next.
-        if (Boolean.TRUE.equals(state.getDjModeActive()) && !isDjGenrePoolUnrestricted(state)) {
-            initSmartShuffle(state, profileId);
-            if (state.getCue() != null && !state.getCue().isEmpty()) {
-                state.setUsingSecondaryQueue(false);
-                // Degenerate-pool guard: when the DJ-restricted rebuild yields exactly one
-                // song, do NOT go through advanceInQueue. With RepeatMode.OFF the played
-                // song is removed on advance, which empties the queue and recurses back
-                // here (rebuild -> play -> remove -> empty -> rebuild -> ...) until the
-                // stack overflows. Return the song directly and keep it queued.
-                if (state.getCue().size() == 1) {
-                    state.setCueIndex(0);
-                    state.setCurrentSongId(state.getCue().get(0));
-                    return state.getCue().get(0);
-                }
-                return advanceInQueue(state, forward, true, skippedEarly, profileId);
-            }
+
+        if (state.getCue() == null || state.getCue().isEmpty()) {
+            // No songs available at all
+            state.setPlaying(false);
+            return null;
         }
-        
-        // Priority 2: Fallback to secondary queue
-        if (state.getSecondaryCue() == null || state.getSecondaryCue().isEmpty()) {
-            initializeSecondaryQueue(state, profileId);
+
+        // Degenerate-pool guard: when the rebuild yields exactly one song, do NOT
+        // go through advanceInQueue — with RepeatMode.OFF the played song is removed
+        // which empties the queue and recurses back here, causing a stack overflow.
+        // Return the song directly and keep it queued.
+        if (state.getCue().size() == 1) {
+            state.setCueIndex(0);
+            state.setCurrentSongId(state.getCue().get(0));
+            return state.getCue().get(0);
         }
-        
-        if (state.getSecondaryCue() != null && !state.getSecondaryCue().isEmpty()) {
-            state.setUsingSecondaryQueue(true);
-            return advanceInQueue(state, forward, false, skippedEarly, profileId); // false = secondary queue
-        }
-        
-        // Priority 3: No songs available
-        state.setPlaying(false);
-        return null;
+
+        return advanceInQueue(state, forward, skippedEarly, profileId);
     }
 
-    private Long advanceInQueue(PlaybackState state, boolean forward, boolean usePrimaryQueue, boolean skippedEarly, Long profileId) {
-        List<Long> cue = usePrimaryQueue ? state.getCue() : state.getSecondaryCue();
-        int cueIndex = usePrimaryQueue ? state.getCueIndex() : state.getSecondaryCueIndex();
+    private Long advanceInQueue(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
+        List<Long> cue = state.getCue();
+        int cueIndex = state.getCueIndex();
         
         if (cue == null || cue.isEmpty()) return null;
 
@@ -143,56 +88,44 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                 }
             }
             
-            if (usePrimaryQueue) {
-                state.setCueIndex(prevIndex);
-            } else {
-                state.setSecondaryCueIndex(prevIndex);
-            }
+            state.setCueIndex(prevIndex);
             return cue.get(prevIndex);
         }
 
         // --- FORWARD ADVANCEMENT ---
         if (cueIndex < 0) {
-            cueIndex = 0;  // reset to start if no active index
+            // Fresh or refilled queue with no active position: play the head
+            // instead of consuming it (a bare reset to 0 here would remove
+            // cue.get(0) in the RepeatMode.OFF path below, skipping a song).
+            state.setCueIndex(0);
+            return resolveNextDjSong(state, cue, 0, cue.get(0));
         }
 
-        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE && usePrimaryQueue) {
+        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
             findAndPrepareNextSmartSong(state, skippedEarly, profileId);
         }
 
         if (state.getRepeatMode() == PlaybackState.RepeatMode.OFF) {
-            if (usePrimaryQueue) {
-                // Primary queue: Remove played song
-                if (cueIndex >= 0 && cueIndex < cue.size()) {
-                    cue.remove(cueIndex);
-                }
-                
-                if (cue.isEmpty()) {
-                    state.setCueIndex(-1);
-                    return advance(state, true, skippedEarly, profileId);
-                }
-                
-                // Keep index at current position because list shifted
-                int nextIdx = Math.min(cueIndex, cue.size() - 1);
-                state.setCueIndex(nextIdx);
-                return resolveNextDjSong(state, usePrimaryQueue, cue, nextIdx, cue.get(nextIdx));
-            } else {
-                // Secondary queue: Wrap around forever
-                int nextIndex = (cueIndex + 1) % cue.size();
-                state.setSecondaryCueIndex(nextIndex);
-                return resolveNextDjSong(state, usePrimaryQueue, cue, nextIndex, cue.get(nextIndex));
+            // Remove played song
+            if (cueIndex >= 0 && cueIndex < cue.size()) {
+                cue.remove(cueIndex);
             }
+            
+            if (cue.isEmpty()) {
+                state.setCueIndex(-1);
+                return advance(state, true, skippedEarly, profileId);
+            }
+            
+            // Keep index at current position because list shifted
+            int nextIdx = Math.min(cueIndex, cue.size() - 1);
+            state.setCueIndex(nextIdx);
+            return resolveNextDjSong(state, cue, nextIdx, cue.get(nextIdx));
         }
 
         // Logic for RepeatMode.ALL or ONE
         int nextIndex = (cueIndex + 1) % cue.size();
-
-        if (usePrimaryQueue) {
-            state.setCueIndex(nextIndex);
-        } else {
-            state.setSecondaryCueIndex(nextIndex);
-        }
-        return resolveNextDjSong(state, usePrimaryQueue, cue, nextIndex, cue.get(nextIndex));
+        state.setCueIndex(nextIndex);
+        return resolveNextDjSong(state, cue, nextIndex, cue.get(nextIndex));
     }
 
     /**
@@ -203,7 +136,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
      * forward (wrapping) from startIndex to the nearest pool-valid song and moves the
      * active index onto it.
      */
-    private Long resolveNextDjSong(PlaybackState state, boolean usePrimaryQueue, List<Long> cue, int startIndex, Long fallback) {
+    private Long resolveNextDjSong(PlaybackState state, List<Long> cue, int startIndex, Long fallback) {
         if (!hasDjRestriction(state) || cue == null || cue.isEmpty()) {
             return fallback;
         }
@@ -219,11 +152,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             Song candidate = songsById.get(cue.get(idx));
             if (candidate != null && isYearAllowed(state, candidate.getReleaseDate())
                     && isGenreAllowed(state, candidate.getGenre())) {
-                if (usePrimaryQueue) {
-                    state.setCueIndex(idx);
-                } else {
-                    state.setSecondaryCueIndex(idx);
-                }
+                state.setCueIndex(idx);
                 return candidate.id;
             }
         }
@@ -425,11 +354,6 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
                 insertIndex++;
             }
         }
-        
-        // NEW: Immediately switch to primary queue if currently using secondary
-        if (state.isUsingSecondaryQueue() && !songIds.isEmpty()) {
-            switchToPrimaryQueue(state, songIds.get(0), profileId);
-        }
     }
 
     public void removeFromQueue(PlaybackState state, Long songId, Long profileId) {
@@ -454,28 +378,6 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
                 state.setCueIndex(state.getCueIndex() - 1);
             }
         }
-
-        // Handle Secondary Queue
-        List<Long> secondaryCue = state.getSecondaryCue();
-        if (secondaryCue != null && secondaryCue.contains(songId)) {
-            int index = secondaryCue.indexOf(songId);
-            secondaryCue.remove(songId);
-
-            if (state.isUsingSecondaryQueue() && Objects.equals(songId, state.getCurrentSongId())) {
-                if (secondaryCue.isEmpty()) {
-                    state.setCurrentSongId(null);
-                    state.setPlaying(false);
-                    state.setSecondaryCueIndex(-1);
-                } else {
-                    int nextIndex = Math.min(index, secondaryCue.size() - 1);
-                    state.setSecondaryCueIndex(nextIndex);
-                    state.setCurrentSongId(secondaryCue.get(nextIndex));
-                    state.setCurrentTime(0);
-                }
-            } else if (index <= state.getSecondaryCueIndex()) {
-                state.setSecondaryCueIndex(state.getSecondaryCueIndex() - 1);
-            }
-        }
     }
 
     public void clear(PlaybackState state, Long profileId) {
@@ -485,10 +387,6 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
         state.setCurrentSongId(null);
         state.setPlaying(false);
         state.setCurrentTime(0);
-        state.setSecondaryCue(new ArrayList<>());
-        state.setSecondaryOriginalCue(new ArrayList<>());
-        state.setSecondaryCueIndex(-1);
-        state.setUsingSecondaryQueue(false);
         state.setLastSongs(new ArrayList<>());
     }
 
@@ -767,6 +665,13 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
             cue.add(insertionPoint, songToMove);
         }
+
+        // Re-sync cueIndex after cue manipulation — removing from an index < cueIndex
+        // shifts the current song left, invalidating the stored index.
+        int refreshed = cue.indexOf(state.getCurrentSongId());
+        if (refreshed != -1) {
+            state.setCueIndex(refreshed);
+        }
     }
 
     /**
@@ -885,104 +790,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         state.setLastPlayedArtist(nextArtist);
     }
 
-    public void initSecondaryShuffle(PlaybackState state) {
-        // Save the original order before shuffling if it's not already saved
-        if (state.getSecondaryOriginalCue() == null || state.getSecondaryOriginalCue().isEmpty()) {
-            state.setSecondaryOriginalCue(new ArrayList<>(state.getSecondaryCue()));
-        }
 
-        List<Long> secondaryCue = state.getSecondaryCue();
-        Long currentSongId = state.getCurrentSongId();
-
-        if (secondaryCue == null || secondaryCue.isEmpty()) {
-            return; // Nothing to shuffle
-        }
-
-        // Keep current song at the top, shuffle the rest
-        if (currentSongId != null && secondaryCue.contains(currentSongId)) {
-            secondaryCue.remove(currentSongId);
-            Collections.shuffle(secondaryCue);
-            secondaryCue.add(0, currentSongId);
-            state.setSecondaryCueIndex(0);
-        } else {
-            // If no current song or it's not in the cue, just shuffle everything
-            Collections.shuffle(secondaryCue);
-            state.setSecondaryCueIndex(-1);
-        }
-    }
-
-    public void initSecondarySmartShuffle(PlaybackState state, Long profileId) {
-        // 1. Get the pool of songs (all songs for secondary queue)
-        List<Song> allSongs = songService.findAll();
-        // DJ Mode: restrict the pool to allowed genres and year range
-        if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
-            allSongs = allSongs.stream()
-                    .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                    .filter(s -> isYearAllowed(state, s.getReleaseDate()))
-                    .collect(java.util.stream.Collectors.toList());
-        }
-        if (allSongs.isEmpty()) {
-            return;
-        }
-
-        // Save original secondary cue if it wasn't saved before
-        if (state.getSecondaryOriginalCue() == null || state.getSecondaryOriginalCue().isEmpty()) {
-            state.setSecondaryOriginalCue(new ArrayList<>(state.getSecondaryCue()));
-        }
-
-        // Get current song's BPM for sorting reference
-        int currentBpm = 0;
-        if (state.getCurrentSongId() != null) {
-            Song currentSong = allSongs.stream()
-                    .filter(s -> s.id.equals(state.getCurrentSongId()))
-                    .findFirst()
-                    .orElse(null);
-            if (currentSong != null && currentSong.getBpm() > 0) {
-                currentBpm = currentSong.getBpm();
-            }
-        }
-
-        // 2. Group songs by genre
-        java.util.Map<String, List<Song>> songsByGenre = allSongs.stream()
-                .collect(java.util.stream.Collectors.groupingBy(song ->
-                        song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
-                ));
-
-        // 3. Shuffle the order of genres
-        List<String> genres = new ArrayList<>(songsByGenre.keySet());
-        Collections.shuffle(genres);
-
-        // 4. Build the new secondary queue with BPM sorting within genre groups
-        List<Long> newSecondaryCue = new ArrayList<>();
-        for (String genre : genres) {
-            List<Song> songsInGenre = new ArrayList<>(songsByGenre.get(genre));
-
-            // Sort by BPM similarity to current song's BPM. Equal-BPM songs keep
-            // their pre-shuffle order (TimSort is stable), so variety is preserved
-            // without a non-deterministic comparator.
-            final int targetBpm = currentBpm;
-            if (targetBpm > 0) {
-                Collections.shuffle(songsInGenre);
-                songsInGenre.sort((a, b) -> {
-                    int aBpm = a.getBpm() > 0 ? a.getBpm() : targetBpm;
-                    int bBpm = b.getBpm() > 0 ? b.getBpm() : targetBpm;
-                    return Integer.compare(Math.abs(aBpm - targetBpm), Math.abs(bBpm - targetBpm));
-                });
-            } else {
-                Collections.shuffle(songsInGenre);
-            }
-
-            for (Song song : songsInGenre) {
-                newSecondaryCue.add(song.id);
-            }
-        }
-
-        // 5. Update the state
-        state.setSecondaryCue(newSecondaryCue);
-        int newIndex = newSecondaryCue.indexOf(state.getCurrentSongId());
-        state.setSecondaryCueIndex(newIndex);
-    }
-    
     /**
      * Prepare a DJ Mode transition - find a BPM-matched song and position it as next in queue.
      * Called from planNextDjTransition() before calculating the beat-aligned crossfade.
@@ -1281,6 +1089,31 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 Song swapped = songsById.get(cue.get(i));
                 lastArtist = swapped != null ? swapped.getArtist() : null;
             }
+        }
+    }
+
+    private List<Long> buildSongPool(PlaybackState state) {
+        return songService.findAll().stream()
+                .filter(s -> !Boolean.TRUE.equals(state.getDjModeActive())
+                        || ((isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
+                            && isYearAllowed(state, s.getReleaseDate())))
+                .map(s -> s.id)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private void refillCueFromPool(PlaybackState state, Long profileId) {
+        List<Long> poolIds = buildSongPool(state);
+        if (poolIds.isEmpty()) {
+            return;
+        }
+        state.setCue(new ArrayList<>(poolIds));
+        state.setOriginalCue(new ArrayList<>());
+        state.setCueIndex(-1);
+
+        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SHUFFLE) {
+            initShuffle(state, profileId);
+        } else if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            initSmartShuffle(state, profileId);
         }
     }
 }
