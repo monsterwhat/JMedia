@@ -22,7 +22,7 @@
    ============================================================ */
 
 /* ---------------- THEME: the dock page is always dark cinema ---------------- */
-/* The app theme ([data-theme]) flips --standard-*/--glass-* to light values,
+/* The app theme ([data-theme]) flips --standard-* / --glass-* to light values,
    which washes out the glass pills, hero and navbar (e.g. dark navbar text on
    a dark gradient). Pinning the dark palette on body.music-page keeps the dock
    identical to the video cinema view in either theme. */
@@ -276,11 +276,13 @@ body.music-page #musicPlayerContainer .mobile-volume-wrapper .mobile-btn {
     padding: 0;
 }
 
-/* Volume stays available on the dock page at every width
-   (jmedia-unified.css hides it below 900px) */
-body.music-page .mobile-player-right-side,
-body.music-page .mobile-volume-wrapper {
-    display: flex !important;
+/* Volume stays available on the dock page on desktop only — below 900px the
+   jmedia-unified.css hide wins (mobile devices use hardware volume). */
+@media (min-width: 901px) {
+    body.music-page .mobile-player-right-side,
+    body.music-page .mobile-volume-wrapper {
+        display: flex !important;
+    }
 }
 
 /* ---------------- CENTER — Progress bar on top of the control dock ---------------- */
@@ -676,6 +678,14 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     list-style: none;
 }
 
+/* Tab switching (switchToTab) hides this list with Bulma's .is-hidden
+   (display:none !important) — match the rule's specificity so the hide wins
+   over the grid above, otherwise albums/genres/queue render below a
+   never-hidden song grid and the sidebar buttons appear dead. */
+body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList.mobile-song-list.is-hidden {
+    display: none !important;
+}
+
 body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item {
     display: flex !important;
     flex-direction: column !important;
@@ -865,6 +875,169 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
     gap: 0.1rem;
 }
 
+/* ---------------- Albums / playlists / genres — cinema restyle of tab fragments ---------------- */
+/* The tab fragments keep their classic-mobile classes (.mobile-album-grid etc.);
+   restyled here to match the dock's poster-card look. Scoped under body.music-page,
+   so the classic mobile page is untouched. */
+
+body.music-page #app-content .standard-content .music-main-wrapper #mobileAlbumContent,
+body.music-page #app-content .standard-content .music-main-wrapper #mobilePlaylistContent,
+body.music-page #app-content .standard-content .music-main-wrapper #mobileGenreContent,
+body.music-page #app-content .standard-content .music-main-wrapper #mobileQueueContent,
+body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent {
+    margin: 0.5rem 1rem 1.5rem;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-grid,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 1.25rem !important;
+    padding: 0 !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-card,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-card {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: auto !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    text-align: left;
+    transition: transform 0.2s ease;
+    cursor: pointer;
+    animation: none !important;   /* same stagger-kill as the song cards */
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-card:hover,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-card:hover {
+    transform: translateY(-4px);
+    background: transparent !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-artwork,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-artwork {
+    width: 100% !important;
+    aspect-ratio: 1 / 1;
+    border-radius: 1rem !important;
+    overflow: hidden;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05)) !important;
+    margin-bottom: 0 !important;
+    flex-shrink: 0;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-artwork img,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-artwork img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 0 !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-artwork > i.pi-list {
+    font-size: 2.2rem;
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.5));
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-name,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-name {
+    font-size: 0.9rem !important;
+    font-weight: 600;
+    color: var(--standard-text, #ffffff);
+    text-align: left;
+    margin-top: 0.5rem;
+    padding: 0 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-artist {
+    font-size: 0.78rem !important;
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.5));
+    opacity: 1;
+    text-align: left;
+    padding: 0 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-meta,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-count {
+    font-size: 0.72rem !important;
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.5));
+    opacity: 0.8;
+    text-align: left;
+    padding: 0 0.25rem;
+}
+
+/* Genres render as glass chips (icon + name + count in one row) */
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)) !important;
+    gap: 0.75rem !important;
+    padding: 0 !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-card {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.6rem;
+    width: auto !important;
+    padding: 0.7rem 0.9rem !important;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    border-radius: 14px;
+    animation: none !important;
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-card:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(72, 199, 116, 0.35);
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-icon {
+    font-size: 1.05rem;
+    color: #48c774;
+    opacity: 1;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.88rem;
+    color: var(--standard-text, #ffffff);
+    text-align: left;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-count {
+    font-size: 0.72rem;
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.5));
+    opacity: 1;
+    margin-top: 0;
+    white-space: nowrap;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-grid .scroll-sentinel,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-grid .scroll-end,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-grid .scroll-sentinel,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-grid .scroll-end,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-grid .scroll-sentinel,
+body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-grid .scroll-end {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 0.5rem 0;
+}
+
 /* ---------------- Small screens ---------------- */
 @media (max-width: 640px) {
     body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList.mobile-song-list {
@@ -873,15 +1046,87 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
         margin: 0.5rem 0.75rem 1.25rem !important;
     }
 
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileAlbumContent,
+    body.music-page #app-content .standard-content .music-main-wrapper #mobilePlaylistContent,
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileGenreContent,
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileQueueContent,
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent {
+        margin: 0.5rem 0.75rem 1.25rem;
+    }
+
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-grid,
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.9rem !important;
+    }
+
     body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artwork::after {
         width: 40px;
         height: 40px;
         font-size: 1rem;
     }
 
+    /* --- Dock: two compact rows instead of overlapping absolute pills ---
+       Row 1: progress + search · Row 2: song info + transport controls.
+       (Volume is hidden below 900px by jmedia-unified.css.) */
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) {
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 0.5rem 0.75rem;
+        padding: 0.5rem 0.7rem calc(0.65rem + env(safe-area-inset-bottom)) !important;
+    }
+
+    /* Row 1 — progress spans the free width; relative (not absolute/static)
+       so the range input inside it stays anchored to THIS box */
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        position: relative !important;
+        top: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        right: auto !important;
+        transform: none !important;
+        order: -1;
+        flex: 1 1 auto !important;
+        width: auto !important;
+        height: 14px;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-progress-container:hover,
+    body.music-page #musicPlayerContainer .mobile-progress-container:active {
+        height: 14px;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-progress {
+        height: 3px !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper {
+        position: static !important;
+        transform: none !important;
+        height: 2.95rem;
+        padding: 0 0.55rem;
+    }
+
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
-        max-width: 32vw;
+        position: static !important;
+        order: 1;
+        flex: 1 1 auto !important;
+        max-width: 60%;
+        min-width: 0;
         padding: 0.35rem 0.7rem 0.35rem 0.35rem;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-controls {
+        position: static !important;
+        left: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        order: 2;
+        flex: none !important;
+        margin-left: auto;
+        height: auto !important;
+        gap: 0 !important;
+        padding: 0.35rem 0.5rem !important;
     }
 
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-artwork {
@@ -889,37 +1134,24 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
         height: 38px !important;
     }
 
-    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-controls {
-        gap: 0 !important;
-        padding: 0.35rem 0.5rem;
-    }
-
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-btn {
-        width: 36px;
-        height: 36px;
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
         font-size: 1rem;
     }
 
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-btn-primary {
-        width: 42px;
-        height: 42px;
-        min-width: 42px;
-        min-height: 42px;
+        width: 42px !important;
+        height: 42px !important;
+        min-width: 42px !important;
+        min-height: 42px !important;
         font-size: 1.3rem;
     }
 
-    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper {
-        height: 2.95rem;   /* scales down with the shrunken controls pill */
-        padding: 0 0.55rem;
-    }
-
-    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-volume-wrapper {
-        height: 2.95rem;   /* scales down with the shrunken controls pill */
-        padding: 0 0.55rem;
-    }
-
     body.music-page #musicPlayerContainer .dock-search-shell {
-        height: 2.95rem;   /* matches the shrunken pills on small screens */
+        height: 2.95rem;
         padding: 0 0.5rem 0 0.9rem;
     }
 }
@@ -928,7 +1160,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
    TOP — Glass navbar (copied from the video page cinema-nav)
    ------------------------------------------------------------
    Mirrors the video view's glass navbar: logo left, action
-   button right. Uses the dock's own --glass-*/--standard-* vars
+   button right. Uses the dock's own --glass-* / --standard-* vars
    (cinema-home.css is not loaded here) and is scoped under
    body.music-page so the shared class names can't collide if
    cinema-home.css is ever added to this page.
@@ -1040,6 +1272,15 @@ body.music-page .dock-nav-item i {
 body.music-page .dock-nav-item:hover {
     background: rgba(255, 255, 255, 0.06);
     color: #fff;
+}
+
+body.music-page .dock-nav-item.active {
+    background: rgba(72, 199, 116, 0.14);
+    color: #48c774;
+}
+
+body.music-page .dock-nav-item.active i {
+    color: #48c774;
 }
 
 body.music-page .dock-nav-item:hover i {

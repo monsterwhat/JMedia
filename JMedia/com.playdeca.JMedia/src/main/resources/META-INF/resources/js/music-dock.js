@@ -197,6 +197,9 @@
         document.querySelectorAll('.dock-nav-item[data-dock-tab]').forEach(function(item) {
             item.addEventListener('click', function() {
                 var tab = item.dataset.dockTab;
+                document.querySelectorAll('.dock-nav-item[data-dock-tab]').forEach(function(el) {
+                    el.classList.toggle('active', el === item);
+                });
                 if (tab && typeof window.switchToTab === 'function') {
                     try {
                         window.switchToTab(tab);
