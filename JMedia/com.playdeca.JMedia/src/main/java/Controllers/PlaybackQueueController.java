@@ -56,11 +56,36 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return null;
         }
 
-        // Degenerate-pool guard: when the rebuild yields exactly one song, do NOT
-        // go through advanceInQueue — with RepeatMode.OFF the played song is removed
-        // which empties the queue and recurses back here, causing a stack overflow.
-        // Return the song directly and keep it queued.
+        // Degenerate-pool guard: size==1 with DJ restriction previously returned
+        // the same song forever (stuck loop). Widen to the full library when
+        // DJ filters have narrowed the pool to a single track.
         if (state.getCue().size() == 1) {
+            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+                List<Long> unrestricted = songService.findAll().stream()
+                        .map(s -> s.id)
+                        .collect(java.util.stream.Collectors.toList());
+                if (unrestricted.size() > 1) {
+                    state.setCue(new ArrayList<>(unrestricted));
+                    state.setOriginalCue(new ArrayList<>());
+                    state.setCueIndex(-1);
+                    if (state.getShuffleMode() == PlaybackState.ShuffleMode.SHUFFLE) {
+                        initShuffle(state, profileId);
+                    } else if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                        initSmartShuffle(state, profileId);
+                    } else {
+                        java.util.Collections.shuffle(state.getCue());
+                        Long currentId = state.getCurrentSongId();
+                        if (currentId != null && state.getCue().contains(currentId)) {
+                            state.getCue().remove(currentId);
+                            state.getCue().add(0, currentId);
+                        }
+                        state.setCueIndex(0);
+                    }
+                    if (state.getCue().size() > 1) {
+                        return advanceInQueue(state, forward, skippedEarly, profileId);
+                    }
+                }
+            }
             state.setCueIndex(0);
             state.setCurrentSongId(state.getCue().get(0));
             return state.getCue().get(0);
@@ -511,24 +536,23 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
 
         List<Long> cue = state.getCue();
         int cueSize = (cue != null) ? cue.size() : 0;
-        if (cueSize <= 1) {
-            return;
-        }
-
-        // Use originalCue for a wider selection pool if available
-        List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
-                ? state.getOriginalCue() : cue;
-
-        // DJ Mode: restrict the selection pool to allowed genres and year range
+        List<Long> songPool;
         if (Boolean.TRUE.equals(state.getDjModeActive())) {
-            songPool = songService.findByIds(songPool).stream()
-                    .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                    .filter(s -> isYearAllowed(state, s.getReleaseDate()))
-                    .map(s -> s.id)
-                    .collect(java.util.stream.Collectors.toList());
+            songPool = buildSongPool(state);
             if (songPool.isEmpty()) {
+                songPool = songService.findAll().stream()
+                        .map(s -> s.id)
+                        .collect(java.util.stream.Collectors.toList());
+                if (songPool.isEmpty()) {
+                    return;
+                }
+            }
+        } else {
+            if (cueSize <= 1) {
                 return;
             }
+            songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
+                    ? state.getOriginalCue() : cue;
         }
 
         // ENHANCED SMART SHUFFLE: Multi-candidate scoring with artist/album awareness
@@ -820,40 +844,17 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return;
         }
         
-        // Use the current active cue as the song pool to avoid picking songs that are no longer in the queue
-        // (e.g., finished songs that were removed from the cue but still present in originalCue).
-        // This also prevents resurrecting stale songs when smart shuffle has reorganized the queue.
-        List<Long> songPool = state.getCue();
-        
+        List<Long> songPool = buildSongPool(state);
         if (songPool == null || songPool.isEmpty()) {
-            return;
-        }
-        
-        // DJ Mode: restrict the selection pool to allowed genres and year range
-        if (hasDjRestriction(state)) {
-            List<Long> allowedInCue = songService.findByIds(songPool).stream()
-                    .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                    .filter(s -> isYearAllowed(state, s.getReleaseDate()))
-                    .map(s -> s.id)
-                    .collect(java.util.stream.Collectors.toList());
-            if (allowedInCue.isEmpty()) {
-                // Cue has no songs matching the pool — widen to the original cue so the
-                // configured genres are playable without waiting for a queue rebuild
-                List<Long> widerPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
-                        ? state.getOriginalCue() : null;
-                if (widerPool == null) {
-                    return;
-                }
-                songPool = songService.findByIds(widerPool).stream()
-                        .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                        .filter(s -> isYearAllowed(state, s.getReleaseDate()))
+            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+                songPool = songService.findAll().stream()
                         .map(s -> s.id)
                         .collect(java.util.stream.Collectors.toList());
                 if (songPool.isEmpty()) {
                     return;
                 }
             } else {
-                songPool = allowedInCue;
+                return;
             }
         }
         
@@ -1140,8 +1141,21 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
 
     private void refillCueFromPool(PlaybackState state, Long profileId) {
         List<Long> poolIds = buildSongPool(state);
+        if (poolIds.isEmpty() && Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+            poolIds = songService.findAll().stream()
+                    .map(s -> s.id)
+                    .collect(java.util.stream.Collectors.toList());
+        }
         if (poolIds.isEmpty()) {
             return;
+        }
+        if (poolIds.size() == 1 && Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+            List<Long> widened = songService.findAll().stream()
+                    .map(s -> s.id)
+                    .collect(java.util.stream.Collectors.toList());
+            if (widened.size() > 1) {
+                poolIds = widened;
+            }
         }
         state.setCue(new ArrayList<>(poolIds));
         state.setOriginalCue(new ArrayList<>());
