@@ -13,8 +13,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @ApplicationScoped
 public class StreamCheckExecutor {
 
-    private static final int THREAD_PRIORITY = Thread.NORM_PRIORITY - 1;
-
     @Inject
     SettingsService settingsService;
 
@@ -41,16 +39,11 @@ public class StreamCheckExecutor {
     public synchronized ExecutorService getExecutor() {
         ExecutorService p = executorRef.get();
         if (p == null) {
-            int size = resolveThreads();
-            if (size <= 0) {
+            if (isDisabled()) {
                 throw new IllegalStateException("Stream checking is disabled in system settings (streamCheckThreads)");
             }
-            p = Executors.newFixedThreadPool(size, r -> {
-                Thread t = new Thread(r, "StreamCheckWorker");
-                t.setDaemon(true);
-                t.setPriority(THREAD_PRIORITY);
-                return t;
-            });
+            p = Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("StreamCheckWorker-", 0).factory());
             executorRef.set(p);
         }
         return p;

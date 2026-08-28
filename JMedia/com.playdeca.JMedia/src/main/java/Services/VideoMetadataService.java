@@ -112,8 +112,8 @@ public class VideoMetadataService {
     
 
 
-    // Dedicated 2-thread executor for background series text enrichment (NOT the shared managed pool — MAJOR-6)
-    private final ExecutorService seriesEnrichmentExecutor = Executors.newFixedThreadPool(2);
+    private final ExecutorService seriesEnrichmentExecutor =
+            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("series-enrichment-", 0).factory());
 
     // In-memory cooldown map: seriesId → last enrichment attempt millis (retries after cooldown;
     // a never-evicting keyed set would permanently skip failures and deadlock the TMDB-disabled case — MAJOR-4)

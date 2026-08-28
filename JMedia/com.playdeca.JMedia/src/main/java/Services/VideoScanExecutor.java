@@ -13,8 +13,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @ApplicationScoped
 public class VideoScanExecutor {
 
-    private static final int SCAN_THREAD_PRIORITY = Thread.NORM_PRIORITY - 1;
-
     @Inject
     SettingsService settingsService;
 
@@ -41,16 +39,11 @@ public class VideoScanExecutor {
     public synchronized ExecutorService getExecutor() {
         ExecutorService p = executorRef.get();
         if (p == null) {
-            int size = resolveThreads();
-            if (size <= 0) {
+            if (isDisabled()) {
                 throw new IllegalStateException("Video scanning is disabled in system settings (videoScanThreads)");
             }
-            p = Executors.newFixedThreadPool(size, r -> {
-                Thread t = new Thread(r, "VideoScanExecutor");
-                t.setDaemon(true);
-                t.setPriority(SCAN_THREAD_PRIORITY);
-                return t;
-            });
+            p = Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("VideoScanExecutor-", 0).factory());
             executorRef.set(p);
         }
         return p;

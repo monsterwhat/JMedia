@@ -132,10 +132,10 @@ public class SettingsController implements Serializable {
         ".mp3", ".flac", ".m4a", ".ogg", ".wav"
     );
 
-    // Music scan/maintenance pool sized from musicScanThreads (-1 off / 0 auto / N manual),
-    // rebuilt lazily when the setting changes
+    // Music scan pool — virtual threads (I/O-bound: file walk, ffprobe subprocess wait,
+    // tag read, DB writes). The musicScanThreads setting still gates disabled (-1) vs
+    // enabled, but does not cap concurrency; virtual threads unmount on blocking I/O.
     private volatile ExecutorService scanExecutor;
-    private volatile int scanExecutorSize;
 
     private int resolveMusicScanThreads() {
         try {
@@ -156,25 +156,28 @@ public class SettingsController implements Serializable {
     }
 
     public synchronized ExecutorService getScanExecutor() {
-        int desired = resolveMusicScanThreads();
-        if (desired <= 0) {
+        if (isMusicScanningDisabled()) {
             throw new IllegalStateException("Music scanning is disabled in system settings (musicScanThreads)");
         }
-        if (scanExecutor == null || scanExecutorSize != desired) {
-            ExecutorService old = scanExecutor;
-            scanExecutor = Executors.newFixedThreadPool(desired, r -> {
-                Thread t = new Thread(r, "music-scan");
-                t.setDaemon(true);
-                return t;
-            });
-            scanExecutorSize = desired;
-            shutdownQuietly(old);
+        ExecutorService p = scanExecutor;
+        if (p == null || p.isShutdown()) {
+            p = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("music-scan-", 0).factory());
+            scanExecutor = p;
         }
-        return scanExecutor;
+        return p;
     }
 
     public void reconfigureMusicScanPool() {
-        getScanExecutor();
+        // Virtual executor ignores pool-size changes; only recreate if disabled toggled
+        // or executor was shut down. No-op when already running to avoid cancelling
+        // in-flight virtual threads on mere size-setting edits.
+        if (isMusicScanningDisabled()) {
+            ExecutorService old = scanExecutor;
+            scanExecutor = null;
+            shutdownQuietly(old);
+        } else if (scanExecutor == null || scanExecutor.isShutdown()) {
+            getScanExecutor();
+        }
     }
 
     private static void shutdownQuietly(ExecutorService pool) {

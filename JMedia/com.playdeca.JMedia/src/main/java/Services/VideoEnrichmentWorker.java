@@ -68,11 +68,8 @@ public class VideoEnrichmentWorker {
         if (isRunning.compareAndSet(false, true)) {
             workerPoolSize = resolveWorkerThreads();
             if (workerPoolSize > 0) {
-                workerPool = Executors.newFixedThreadPool(workerPoolSize, r -> {
-                    Thread t = new Thread(r, "VideoEnrichment-worker");
-                    t.setDaemon(true);
-                    return t;
-                });
+                workerPool = Executors.newThreadPerTaskExecutor(
+                        Thread.ofVirtual().name("VideoEnrichment-worker-", 0).factory());
                 for (int i = 0; i < workerPoolSize; i++) {
                     workerPool.submit(this::processQueue);
                 }
@@ -80,7 +77,7 @@ public class VideoEnrichmentWorker {
                 workerPool = null;
                 LOG.info("VideoEnrichmentWorker: enrichment workers disabled in system settings");
             }
-            LOG.info("VideoEnrichmentWorker started with {} threads", workerPoolSize);
+            LOG.info("VideoEnrichmentWorker started with {} virtual threads", workerPoolSize);
         }
     }
 

@@ -33,12 +33,8 @@ public class SubtitleDownloadService {
     private static final Logger LOG = LoggerFactory.getLogger(SubtitleDownloadService.class);
     private static final String OPENSUBTITLES_API_BASE = "https://api.opensubtitles.com/api/v1";
     private static final String USER_AGENT = "JMedia v1.0";
-    private static final ExecutorService SUBTITLE_EXECUTOR = 
-        Executors.newFixedThreadPool(2, r -> {
-            Thread t = new Thread(r, "subtitle-download");
-            t.setDaemon(true);
-            return t;
-        });
+    private static final ExecutorService SUBTITLE_EXECUTOR =
+        Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("subtitle-download-", 0).factory());
 
     @Inject
     SettingsService settingsService;

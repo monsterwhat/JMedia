@@ -76,7 +76,8 @@ public class ThumbnailQueueProcessor {
     public void start() {
         if (isRunning.compareAndSet(false, true)) {
             int processingThreads = getProcessingThreads();
-            executorService = Executors.newFixedThreadPool(processingThreads);
+            executorService = Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("thumbnail-processor-", 0).factory());
             
             // Start processing threads
             for (int i = 0; i < processingThreads; i++) {

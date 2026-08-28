@@ -105,11 +105,8 @@ public class DjEnrichmentService {
             analysisPoolSize = resolveAnalysisThreads();
 
             if (metadataPoolSize > 0) {
-                metadataPool = Executors.newFixedThreadPool(metadataPoolSize, r -> {
-                    Thread t = new Thread(r, "DjEnrichment-metadata");
-                    t.setDaemon(true);
-                    return t;
-                });
+                metadataPool = Executors.newThreadPerTaskExecutor(
+                        Thread.ofVirtual().name("DjEnrichment-metadata-", 0).factory());
                 for (int i = 0; i < metadataPoolSize; i++) {
                     metadataPool.submit(this::processMetadataQueue);
                 }
