@@ -374,31 +374,52 @@ public class DjEnrichmentService {
         LOG.info("DjEnrichmentService: scanning library for unenriched songs...");
         requestContextController.activate();
         try {
-            List<Song> allSongs = Song.findAll().list();
+            // Iterate in pages to avoid loading the whole library (lyrics + base64 artwork +
+            // eager SongAnalysis) into heap at once. The Song entity holds TEXT columns that
+            // can exceed tens of MB per row, and findAll().list() with @OneToOne eager
+            // fetches explodes the heap on a 5k+ song library.
+            final int PAGE_SIZE = 500;
+            int pageIndex = 0;
+            long totalScanned = 0;
             int metadataQueued = 0;
             int analysisQueued = 0;
 
-            for (Song song : allSongs) {
-                boolean needsMeta = needsMetadata(song);
-                boolean needsAna  = needsAnalysis(song);
-
-                if (!needsMeta && !needsAna) continue;
-
-                if (needsMeta) {
-                    // Metadata first — analysis will be queued after metadata completes
-                    metadataQueue.offer(song.id);
-                    metadataQueued++;
-                } else if (needsAna && analysisPoolSize > 0) {
-                    // Only analysis needed — go directly to analysis queue
-                    analysisQueue.offer(song.id);
-                    analysisQueued++;
+            while (true) {
+                List<Song> page = Song.findAll().page(pageIndex, PAGE_SIZE).list();
+                if (page.isEmpty()) {
+                    break;
                 }
+                totalScanned += page.size();
+
+                for (Song song : page) {
+                    boolean needsMeta = needsMetadata(song);
+                    boolean needsAna  = needsAnalysis(song);
+
+                    if (!needsMeta && !needsAna) continue;
+
+                    if (needsMeta) {
+                        // Metadata first — analysis will be queued after metadata completes
+                        metadataQueue.offer(song.id);
+                        metadataQueued++;
+                    } else if (needsAna && analysisPoolSize > 0) {
+                        // Only analysis needed — go directly to analysis queue
+                        analysisQueue.offer(song.id);
+                        analysisQueued++;
+                    }
+                }
+
+                page.clear();
+
+                if (page.size() < PAGE_SIZE) {
+                    break;
+                }
+                pageIndex++;
             }
 
             pending.addAndGet(metadataQueued + analysisQueued);
 
             LOG.info("DjEnrichmentService: queued {} songs — {} for metadata, {} for analysis (total library: {})",
-                metadataQueued + analysisQueued, metadataQueued, analysisQueued, allSongs.size());
+                metadataQueued + analysisQueued, metadataQueued, analysisQueued, totalScanned);
         } catch (Exception e) {
             LOG.error("DjEnrichmentService: failed to scan library for unenriched songs", e);
         } finally {

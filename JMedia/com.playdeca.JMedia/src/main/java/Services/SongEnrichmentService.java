@@ -199,9 +199,10 @@ public class SongEnrichmentService {
     @Transactional
     public int deleteOrphanEnrichments() {
         java.util.Set<String> liveKeys = new java.util.HashSet<>();
-        List<Song> songs = Song.findAll().list();
-        for (Song song : songs) {
-            String key = cacheKey(song.getArtist(), song.getTitle());
+        List<Object[]> rows = em.createQuery(
+                "SELECT s.artist, s.title FROM Song s", Object[].class).getResultList();
+        for (Object[] row : rows) {
+            String key = cacheKey((String) row[0], (String) row[1]);
             if (key != null) {
                 liveKeys.add(key);
             }
