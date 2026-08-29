@@ -64,21 +64,19 @@ public class SongService {
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
         
-        // Delete song_analysis_beats join table rows first — bulk DELETE does not cascade
-        // to @ElementCollection join tables, so this must be explicit.
-        em.createNativeQuery("DELETE FROM song_analysis_beats").executeUpdate();
-
-        // Delete SongAnalysis first (due to foreign key constraint)
-        em.createQuery("DELETE FROM SongAnalysis").executeUpdate();
-        
+        // Delete songs first — cascade removes SongAnalysis and its @ElementCollection beats table.
+        // H2 defers @ElementCollection cleanup on bulk DELETE, so we must delete the parent entity
+        // before the child, or the FK constraint on song_analysis_beats fires.
         if (dirPath != null && !dirPath.isBlank()) {
-            // Delete only songs from specific directory
             em.createQuery("DELETE FROM Song WHERE path LIKE :dirPath")
-                .setParameter("dirPath", dirPath + "%")
-                .executeUpdate();
+                    .setParameter("dirPath", dirPath + "%")
+                    .executeUpdate();
         } else {
             em.createQuery("DELETE FROM Song").executeUpdate();
         }
+
+        // Remove any SongAnalysis orphaned by cascade gaps or scan failures.
+        em.createQuery("DELETE FROM SongAnalysis WHERE song IS NULL").executeUpdate();
     }
 
     @Transactional
