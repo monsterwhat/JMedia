@@ -334,6 +334,45 @@ public class SongService {
         return matched.stream().map(s -> songMap.get(s.id)).collect(java.util.stream.Collectors.toList());
     }
 
+    /**
+     * Queue-page projection that loads only the columns the queue UI renders.
+     * Skips lyrics/artworkBase64 CLOBs and the SongAnalysis join — these blow the
+     * heap when H2 streams the full CLOB value through ValueLob.readString.
+     */
+    public record SlimSong(Long id, String path, String title, int durationSeconds, int bpm) {}
+
+    public SlimSong findSlimById(Long id) {
+        if (id == null) return null;
+        var rows = em.createQuery(
+                "SELECT s.id, s.path, s.title, s.durationSeconds, s.bpm FROM Song s WHERE s.id = :id", Object[].class)
+                .setParameter("id", id)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) return null;
+        var r = rows.get(0);
+        return new SlimSong((Long) r[0], (String) r[1], (String) r[2], (Integer) r[3], (Integer) r[4]);
+    }
+
+    public List<Models.DTOs.QueueSongView> findQueuePageView(List<Long> ids, String search, int offset, int limit) {
+        if (ids == null || ids.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        String searchLower = (search == null ? "" : search.toLowerCase());
+        String whereClause = "s.id IN :ids";
+        if (!searchLower.isBlank()) {
+            whereClause += " AND (LOWER(s.title) LIKE :search ESCAPE '\\' OR LOWER(s.artist) LIKE :search ESCAPE '\\')";
+        }
+        var query = em.createQuery(
+                "SELECT s.id, s.title, s.artist FROM Song s WHERE " + whereClause, Object[].class)
+                .setParameter("ids", ids);
+        if (!searchLower.isBlank()) {
+            query.setParameter("search", "%" + searchLower.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
+        }
+        var results = query.setFirstResult(offset).setMaxResults(limit).getResultList();
+        return results.stream().map(row -> new Models.DTOs.QueueSongView(
+                (Long) row[0], (String) row[1], (String) row[2])).toList();
+    }
+
     public long countByIdsWithSearch(List<Long> ids, String search) {
         if (ids == null || ids.isEmpty()) {
             return 0;

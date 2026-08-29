@@ -1220,6 +1220,22 @@ public class PlaybackController {
         return allSongs.isEmpty() ? null : allSongs.get(0);
     }
 
+    public synchronized Models.DTOs.QueueSongView getCurrentSongView(Long profileId) {
+        PlaybackState st = getState(profileId);
+        Long currentId = st.getCurrentSongId();
+        if (currentId == null) {
+            List<Long> cue = st.getCue();
+            if (cue != null && !cue.isEmpty()) {
+                currentId = cue.get(0);
+            }
+        }
+        if (currentId == null) {
+            return null;
+        }
+        var views = songService.findQueuePageView(List.of(currentId), null, 0, 1);
+        return views.isEmpty() ? null : views.get(0);
+    }
+
     /**
      * Returns the previous song in the queue, or null if none.
      */
@@ -1387,8 +1403,55 @@ public class PlaybackController {
                 .collect(Collectors.toList());
     }
 
+    public synchronized List<Models.DTOs.QueueSongView> getQueueView(Long profileId) {
+        PlaybackState st = getState(profileId);
+        List<Long> cueIds = st.getCue();
+        if (cueIds == null || cueIds.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        return songService.findQueuePageView(cueIds, null, 0, cueIds.size());
+    }
+
     public record PaginatedQueue(List<Song> songs, int totalSize) {
 
+    }
+
+    public record PaginatedQueueView(List<Models.DTOs.QueueSongView> songs, int totalSize) {
+
+    }
+
+    public PaginatedQueueView getQueuePageView(int page, int limit, Long profileId, String search) {
+        PlaybackState st = getState(profileId);
+        List<Long> cueIds;
+        synchronized(st) {
+            cueIds = new ArrayList<>(st.getCue());
+        }
+
+        if (cueIds.isEmpty()) {
+            return new PaginatedQueueView(new ArrayList<>(), 0);
+        }
+
+        // With search: filter and paginate in the DB to avoid OOM on large queues
+        if (search != null && !search.isBlank()) {
+            long totalSize = songService.countByIdsWithSearch(cueIds, search);
+            int fromIndex = (page - 1) * limit;
+            if (fromIndex >= totalSize) {
+                return new PaginatedQueueView(new ArrayList<>(), (int) totalSize);
+            }
+            List<Models.DTOs.QueueSongView> pageViews = songService.findQueuePageView(cueIds, search, fromIndex, limit);
+            return new PaginatedQueueView(pageViews, (int) totalSize);
+        }
+
+        int totalSize = cueIds.size();
+        int fromIndex = (page - 1) * limit;
+        if (fromIndex >= totalSize) {
+            return new PaginatedQueueView(new ArrayList<>(), totalSize);
+        }
+        int toIndex = Math.min(fromIndex + limit, totalSize);
+        List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
+
+        List<Models.DTOs.QueueSongView> pageViews = songService.findQueuePageView(pageOfIds, null, 0, pageOfIds.size());
+        return new PaginatedQueueView(pageViews, totalSize);
     }
 
     public PaginatedQueue getQueuePage(int page, int limit, Long profileId) {

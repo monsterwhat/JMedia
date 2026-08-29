@@ -137,13 +137,33 @@ public class AudioAnalysisService {
         // AnalysisWorker) may pass a detached entity whose row was deleted concurrently
         // (clear+rescan). Merging a stale copy throws StaleObjectStateException and loses
         // the analysis; operating on the current row never clobbers fresher scan data.
+        Long songId;
+        String songPath;
+        String songTitle;
+        int songDurationSeconds;
         if (song != null && song.id != null) {
-            Song current = em.find(Song.class, song.id);
-            if (current == null) {
+            // Check existence without loading the full Song (which carries heavy
+            // CLOBs - lyrics + artworkBase64). A COUNT query avoids the heap blow-up.
+            Long count = em.createQuery("SELECT COUNT(s) FROM Song s WHERE s.id = :id", Long.class)
+                    .setParameter("id", song.id)
+                    .getSingleResult();
+            if (count == 0) {
                 LOG.info("Song {} no longer exists (deleted concurrently), skipping analysis", song.id);
                 return null;
             }
-            song = current;
+            songId = song.id;
+            // Load only the columns analyzeSong actually uses: id, path, title, duration.
+            // Skips lyrics / artworkBase64 CLOBs and the eager SongAnalysis join that
+            // would otherwise blow the heap when the queue has 5k+ songs.
+            Object[] cols = (Object[]) em.createQuery(
+                    "SELECT s.id, s.path, s.title, s.durationSeconds FROM Song s WHERE s.id = :id")
+                    .setParameter("id", song.id)
+                    .getSingleResult();
+            songPath = (String) cols[1];
+            songTitle = (String) cols[2];
+            songDurationSeconds = (Integer) cols[3];
+        } else {
+            return null;
         }
 
         String libraryPath = settingsService.getOrCreateSettings().getLibraryPath();
@@ -151,23 +171,27 @@ public class AudioAnalysisService {
             LOG.error("No library path configured, cannot analyze song");
             return null;
         }
-        
-        String songPath = libraryPath + File.separator + song.getPath();
-        File audioFile = new File(songPath);
-        
+
+        String fullPath = libraryPath + File.separator + songPath;
+        File audioFile = new File(fullPath);
+
         if (!audioFile.exists()) {
-            LOG.error("Audio file not found: {}", songPath);
+            LOG.error("Audio file not found: {}", fullPath);
             return null;
         }
-        
+
         // Check if analysis already exists
-        SongAnalysis existing = SongAnalysis.find("song.id", song.id).firstResult();
+        SongAnalysis existing = SongAnalysis.find("song.id", songId).firstResult();
         if (existing != null && existing.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED
                 && existing.getBeatCount() != null && existing.getAverageBpm() != null) {
-            LOG.info("Song {} already analyzed", song.getTitle());
+            LOG.info("Song {} already analyzed", songTitle);
             return existing;
         }
-        
+
+        // Use em.getReference() for the Song FK on the analysis row — returns a managed
+        // proxy without firing a SELECT for the CLOB columns.
+        Song songRef = em.getReference(Song.class, songId);
+
         // Create or update analysis record
         SongAnalysis analysis;
         if (existing != null) {
@@ -176,25 +200,25 @@ public class AudioAnalysisService {
         } else {
             // Create new and persist
             analysis = new SongAnalysis();
-            analysis.setSong(song);
+            analysis.setSong(songRef);
             em.persist(analysis);
         }
-        
+
         analysis.setStatus(SongAnalysis.AnalysisStatus.PROCESSING);
         analysis.setAnalysisTimestamp(System.currentTimeMillis());
-        
+
         try {
-            LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", song.getTitle());
-            
+            LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", songTitle);
+
             // Step 1: Detect onsets, track beats, and extract spectral features
             AnalysisResult result = performAdvancedTarsosAnalysis(audioFile);
-            
+
             if (result == null || result.beatTimes.isEmpty()) {
                 // Beat detection failed (common for classical, ambient, non-percussive music).
                 // Instead of marking as FAILED (which causes endless retries by AnalysisWorker),
                 // mark as COMPLETED with empty data. isReady() will return false, so DJ mode
                 // won't attempt beat-matched transitions, but the song won't be retried.
-                LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", song.getTitle());
+                LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", songTitle);
                 analysis.setBeatTimes(new java.util.ArrayList<>());
                 analysis.setBeatCount(0);
                 analysis.setAverageBpm(0.0);
@@ -206,43 +230,46 @@ public class AudioAnalysisService {
                 em.merge(analysis);
                 return analysis;
             }
-            
+
             analysis.setBeatTimes(result.beatTimes);
             analysis.setBeatCount(result.beatTimes.size());
             analysis.setAverageBpm(result.detectedBpm);
-            
-            // Update song BPM if it was missing or significantly different
+
+            // Update song BPM with a JPQL UPDATE so we never load the full Song row.
             if (result.detectedBpm > 0) {
-                song.setBpm((int) Math.round(result.detectedBpm));
-                song.setUpdatedAt(java.time.LocalDateTime.now());
-                em.merge(song);
+                em.createQuery(
+                        "UPDATE Song s SET s.bpm = :bpm, s.updatedAt = :now WHERE s.id = :id")
+                        .setParameter("bpm", (int) Math.round(result.detectedBpm))
+                        .setParameter("now", java.time.LocalDateTime.now())
+                        .setParameter("id", songId)
+                        .executeUpdate();
             }
-            
+
             // Step 2: Extract features for similarity matching
             String featuresJson = buildAdvancedFeaturesJson(result);
             analysis.setSegmentFeaturesJson(featuresJson);
-            
+
             // Step 3: Build similarity graph
             String similarBeatsJson = buildSimilarityGraph(result.beatTimes, (int) Math.round(result.detectedBpm));
             analysis.setSimilarBeatsJson(similarBeatsJson);
-            
+
             // Step 4: Store beat metadata for cross-song matching
-            String beatMetadataJson = buildBeatMetadata(result.beatTimes, (int) Math.round(result.detectedBpm), song.getDurationSeconds());
+            String beatMetadataJson = buildBeatMetadata(result.beatTimes, (int) Math.round(result.detectedBpm), songDurationSeconds);
             analysis.setBeatMetadataJson(beatMetadataJson);
-            
+
             analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
             analysis.setErrorMessage(null);
-            
-            LOG.info("ADVANCED Analysis completed for: {} ({} beats, BPM: {})", 
-                song.getTitle(), result.beatTimes.size(), Math.round(result.detectedBpm));
-            
+
+            LOG.info("ADVANCED Analysis completed for: {} ({} beats, BPM: {})",
+                songTitle, result.beatTimes.size(), Math.round(result.detectedBpm));
+
         } catch (Exception e) {
-            LOG.error("ADVANCED Analysis failed for {}: {}", song.getTitle(), e.getMessage());
+            LOG.error("ADVANCED Analysis failed for {}: {}", songTitle, e.getMessage());
             analysis.setStatus(SongAnalysis.AnalysisStatus.FAILED);
             analysis.setErrorMessage(e.getMessage());
             e.printStackTrace();
         }
-        
+
         em.merge(analysis);
         return analysis;
     }

@@ -125,46 +125,32 @@ public class AnalysisWorker {
                 deferStartedAt = 0;
             }
 
-            // Phase 1: Process PENDING records
-            List<SongAnalysis> pending = SongAnalysis.find("status", SongAnalysis.AnalysisStatus.PENDING)
-                .page(0, batchSize)
-                .list();
+            // Phase 1: Process PENDING records. Fetch only IDs first to avoid
+            // eagerly loading each SongAnalysis row's Song FK (which carries the
+            // Song entity with lyrics + artworkBase64 CLOBs and SongAnalysis JSON
+            // blobs) into heap at once. We then process one record at a time.
+            List<Long> pendingIds = em.createQuery(
+                    "SELECT sa.id FROM SongAnalysis sa WHERE sa.status = :status ORDER BY sa.id", Long.class)
+                    .setParameter("status", SongAnalysis.AnalysisStatus.PENDING)
+                    .setMaxResults(batchSize)
+                    .getResultList();
 
-            for (SongAnalysis sa : pending) {
-                Song song = sa.getSong();
-                if (song == null) {
-                    LOG.warn("AnalysisWorker: PENDING record {} has no song, deleting", sa.id);
-                    sa.delete();
-                    continue;
-                }
-                LOG.info("AnalysisWorker: analyzing '{}' (id={})", song.getTitle(), song.id);
-                SongAnalysis result = audioAnalysisService.analyzeSong(song);
-                if (result != null && result.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
-                    playbackController.replanDjTransitionsForAnalyzedSong(song.id);
-                }
+            for (Long analysisId : pendingIds) {
+                processAnalysisById(analysisId, "PENDING");
             }
 
             // Phase 2: If nothing PENDING, retry FAILED records older than 5 minutes
-            if (pending.isEmpty()) {
+            if (pendingIds.isEmpty()) {
                 long cutoff = System.currentTimeMillis() - FAILED_RETRY_AFTER_MS;
-                List<SongAnalysis> failed = SongAnalysis.find(
-                    "status = ?1 AND analysisTimestamp < ?2",
-                    SongAnalysis.AnalysisStatus.FAILED,
-                    cutoff
-                ).page(0, batchSize).list();
+                List<Long> failedIds = em.createQuery(
+                        "SELECT sa.id FROM SongAnalysis sa WHERE sa.status = :status AND sa.analysisTimestamp < :cutoff ORDER BY sa.id", Long.class)
+                        .setParameter("status", SongAnalysis.AnalysisStatus.FAILED)
+                        .setParameter("cutoff", cutoff)
+                        .setMaxResults(batchSize)
+                        .getResultList();
 
-                for (SongAnalysis sa : failed) {
-                    Song song = sa.getSong();
-                    if (song == null) {
-                        LOG.warn("AnalysisWorker: FAILED record {} has no song, deleting", sa.id);
-                        sa.delete();
-                        continue;
-                    }
-                    LOG.info("AnalysisWorker: retrying failed analysis for '{}' (id={})", song.getTitle(), song.id);
-                    SongAnalysis result = audioAnalysisService.analyzeSong(song);
-                    if (result != null && result.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
-                        playbackController.replanDjTransitionsForAnalyzedSong(song.id);
-                    }
+                for (Long analysisId : failedIds) {
+                    processAnalysisById(analysisId, "FAILED");
                 }
             }
 
@@ -180,6 +166,28 @@ public class AnalysisWorker {
             if (tickStartedAt == now) {
                 tickStartedAt = 0;
             }
+        }
+    }
+
+    @Transactional
+    public void processAnalysisById(Long analysisId, String phase) {
+        SongAnalysis sa = SongAnalysis.findById(analysisId);
+        if (sa == null) {
+            return;
+        }
+        // Use getReference() to get a managed Song proxy without firing the SELECT
+        // for CLOB columns. analyzeSong only needs id+path+title+duration, which it
+        // loads explicitly with a slim JPQL projection.
+        Song song = em.getReference(Song.class, sa.getSong() != null ? sa.getSong().id : null);
+        if (sa.getSong() == null) {
+            LOG.warn("AnalysisWorker: {} record {} has no song, deleting", phase, sa.id);
+            sa.delete();
+            return;
+        }
+        LOG.info("AnalysisWorker: {} record {} for song id={}", phase, sa.id, song.id);
+        SongAnalysis result = audioAnalysisService.analyzeSong(song);
+        if (result != null && result.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
+            playbackController.replanDjTransitionsForAnalyzedSong(song.id);
         }
     }
 }

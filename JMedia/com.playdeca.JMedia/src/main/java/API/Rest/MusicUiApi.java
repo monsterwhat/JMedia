@@ -225,12 +225,12 @@ public class MusicUiApi {
         Response apiResponse = queueAPI.queueAllSongs(profileId, id, headers);
 
         // Then return the updated queue fragment for HTMX
-        List<Song> updatedQueue = playbackController.getQueue(profileId);
+        List<Models.DTOs.QueueSongView> updatedQueue = playbackController.getQueueView(profileId);
 
         // Create a list of SongWithIndex objects
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+            queueWithIndex.add(new SongViewWithIndex(updatedQueue.get(i), i));
         }
 
         int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
@@ -273,11 +273,11 @@ public class MusicUiApi {
     public QueueFragmentResponse skipToQueueIndexUi(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) { // Reverted return type
         queueAPI.skipToQueueIndex(profileId, index, headers);
 
-        List<Song> updatedQueue = playbackController.getQueue(profileId);
+        List<Models.DTOs.QueueSongView> updatedQueue = playbackController.getQueueView(profileId);
         // Create a list of SongWithIndex objects
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+            queueWithIndex.add(new SongViewWithIndex(updatedQueue.get(i), i));
         }
 
         int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
@@ -320,11 +320,11 @@ public class MusicUiApi {
     public QueueFragmentResponse removeFromQueueUi(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) { // Reverted return type
         queueAPI.removeFromQueue(profileId, index, headers);
 
-        List<Song> updatedQueue = playbackController.getQueue(profileId);
+        List<Models.DTOs.QueueSongView> updatedQueue = playbackController.getQueueView(profileId);
         // Create a list of SongWithIndex objects
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+            queueWithIndex.add(new SongViewWithIndex(updatedQueue.get(i), i));
         }
 
         int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
@@ -372,11 +372,11 @@ public class MusicUiApi {
     public QueueFragmentResponse clearQueueUi(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) { // Reverted return type
         queueAPI.clearQueue(profileId, headers);
 
-        List<Song> updatedQueue = playbackController.getQueue(profileId);
+        List<Models.DTOs.QueueSongView> updatedQueue = playbackController.getQueueView(profileId);
         // Create a list of SongWithIndex objects
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+            queueWithIndex.add(new SongViewWithIndex(updatedQueue.get(i), i));
         }
 
         int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
@@ -739,6 +739,10 @@ public class MusicUiApi {
 
     }
 
+    public record SongViewWithIndex(Models.DTOs.QueueSongView song, int index) {
+
+    }
+
     // Helper record to pass history entry and its index to the template
     public record HistoryWithIndex(Models.Music.PlaybackHistory history, int index) {
 
@@ -754,15 +758,15 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
-        List<Song> queuePage = paginatedQueue.songs();
+        PlaybackController.PaginatedQueueView paginatedQueue = playbackController.getQueuePageView(page, limit, profileId, search);
+        List<Models.DTOs.QueueSongView> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
         // The template needs the index of each song *within the full queue*.
         int offset = (page - 1) * limit;
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < queuePage.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
+            queueWithIndex.add(new SongViewWithIndex(queuePage.get(i), offset + i));
         }
 
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
@@ -771,9 +775,11 @@ public class MusicUiApi {
         boolean hasMore = page * limit < totalQueueSize;
         int nextPage = page + 1;
 
+        Models.DTOs.QueueSongView currentSongView = playbackController.getCurrentSongView(profileId);
+
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("currentSong", currentSongView)
                 .data("profileId", profileId)
                 .data("offset", offset)
                 .data("limit", limit)
@@ -814,15 +820,15 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
-        List<Song> queuePage = paginatedQueue.songs();
+        PlaybackController.PaginatedQueueView paginatedQueue = playbackController.getQueuePageView(page, limit, profileId, search);
+        List<Models.DTOs.QueueSongView> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
         // The template needs the index of each song *within the full queue*.
         int offset = (page - 1) * limit;
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < queuePage.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
+            queueWithIndex.add(new SongViewWithIndex(queuePage.get(i), offset + i));
         }
 
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
@@ -856,14 +862,14 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
-        List<Song> queuePage = paginatedQueue.songs();
+        PlaybackController.PaginatedQueueView paginatedQueue = playbackController.getQueuePageView(page, limit, profileId, search);
+        List<Models.DTOs.QueueSongView> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
         int offset = (page - 1) * limit;
-        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        List<SongViewWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < queuePage.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
+            queueWithIndex.add(new SongViewWithIndex(queuePage.get(i), offset + i));
         }
 
         if (queueWithIndex.isEmpty()) {
