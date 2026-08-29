@@ -193,10 +193,11 @@ public class SongService {
 
     public Song findByPath(String path) {
         try {
-            return em.createQuery("SELECT s FROM Song s WHERE s.path = :path", Song.class)
+            var results = em.createQuery("SELECT s FROM Song s WHERE s.path = :path", Song.class)
                     .setParameter("path", path)
-                    .getSingleResult();
-        } catch (jakarta.persistence.NoResultException e) {
+                    .getResultList();
+            return results.isEmpty() ? null : results.get(0);
+        } catch (Exception e) {
             return null;
         }
     }
@@ -215,10 +216,11 @@ public class SongService {
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Song findByPathInNewTx(String path) {
         try {
-            return em.createQuery("SELECT s FROM Song s WHERE s.path = :path", Song.class)
+            var results = em.createQuery("SELECT s FROM Song s WHERE s.path = :path", Song.class)
                     .setParameter("path", path)
-                    .getSingleResult();
-        } catch (jakarta.persistence.NoResultException e) {
+                    .getResultList();
+            return results.isEmpty() ? null : results.get(0);
+        } catch (Exception e) {
             return null;
         }
     }
