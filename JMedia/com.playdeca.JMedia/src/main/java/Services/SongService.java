@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Music.Song;
+import Models.Music.SongListItem;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;
@@ -227,54 +228,48 @@ public class SongService {
         }
     }
 
-    public record PaginatedSongs(List<Song> songs, long totalCount) {
+    public record PaginatedSongs(List<SongListItem> songs, long totalCount) {
 
     }
 
     public PaginatedSongs findAll(int page, int limit, String search, String sortBy, String sortDirection) {
-        String baseQuery = "SELECT s FROM Song s";
-        String whereClause = "";
+        // Projection query: never touches lyrics, artworkBase64, or SongAnalysis
+        StringBuilder baseQuery = new StringBuilder(
+                "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) FROM Song s");
+
+        StringBuilder whereClause = new StringBuilder();
 
         if (search != null && !search.isBlank()) {
-            whereClause = " WHERE LOWER(s.title) LIKE :search OR "
-                    + "LOWER(s.artist) LIKE :search OR "
-                    + "LOWER(s.album) LIKE :search OR "
-                    + "LOWER(s.albumArtist) LIKE :search OR "
-                    + genreNormExpr() + " LIKE :normSearch";
+            whereClause.append(" WHERE LOWER(s.title) LIKE :search OR ")
+                    .append("LOWER(s.artist) LIKE :search OR ")
+                    .append("LOWER(s.album) LIKE :search OR ")
+                    .append("LOWER(s.albumArtist) LIKE :search OR ")
+                    .append(genreNormExpr()).append(" LIKE :normSearch");
         }
 
-        // Build the ORDER BY clause dynamically
-        String orderByClause = " ORDER BY ";
+        StringBuilder orderByClause = new StringBuilder(" ORDER BY ");
         switch (sortBy) {
-            case "title":
-                orderByClause += "s.title";
-                break;
-            case "artist":
-                orderByClause += "s.artist";
-                break;
-            case "duration":
-                orderByClause += "s.durationSeconds";
-                break;
-            case "dateAdded":
-            default:
-                orderByClause += "s.dateAdded";
-                break;
+            case "title": orderByClause.append("s.title"); break;
+            case "artist": orderByClause.append("s.artist"); break;
+            case "duration": orderByClause.append("s.durationSeconds"); break;
+            case "dateAdded": default: orderByClause.append("s.dateAdded"); break;
         }
-
         if ("desc".equalsIgnoreCase(sortDirection)) {
-            orderByClause += " DESC";
+            orderByClause.append(" DESC");
         } else {
-            orderByClause += " ASC";
+            orderByClause.append(" ASC");
         }
 
-        jakarta.persistence.TypedQuery<Song> query = em.createQuery(baseQuery + whereClause + orderByClause, Song.class);
+        var query = em.createQuery(
+                baseQuery.append(whereClause).append(orderByClause).toString(),
+                SongListItem.class);
 
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
             query.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
         }
 
-        List<Song> songs = query
+        List<SongListItem> songs = query
                 .setFirstResult((page - 1) * limit)
                 .setMaxResults(limit)
                 .getResultList();
@@ -912,8 +907,9 @@ public class SongService {
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
         String norm = normalizeGenre(genre);
-        List<Song> songs = em.createQuery(
-            "SELECT s FROM Song s WHERE " + genreNormExpr() + " = :genre" + order, Song.class)
+        List<SongListItem> songs = em.createQuery(
+            "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+            "FROM Song s WHERE " + genreNormExpr() + " = :genre" + order, SongListItem.class)
             .setParameter("genre", norm)
             .setFirstResult((page - 1) * limit).setMaxResults(limit)
             .getResultList();

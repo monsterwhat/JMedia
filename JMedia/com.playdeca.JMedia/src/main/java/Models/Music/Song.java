@@ -18,6 +18,7 @@ public class Song extends PanacheEntity {
     private String releaseDate;
     private String genre;
     @com.fasterxml.jackson.annotation.JsonIgnore
+    @Basic(fetch = FetchType.LAZY)
     @Column(length = Integer.MAX_VALUE)
     private String lyrics;
     private boolean explicit;
@@ -25,6 +26,7 @@ public class Song extends PanacheEntity {
     private int durationSeconds;
     private String path;
 
+    @Basic(fetch = FetchType.LAZY)
     @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
@@ -34,7 +36,7 @@ public class Song extends PanacheEntity {
     private String musicbrainzId;
     
     @com.fasterxml.jackson.annotation.JsonIgnore
-    @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private SongAnalysis analysis;
 
 

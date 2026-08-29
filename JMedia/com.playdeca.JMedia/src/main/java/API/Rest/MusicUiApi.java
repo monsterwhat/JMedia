@@ -5,6 +5,7 @@ import Models.Music.PlaybackHistory;
 import Models.Music.Playlist;
 import Models.Settings.Profile;
 import Models.Music.Song;
+import Models.Music.SongListItem;
 import Services.PlaylistService;
 import Services.ProfileService;
 import Services.SongService;
@@ -463,7 +464,7 @@ public class MusicUiApi {
             }
         }
 
-        List<Song> paginatedSongs;
+        List<SongListItem> paginatedSongs;
         long totalSongs;
 
         if (playlistId == 0) {
@@ -516,7 +517,7 @@ public class MusicUiApi {
         try {
             long playlistId = (id == null) ? 0L : id;
 
-            List<Song> paginatedSongs;
+            List<SongListItem> paginatedSongs;
             long totalSongs;
 
             if (playlistId == 0) {
@@ -576,7 +577,7 @@ public class MusicUiApi {
         try {
             long playlistId = (id == null) ? 0L : id;
 
-            List<Song> paginatedSongs;
+            List<SongListItem> paginatedSongs;
             long totalSongs;
 
             if (playlistId == 0) {
@@ -636,7 +637,7 @@ public class MusicUiApi {
         try {
             long playlistId = (id == null) ? 0L : id;
 
-            List<Song> paginatedSongs;
+            List<SongListItem> paginatedSongs;
             long totalSongs;
 
             if (playlistId == 0) {
@@ -695,7 +696,7 @@ public class MusicUiApi {
         try {
             long playlistId = (id == null) ? 0L : id;
 
-            List<Song> paginatedSongs;
+            List<SongListItem> paginatedSongs;
             long totalSongs;
 
             if (playlistId == 0) {
@@ -927,7 +928,7 @@ public class MusicUiApi {
 
             // Fetch a limited number of suggestions
             SongService.PaginatedSongs result = songService.findAll(1, 5, searchQuery, "title", "asc");
-            List<Song> suggestions = result.songs();
+            List<SongListItem> suggestions = result.songs();
 
             return searchSuggestionsFragment
                     .data("suggestions", suggestions)
@@ -966,7 +967,7 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
-        List<Song> songs = result.songs();
+        List<SongListItem> songs = result.songs();
 
         if (songs.isEmpty()) {
             return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";

@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Music.Playlist;
+import Models.Music.SongListItem;
 import Models.Settings.Profile;
 import Models.Music.Song;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -157,23 +158,24 @@ public class PlaylistService {
         }
     }
     
-    public record PaginatedPlaylistSongs(List<Song> songs, long totalCount) {
+    public record PaginatedPlaylistSongs(List<SongListItem> songs, long totalCount) {
 
     }
 
     public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit, String search, String sortBy, String sortDirection) {
-        Playlist playlist = find(playlistId); // find is access-aware
+        Playlist playlist = find(playlistId);
         if (playlist == null) {
             return new PaginatedPlaylistSongs(List.of(), 0);
         }
-        
-        System.err.println("DEBUG: findSongsByPlaylist called with playlistId=" + playlistId + ", playlist found=" + (playlist != null) + ", name=" + (playlist != null ? playlist.getName() : "null"));
-        
-        // The rest of the logic remains the same as the playlist is already verified.
-        StringBuilder baseQuery = new StringBuilder("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
+
+        // Projection: never touches lyrics, artworkBase64, or SongAnalysis
+        StringBuilder baseQuery = new StringBuilder(
+                "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+                "FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
 
         if (search != null && !search.isBlank()) {
-            baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR " + SongService.genreNormExpr() + " LIKE :normSearch)");
+            baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR ")
+                    .append(SongService.genreNormExpr()).append(" LIKE :normSearch)");
         }
 
         baseQuery.append(" ORDER BY ");
@@ -183,14 +185,13 @@ public class PlaylistService {
             case "duration": baseQuery.append("s.durationSeconds"); break;
             case "dateAdded": default: baseQuery.append("s.dateAdded"); break;
         }
-
         if ("desc".equalsIgnoreCase(sortDirection)) {
             baseQuery.append(" DESC");
         } else {
             baseQuery.append(" ASC");
         }
 
-        jakarta.persistence.TypedQuery<Song> songsQuery = em.createQuery(baseQuery.toString(), Song.class)
+        var songsQuery = em.createQuery(baseQuery.toString(), SongListItem.class)
                 .setParameter("playlistId", playlistId)
                 .setFirstResult((page - 1) * limit)
                 .setMaxResults(limit);
@@ -200,7 +201,7 @@ public class PlaylistService {
             songsQuery.setParameter("normSearch", "%" + SongService.normalizeGenre(search) + "%");
         }
 
-        List<Song> songs = songsQuery.getResultList();
+        List<SongListItem> songs = songsQuery.getResultList();
         long totalCount = countSongsByPlaylist(playlistId, search);
         return new PaginatedPlaylistSongs(songs, totalCount);
     }
