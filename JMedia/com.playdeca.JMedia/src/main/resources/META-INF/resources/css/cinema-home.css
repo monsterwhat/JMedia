@@ -1251,6 +1251,60 @@ html, body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.cinema-modal-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding: 0 1.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.cinema-modal-download:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.02);
+}
+.cinema-modal-download:active {
+  transform: scale(0.97);
+}
+
+.cinema-episode-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.75rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.15s ease;
+}
+.cinema-episode-download:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.16);
+  transform: scale(1.06);
+}
+.cinema-episode-download:active {
+  transform: scale(0.93);
+}
+.cinema-episode-card:hover .cinema-episode-download {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 /* ============================================================
     Modal — PLUTO-like Hero Overlay Layout
     ============================================================ */

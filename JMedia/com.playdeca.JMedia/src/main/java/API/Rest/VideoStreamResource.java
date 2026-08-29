@@ -1176,6 +1176,109 @@ public class VideoStreamResource {
         return responseBuilder.build();
     }
 
+    @GET
+    @Path("/download/{videoId:[0-9]+}")
+    public Response downloadVideoFile(@PathParam("videoId") Long videoId,
+                                     @HeaderParam("Range") String rangeHeader) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
+        }
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            LOG.error("Video library path is not configured.");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Video library path not configured.").build();
+        }
+        java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
+        final java.nio.file.Path filePath = baseFilePath.isAbsolute()
+                ? baseFilePath : java.nio.file.Paths.get(videoLibraryPath, video.path);
+        File videoFile = filePath.toFile();
+        if (!videoFile.exists() || !videoFile.isFile()) {
+            LOG.warn("Video file not found for download: {}", filePath);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        long fileLength = videoFile.length();
+        long start = 0;
+        long end = fileLength - 1;
+        boolean isRangeRequest = rangeHeader != null && rangeHeader.startsWith("bytes=");
+        if (isRangeRequest) {
+            try {
+                String rangeValue = rangeHeader.substring(6).trim();
+                if (rangeValue.startsWith("-")) {
+                    long suffix = Long.parseLong(rangeValue.substring(1));
+                    start = Math.max(0, fileLength - suffix);
+                    end = fileLength - 1;
+                } else {
+                    String[] parts = rangeValue.split("-", -1);
+                    start = Long.parseLong(parts[0].trim());
+                    if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+                        end = Long.parseLong(parts[1].trim());
+                    } else {
+                        end = fileLength - 1;
+                    }
+                }
+                if (end >= fileLength) end = fileLength - 1;
+                if (start > end) {
+                    return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            .header("Content-Range", "bytes */" + fileLength)
+                            .header("Content-Length", "0")
+                            .header("Accept-Ranges", "bytes")
+                            .header("Content-Type", getMimeType(videoFile.getName()))
+                            .build();
+                }
+            } catch (Exception e) {
+                LOG.warn("Invalid Range header '{}' for download: {}", rangeHeader, e.getMessage());
+                start = 0;
+                end = fileLength - 1;
+            }
+        }
+        if (start >= fileLength) {
+            return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header("Content-Range", "bytes */" + fileLength)
+                    .build();
+        }
+        long contentLength = end - start + 1;
+        final long finalStart = start;
+        final long finalContentLength = contentLength;
+        final String mimeType = getMimeType(videoFile.getName());
+        String rawName = videoFile.getName();
+        String safeFilename = rawName.replace("\"", "");
+        String encodedFilename = java.net.URLEncoder.encode(safeFilename, StandardCharsets.UTF_8).replace("+", "%20");
+        String contentDisposition = "attachment; filename=\"" + safeFilename + "\"; filename*=UTF-8''" + encodedFilename;
+        LOG.info("[DOWNLOAD] videoId={} file={} range={} length={}", videoId, safeFilename, rangeHeader != null ? rangeHeader : "full", fileLength);
+        StreamingOutput streamingOutput = output -> {
+            try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
+                raf.seek(finalStart);
+                byte[] buffer = new byte[65536];
+                long remaining = finalContentLength;
+                while (remaining > 0) {
+                    int read = raf.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                    if (read == -1) break;
+                    output.write(buffer, 0, read);
+                    remaining -= read;
+                }
+            } catch (IOException e) {
+                if (!isClientDisconnect(e)) {
+                    LOG.error("Download streaming error for {}: {}", videoFile.getAbsolutePath(), e.getMessage());
+                }
+            }
+        };
+        Response.ResponseBuilder rb = Response.status(isRangeRequest ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
+                .entity(streamingOutput)
+                .header("Accept-Ranges", "bytes")
+                .header("Content-Type", mimeType)
+                .header("Content-Length", contentLength)
+                .header("Content-Disposition", contentDisposition)
+                .header("Cache-Control", "private, max-age=0, must-revalidate");
+        if (isRangeRequest) {
+            rb.header("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
+        }
+        return rb.build();
+    }
+
     private boolean isClientDisconnect(Throwable e) {
         if (e == null) return false;
         String msg = e.getMessage();

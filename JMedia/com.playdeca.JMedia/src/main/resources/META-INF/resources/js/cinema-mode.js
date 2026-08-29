@@ -1103,11 +1103,12 @@ async function openSeriesByTitle(seriesTitle) {
     if (existingActions) content.appendChild(existingActions);
   }
 
-  // Hide play/watchlist for series view
   const playBtn = document.getElementById('modal-play-btn');
   const watchBtn = document.getElementById('modal-watchlist-btn');
+  const dlBtnLegacy = document.getElementById('modal-download-btn');
   if (playBtn) playBtn.style.display = 'none';
   if (watchBtn) watchBtn.style.display = 'none';
+  if (dlBtnLegacy) dlBtnLegacy.style.display = 'none';
 
   modal.classList.add('active');
   document.body.style.overflow = 'hidden';
@@ -1159,11 +1160,12 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
   if (logoHeroImg) { logoHeroImg.style.display = 'none'; logoHeroImg.classList.add('is-skeleton'); }
 
-  // Show play/watchlist buttons immediately
   const playBtn = document.getElementById('modal-play-btn');
   if (playBtn) { playBtn.style.display = ''; playBtn.onclick = () => playVideo(resumeEp); }
   const watchBtn = document.getElementById('modal-watchlist-btn');
   if (watchBtn) { watchBtn.style.display = ''; watchBtn.onclick = () => toggleWatchlist(firstEp.id); }
+  const dlBtnSeries = document.getElementById('modal-download-btn');
+  if (dlBtnSeries) dlBtnSeries.style.display = 'none';
 
   // Fetch Series entity � try by ID first, fall back to title lookup
   let seriesData = null;
@@ -1426,6 +1428,7 @@ function buildEpisodesList(episodeArray) {
     const img = getThumbnailUrl(ep.id);
     const durHtml = dur ? `<span class="cinema-episode-duration">${dur}</span>` : '';
     const metaRight = durHtml ? `<span class="cinema-episode-meta">${durHtml}</span>` : '';
+    const downloadBtn = `<button class="cinema-episode-download" title="Download episode" onclick="event.stopPropagation(); downloadVideo(${ep.id})"><i class="fa-solid fa-download"></i></button>`;
     return `<div class="cinema-episode-card" data-video-id="${ep.id}" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
@@ -1440,6 +1443,7 @@ function buildEpisodesList(episodeArray) {
           ${renderContentTypeBadge(ep.contentType)}
           <h3 class="cinema-episode-title">${epNum}. ${epTitle}</h3>
           ${metaRight}
+          ${downloadBtn}
         </div>
         ${desc ? `<p class="cinema-episode-desc">${desc}</p>` : '<div class="cinema-episode-desc is-skeleton"></div>'}
       </div>
@@ -2033,6 +2037,8 @@ function openDetails(videoId) {
   trapFocus(modal);
   document.body.style.overflow = 'hidden';
   initModalScrollBlur();
+  const preDlBtn = document.getElementById('modal-download-btn');
+  if (preDlBtn) preDlBtn.style.display = 'none';
 
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
@@ -2147,9 +2153,14 @@ function openDetails(videoId) {
       descToggle.textContent = 'more...';
     }
 
-    // Buttons
     document.getElementById('modal-play-btn').onclick = () => playVideo(data);
     document.getElementById('modal-watchlist-btn').onclick = () => toggleWatchlist(videoId);
+    const dlBtn = document.getElementById('modal-download-btn');
+    if (dlBtn) {
+      dlBtn.onclick = () => downloadVideo(data.id);
+      const isMovie = !data.type || data.type === 'movie';
+      dlBtn.style.display = isMovie ? '' : 'none';
+    }
 
     // Set watchlist button data attribute and initial icon
     const watchBtn = document.getElementById('modal-watchlist-btn');
@@ -2345,8 +2356,10 @@ function closeModal() {
   releaseFocusTrap(document.getElementById('cinema-modal'));
   const playBtn = document.getElementById('modal-play-btn');
   const watchBtn = document.getElementById('modal-watchlist-btn');
+  const dlBtnClose = document.getElementById('modal-download-btn');
   if (playBtn) playBtn.style.display = '';
   if (watchBtn) watchBtn.style.display = '';
+  if (dlBtnClose) { dlBtnClose.style.display = ''; dlBtnClose.onclick = null; }
   document.getElementById('cinema-modal-backdrop').classList.remove('active');
   document.getElementById('cinema-modal').classList.remove('active');
   document.body.style.overflow = '';
@@ -3146,6 +3159,23 @@ function togglePlayerExpand() {
 function playVideo(data) {
   if (!data) return;
   openPlayerModal(data.id);
+}
+
+function downloadVideo(videoId) {
+  if (!videoId) return;
+  const url = `/api/video/download/${videoId}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+  if (window.showToast) window.showToast('Download started', 'info');
+}
+
+function downloadEpisode(event, videoId) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  downloadVideo(videoId);
 }
 
 function playHeroVideo(item) {
