@@ -64,6 +64,10 @@ public class SongService {
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
         
+        // Delete song_analysis_beats join table rows first — bulk DELETE does not cascade
+        // to @ElementCollection join tables, so this must be explicit.
+        em.createNativeQuery("DELETE FROM song_analysis_beats").executeUpdate();
+
         // Delete SongAnalysis first (due to foreign key constraint)
         em.createQuery("DELETE FROM SongAnalysis").executeUpdate();
         
@@ -311,6 +315,42 @@ public class SongService {
         // Re-order based on the original ID list
         java.util.Map<Long, Song> songMap = unorderedSongs.stream().collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s));
         return ids.stream().map(songMap::get).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toList());
+    }
+
+    public List<Song> findByIdsWithSearch(List<Long> ids, String search, int offset, int limit) {
+        if (ids == null || ids.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        String searchLower = (search == null ? "" : search.toLowerCase());
+        String whereClause = "s.id IN :ids";
+        if (!searchLower.isBlank()) {
+            whereClause += " AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search)";
+        }
+        var query = em.createQuery("SELECT s FROM Song s WHERE " + whereClause, Song.class)
+                .setParameter("ids", ids);
+        if (!searchLower.isBlank()) {
+            query.setParameter("search", "%" + searchLower + "%");
+        }
+        var matched = query.setFirstResult(offset).setMaxResults(limit).getResultList();
+        java.util.Map<Long, Song> songMap = matched.stream().collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s));
+        return matched.stream().map(s -> songMap.get(s.id)).collect(java.util.stream.Collectors.toList());
+    }
+
+    public long countByIdsWithSearch(List<Long> ids, String search) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        String searchLower = (search == null ? "" : search.toLowerCase());
+        String whereClause = "s.id IN :ids";
+        if (!searchLower.isBlank()) {
+            whereClause += " AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search)";
+        }
+        var query = em.createQuery("SELECT COUNT(s) FROM Song s WHERE " + whereClause, Long.class)
+                .setParameter("ids", ids);
+        if (!searchLower.isBlank()) {
+            query.setParameter("search", "%" + searchLower + "%");
+        }
+        return query.getSingleResult();
     }
 
     @Transactional

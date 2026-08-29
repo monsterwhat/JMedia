@@ -1406,39 +1406,28 @@ public class PlaybackController {
             return new PaginatedQueue(new ArrayList<>(), 0);
         }
 
-        // If no search, use original pagination logic
-        if (search == null || search.isBlank()) {
-            int totalSize = cueIds.size();
+        // With search: filter and paginate in the DB to avoid OOM on large queues
+        if (search != null && !search.isBlank()) {
+            long totalSize = songService.countByIdsWithSearch(cueIds, search);
             int fromIndex = (page - 1) * limit;
-            int toIndex = Math.min(fromIndex + limit, totalSize);
-
             if (fromIndex >= totalSize) {
-                return new PaginatedQueue(new ArrayList<>(), totalSize);
+                return new PaginatedQueue(new ArrayList<>(), (int) totalSize);
             }
-
-            List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
-            List<Song> songs = songService.findByIds(pageOfIds);
-            return new PaginatedQueue(songs, totalSize);
+            List<Song> songs = songService.findByIdsWithSearch(cueIds, search, fromIndex, limit);
+            return new PaginatedQueue(songs, (int) totalSize);
         }
 
-        // With search: get all songs, filter, then paginate
-        List<Song> allSongs = songService.findByIds(cueIds);
-        String searchLower = search.toLowerCase();
-        
-        List<Song> filtered = allSongs.stream()
-                .filter(s -> (s.getTitle() != null && s.getTitle().toLowerCase().contains(searchLower)) ||
-                             (s.getArtist() != null && s.getArtist().toLowerCase().contains(searchLower)))
-                .collect(Collectors.toList());
-
-        int totalSize = filtered.size();
+        int totalSize = cueIds.size();
         int fromIndex = (page - 1) * limit;
         int toIndex = Math.min(fromIndex + limit, totalSize);
 
-        if (fromIndex >= totalSize || filtered.isEmpty()) {
+        if (fromIndex >= totalSize) {
             return new PaginatedQueue(new ArrayList<>(), totalSize);
         }
 
-        return new PaginatedQueue(filtered.subList(fromIndex, toIndex), totalSize);
+        List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
+        List<Song> songs = songService.findByIds(pageOfIds);
+        return new PaginatedQueue(songs, totalSize);
     }
 
     public synchronized void skipToQueueIndex(int index, Long profileId) {
