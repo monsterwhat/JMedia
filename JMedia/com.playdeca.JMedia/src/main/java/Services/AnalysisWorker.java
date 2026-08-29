@@ -171,23 +171,35 @@ public class AnalysisWorker {
 
     @Transactional
     public void processAnalysisById(Long analysisId, String phase) {
-        SongAnalysis sa = SongAnalysis.findById(analysisId);
-        if (sa == null) {
+        // Load ONLY id + song.id via projection. SongAnalysis holds 3 large CLOB
+        // JSON columns (segmentFeaturesJson, similarBeatsJson, beatMetadataJson,
+        // each @Column(length=Integer.MAX_VALUE)) plus an eager @ElementCollection
+        // of beat timestamps. Loading the full entity here blew the heap on the
+        // 5.7GB music DB. analyzeSong writes a fresh SongAnalysis row, so we
+        // never need to read the existing record's payload.
+        Object[] row;
+        try {
+            row = (Object[]) em.createQuery(
+                    "SELECT sa.id, sa.song.id FROM SongAnalysis sa WHERE sa.id = :id")
+                    .setParameter("id", analysisId)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException nre) {
             return;
         }
-        // Use getReference() to get a managed Song proxy without firing the SELECT
-        // for CLOB columns. analyzeSong only needs id+path+title+duration, which it
-        // loads explicitly with a slim JPQL projection.
-        Song song = em.getReference(Song.class, sa.getSong() != null ? sa.getSong().id : null);
-        if (sa.getSong() == null) {
-            LOG.warn("AnalysisWorker: {} record {} has no song, deleting", phase, sa.id);
-            sa.delete();
+        Long saId = (Long) row[0];
+        Long songId = (Long) row[1];
+        if (songId == null) {
+            LOG.warn("AnalysisWorker: {} record {} has no song, deleting", phase, saId);
+            em.createQuery("DELETE FROM SongAnalysis sa WHERE sa.id = :id")
+                    .setParameter("id", saId)
+                    .executeUpdate();
             return;
         }
-        LOG.info("AnalysisWorker: {} record {} for song id={}", phase, sa.id, song.id);
+        Song song = em.getReference(Song.class, songId);
+        LOG.info("AnalysisWorker: {} record {} for song id={}", phase, saId, songId);
         SongAnalysis result = audioAnalysisService.analyzeSong(song);
         if (result != null && result.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
-            playbackController.replanDjTransitionsForAnalyzedSong(song.id);
+            playbackController.replanDjTransitionsForAnalyzedSong(songId);
         }
     }
 }

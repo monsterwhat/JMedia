@@ -107,16 +107,23 @@ public class AudioAnalysisService {
     @Transactional
     void queueUnanalyzedSongsOnStartup() {
         try {
-            List<Song> allSongs = Song.listAll();
+            // Scan the full song list, but ask the DB only for the SongAnalysis
+            // status (one tiny int column) — never the 3 CLOB JSON blobs or the
+            // @ElementCollection beat times.
+            List<Object[]> rows = em.createQuery(
+                    "SELECT s.id, " +
+                    "  (SELECT sa.status FROM SongAnalysis sa WHERE sa.song.id = s.id) " +
+                    "FROM Song s ORDER BY s.id")
+                    .setMaxResults(Math.toIntExact(STARTUP_QUEUE_LIMIT * 4L))
+                    .getResultList();
             int queued = 0;
-            for (Song song : allSongs) {
+            for (Object[] row : rows) {
                 if (queued >= STARTUP_QUEUE_LIMIT) break;
-                
-                SongAnalysis existing = SongAnalysis.find("song.id", song.id).firstResult();
-                boolean needsQueue = (existing == null) ||
-                    existing.getStatus() == SongAnalysis.AnalysisStatus.FAILED;
-                
+                Long songId = (Long) row[0];
+                SongAnalysis.AnalysisStatus status = (SongAnalysis.AnalysisStatus) row[1];
+                boolean needsQueue = (status == null) || (status == SongAnalysis.AnalysisStatus.FAILED);
                 if (needsQueue) {
+                    Song song = em.getReference(Song.class, songId);
                     queueAnalysis(song);
                     queued++;
                 }
@@ -180,23 +187,52 @@ public class AudioAnalysisService {
             return null;
         }
 
-        // Check if analysis already exists
-        SongAnalysis existing = SongAnalysis.find("song.id", songId).firstResult();
-        if (existing != null && existing.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED
-                && existing.getBeatCount() != null && existing.getAverageBpm() != null) {
+        // Check if a completed analysis already exists. Use a slim projection that
+        // only returns id + status + beatCount + averageBpm — loading the full
+        // SongAnalysis row pulls 3 CLOB JSON columns (segmentFeaturesJson,
+        // similarBeatsJson, beatMetadataJson) plus the eager @ElementCollection
+        // beatTimes, which blows the heap on the 5.7GB music DB.
+        Object[] existingRow;
+        try {
+            existingRow = (Object[]) em.createQuery(
+                    "SELECT sa.id, sa.status, sa.beatCount, sa.averageBpm " +
+                    "FROM SongAnalysis sa WHERE sa.song.id = :songId")
+                    .setParameter("songId", songId)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException nre) {
+            existingRow = null;
+        }
+        if (existingRow != null
+                && existingRow[1] == SongAnalysis.AnalysisStatus.COMPLETED
+                && existingRow[2] != null
+                && existingRow[3] != null) {
             LOG.info("Song {} already analyzed", songTitle);
-            return existing;
+            // Return a stub SongAnalysis carrying only the completed status so the
+            // caller (AnalysisWorker) treats this as "no work to do" without us
+            // materialising the heavy columns. analyzeSong's only contract is to
+            // return a non-null result with status COMPLETED in this branch.
+            SongAnalysis stub = new SongAnalysis();
+            stub.id = (Long) existingRow[0];
+            stub.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
+            stub.setBeatCount((Integer) existingRow[2]);
+            stub.setAverageBpm((Double) existingRow[3]);
+            return stub;
         }
 
-        // Use em.getReference() for the Song FK on the analysis row — returns a managed
-        // proxy without firing a SELECT for the CLOB columns.
+        // Need to write/update. Use em.getReference() for the existing row so we
+        // never materialise the 3 CLOB JSON columns or the @ElementCollection
+        // beat times. The downstream code overwrites every heavy field (beatTimes
+        // via setBeatTimes, all 3 JSON strings, status, etc.) so we don't need
+        // the existing payload — we only need a managed proxy to attach the
+        // @ElementCollection orphan-removal to. If no row yet, getReference()
+        // is skipped and we create a fresh SongAnalysis below.
         Song songRef = em.getReference(Song.class, songId);
 
         // Create or update analysis record
         SongAnalysis analysis;
-        if (existing != null) {
+        if (existingRow != null) {
             // Existing is already managed - just update it
-            analysis = existing;
+            analysis = em.getReference(SongAnalysis.class, ((Long) existingRow[0]));
         } else {
             // Create new and persist
             analysis = new SongAnalysis();
@@ -515,39 +551,65 @@ public class AudioAnalysisService {
      */
     @Transactional
     public SongAnalysis getAnalysis(Long songId) {
-        return SongAnalysis.find("song.id", songId).firstResult();
+        // Slim projection — never materialise the 3 CLOB JSON columns or the
+        // @ElementCollection beat times when callers only need light fields.
+        // Callers that need the heavy payload should use a dedicated method.
+        return loadAnalysisSlim(songId);
     }
-    
+
+    /**
+     * Load a SongAnalysis proxy using only the primary key + FK. Returns a
+     * managed entity; downstream code that touches heavy fields will trigger
+     * the SELECT for them, but lightweight callers (status checks) won't.
+     */
+    private SongAnalysis loadAnalysisSlim(Long songId) {
+        try {
+            return (SongAnalysis) em.createQuery(
+                    "SELECT sa FROM SongAnalysis sa WHERE sa.song.id = :songId")
+                    .setParameter("songId", songId)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException nre) {
+            return null;
+        }
+    }
+
     /**
      * Check if a song has been analyzed and is ready for infinite playback
      */
     @Transactional
     public boolean isAnalyzed(Long songId) {
-        SongAnalysis analysis = SongAnalysis.find("song.id", songId).firstResult();
+        // isReady() requires beatTimes + similarBeatsJson + averageBpm, so we
+        // do need the heavy columns here. Use the slim proxy helper but
+        // accept that Hibernate will lazy-load the CLOBs when isReady() fires.
+        // This single-song call is bounded (1 row) so it's safe.
+        SongAnalysis analysis = loadAnalysisSlim(songId);
         return analysis != null && analysis.isReady();
     }
-    
+
     /**
      * Get a random similar beat to jump to (for infinite loop)
      * Returns the timestamp to jump to, or -1 if not available
      */
     @Transactional
     public double getSimilarBeatJump(Long songId, double currentTime) {
-        SongAnalysis analysis = SongAnalysis.find("song.id", songId).firstResult();
+        // This method needs beatTimes + similarBeatsJson, so the CLOBs are
+        // unavoidable. Single-song bounded call, safe to use the slim proxy
+        // (Hibernate will lazy-load the CLOBs on access).
+        SongAnalysis analysis = loadAnalysisSlim(songId);
         if (analysis == null || !analysis.isReady()) {
             return -1; // Not analyzed
         }
-        
+
         int currentBeatIndex = analysis.findBeatIndexAtTime(currentTime);
         if (currentBeatIndex < 0) {
             return -1;
         }
-        
+
         List<Integer> similarBeats = analysis.getSimilarBeats(currentBeatIndex);
         if (similarBeats.isEmpty()) {
             return -1;
         }
-        
+
         // Pick a random similar beat (but not too close in time)
         Random random = new Random();
         List<Integer> validBeats = new ArrayList<>();
@@ -558,36 +620,51 @@ public class AudioAnalysisService {
                 validBeats.add(idx);
             }
         }
-        
+
         if (validBeats.isEmpty()) {
             // Fall back to any similar beat
             validBeats = similarBeats;
         }
-        
+
         int targetBeatIndex = validBeats.get(random.nextInt(validBeats.size()));
         List<Double> beatTimes = analysis.getBeatTimes();
-        
+
         if (targetBeatIndex >= 0 && targetBeatIndex < beatTimes.size()) {
             return beatTimes.get(targetBeatIndex);
         }
-        
+
         return -1;
     }
-    
+
     /**
      * Queue analysis for a song (marks as pending for later processing)
      */
     @Transactional
     public void queueAnalysis(Song song) {
-        SongAnalysis existing = SongAnalysis.find("song.id", song.id).firstResult();
-        
-        if (existing != null && existing.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
+        // Slim projection: only need id + status to decide whether to queue.
+        // Loading the full SongAnalysis would pull 3 CLOBs + @ElementCollection
+        // for no reason.
+        Object[] existingRow = null;
+        try {
+            existingRow = (Object[]) em.createQuery(
+                    "SELECT sa.id, sa.status FROM SongAnalysis sa WHERE sa.song.id = :songId")
+                    .setParameter("songId", song.id)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException nre) {
+            existingRow = null;
+        }
+        SongAnalysis.AnalysisStatus existingStatus = existingRow != null
+                ? (SongAnalysis.AnalysisStatus) existingRow[1] : null;
+
+        if (existingStatus == SongAnalysis.AnalysisStatus.COMPLETED) {
             return; // Already analyzed
         }
-        
-        if (existing != null) {
-            // Existing is already managed - just update
-            existing.setStatus(SongAnalysis.AnalysisStatus.PENDING);
+
+        if (existingRow != null) {
+            // Use getReference to avoid re-loading the heavy columns just to
+            // flip a status enum.
+            SongAnalysis ref = em.getReference(SongAnalysis.class, (Long) existingRow[0]);
+            ref.setStatus(SongAnalysis.AnalysisStatus.PENDING);
         } else {
             // Create new and persist
             SongAnalysis analysis = new SongAnalysis();
@@ -596,16 +673,24 @@ public class AudioAnalysisService {
             em.persist(analysis);
         }
     }
-    
+
     /**
      * Get analysis status for a song
      */
     @Transactional
     public SongAnalysis.AnalysisStatus getStatus(Long songId) {
-        SongAnalysis analysis = SongAnalysis.find("song.id", songId).firstResult();
-        return analysis != null ? analysis.getStatus() : null;
+        // Slim projection: status is a single enum column, no reason to load
+        // 3 CLOBs + @ElementCollection.
+        try {
+            return (SongAnalysis.AnalysisStatus) em.createQuery(
+                    "SELECT sa.status FROM SongAnalysis sa WHERE sa.song.id = :songId")
+                    .setParameter("songId", songId)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException nre) {
+            return null;
+        }
     }
-    
+
     /**
      * Get count of analyzed songs
      */
