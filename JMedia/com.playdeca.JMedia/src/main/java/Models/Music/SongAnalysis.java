@@ -7,10 +7,6 @@ import lombok.EqualsAndHashCode;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Stores audio analysis data for EternalJukebox-style infinite mixing
- * Contains beat positions, segment features, and similar beat mappings
- */
 @Data
 @EqualsAndHashCode(callSuper=false)
 @Entity
@@ -19,159 +15,149 @@ public class SongAnalysis extends PanacheEntity {
     @OneToOne
     @JoinColumn(name = "song_id", referencedColumnName = "id")
     private Song song;
-    
-    // Beat timestamps in seconds (sorted ascending)
-    @ElementCollection
-    @OrderBy
-    @CollectionTable(name = "song_analysis_beats", joinColumns = @JoinColumn(name = "song_analysis_id"))
-    @Column(name = "beat_time")
-    private List<Double> beatTimes = new ArrayList<>();
-    
-    // Segment features for similarity matching (JSON serialized)
-    // Each entry corresponds to a beat, containing timbre/pitch/loudness vectors
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(length = Integer.MAX_VALUE)
+    private String beatTimesJson;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String segmentFeaturesJson;
-    
-    // Similar beat mappings - JSON: {"beatIndex": [similarBeatIndex1, similarBeatIndex2, ...]}
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String similarBeatsJson;
-    
-    // Beat metadata for cross-song matching - JSON array of per-beat objects:
-    // [{"index":0, "time":0.0, "beatInBar":1, "barNumber":0, "strength":1.0, "relativePosition":0.0}, ...]
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String beatMetadataJson;
-    
-    // Analysis metadata
+
     private Integer beatCount;
     private Double averageBpm;
     private Long analysisTimestamp;
-    
-    // Status: PENDING, COMPLETED, FAILED
+
     @Enumerated(EnumType.STRING)
     private AnalysisStatus status = AnalysisStatus.PENDING;
-    
-    // Error message if analysis failed
+
     private String errorMessage;
-    
+
     public enum AnalysisStatus {
         PENDING,
         PROCESSING,
         COMPLETED,
         FAILED
     }
-    
-    /**
-     * Get beat times as primitive array for efficient processing
-     */
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+
     public double[] getBeatTimesArray() {
-        if (beatTimes == null || beatTimes.isEmpty()) {
+        if (beatTimesJson == null || beatTimesJson.isBlank()) {
             return new double[0];
         }
-        double[] result = new double[beatTimes.size()];
-        for (int i = 0; i < beatTimes.size(); i++) {
-            result[i] = beatTimes.get(i);
+        try {
+            return MAPPER.readValue(beatTimesJson, double[].class);
+        } catch (Exception e) {
+            return new double[0];
         }
-        return result;
     }
-    
-    /**
-     * Find the beat index closest to a given time
-     */
+
+    public List<Double> getBeatTimes() {
+        double[] arr = getBeatTimesArray();
+        if (arr.length == 0) {
+            return new ArrayList<>();
+        }
+        List<Double> list = new ArrayList<>(arr.length);
+        for (double v : arr) {
+            list.add(v);
+        }
+        return list;
+    }
+
+    public void setBeatTimes(List<Double> times) {
+        if (times == null || times.isEmpty()) {
+            beatTimesJson = "[]";
+            return;
+        }
+        try {
+            beatTimesJson = MAPPER.writeValueAsString(times);
+        } catch (Exception e) {
+            beatTimesJson = "[]";
+        }
+    }
+
     public int findBeatIndexAtTime(double timeSeconds) {
-        if (beatTimes == null || beatTimes.isEmpty()) {
+        double[] beats = getBeatTimesArray();
+        if (beats.length == 0) {
             return -1;
         }
-        
+
         int low = 0;
-        int high = beatTimes.size() - 1;
-        
+        int high = beats.length - 1;
+
         while (low <= high) {
             int mid = (low + high) / 2;
-            double beatTime = beatTimes.get(mid);
-            
-            if (beatTime < timeSeconds) {
+            if (beats[mid] < timeSeconds) {
                 low = mid + 1;
-            } else if (beatTime > timeSeconds) {
+            } else if (beats[mid] > timeSeconds) {
                 high = mid - 1;
             } else {
                 return mid;
             }
         }
-        
-        // Return closest beat
-        if (low >= beatTimes.size()) {
-            return beatTimes.size() - 1;
+
+        if (low >= beats.length) {
+            return beats.length - 1;
         } else if (low == 0) {
             return 0;
         } else {
-            // Return whichever is closer
-            double diffLow = Math.abs(beatTimes.get(low) - timeSeconds);
-            double diffHigh = Math.abs(beatTimes.get(low - 1) - timeSeconds);
+            double diffLow = Math.abs(beats[low] - timeSeconds);
+            double diffHigh = Math.abs(beats[low - 1] - timeSeconds);
             return diffLow < diffHigh ? low : low - 1;
         }
     }
-    
-    /**
-     * Get similar beat indices for a given beat index
-     */
+
     public List<Integer> getSimilarBeats(int beatIndex) {
         if (similarBeatsJson == null || similarBeatsJson.isEmpty()) {
             return new ArrayList<>();
         }
-        
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            java.util.Map<String, List<Integer>> similarMap = mapper.readValue(
-                similarBeatsJson, 
-                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, List<Integer>>>() {}
-            );
-            
-            String key = String.valueOf(beatIndex);
-            return similarMap.getOrDefault(key, new ArrayList<>());
+            java.util.Map<String, List<Integer>> similarMap = MAPPER.readValue(
+                similarBeatsJson,
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, List<Integer>>>() {});
+            return similarMap.getOrDefault(String.valueOf(beatIndex), new ArrayList<>());
         } catch (Exception e) {
             return new ArrayList<>();
         }
     }
-    
-    /**
-     * Check if analysis is ready for playback
-     */
+
     public boolean isReady() {
-        return status == AnalysisStatus.COMPLETED 
-            && beatTimes != null 
-            && !beatTimes.isEmpty()
-            && similarBeatsJson != null 
-            && !similarBeatsJson.isEmpty()
+        return status == AnalysisStatus.COMPLETED
+            && beatTimesJson != null
+            && !beatTimesJson.isBlank()
+            && similarBeatsJson != null
+            && !similarBeatsJson.isBlank()
             && averageBpm != null;
     }
-    
-    /**
-     * Get beat metadata for cross-song matching.
-     * Returns list of BeatInfo objects parsed from JSON.
-     */
+
     public List<BeatInfo> getBeatMetadata() {
         if (beatMetadataJson == null || beatMetadataJson.isEmpty()) {
             return new ArrayList<>();
         }
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            return mapper.readValue(beatMetadataJson, 
+            return MAPPER.readValue(beatMetadataJson,
                 new com.fasterxml.jackson.core.type.TypeReference<List<BeatInfo>>() {});
         } catch (Exception e) {
             return new ArrayList<>();
         }
     }
-    
-    /**
-     * Per-beat metadata for cross-song transition matching
-     */
+
     @Data
     public static class BeatInfo {
         private int index;
         private double time;
-        private int beatInBar;       // 1-4 (1 = downbeat)
+        private int beatInBar;
         private int barNumber;
-        private double strength;     // 0.0-1.0 (onset strength)
-        private double relativePosition; // 0.0-1.0 (position in song)
+        private double strength;
+        private double relativePosition;
     }
 }

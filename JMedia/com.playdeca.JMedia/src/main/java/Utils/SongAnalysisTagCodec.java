@@ -137,14 +137,14 @@ public final class SongAnalysisTagCodec {
             ObjectNode root = (ObjectNode) MAPPER.readTree(json);
 
             SongAnalysis analysis = new SongAnalysis();
-            List<Double> beatTimes = new java.util.ArrayList<>();
             JsonNode beatsNode = root.get("beatTimes");
+            String beatTimesJson;
             if (beatsNode != null && beatsNode.isArray()) {
-                for (JsonNode beat : beatsNode) {
-                    beatTimes.add(beat.asDouble());
-                }
+                beatTimesJson = beatsNode.toString();
+            } else {
+                beatTimesJson = "[]";
             }
-            analysis.setBeatTimes(beatTimes);
+            analysis.setBeatTimesJson(beatTimesJson);
             analysis.setBeatCount(root.path("beatCount").asInt(0));
             analysis.setAverageBpm(root.path("averageBpm").asDouble(0.0));
             analysis.setAnalysisTimestamp(root.path("timestamp").asLong(0L));

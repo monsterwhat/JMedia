@@ -255,7 +255,7 @@ public class AudioAnalysisService {
                 // mark as COMPLETED with empty data. isReady() will return false, so DJ mode
                 // won't attempt beat-matched transitions, but the song won't be retried.
                 LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", songTitle);
-                analysis.setBeatTimes(new java.util.ArrayList<>());
+                analysis.setBeatTimesJson("[]");
                 analysis.setBeatCount(0);
                 analysis.setAverageBpm(0.0);
                 analysis.setSegmentFeaturesJson("[]");
