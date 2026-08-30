@@ -61,15 +61,11 @@ public class SongService {
 
     @Transactional
     public void clearSongsByDirectory(String dirPath) {
-        // Bulk-reset playback state for all profiles; rows are recreated lazily with
-        // defaults by PlaybackStateService.getOrCreateState() on next access.
-        //
-        // H2-only bulk clear. The FK graph is wide: PlaybackState owns 4 @ElementCollection
-        // join tables, and SongAnalysis leaks a SONG_ANALYSIS_BEATS collection table that a
-        // schema-update never drops since beatTimes became a JSON column. Forcing referential
-        // integrity off makes the whole clear order-independent and tolerant of any orphaned
-        // rows; it is restored immediately afterward. Both toggles and the deletes run in the
-        // same transaction, so the flag can't leak between requests.
+        try {
+            em.createNativeQuery("SET LOCK_TIMEOUT 30000").executeUpdate();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to set LOCK_TIMEOUT for clear", e);
+        }
         em.createNativeQuery("SET REFERENTIAL_INTEGRITY FALSE").executeUpdate();
 
         em.createNativeQuery("DELETE FROM PlaybackState_cue").executeUpdate();
@@ -95,7 +91,11 @@ public class SongService {
 
         em.createNativeQuery("SET REFERENTIAL_INTEGRITY TRUE").executeUpdate();
 
-        artworkService.cleanupOrphans();
+        try {
+            artworkService.cleanupOrphans();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Artwork cleanup after clear failed", e);
+        }
     }
 
     @Transactional

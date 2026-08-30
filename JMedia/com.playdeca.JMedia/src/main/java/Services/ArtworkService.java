@@ -46,8 +46,8 @@ public class ArtworkService {
         }
         String extension = sniffExtension(imageBytes);
         String sha256 = sha256Hex(imageBytes);
-        String relative = ARTWORK_DIR + "/" + sha256 + extension;
-        Path target = resolveFile(relative);
+        String filename = sha256 + extension;
+        Path target = resolveFile(filename);
         if (!Files.exists(target)) {
             Path temp = target.resolveSibling("." + sha256 + ".tmp");
             try {
@@ -62,7 +62,7 @@ public class ArtworkService {
                 return null;
             }
         }
-        return relative;
+        return filename;
     }
 
     public String saveArtwork(String base64) {
@@ -78,8 +78,16 @@ public class ArtworkService {
     }
 
     public Path resolveFile(String relative) {
+        if (relative == null || relative.isBlank()) {
+            throw new IllegalArgumentException("Artwork path is blank");
+        }
+        String filename = relative;
+        if (filename.startsWith(ARTWORK_DIR + "/")) {
+            filename = filename.substring((ARTWORK_DIR + "/").length());
+        }
+        filename = Paths.get(filename).getFileName().toString();
         Path base = getArtworkDirectory().toAbsolutePath().normalize();
-        Path resolved = base.resolve(relative).normalize();
+        Path resolved = base.resolve(filename).normalize();
         if (!resolved.startsWith(base)) {
             throw new IllegalArgumentException("Artwork path escapes artwork directory: " + relative);
         }
@@ -116,10 +124,11 @@ public class ArtworkService {
         if (relative == null || relative.isBlank()) {
             return;
         }
-        long songRefs = (Long) em.createQuery("select count(s) from Song s where s.artworkPath = :p")
-                .setParameter("p", relative).getSingleResult();
-        long enrichRefs = (Long) em.createQuery("select count(e) from SongEnrichment e where e.artworkPath = :p")
-                .setParameter("p", relative).getSingleResult();
+        String filename = relative.startsWith(ARTWORK_DIR + "/") ? relative.substring((ARTWORK_DIR + "/").length()) : relative;
+        long songRefs = (Long) em.createQuery("select count(s) from Song s where s.artworkPath = :p or s.artworkPath = :q")
+                .setParameter("p", relative).setParameter("q", filename).getSingleResult();
+        long enrichRefs = (Long) em.createQuery("select count(e) from SongEnrichment e where e.artworkPath = :p or e.artworkPath = :q")
+                .setParameter("p", relative).setParameter("q", filename).getSingleResult();
         if (songRefs + enrichRefs > 0) {
             return;
         }
@@ -137,11 +146,11 @@ public class ArtworkService {
                 if (Files.isDirectory(file)) {
                     continue;
                 }
-                String relative = ARTWORK_DIR + "/" + file.getFileName().toString();
-                long songRefs = (Long) em.createQuery("select count(s) from Song s where s.artworkPath = :p")
-                        .setParameter("p", relative).getSingleResult();
-                long enrichRefs = (Long) em.createQuery("select count(e) from SongEnrichment e where e.artworkPath = :p")
-                        .setParameter("p", relative).getSingleResult();
+                String filename = file.getFileName().toString();
+                long songRefs = (Long) em.createQuery("select count(s) from Song s where s.artworkPath = :p or s.artworkPath = :q")
+                        .setParameter("p", filename).setParameter("q", ARTWORK_DIR + "/" + filename).getSingleResult();
+                long enrichRefs = (Long) em.createQuery("select count(e) from SongEnrichment e where e.artworkPath = :p or e.artworkPath = :q")
+                        .setParameter("p", filename).setParameter("q", ARTWORK_DIR + "/" + filename).getSingleResult();
                 if (songRefs + enrichRefs == 0) {
                     if (Files.deleteIfExists(file)) {
                         removed++;

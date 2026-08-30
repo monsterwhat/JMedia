@@ -75,10 +75,6 @@ public class GzipJsonConverter implements AttributeConverter<String, byte[]> {
                 case GZIP:
                     return new String(gunzip(dbData, 1, dbData.length - 1), StandardCharsets.UTF_8);
                 default:
-                    // Unknown header — treat as legacy raw string if that is the only
-                    // plausible remainder; otherwise degrade gracefully rather than throw.
-                    LOGGER.warn("GzipJsonConverter: unexpected header byte 0x{} reading {} bytes; interpreting as raw UTF-8",
-                            String.format("%02X", dbData[0]), dbData.length);
                     return new String(dbData, StandardCharsets.UTF_8);
             }
         } catch (RuntimeException e) {
