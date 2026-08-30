@@ -60,11 +60,12 @@ public class SongService {
     public void clearSongsByDirectory(String dirPath) {
         // Bulk-reset playback state for all profiles; rows are recreated lazily with
         // defaults by PlaybackStateService.getOrCreateState() on next access.
-        // H2 bulk DELETE does not cascade @ElementCollection join tables — clear them first.
-        em.createQuery("DELETE FROM PlaybackState_CUE").executeUpdate();
-        em.createQuery("DELETE FROM PlaybackState_LASTSONGS").executeUpdate();
-        em.createQuery("DELETE FROM PlaybackState_ORIGINALCUE").executeUpdate();
-        em.createQuery("DELETE FROM PlaybackState_DJGENREPOOL").executeUpdate();
+        // @ElementCollection join tables are physical tables (no mapped entity), so HQL can't
+        // address them — clear them first via native SQL, then the owning entity via HQL.
+        em.createNativeQuery("DELETE FROM PlaybackState_cue").executeUpdate();
+        em.createNativeQuery("DELETE FROM PlaybackState_lastSongs").executeUpdate();
+        em.createNativeQuery("DELETE FROM PlaybackState_originalCue").executeUpdate();
+        em.createNativeQuery("DELETE FROM PlaybackState_djGenrePool").executeUpdate();
         em.createQuery("DELETE FROM PlaybackState").executeUpdate();
 
         playbackHistoryService.clearHistoryForAllProfiles();
