@@ -19,18 +19,22 @@ public class SongAnalysis extends PanacheEntity {
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Convert(converter = GzipJsonConverter.class)
+    @Lob
     private String beatTimesJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Convert(converter = GzipJsonConverter.class)
+    @Lob
     private String segmentFeaturesJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Convert(converter = GzipJsonConverter.class)
+    @Lob
     private String similarBeatsJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Convert(converter = GzipJsonConverter.class)
+    @Lob
     private String beatMetadataJson;
 
     private Integer beatCount;
