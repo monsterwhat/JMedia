@@ -60,14 +60,20 @@ public class SongService {
     public void clearSongsByDirectory(String dirPath) {
         // Bulk-reset playback state for all profiles; rows are recreated lazily with
         // defaults by PlaybackStateService.getOrCreateState() on next access.
+        // H2 bulk DELETE does not cascade @ElementCollection join tables — clear them first.
+        em.createQuery("DELETE FROM PlaybackState_CUE").executeUpdate();
+        em.createQuery("DELETE FROM PlaybackState_LASTSONGS").executeUpdate();
+        em.createQuery("DELETE FROM PlaybackState_ORIGINALCUE").executeUpdate();
+        em.createQuery("DELETE FROM PlaybackState_DJGENREPOOL").executeUpdate();
         em.createQuery("DELETE FROM PlaybackState").executeUpdate();
 
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
-        
-        // Delete songs first — cascade removes SongAnalysis and its @ElementCollection beats table.
-        // H2 defers @ElementCollection cleanup on bulk DELETE, so we must delete the parent entity
-        // before the child, or the FK constraint on song_analysis_beats fires.
+
+        // SongAnalysis has FK to Song; bulk DELETE of Song does not cascade — clear it first.
+        em.createQuery("DELETE FROM SongAnalysis").executeUpdate();
+
+        // Delete songs.
         if (dirPath != null && !dirPath.isBlank()) {
             em.createQuery("DELETE FROM Song WHERE path LIKE :dirPath")
                     .setParameter("dirPath", dirPath + "%")
