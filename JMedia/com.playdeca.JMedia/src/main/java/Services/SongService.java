@@ -60,8 +60,15 @@ public class SongService {
     public void clearSongsByDirectory(String dirPath) {
         // Bulk-reset playback state for all profiles; rows are recreated lazily with
         // defaults by PlaybackStateService.getOrCreateState() on next access.
-        // @ElementCollection join tables are physical tables (no mapped entity), so HQL can't
-        // address them — clear them first via native SQL, then the owning entity via HQL.
+        //
+        // H2-only bulk clear. The FK graph is wide: PlaybackState owns 4 @ElementCollection
+        // join tables, and SongAnalysis leaks a SONG_ANALYSIS_BEATS collection table that a
+        // schema-update never drops since beatTimes became a JSON column. Forcing referential
+        // integrity off makes the whole clear order-independent and tolerant of any orphaned
+        // rows; it is restored immediately afterward. Both toggles and the deletes run in the
+        // same transaction, so the flag can't leak between requests.
+        em.createNativeQuery("SET REFERENTIAL_INTEGRITY FALSE").executeUpdate();
+
         em.createNativeQuery("DELETE FROM PlaybackState_cue").executeUpdate();
         em.createNativeQuery("DELETE FROM PlaybackState_lastSongs").executeUpdate();
         em.createNativeQuery("DELETE FROM PlaybackState_originalCue").executeUpdate();
@@ -71,10 +78,8 @@ public class SongService {
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
 
-        // SongAnalysis has FK to Song; bulk DELETE of Song does not cascade — clear it first.
         em.createQuery("DELETE FROM SongAnalysis").executeUpdate();
 
-        // Delete songs.
         if (dirPath != null && !dirPath.isBlank()) {
             em.createQuery("DELETE FROM Song WHERE path LIKE :dirPath")
                     .setParameter("dirPath", dirPath + "%")
@@ -83,8 +88,9 @@ public class SongService {
             em.createQuery("DELETE FROM Song").executeUpdate();
         }
 
-        // Remove any SongAnalysis orphaned by cascade gaps or scan failures.
         em.createQuery("DELETE FROM SongAnalysis WHERE song IS NULL").executeUpdate();
+
+        em.createNativeQuery("SET REFERENTIAL_INTEGRITY TRUE").executeUpdate();
     }
 
     @Transactional
