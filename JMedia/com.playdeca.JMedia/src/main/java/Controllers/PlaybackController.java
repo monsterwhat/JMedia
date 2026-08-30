@@ -581,7 +581,10 @@ public class PlaybackController {
         PlaybackState st = getState(profileId);
         recordAdvanceFrom(profileId, st.getCurrentSongId());
 
-        // Handle RepeatMode.ONE when song ends naturally
+        // Handle RepeatMode.ONE when song ends naturally.
+        // Intentional semantics: only a NATURAL end (fromSongEnd=true) repeats the
+        // current song. A manual next/previous (fromSongEnd=false) still advances,
+        // matching the behavior of most players where the skip button overrides ONE.
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0);
             st.setPlaying(true);
@@ -603,8 +606,12 @@ public class PlaybackController {
             Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, profileId);
 
             if (nextSongId == null) {
-                if (!forward) {
-                    // We reached the beginning of the queue and want to go previous
+                if (!forward && st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
+                    // We reached the beginning of the queue and want to go previous.
+                    // History fallback is gated on RepeatMode.ALL: with Repeat OFF the
+                    // queue is a bounded, once-through list, so "previous" at the head
+                    // must STOP rather than teleport to an unrelated recently-played
+                    // song from a different playlist/context.
                     List<Long> historyIds = playbackHistoryService.getRecentlyPlayedSongIds(10, profileId);
                     if (!historyIds.isEmpty()) {
                         Long songIdToPlay = null;
@@ -1616,7 +1623,10 @@ public class PlaybackController {
             // the natural exit point) always keeps its full 10s frontend-response
             // window; otherwise processPlaybackTick's safeguard fires on the very
             // next tick and the user gets an instant skip instead of a crossfade.
-            double exitFloor = st.getCurrentTime() - crossfadeSeconds;
+            // The floor must be in the FUTURE (currentTime + 1s), not the past
+            // (currentTime - crossfade), or a seek past the natural exit would set
+            // djExitTime in the past and trigger an immediate advance.
+            double exitFloor = st.getCurrentTime() + 1.0;
             st.setDjExitTime(Math.max(transition.getExitTime(), exitFloor));
             st.setDjTransitionPlanned(true);
             st.setDjTransitionConfidence(transition.getConfidence());

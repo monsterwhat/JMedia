@@ -45,9 +45,21 @@ public void populateCue(PlaybackState state, List<Long> songIds, Long profileId)
     }
 
 public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
-        // When the single queue is empty, refill from the song pool (DJ-filtered if active)
+        // When the single queue is empty, refill from the song pool (DJ-filtered if active).
+        // Refill is gated on RepeatMode.ALL: with Repeat OFF the queue is meant to be
+        // consumed exactly once, so an exhausted cue must STOP playback rather than
+        // silently refill from the library forever (the infinite-refill bug). DJ mode
+        // without Repeat ALL also stops here — a DJ set is still a bounded queue, and
+        // gating strictly on ALL keeps the "Repeat OFF stops when exhausted" contract.
         if (state.getCue() == null || state.getCue().isEmpty()) {
-            refillCueFromPool(state, profileId);
+            if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
+                refillCueFromPool(state, profileId);
+            } else {
+                // Repeat OFF (or ONE): do NOT refill — signal stop so PlaybackController
+                // halts playback instead of looping.
+                state.setPlaying(false);
+                return null;
+            }
         }
 
         if (state.getCue() == null || state.getCue().isEmpty()) {
@@ -58,9 +70,13 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
 
         // Degenerate-pool guard: size==1 with DJ restriction previously returned
         // the same song forever (stuck loop). Widen to the full library when
-        // DJ filters have narrowed the pool to a single track.
+        // DJ filters have narrowed the pool to a single track. Widening is gated
+        // on RepeatMode.ALL: with Repeat OFF a single-track queue must play that
+        // one song and then stop (the next advance hits the empty-cue stop logic),
+        // never widen and loop.
         if (state.getCue().size() == 1) {
-            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)
+                    && state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
                 List<Long> unrestricted = songService.findAll().stream()
                         .map(s -> s.id)
                         .collect(java.util.stream.Collectors.toList());
@@ -126,8 +142,20 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return resolveNextDjSong(state, cue, 0, cue.get(0));
         }
 
-        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+        // DJ Mode genre-skip/block logic (djSkipsBeforeGenreChange, block-size
+        // rotation, artist cap) lives inside findAndPrepareNextSmartSong. It must
+        // run whenever DJ mode is active — even when shuffle is OFF — so genre
+        // switching is decoupled from SMART_SHUFFLE. findAndPrepareNextSmartSong
+        // already branches on djActive internally (buildSongPool, switchGenreOnSkip,
+        // forceDifferentGenre), so broadening the trigger is safe and never double-calls.
+        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE
+                || Boolean.TRUE.equals(state.getDjModeActive())) {
             findAndPrepareNextSmartSong(state, skippedEarly, profileId);
+            // DJ Mode: re-enforce the max-consecutive-by-artist cap after the smart
+            // song was inserted/moved, so a DJ insertion can't create an over-cap run.
+            if (Boolean.TRUE.equals(state.getDjModeActive())) {
+                enforceMaxConsecutiveByArtistInCue(state, state.getCue());
+            }
         }
 
         if (state.getRepeatMode() == PlaybackState.RepeatMode.OFF) {
@@ -156,10 +184,11 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
     /**
      * DJ Mode pool guard: if a DJ pool restriction is active (genre pool and/or year
      * range), the song that actually plays next must satisfy it. Returns the fallback
-     * song when no restriction is active, when the fallback is already pool-valid, or
-     * when no pool-valid song can be found in the queue. Otherwise walks the queue
-     * forward (wrapping) from startIndex to the nearest pool-valid song and moves the
-     * active index onto it.
+     * song when no restriction is active or when the fallback is already pool-valid.
+     * Otherwise walks the queue forward (wrapping) from startIndex to the nearest
+     * pool-valid song and moves the active index onto it. Returns null when no
+     * pool-valid song exists anywhere in the queue, so the caller stops playback
+     * instead of playing a song outside the DJ pool.
      */
     private Long resolveNextDjSong(PlaybackState state, List<Long> cue, int startIndex, Long fallback) {
         if (!hasDjRestriction(state) || cue == null || cue.isEmpty()) {
@@ -181,7 +210,11 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                 return candidate.id;
             }
         }
-        return fallback;
+        // No pool-valid song exists anywhere in the queue. Returning the forbidden
+        // fallback would play a song outside the DJ pool — instead signal "no valid
+        // next song" so the caller (advance -> PlaybackController) stops playback
+        // rather than violating the genre/year restriction.
+        return null;
     }
 
     public void initShuffle(PlaybackState state, Long profileId) {
@@ -218,20 +251,25 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
 
         // DJ Mode with a restricted genre pool and no queue yet: seed from the whole
         // library so the pool-aware rebuild produces a playable queue instead of a no-op.
+        boolean seededFromDjLibrary = false;
         if (songPoolIds.isEmpty()
                 && Boolean.TRUE.equals(state.getDjModeActive())
                 && hasDjRestriction(state)) {
             songPoolIds = songService.findAll().stream()
                     .map(s -> s.id)
                     .collect(java.util.stream.Collectors.toList());
+            seededFromDjLibrary = true;
         }
 
         if (songPoolIds.isEmpty()) {
             return;
         }
 
-        // Save original cue if it wasn't saved before
-        if (state.getOriginalCue() == null || state.getOriginalCue().isEmpty()) {
+        // Save original cue if it wasn't saved before. When DJ mode seeded the pool
+        // from the whole library (seededFromDjLibrary), do NOT persist that widened
+        // list as the original cue — it would pollute the user's real queue order.
+        if (!seededFromDjLibrary
+                && (state.getOriginalCue() == null || state.getOriginalCue().isEmpty())) {
             state.setOriginalCue(new ArrayList<>(songPoolIds));
         }
 
@@ -365,6 +403,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         // After restoring, find the index of the current song
         if (state.getCue() != null && state.getCurrentSongId() != null) {
             int newIndex = state.getCue().indexOf(state.getCurrentSongId());
+            // If the current song is no longer in the restored cue (e.g. DJ widened
+            // the queue to the library), newIndex is -1. Leaving cueIndex at -1 while
+            // playing is safe: the next advance's cueIndex<0 branch plays the restored
+            // head instead of consuming it, so playback continues from the top.
             state.setCueIndex(newIndex);
         } else {
             state.setCueIndex(-1);
@@ -425,6 +467,16 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
         state.setPlaying(false);
         state.setCurrentTime(0);
         state.setLastSongs(new ArrayList<>());
+        // Reset the DJ transition plan so no stale crossfade fires after a clear.
+        // DJ settings (genre pool, BPM/year bounds, strictness) are persisted
+        // preferences and intentionally left untouched.
+        state.setDjNextSongId(null);
+        state.setDjEntryTime(null);
+        state.setDjExitTime(null);
+        state.setDjTransitionPlanned(null);
+        state.setDjTransitionConfidence(null);
+        state.setDjTransitionReason(null);
+        state.setDjGenreSkipCount(0);
     }
 
     public void moveInQueue(PlaybackState state, int fromIndex, int toIndex, Long profileId) {
@@ -695,8 +747,14 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         int currentSongIndexInCue = state.getCueIndex();
         int nextSongCurrentIndex = cue.indexOf(nextSongId);
 
-        // If the smart song is already in the cue and not next, move it.
-        if (nextSongCurrentIndex != -1 && nextSongCurrentIndex != currentSongIndexInCue + 1) {
+        if (nextSongCurrentIndex == -1) {
+            // Scored candidate is not in the active cue (e.g. Repeat OFF shrinking
+            // queue) — insert it right after the current song so it actually plays
+            // next instead of being silently discarded.
+            int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+            cue.add(insertionPoint, nextSongId);
+        } else if (nextSongCurrentIndex != currentSongIndexInCue + 1) {
+            // If the smart song is already in the cue and not next, move it.
             Long songToMove = cue.remove(nextSongCurrentIndex);
             // Removal shifts the current song left when the moved song sat before
             // it — re-locate it or the insertion lands past "next" and a wrong
@@ -1140,6 +1198,13 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
 
     private void refillCueFromPool(PlaybackState state, Long profileId) {
+        // Refill is gated on RepeatMode.ALL. With Repeat OFF the queue is consumed
+        // exactly once and must NOT be silently refilled from the library — the
+        // caller (advance) returns null for OFF and stops playback. Only Repeat ALL
+        // (continuous playback) refills from the pool.
+        if (state.getRepeatMode() != PlaybackState.RepeatMode.ALL) {
+            return;
+        }
         List<Long> poolIds = buildSongPool(state);
         if (poolIds.isEmpty() && Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
             poolIds = songService.findAll().stream()
