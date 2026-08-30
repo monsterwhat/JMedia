@@ -12,5 +12,8 @@ package Models.DTOs;
  * {@code id, title, artist}. Returning this from the service layer keeps
  * per-page allocations in kilobytes instead of megabytes.
  */
-public record QueueSongView(Long id, String title, String artist) {
+public record QueueSongView(Long id, String title, String artist, String path) {
+    public boolean isFlac() {
+        return path != null && path.toLowerCase().endsWith(".flac");
+    }
 }

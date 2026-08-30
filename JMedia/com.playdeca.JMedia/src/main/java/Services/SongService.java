@@ -384,14 +384,14 @@ public class SongService {
             whereClause += " AND (LOWER(s.title) LIKE :search ESCAPE '\\' OR LOWER(s.artist) LIKE :search ESCAPE '\\')";
         }
         var query = em.createQuery(
-                "SELECT s.id, s.title, s.artist FROM Song s WHERE " + whereClause, Object[].class)
+                "SELECT s.id, s.title, s.artist, s.path FROM Song s WHERE " + whereClause, Object[].class)
                 .setParameter("ids", ids);
         if (!searchLower.isBlank()) {
             query.setParameter("search", "%" + searchLower.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
         }
         var results = query.setFirstResult(offset).setMaxResults(limit).getResultList();
         return results.stream().map(row -> new Models.DTOs.QueueSongView(
-                (Long) row[0], (String) row[1], (String) row[2])).toList();
+                (Long) row[0], (String) row[1], (String) row[2], (String) row[3])).toList();
     }
 
     public long countByIdsWithSearch(List<Long> ids, String search) {
