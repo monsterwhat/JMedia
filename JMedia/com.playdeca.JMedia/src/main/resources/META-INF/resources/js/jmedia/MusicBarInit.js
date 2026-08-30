@@ -236,8 +236,8 @@
                 // and OS lock-screen controls have valid metadata immediately.
                 // Normally this is set on 'songChanged', which doesn't fire on page load.
                 if (window.updateMediaSessionMetadata) {
-                    const artworkUrl = currentState.currentSongData && currentState.currentSongData.artworkBase64
-                        ? 'data:image/jpeg;base64,' + currentState.currentSongData.artworkBase64
+                    const artworkUrl = currentState.currentSongData && currentState.currentSongData.id
+                        ? '/api/music/stream/artwork/' + currentState.currentSongData.id
                         : '/logo.png';
                     window.updateMediaSessionMetadata(currentState.songName, currentState.artist, artworkUrl);
                 }
@@ -257,8 +257,8 @@
                 }
 
                 if (window.updateMediaSessionMetadata && state && state.currentSongId) {
-                    const artworkUrl = state.currentSongData && state.currentSongData.artworkBase64
-                        ? 'data:image/jpeg;base64,' + state.currentSongData.artworkBase64
+                    const artworkUrl = state.currentSongData && state.currentSongData.id
+                        ? '/api/music/stream/artwork/' + state.currentSongData.id
                         : '/logo.png';
                     window.updateMediaSessionMetadata(state.songName, state.artistName, artworkUrl);
                 }

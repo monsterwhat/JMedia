@@ -45,6 +45,9 @@ public class MetadataEnrichmentApi {
     AlbumArtService albumArtService;
 
     @Inject
+    Services.ArtworkService artworkService;
+
+    @Inject
     AudioArtworkService audioArtworkService;
 
     @Inject
@@ -257,7 +260,7 @@ public class MetadataEnrichmentApi {
             
             long totalSongs = allSongs.size();
             long enrichedSongs = allSongs.stream()
-                    .filter(song -> song.getArtworkBase64() != null || song.getGenre() != null)
+                    .filter(song -> song.hasArtwork() || song.getGenre() != null)
                     .count();
             
             long songsNeedingEnrichment = allSongs.stream()
@@ -312,7 +315,7 @@ public class MetadataEnrichmentApi {
             long fullyEnriched = 0;
 
             for (Song song : allSongs) {
-                boolean hasArtwork = song.getArtworkBase64() != null;
+                boolean hasArtwork = song.hasArtwork();
                 boolean hasGenre = song.getGenre() != null && !song.getGenre().isBlank();
                 boolean hasBpm = song.getBpm() > 0;
 
@@ -365,7 +368,7 @@ public class MetadataEnrichmentApi {
      * Checks if a song needs metadata enrichment.
      */
     private boolean needsEnrichment(Song song) {
-        return song.getArtworkBase64() == null || 
+        return !song.hasArtwork() ||
                song.getGenre() == null ||
                song.getReleaseDate() == null ||
                song.getAlbum() == null;
@@ -395,7 +398,7 @@ public class MetadataEnrichmentApi {
             albumArtService.convertUrlToBase64(enriched.artworkUrl())
                 .thenAccept(base64Artwork -> {
                     if (base64Artwork != null && !base64Artwork.trim().isEmpty()) {
-                        song.setArtworkBase64(base64Artwork);
+                        song.setArtworkPath(artworkService.saveArtwork(base64Artwork));
                         songService.save(song);
 
                         // Async completion thread → cache save opens its own transaction.

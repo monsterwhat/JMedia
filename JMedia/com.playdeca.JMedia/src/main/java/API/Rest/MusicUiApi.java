@@ -167,9 +167,9 @@ public class MusicUiApi {
         return String.format("%d:%02d", m, s);
     }
 
-    private String artworkUrl(String artworkBase64) {
-        if (artworkBase64 != null && !artworkBase64.isEmpty()) {
-            return "data:image/jpeg;base64," + artworkBase64;
+    private String artworkUrl(Long songId) {
+        if (songId != null) {
+            return "/api/music/stream/artwork/" + songId;
         }
         return "/logo.png";
     }
@@ -245,7 +245,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -257,7 +257,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -292,7 +292,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -304,7 +304,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -344,7 +344,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -356,7 +356,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -391,7 +391,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -403,7 +403,7 @@ public class MusicUiApi {
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -785,7 +785,7 @@ public class MusicUiApi {
                 .data("offset", offset)
                 .data("limit", limit)
                 .data("totalQueueSize", totalQueueSize)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -800,7 +800,7 @@ public class MusicUiApi {
                 .data("offset", offset)
                 .data("limit", limit)
                 .data("totalQueueSize", totalQueueSize)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -844,7 +844,7 @@ public class MusicUiApi {
                 .data("offset", offset)
                 .data("limit", limit)
                 .data("totalQueueSize", totalQueueSize)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
@@ -888,7 +888,7 @@ public class MusicUiApi {
                 .data("hasMore", hasMore)
                 .data("nextPage", nextPage)
                 .data("search", search)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .render();
     }
 
@@ -932,7 +932,7 @@ public class MusicUiApi {
 
             return searchSuggestionsFragment
                     .data("suggestions", suggestions)
-                    .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                    .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                     .data("profileId", profileId)
                     .render();
         } catch (Exception e) {
@@ -1024,7 +1024,7 @@ public class MusicUiApi {
                 .data("offset", (page - 1) * limit)
                 .data("limit", limit)
                 .data("totalHistorySize", (int) totalHistorySize)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDate", (Function<Object, String>) this::formatDate)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
@@ -1067,7 +1067,7 @@ public class MusicUiApi {
                 .data("offset", (page - 1) * limit)
                 .data("limit", limit)
                 .data("totalHistorySize", (int) totalHistorySize)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDate", (Function<Object, String>) this::formatDate)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
@@ -1110,7 +1110,7 @@ public class MusicUiApi {
                 .data("hasMore", hasMore)
                 .data("nextPage", nextPage)
                 .data("search", search)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDate", (Function<Object, String>) this::formatDate)
                 .render();
     }
@@ -1189,22 +1189,22 @@ public class MusicUiApi {
                 .data("song", song)
                 .data("albumArtist", song.getAlbumArtist())
                 .data("similarSongs", similarSongs)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
     }
 
-    public record AlbumInfo(String name, String artwork, String year) {}
-    
-    public record RecommendedArtist(String name, String artwork, int songCount) {}
+    public record AlbumInfo(String name, Long artwork, String year) {}
+
+    public record RecommendedArtist(String name, Long artwork, int songCount) {}
     
     // Builder for RecommendedArtist since we need to modify songCount during processing
     private static class RecommendedArtistBuilder {
         private String name;
-        private String artwork;
+        private Long artwork;
         private int songCount;
-        
-        public RecommendedArtistBuilder(String name, String artwork, int songCount) {
+
+        public RecommendedArtistBuilder(String name, Long artwork, int songCount) {
             this.name = name;
             this.artwork = artwork;
             this.songCount = songCount;
@@ -1260,18 +1260,17 @@ public class MusicUiApi {
                 Song firstSong = entry.getValue().orElse(null);
                 return new AlbumInfo(
                     entry.getKey(),
-                    firstSong != null ? firstSong.getArtworkBase64() : null,
+                    firstSong != null && firstSong.hasArtwork() ? firstSong.id : null,
                     firstSong != null ? firstSong.getReleaseDate() : null
                 );
             })
             .sorted((a, b) -> (a.year() != null ? a.year() : "").compareTo(b.year() != null ? b.year() : ""))
             .toList();
 
-        // Get artist artwork from first song
-        String artistArtwork = allSongs.stream()
-            .filter(s -> s.getArtworkBase64() != null && !s.getArtworkBase64().isBlank())
+        Long artistArtwork = allSongs.stream()
+            .filter(Song::hasArtwork)
             .findFirst()
-            .map(Song::getArtworkBase64)
+            .map(s -> s.id)
             .orElse(null);
 
         // Get recommended artists (artists with similar genres)
@@ -1303,11 +1302,11 @@ public class MusicUiApi {
                              String artistFromSong = song.getArtist();
                              if (artistFromSong != null && !artistFromSong.isBlank()) {
                                  artistScores.computeIfAbsent(artistFromSong, name -> 
-                                     new RecommendedArtistBuilder(
-                                         name,
-                                         song.getArtworkBase64(),
-                                         0
-                                     )
+                                  new RecommendedArtistBuilder(
+                                          name,
+                                          song.hasArtwork() ? song.id : null,
+                                          0
+                                      )
                                  );
                                  RecommendedArtistBuilder builder = artistScores.get(artistFromSong);
                                  builder.songCount(builder.songCount + 1);
@@ -1333,7 +1332,7 @@ public class MusicUiApi {
                 .data("songCount", allSongs.size())
                 .data("albumCount", albums.size())
                 .data("recommendedArtists", recommendedArtists)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
     }
@@ -1381,11 +1380,10 @@ public class MusicUiApi {
             .map(Song::getArtist)
             .orElse("Unknown Artist");
 
-        // Get album artwork from first song
-        String albumArtwork = allSongs.stream()
-            .filter(s -> s.getArtworkBase64() != null && !s.getArtworkBase64().isBlank())
+        Long albumArtwork = allSongs.stream()
+            .filter(Song::hasArtwork)
             .findFirst()
-            .map(Song::getArtworkBase64)
+            .map(s -> s.id)
             .orElse(null);
 
         // Get year from first song
@@ -1456,38 +1454,31 @@ public class MusicUiApi {
             
             for (Song song : otherSongs) {
                 String artist = song.getArtist();
-                String artwork = song.getArtworkBase64();
-                
                 if (artist != null && !artist.isBlank() && !artist.equalsIgnoreCase(primaryArtist)) {
                     if (!artistData.containsKey(artist)) {
-                        artistData.put(artist, new int[]{0, 0}); // [songCount, hasArtwork]
+                        artistData.put(artist, new int[]{0, 0});
                     }
                     int[] data = artistData.get(artist);
-                    data[0]++; // increment songCount
-                    // Mark if we have artwork for this artist
-                    if (data[1] == 0 && artwork != null && !artwork.isBlank()) {
-                        data[1] = 1; // mark that we have artwork
+                    data[0]++;
+                    if (data[1] == 0 && song.hasArtwork()) {
+                        data[1] = 1;
                     }
                 }
             }
-            
-            // Build recommended artists from the collected songs
+
             if (!otherArtistSongs.isEmpty()) {
-                Map<String, int[]> artistData2 = new HashMap<>(); // [songCount, hasArtwork]
-                
+                Map<String, int[]> artistData2 = new HashMap<>();
+
                 for (Song song : otherArtistSongs) {
                     String artist = song.getArtist();
-                    String artwork = song.getArtworkBase64();
-                    
                     if (artist != null && !artist.isBlank() && !artist.equalsIgnoreCase(primaryArtist)) {
                         if (!artistData2.containsKey(artist)) {
-                            artistData2.put(artist, new int[]{0, 0}); // [songCount, hasArtwork]
+                            artistData2.put(artist, new int[]{0, 0});
                         }
                         int[] data = artistData2.get(artist);
-                        data[0]++; // increment songCount
-                        // Mark if we have artwork for this artist
-                        if (data[1] == 0 && artwork != null && !artwork.isBlank()) {
-                            data[1] = 1; // mark that we have artwork
+                        data[0]++;
+                        if (data[1] == 0 && song.hasArtwork()) {
+                            data[1] = 1;
                         }
                     }
                 }
@@ -1497,36 +1488,32 @@ public class MusicUiApi {
                 for (Map.Entry<String, int[]> entry : artistData2.entrySet()) {
                     String artistNameEntry = entry.getKey();
                     int[] data = entry.getValue();
-                    // Find artwork for this artist
-                    String artwork = null;
+                    Long artwork = null;
                     if (data[1] == 1) {
                         for (Song song : otherArtistSongs) {
-                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry)) {
-                                artwork = song.getArtworkBase64();
+                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry) && song.hasArtwork()) {
+                                artwork = song.id;
                                 break;
                             }
                         }
                     }
                     tempArtists.add(new RecommendedArtist(artistNameEntry, artwork, data[0]));
                 }
-                
-                // Sort by song count descending and take top 7
+
                 recommendedArtists = tempArtists.stream()
                     .sorted((a, b) -> Integer.compare(b.songCount(), a.songCount()))
                     .limit(7)
                     .collect(Collectors.toList());
             } else {
-                // Convert to RecommendedArtist objects and sort by song count
                 List<RecommendedArtist> tempArtists = new ArrayList<>();
                 for (Map.Entry<String, int[]> entry : artistData.entrySet()) {
                     String artistNameEntry = entry.getKey();
                     int[] data = entry.getValue();
-                    // Find artwork for this artist
-                    String artwork = null;
+                    Long artwork = null;
                     if (data[1] == 1) {
                         for (Song song : otherSongs) {
-                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry)) {
-                                artwork = song.getArtworkBase64();
+                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry) && song.hasArtwork()) {
+                                artwork = song.id;
                                 break;
                             }
                         }
@@ -1552,7 +1539,7 @@ public class MusicUiApi {
                 .data("totalDuration", totalDuration)
                 .data("firstSongId", firstSongId)
                 .data("recommendedArtists", recommendedArtists)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("artworkUrl", (Function<Long, String>) this::artworkUrl)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
     }

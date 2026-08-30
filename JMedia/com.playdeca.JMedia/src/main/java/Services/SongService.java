@@ -41,6 +41,9 @@ public class SongService {
     @Inject
     SongEnrichmentService songEnrichmentService;
 
+    @Inject
+    ArtworkService artworkService;
+
     @Transactional
     public void save(Song song) {
         song.setUpdatedAt(java.time.LocalDateTime.now());
@@ -91,11 +94,14 @@ public class SongService {
         em.createQuery("DELETE FROM SongAnalysis WHERE song IS NULL").executeUpdate();
 
         em.createNativeQuery("SET REFERENTIAL_INTEGRITY TRUE").executeUpdate();
+
+        artworkService.cleanupOrphans();
     }
 
     @Transactional
     public void delete(Song song) {
         if (song != null) {
+            String artworkPath = song.hasArtwork() ? song.getArtworkPath() : null;
             // First, delete all associated playback history entries across all profiles
             playbackHistoryService.deleteBySongIdForAllProfiles(song.id);
             // Then, remove the song from all playlists
@@ -103,6 +109,9 @@ public class SongService {
             
             Song managed = em.contains(song) ? song : em.merge(song);
             em.remove(managed);
+            if (artworkPath != null) {
+                artworkService.deleteIfUnreferenced(artworkPath);
+            }
         }
     }
 
@@ -112,6 +121,7 @@ public class SongService {
     @Transactional
     public void deleteWithPlaylistPreservation(Song song) {
         if (song != null) {
+            String artworkPath = song.hasArtwork() ? song.getArtworkPath() : null;
             // Find replacement before deletion
             Song replacement = findBestReplacement(song.id);
 
@@ -131,6 +141,9 @@ public class SongService {
             
             Song managed = em.contains(song) ? song : em.merge(song);
             em.remove(managed);
+            if (artworkPath != null) {
+                artworkService.deleteIfUnreferenced(artworkPath);
+            }
         }
     }
 

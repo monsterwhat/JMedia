@@ -10,6 +10,7 @@ import Services.MusicEnrichmentService;
 import Services.SettingsService;
 import Services.SongEnrichmentService;
 import Services.SongService;
+import Services.ArtworkService;
 import Utils.PoolSizeResolver;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -74,6 +75,9 @@ public class SettingsController implements Serializable {
 
     @Inject
     private MusicEnrichmentService musicEnrichmentService;
+
+    @Inject
+    private ArtworkService artworkService;
 
     @Inject
     private Services.AudioAnalysisService audioAnalysisService;
@@ -298,13 +302,13 @@ public class SettingsController implements Serializable {
                 try {
                     byte[] imageData = AudioArtworkService.extractArtworkBytes(tag);
                     if (imageData != null && imageData.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
+                        song.setArtworkPath(artworkService.saveArtwork(imageData));
                     } else {
-                        song.setArtworkBase64(null);
+                        song.setArtworkPath(null);
                     }
                 } catch (Exception artworkException) {
                     LOGGER.error("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName(), artworkException);
-                    song.setArtworkBase64(null);
+                    song.setArtworkPath(null);
                 }
             }
             
@@ -361,7 +365,7 @@ public class SettingsController implements Serializable {
             if (song.getAlbum() == null || song.getAlbum().isBlank()) {
                 song.setAlbum("Unknown Album");
             }
-            song.setArtworkBase64(null); // Explicitly null if not found
+            song.setArtworkPath(null); // Explicitly null if not found
 
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
@@ -809,13 +813,13 @@ public class SettingsController implements Serializable {
                 try {
                     byte[] imageData = AudioArtworkService.extractArtworkBytes(tag);
                     if (imageData != null && imageData.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
+                        song.setArtworkPath(artworkService.saveArtwork(imageData));
                     } else {
-                        song.setArtworkBase64(null);
+                        song.setArtworkPath(null);
                     }
                 } catch (Exception artworkException) {
                     LOGGER.error("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName(), artworkException);
-                    song.setArtworkBase64(null);
+                    song.setArtworkPath(null);
                 }
             }
 
@@ -1356,13 +1360,13 @@ public class SettingsController implements Serializable {
                 try {
                     byte[] data = AudioArtworkService.extractArtworkBytes(tag);
                     if (data != null && data.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                        song.setArtworkPath(artworkService.saveArtwork(data));
                     } else {
-                        song.setArtworkBase64(null);
+                        song.setArtworkPath(null);
                     }
                 } catch (Exception artEx) {
                     localLogs.add("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
-                    song.setArtworkBase64(null);
+                    song.setArtworkPath(null);
                 }
             }
             
@@ -1478,13 +1482,13 @@ public class SettingsController implements Serializable {
                 try {
                     byte[] data = AudioArtworkService.extractArtworkBytes(tag);
                     if (data != null && data.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                        song.setArtworkPath(artworkService.saveArtwork(data));
                     } else {
-                        song.setArtworkBase64(null);
+                        song.setArtworkPath(null);
                     }
                 } catch (Exception artEx) {
                     localLogs.add("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
-                    song.setArtworkBase64(null);
+                    song.setArtworkPath(null);
                 }
             }
             
@@ -1826,12 +1830,12 @@ public class SettingsController implements Serializable {
                 try {
                     byte[] data = AudioArtworkService.extractArtworkBytes(tag);
                     if (data != null && data.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                        song.setArtworkPath(artworkService.saveArtwork(data));
                     } else {
-                        song.setArtworkBase64(null);
+                        song.setArtworkPath(null);
                     }
                 } catch (Exception artEx) {
-                    song.setArtworkBase64(null);
+                    song.setArtworkPath(null);
                 }
             }
 

@@ -136,7 +136,7 @@
             const currentSongId = state.currentSongId;
             if (currentSongId) {
                 const songChanged = String(currentSongId) !== String(this.lastSongId);
-                const artworkAvailable = !!state.currentSongData?.artworkBase64;
+                const artworkAvailable = !!state.currentSongData?.id;
                 const artworkArrived = artworkAvailable && String(currentSongId) !== String(this._lastArtworkSongId);
                 
                 if (songChanged || artworkArrived) {
@@ -148,15 +148,14 @@
                         id: currentSongId,
                         title: state.songName || 'Unknown',
                         artist: state.artistName || state.artist || 'Unknown Artist',
-                        artworkBase64: state.currentSongData?.artworkBase64,
                         flac: state.currentSongData?.flac
                     };
                     
-                    if (currentSong.artworkBase64) {
+                    if (currentSong.id) {
                         this._lastArtworkSongId = currentSongId;
                     }
                     
-                    console.log('[UIUpdater] Updating images for song:', currentSong.title, '| artworkBase64:', !!currentSong.artworkBase64);
+                    console.log('[UIUpdater] Updating images for song:', currentSong.title, '| artwork:', !!currentSong.id);
                     if (window.ImageManager) {
                         window.ImageManager.updateImages(currentSong, null, null);
                     } else {
@@ -164,8 +163,8 @@
                      const coverEl = document.getElementById('songCoverImage');
                      const faviconEl = document.getElementById('favicon');
                      const pageTitleEl = document.getElementById('pageTitle');
-                     const artworkUrl = currentSong.artworkBase64 
-                         ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 
+                     const artworkUrl = currentSong.id 
+                         ? '/api/music/stream/artwork/' + currentSong.id 
                          : '/logo.png';
                      if (coverEl) coverEl.src = artworkUrl;
                      if (faviconEl) faviconEl.href = artworkUrl;

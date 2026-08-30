@@ -4,6 +4,7 @@ import API.ApiResponse;
 import Controllers.PlaybackController;
 import Models.Settings.Settings;
 import Models.Music.Song;
+import Services.ArtworkService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -14,8 +15,9 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.util.Base64;
+import java.nio.file.Files;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -31,6 +33,9 @@ public class StreamAPI {
     @Inject
     private SettingsService settingsService;
 
+    @Inject
+    ArtworkService artworkService;
+
     private static final Logger LOGGER = Logger.getLogger(StreamAPI.class.getName());
     private static final Map<String, String> EXTENSION_TO_MIME = Map.of(
         ".mp3", "audio/mpeg",
@@ -45,24 +50,32 @@ public class StreamAPI {
 
     @GET
     @Path("/artwork/{songId}")
-    @Produces("image/jpeg")
     public Response getArtwork(@PathParam("songId") Long songId) {
         if (songId == null) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
         Song song = Song.findById(songId);
-        if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isBlank()) {
+        if (song == null || !song.hasArtwork()) {
             return Response.ok(getClass().getResourceAsStream("/META-INF/resources/logo.png"))
                     .header("Cache-Control", "public, max-age=86400")
                     .build();
         }
-        try {
-            byte[] imageData = Base64.getDecoder().decode(song.getArtworkBase64());
-            return Response.ok(imageData)
+        String rel = song.getArtworkPath();
+        java.nio.file.Path file = artworkService.resolveFile(rel);
+        if (!Files.exists(file)) {
+            return Response.ok(getClass().getResourceAsStream("/META-INF/resources/logo.png"))
                     .header("Cache-Control", "public, max-age=86400")
-                    .type("image/jpeg")
                     .build();
-        } catch (IllegalArgumentException e) {
+        }
+        String contentType = artworkService.contentType(rel);
+        try {
+            InputStream is = Files.newInputStream(file);
+            return Response.ok(is)
+                    .header("Cache-Control", "public, max-age=86400")
+                    .type(contentType)
+                    .build();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to serve artwork file " + file, e);
             return Response.ok(getClass().getResourceAsStream("/META-INF/resources/logo.png"))
                     .header("Cache-Control", "public, max-age=86400")
                     .build();

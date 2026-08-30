@@ -10,13 +10,13 @@
          elements: {},
          
          /**
-          * Convert base64 artwork to data URL
-          * @param {string} artworkBase64 - Base64 encoded artwork
-          * @returns {string} Data URL or fallback
+          * Get artwork URL for a song
+          * @param {Object} song - Song data (must include id)
+          * @returns {string} Artwork URL or fallback
           */
-         getArtworkDataUrl: function(artworkBase64) {
-             if (artworkBase64 && artworkBase64 !== '') {
-                 return 'data:image/jpeg;base64,' + artworkBase64;
+         getArtworkUrl: function(song) {
+             if (song && song.id) {
+                 return '/api/music/stream/artwork/' + song.id;
              }
              return '/logo.png';
          },
@@ -117,25 +117,13 @@
          * @param {Object} song - Song data
          */
         updateSongImage: function(element, song) {
-            if (song && song.artworkBase64) {
-                element.src = this.getArtworkDataUrl(song.artworkBase64);
+            if (song && song.id) {
+                element.src = this.getArtworkUrl(song);
                 element.style.display = 'block';
             } else {
                 element.src = '/logo.png';
                 element.style.display = 'none';
             }
-        },
-        
-        /**
-         * Get artwork URL for song
-         * @param {Object} song - Song data
-         * @returns {string} Artwork URL
-         */
-        getArtworkUrl: function(song) {
-            if (!song || !song.artworkBase64) {
-                return '/logo.png';
-            }
-            return this.getArtworkDataUrl(song.artworkBase64);
         },
         
         /**
@@ -148,9 +136,9 @@
             }
             
             songs.forEach(song => {
-                if (song && song.artworkBase64) {
+                if (song && song.id) {
                     const img = new Image();
-                    img.src = this.getArtworkDataUrl(song.artworkBase64);
+                    img.src = this.getArtworkUrl(song);
                     // Preload without blocking
                 }
             });
@@ -162,15 +150,6 @@
          * Clear image cache to free memory
          */
         clearCache: function() {
-            // Clear previous song data to free memory
-            if (window.previousSongData) {
-                Object.values(window.previousSongData).forEach(song => {
-                    if (song && song.artworkBase64) {
-                        song.artworkBase64 = null;
-                    }
-                });
-            }
-            
             window.Helpers.log('ImageManager: Cache cleared');
         },
         

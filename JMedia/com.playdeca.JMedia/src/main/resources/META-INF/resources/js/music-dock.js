@@ -14,8 +14,8 @@
     var heroBadge = null;
 
     function getArtworkUrl(state) {
-        if (state && state.currentSongData && state.currentSongData.artworkBase64) {
-            return 'data:image/jpeg;base64,' + state.currentSongData.artworkBase64;
+        if (state && state.currentSongData && state.currentSongData.id) {
+            return '/api/music/stream/artwork/' + state.currentSongData.id;
         }
         if (state && state.currentSongId) {
             return '/api/music/stream/artwork/' + state.currentSongId;

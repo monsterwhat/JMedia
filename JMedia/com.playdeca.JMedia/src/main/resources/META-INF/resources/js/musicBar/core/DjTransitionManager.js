@@ -237,10 +237,10 @@
                         .then(res => {
                             // res.data is the Song object in this API
                             if (res.success && res.data && String(res.data.id) === String(nextId)) {
-                                 // Store title/artist and artworkBase64 in transitionData for fallback use
+                                 // Store title/artist and id in transitionData for fallback use
                                  self.transitionData.nextSongTitle = res.data.title;
                                  self.transitionData.nextSongArtist = res.data.artist;
-                                 self.transitionData.nextSongArtworkBase64 = res.data.artworkBase64;
+                                 self.transitionData.nextSongId = res.data.id;
                                  
                                  // Update state FIRST
                                  window.StateManager.updateState({
@@ -257,9 +257,9 @@
                                  
                                  // 3. Update Media Session API (for browser media controls, notifications, etc.)
                                  if (window.updateMediaSessionMetadata) {
-                                      const artworkUrl = res.data.artworkBase64 
-                                          ? 'data:image/jpeg;base64,' + res.data.artworkBase64 
-                                          : '/logo.png';
+const artworkUrl = res.data.id 
+                                           ? '/api/music/stream/artwork/' + res.data.id 
+                                           : '/logo.png';
                                      window.updateMediaSessionMetadata(res.data.title, res.data.artist, artworkUrl);
                                  }
                             }
@@ -328,8 +328,8 @@
                         
                          // Update Media Session API (fallback for single-player mode)
                          if (window.updateMediaSessionMetadata && self.transitionData) {
-                              const artworkUrl = self.transitionData.nextSongArtworkBase64 
-                                  ? 'data:image/jpeg;base64,' + self.transitionData.nextSongArtworkBase64 
+                              const artworkUrl = self.transitionData.nextSongId 
+                                  ? '/api/music/stream/artwork/' + self.transitionData.nextSongId 
                                   : '/logo.png';
                              window.updateMediaSessionMetadata(
                                  self.transitionData.nextSongTitle || 'Unknown',

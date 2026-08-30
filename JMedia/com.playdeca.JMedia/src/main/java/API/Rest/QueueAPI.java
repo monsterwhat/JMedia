@@ -5,6 +5,7 @@ import Controllers.PlaybackController;
 import Models.Music.Playlist;
 import Models.Settings.Profile;
 import Models.Music.Song; 
+import Services.ArtworkService;
 import Services.SongService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
@@ -13,6 +14,9 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response; 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.ArrayList;
 
@@ -29,6 +33,9 @@ public class QueueAPI {
 
     @Inject
     private SettingsService settingsService;
+
+    @Inject
+    ArtworkService artworkService;
 
     private Profile getUserProfile(HttpHeaders headers) {
         return settingsService.getActiveProfileFromHeaders(headers);
@@ -78,25 +85,32 @@ public class QueueAPI {
         
     @GET
     @Path("/cover/{id}")
-    @Produces("image/jpeg")
     public Response getSongCover(@PathParam("id") Long id, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
-        
+
         Song song = playbackController.findSong(id);
-        if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isEmpty()) {
-            // Redirect to default logo if artwork is missing to prevent 404 errors in UI
+        if (song == null || !song.hasArtwork()) {
             try {
                 return Response.temporaryRedirect(new java.net.URI("/logo.png")).build();
             } catch (Exception e) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
         }
-
+        String rel = song.getArtworkPath();
+        java.nio.file.Path file = artworkService.resolveFile(rel);
+        if (!Files.exists(file)) {
+            try {
+                return Response.temporaryRedirect(new java.net.URI("/logo.png")).build();
+            } catch (Exception e) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+        }
+        String contentType = artworkService.contentType(rel);
         try {
-            byte[] imageBytes = java.util.Base64.getDecoder().decode(song.getArtworkBase64());
-            return Response.ok(imageBytes).build();
-        } catch (IllegalArgumentException e) {
+            InputStream is = Files.newInputStream(file);
+            return Response.ok(is).type(contentType).build();
+        } catch (IOException e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
     }

@@ -13,6 +13,7 @@ import org.jaudiotagger.tag.Tag;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import Services.ArtworkService;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -24,6 +25,9 @@ import org.slf4j.LoggerFactory;
 public class MetadataService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MetadataService.class);
+
+    @Inject
+    ArtworkService artworkService;
 
     /**
      * Extracts metadata from an audio file and creates a Song object.
@@ -107,7 +111,7 @@ public class MetadataService {
                 try {
                     byte[] artworkBytes = AudioArtworkService.extractArtworkBytes(tag);
                     if (artworkBytes != null && artworkBytes.length > 0) {
-                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(artworkBytes));
+                        song.setArtworkPath(artworkService.saveArtwork(artworkBytes));
                     }
                 } catch (Exception artworkException) {
                     LOGGER.error("Failed to extract artwork for " + audioFile.getName(), artworkException);

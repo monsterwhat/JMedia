@@ -56,6 +56,9 @@ public class MusicEnrichmentService {
     @Inject
     SongEnrichmentService songEnrichmentService;
 
+    @Inject
+    ArtworkService artworkService;
+
     @PersistenceContext(unitName = "music")
     EntityManager em;
 
@@ -128,9 +131,9 @@ public class MusicEnrichmentService {
         boolean needsMusicBrainz = song.getMusicbrainzId() == null;
         boolean needsAcousticBrainz = song.getMusicbrainzId() != null && 
             (song.getBpm() <= 0 || (song.getGenre() == null || song.getGenre().isBlank()));
-        boolean needsDeezer = song.getArtworkBase64() == null || 
+        boolean needsDeezer = !song.hasArtwork() ||
             (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()));
-        boolean needsTheAudioDb = song.getArtworkBase64() == null;
+        boolean needsTheAudioDb = !song.hasArtwork();
 
         if (!needsMusicBrainz && !needsAcousticBrainz && !needsDeezer && !needsTheAudioDb && !overwriteBasicInfo) {
             // Persist cache-restored fields — song may be detached (scan/DJ worker) and would lose them.
@@ -229,10 +232,10 @@ public class MusicEnrichmentService {
                             updated = true;
                         }
                         
-                        if (result.artworkUrl() != null && !result.artworkUrl().isBlank() && song.getArtworkBase64() == null) {
+                        if (result.artworkUrl() != null && !result.artworkUrl().isBlank() && !song.hasArtwork()) {
                             String base64 = downloadArtwork(result.artworkUrl());
                             if (base64 != null) {
-                                song.setArtworkBase64(base64);
+                                song.setArtworkPath(artworkService.saveArtwork(base64));
                                 updated = true;
                             }
                         }
@@ -255,7 +258,7 @@ public class MusicEnrichmentService {
             }
         }
 
-        if ((needsTheAudioDb || overwriteBasicInfo) && song.getArtworkBase64() == null) {
+        if ((needsTheAudioDb || overwriteBasicInfo) && !song.hasArtwork()) {
             if (!Boolean.TRUE.equals(settings.getTheAudioDbEnabled())) {
                 LOGGER.info("TheAudioDB disabled by user settings, skipping for: {} - {}", artist, title);
             } else {
@@ -264,7 +267,7 @@ public class MusicEnrichmentService {
                     if (result != null && result.artworkUrl() != null && !result.artworkUrl().isBlank()) {
                         String base64 = downloadArtwork(result.artworkUrl());
                         if (base64 != null) {
-                            song.setArtworkBase64(base64);
+                            song.setArtworkPath(artworkService.saveArtwork(base64));
                             song.setUpdatedAt(java.time.LocalDateTime.now());
                             em.merge(song);
                             LOGGER.info("Enriched artwork from TheAudioDB for {} - {}", artist, title);

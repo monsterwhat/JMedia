@@ -45,11 +45,8 @@ public class SongEnrichment extends PanacheEntity {
     /** BPM from AcousticBrainz or file tags. 0 = unknown. */
     private int bpm;
 
-    /** Album artwork as base64 — huge column, mirrors {@link Song#artworkBase64}. */
-    @Column(length = Integer.MAX_VALUE)
-    private String artworkBase64;
+    private String artworkPath;
 
-    /** Where the artwork came from: Deezer / TheAudioDB / file / enrichment. */
     private String artworkSource;
 
     private LocalDateTime enrichedAt;

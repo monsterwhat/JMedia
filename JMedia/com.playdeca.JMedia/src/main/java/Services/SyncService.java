@@ -513,7 +513,6 @@ public class SyncService {
             data.explicit = song.isExplicit();
             data.bpm = song.getBpm();
             data.durationSeconds = song.getDurationSeconds();
-            data.artworkBase64 = null;
             data.updatedAt = song.getUpdatedAt();
 
             SongAnalysis analysis = song.getAnalysis();

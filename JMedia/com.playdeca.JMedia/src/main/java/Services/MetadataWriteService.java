@@ -30,7 +30,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -49,6 +48,9 @@ public class MetadataWriteService {
 
     @Inject
     Executor executor;
+
+    @Inject
+    ArtworkService artworkService;
 
     /**
      * Writes all metadata from a Song object to its audio file.
@@ -149,9 +151,11 @@ public class MetadataWriteService {
             // Custom fields stored in comment/JMedia marker
             writeCustomFields(tag, song);
             
-            // Artwork
-            if (song.getArtworkBase64() != null && !song.getArtworkBase64().isBlank()) {
-                writeArtwork(tag, song.getArtworkBase64());
+            if (song.hasArtwork()) {
+                byte[] artworkBytes = artworkService.readArtwork(song.getArtworkPath());
+                if (artworkBytes != null && artworkBytes.length > 0) {
+                    writeArtwork(tag, artworkBytes);
+                }
             }
 
             // Embed audio analysis data (TarsosDSP) into tags - must not fail the metadata write
@@ -305,12 +309,8 @@ public class MetadataWriteService {
         }
     }
 
-    /**
-     * Writes artwork to the tag.
-     */
-    private void writeArtwork(Tag tag, String base64Artwork) {
+    private void writeArtwork(Tag tag, byte[] imageData) {
         try {
-            byte[] imageData = Base64.getDecoder().decode(base64Artwork);
             Artwork artwork = ArtworkFactory.getNew();
             artwork.setBinaryData(imageData);
             artwork.setDescription("Album Cover");

@@ -913,15 +913,15 @@
         handleStateChange: function(oldState, newState) {
             // React to relevant state changes
             if (oldState.currentSongId !== newState.currentSongId) {
-                // Song changed - fetch full song data including artworkBase64
+                // Song changed - fetch full song data
                 this.fetchCurrentSongData(newState.currentSongId);
                 // Update cover image
                 this.updateCoverImage(newState);
             }
 
             // ALSO update if currentSongData actually changed (deepClone creates new object references,
-            // so use artworkBase64 value comparison to avoid false positives)
-            if (oldState.currentSongData?.artworkBase64 !== newState.currentSongData?.artworkBase64) {
+            // so use id value comparison to avoid false positives)
+            if (oldState.currentSongData?.id !== newState.currentSongData?.id) {
                 this.updateCoverImage(newState);
             }
 
@@ -931,7 +931,7 @@
             }
         },
         /**
-         * Fetch current song data (Metadata only, avoid massive artworkBase64 in JSON)
+         * Fetch current song data (Metadata only)
          */
         fetchCurrentSongData: function(songId) {
             if (!songId) {
@@ -960,7 +960,7 @@
                              return;
                          }
                          
-                         // Store metadata with artworkBase64 (now included in JSON response)
+                         // Store metadata for the current song
                          const songMetadata = { ...data.data };
                         
                          if (window.StateManager) {
@@ -972,8 +972,8 @@
                          
                           // Update media session metadata
                           if (window.updateMediaSessionMetadata) {
-                               const artworkUrl = songMetadata.artworkBase64 
-                                   ? 'data:image/jpeg;base64,' + songMetadata.artworkBase64 
+                               const artworkUrl = songMetadata.id 
+                                   ? '/api/music/stream/artwork/' + songMetadata.id 
                                    : '/logo.png';
                                window.updateMediaSessionMetadata(
                                    songMetadata.title,
@@ -1000,15 +1000,15 @@
             const songId = state?.currentSongId;
             const songData = state?.currentSongData;
 
-            if (songData && songData.artworkBase64) {
-                // Use artworkBase64 from song data (authenticated request)
-                this.elements.coverImage.src = 'data:image/jpeg;base64,' + songData.artworkBase64;
+            if (songData && songData.id) {
+                // Use artwork endpoint for the song
+                this.elements.coverImage.src = '/api/music/stream/artwork/' + songData.id;
                 this.elements.coverImage.style.display = 'block';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
              } else if (songId) {
-                 // No artworkBase64 available, use default logo (avoiding cover endpoint entirely)
+                 // No song data available, use default logo
                  this.elements.coverImage.src = '/logo.png';
                  this.elements.coverImage.style.display = 'block';
                  if (this.elements.coverFallback) {

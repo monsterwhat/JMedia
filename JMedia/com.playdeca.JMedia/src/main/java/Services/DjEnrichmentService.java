@@ -222,7 +222,7 @@ public class DjEnrichmentService {
             String artist = song.getArtist();
             LOG.info("DjEnrichmentService [metadata]: '{}' by {} (id={}) — artwork={}, genre={}, bpm={}",
                 title, artist, songId,
-                song.getArtworkBase64() != null ? "present" : "missing",
+                song.hasArtwork() ? "present" : "missing",
                 song.getGenre() != null ? song.getGenre() : "missing",
                 song.getBpm() > 0 ? song.getBpm() : "missing");
 
@@ -237,7 +237,7 @@ public class DjEnrichmentService {
 
             LOG.info("DjEnrichmentService [metadata]: done for '{}' — artwork={}, genre={}, bpm={}",
                 title,
-                song.getArtworkBase64() != null ? "present" : "missing",
+                song.hasArtwork() ? "present" : "missing",
                 song.getGenre() != null ? song.getGenre() : "missing",
                 song.getBpm() > 0 ? song.getBpm() : "missing");
 
@@ -432,7 +432,7 @@ public class DjEnrichmentService {
     // ----------------------------------------------------------------
 
     private boolean needsMetadata(Song song) {
-        return song.getArtworkBase64() == null
+        return !song.hasArtwork()
             || song.getGenre() == null;
     }
 

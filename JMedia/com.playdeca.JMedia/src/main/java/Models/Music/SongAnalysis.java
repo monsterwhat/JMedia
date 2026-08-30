@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import Utils.GzipJsonConverter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,19 +18,19 @@ public class SongAnalysis extends PanacheEntity {
     private Song song;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    @Column(length = Integer.MAX_VALUE)
+    @Convert(converter = GzipJsonConverter.class)
     private String beatTimesJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    @Column(length = Integer.MAX_VALUE)
+    @Convert(converter = GzipJsonConverter.class)
     private String segmentFeaturesJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    @Column(length = Integer.MAX_VALUE)
+    @Convert(converter = GzipJsonConverter.class)
     private String similarBeatsJson;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    @Column(length = Integer.MAX_VALUE)
+    @Convert(converter = GzipJsonConverter.class)
     private String beatMetadataJson;
 
     private Integer beatCount;

@@ -111,8 +111,8 @@ public class SongEnrichmentService {
         if (song.getBpm() > 0) {
             existing.setBpm(song.getBpm());
         }
-        if (song.getArtworkBase64() != null && !song.getArtworkBase64().isBlank()) {
-            existing.setArtworkBase64(song.getArtworkBase64());
+        if (song.hasArtwork()) {
+            existing.setArtworkPath(song.getArtworkPath());
             if (existing.getArtworkSource() == null) {
                 existing.setArtworkSource("enrichment");
             }
@@ -181,12 +181,12 @@ public class SongEnrichmentService {
             song.setBpm(entry.getBpm());
             applied = true;
         }
-        if (isMissing(song.getArtworkBase64())) {
-            song.setArtworkBase64(entry.getArtworkBase64());
-            applied = true;
-        }
         if (isMissing(song.getMusicbrainzId())) {
             song.setMusicbrainzId(entry.getMusicbrainzId());
+            applied = true;
+        }
+        if (!song.hasArtwork() && entry.getArtworkPath() != null) {
+            song.setArtworkPath(entry.getArtworkPath());
             applied = true;
         }
         return applied;
@@ -308,7 +308,7 @@ public class SongEnrichmentService {
     /** Only backfill songs that actually carry enrichment-worthy data. */
     private boolean hasEnrichmentData(Song song) {
         return song.getMusicbrainzId() != null
-                || (song.getArtworkBase64() != null && !song.getArtworkBase64().isBlank())
+                || song.hasArtwork()
                 || (song.getGenre() != null && !"Unknown Genre".equals(song.getGenre()) && !song.getGenre().isBlank())
                 || song.getBpm() > 0
                 || (song.getReleaseDate() != null && !song.getReleaseDate().isBlank())

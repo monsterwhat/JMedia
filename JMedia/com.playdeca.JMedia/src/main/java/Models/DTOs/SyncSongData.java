@@ -50,7 +50,6 @@ public class SyncSongData {
         song.setExplicit(explicit);
         song.setBpm(bpm);
         song.setDurationSeconds(durationSeconds);
-        song.setArtworkBase64(artworkBase64);
         song.setUpdatedAt(updatedAt != null ? updatedAt : LocalDateTime.now());
 
         if (beatTimes != null || averageBpm != null) {
