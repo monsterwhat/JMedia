@@ -9,12 +9,23 @@
         start() {
             const p = this.player;
             if (p._prog) clearInterval(p._prog);
+            let restTick = 0;
+            // ~1s cadence keeps lastClientReportAt on the server fresh (its mirror window
+            // is 1500ms) so the phantom clock follows the real player instead of advancing
+            // independently and drifting/jumping the position. The REST DB progress save
+            // is still throttled to every 5th tick (~5s) to bound writes.
             p._prog = setInterval(() => {
                 if (!p.video.paused && p.video.currentTime > 0) {
-                    const displayTime = Math.min(p.video.currentTime + (p.streamStartOffset || 0), p.totalDuration || Infinity);
-                    this._reportProgress(displayTime, !p.video.paused);
+                    restTick++;
+                    if (typeof p._broadcastState === 'function') {
+                        p._broadcastState();
+                    }
+                    if (restTick % 5 === 1) {
+                        const displayTime = Math.min(p.video.currentTime + (p.streamStartOffset || 0), p.totalDuration || Infinity);
+                        this._reportProgress(displayTime, !p.video.paused);
+                    }
                 }
-            }, 5000);
+            }, 1000);
 
             if (!this._onVisibilityChange) {
                 this._onVisibilityChange = () => {

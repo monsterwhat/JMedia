@@ -92,9 +92,17 @@ public class VideoSocket {
 
     @OnClose
     public void onClose(Session session) {
+        Long profileId = webSocketManager.getProfileIdForSession(session.getId());
         runAsync(() -> {
             webSocketManager.removeVideoSession(session); // Remove from video sessions
             viewSession.clientDisconnected(); // Still relevant for any client disconnection
+            // Stop the phantom-clock timer and persist the resume position once the last
+            // session for a profile goes away. Before, a closed tab left the 300ms timer
+            // running with no client to mirror, so the clock kept inflating st.currentTime
+            // and corrupted the saved resume point (movies resumed 30s-1min ahead).
+            if (profileId != null && !webSocketManager.getAllActiveProfileIds().contains(profileId)) {
+                videoController.onClientDisconnect(profileId);
+            }
         });
     }
 

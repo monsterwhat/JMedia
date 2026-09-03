@@ -671,7 +671,14 @@
                     } else if (window.StateManager) {
                         currentVol = window.StateManager.getProperty('volume');
                     }
-                    gain.gain.value = currentVol;
+                    // Only touch the Web Audio gain node if it exists. On mobile, initWebAudio()
+                    // is skipped for background-playback reliability, so nodes.g1/g2 stay null and
+                    // gain.gain.value would throw a TypeError here — silently aborting performSetSource
+                    // BEFORE player.play(), which killed DJ/autoplay/next on phones. The HTML5 element
+                    // volume is always set as the fallback (and on desktop too, for element-level sync).
+                    if (this.nodes.g1 && this.nodes.g2 && this.ctx) {
+                        gain.gain.value = currentVol;
+                    }
                     player.volume = currentVol;
                 }
             } else if (play && player.paused) {

@@ -417,7 +417,13 @@ if (typeof window.SimplePlayer === 'undefined') {
                                 const locked = this._localSeekPos >= 0 && lockAge < 3000;
                                 const converged = locked && Math.abs(target - this._localSeekPos) < 5;
                                 if (converged) this._localSeekPos = -1;
-                                if (drift > 3 && (!locked || converged)) {
+                                // S5: cap forward yanks so the server phantom clock (or a stale
+                                // broadcast) can't jump playback ahead of real elapsed time — a
+                                // forward yank is what inflated the resume point / force-plays.
+                                // Backward corrections and genuine remote (locked) seeks still apply.
+                                const MAX_FORWARD_YANK = 5;
+                                const yankIsForward = (target - this.video.currentTime) > MAX_FORWARD_YANK;
+                                if (drift > 3 && (!yankIsForward || locked) && (!locked || converged)) {
                                     // Bound to loaded duration (OPlayer parity): seeking a
                                     // data-less element past its end fires spurious 'ended'.
                                     this.video.currentTime = (isFinite(dur) && dur > 0 && target > dur - 1) ? dur - 1 : target;

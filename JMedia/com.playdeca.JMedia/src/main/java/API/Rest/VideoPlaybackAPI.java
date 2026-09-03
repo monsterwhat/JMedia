@@ -288,9 +288,11 @@ public class VideoPlaybackAPI {
                     // Update current session state if this video is active
                     ProfileSessionState currentState = profileId != null ? videoController.getState(profileId) : videoController.getState();
                     if (videoId.equals(currentState.currentVideoId)) {
-                        // Skip session-state sync when the report is stale relative to a
+                        // Skip session-state sync when a PLAY report is stale relative to a
                         // recent command — only the DB progress is updated in that case.
-                        if (!videoController.isReportStale(currentState, seconds)) {
+                        // A PAUSE report is never skipped: landing it broadcasts playing=false
+                        // so the phantom clock stops force-playing the video.
+                        if (!playing || !videoController.isReportStale(currentState, seconds)) {
                             currentState.currentTime = seconds;
                             currentState.playing = playing;
                             videoController.updateState(currentState, true);

@@ -217,7 +217,10 @@ public class VideoController {
         }
         // Stale-report guard: a report arriving within COMMAND_STALE_WINDOW_MS after
         // a command whose position diverges beyond the tolerance is from a stale player.
-        if (isReportStale(st, currentTime)) {
+        // A PAUSE (playing==false) report is NEVER dropped — it must always stop the
+        // phantom-clock timer, or the server keeps broadcasting playing=true and
+        // force-plays the video the user just paused.
+        if (playing && isReportStale(st, currentTime)) {
             return; // DROP: the commanding client already has the new position via broadcast
         }
         lastClientReportAt.put(profileId != null ? profileId : activePlayingProfileId, System.currentTimeMillis());
@@ -397,6 +400,25 @@ public class VideoController {
         else stopPlaybackTimer(timerProfile);
         state.lastUpdateTime = System.currentTimeMillis();
         updateState(state, true);
+    }
+
+    /** Stops the phantom-clock timer and persists the resume position once no video
+     *  session for a profile remains. Before this, a closed tab left the 300ms timer
+     *  running (nothing stopped it), so the clock kept inflating st.currentTime and
+     *  corrupted the saved resume point (movies resumed 30s-1min ahead). */
+    public synchronized void onClientDisconnect(Long profileId) {
+        if (profileId == null) return;
+        ProfileSessionState st = profileSessionStateService.findByProfileId(profileId);
+        if (st == null) return;
+        stopPlaybackTimer(profileId);
+        lastClientReportAt.remove(profileId);
+        st.lastUpdateTime = System.currentTimeMillis();
+        if (st.currentVideoId != null && st.currentTime > 0) {
+            Video vid = findVideo(st.currentVideoId);
+            if (vid != null) {
+                videoStateService.updateProgress(vid, st.currentTime, profileId);
+            }
+        }
     }
     
     public List<Video> getVideos() {
