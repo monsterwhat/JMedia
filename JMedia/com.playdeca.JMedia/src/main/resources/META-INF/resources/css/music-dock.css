@@ -51,6 +51,22 @@ body.music-page #musicPlayerContainer.persistent-music-player {
     pointer-events: none;               /* full-width strip never blocks clicks */
 }
 
+/* ---------------- iOS 26 WebKit: keep the fixed bar pinned ---------------- */
+/* WebKit on iOS 26.x misplaces position: fixed elements during scroll — the
+   dock bar "floats" mid-screen. translateZ(0) promotes the bar to its own
+   compositor layer (same fix FreshRSS shipped for #nav_entries, June 2026).
+   Keep the :has() scoping: a transform on an ancestor becomes the containing
+   block, so while expanded (when .mobile-player is the fixed overlay) the
+   container must NOT be transformed, or the overlay's inset: 0 collapses to
+   this 100px strip instead of the viewport. */
+body.music-page #musicPlayerContainer.persistent-music-player:not(:has(.mobile-player.expanded)) {
+    transform: translateZ(0);
+}
+
+body.music-page #musicPlayerContainer.persistent-music-player .mobile-player {
+    transform: translateZ(0);
+}
+
 /* ---------------- Page scroll: break the fixed shell so the whole page scrolls ---------------- */
 /* The default shell pins .standard-main to 100vh with overflow hidden, which
    traps the hero and makes only the inner song list scrollable. Unfixing the
