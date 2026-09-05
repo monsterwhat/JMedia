@@ -44,19 +44,22 @@ public void populateCue(PlaybackState state, List<Long> songIds, Long profileId)
         state.setCurrentTime(0);
     }
 
-public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
+public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
         // When the single queue is empty, refill from the song pool (DJ-filtered if active).
-        // Refill is gated on RepeatMode.ALL: with Repeat OFF the queue is meant to be
-        // consumed exactly once, so an exhausted cue must STOP playback rather than
-        // silently refill from the library forever (the infinite-refill bug). DJ mode
-        // without Repeat ALL also stops here — a DJ set is still a bounded queue, and
-        // gating strictly on ALL keeps the "Repeat OFF stops when exhausted" contract.
+        // Refill is gated on RepeatMode.ALL OR a manual forward advance. A manual
+        // next/play (manualAdvance && forward) with an empty cue starts a fresh
+        // library pool, like most music players. A NATURAL song end (manualAdvance=
+        // false) with Repeat OFF must STOP: the queue is consumed exactly once, and
+        // silently refilling from the library forever was the infinite-refill bug.
+        // DJ mode without Repeat ALL also stops on natural end — a DJ set is still a
+        // bounded queue, while a manual press is a deliberate request for more music.
         if (state.getCue() == null || state.getCue().isEmpty()) {
-            if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                refillCueFromPool(state, profileId);
+            if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL
+                    || (manualAdvance && forward)) {
+                refillCueFromPool(state, profileId, manualAdvance);
             } else {
-                // Repeat OFF (or ONE): do NOT refill — signal stop so PlaybackController
-                // halts playback instead of looping.
+                // Repeat OFF (or ONE) natural end: do NOT refill — signal stop so
+                // PlaybackController halts playback instead of looping.
                 state.setPlaying(false);
                 return null;
             }
@@ -98,7 +101,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                         state.setCueIndex(0);
                     }
                     if (state.getCue().size() > 1) {
-                        return advanceInQueue(state, forward, skippedEarly, profileId);
+                        return advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
                     }
                 }
             }
@@ -107,10 +110,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return state.getCue().get(0);
         }
 
-        return advanceInQueue(state, forward, skippedEarly, profileId);
+        return advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
     }
 
-    private Long advanceInQueue(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
+    private Long advanceInQueue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
         List<Long> cue = state.getCue();
         int cueIndex = state.getCueIndex();
         
@@ -166,7 +169,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             
             if (cue.isEmpty()) {
                 state.setCueIndex(-1);
-                return advance(state, true, skippedEarly, profileId);
+                return advance(state, true, skippedEarly, manualAdvance, profileId);
             }
             
             // Keep index at current position because list shifted
@@ -1197,12 +1200,13 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    private void refillCueFromPool(PlaybackState state, Long profileId) {
-        // Refill is gated on RepeatMode.ALL. With Repeat OFF the queue is consumed
-        // exactly once and must NOT be silently refilled from the library — the
-        // caller (advance) returns null for OFF and stops playback. Only Repeat ALL
-        // (continuous playback) refills from the pool.
-        if (state.getRepeatMode() != PlaybackState.RepeatMode.ALL) {
+    private void refillCueFromPool(PlaybackState state, Long profileId, boolean manualAdvance) {
+        // Refill is gated on RepeatMode.ALL OR a manual forward advance. With Repeat
+        // OFF + natural end the queue is consumed exactly once and must NOT be
+        // silently refilled from the library — the caller (advance) returns null
+        // for OFF and stops playback. Only Repeat ALL (continuous playback) or a
+        // manual next/play (manualAdvance) refills from the pool.
+        if (state.getRepeatMode() != PlaybackState.RepeatMode.ALL && !manualAdvance) {
             return;
         }
         List<Long> poolIds = buildSongPool(state);

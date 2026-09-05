@@ -36,6 +36,10 @@ public class DjTransitionService {
     // Minimum number of beats needed in exit window for meaningful matching
     private static final int MIN_EXIT_BEATS = 2;
 
+    // Upper bound for any crossfade overlap. Longer fades compound the client's
+    // hard-cut + slow fade-in into dead air; mobile DJ research recommends 400-700ms.
+    private static final int DJ_MAX_CROSSFADE_SECONDS = 2;
+
     @Inject
     AudioAnalysisService audioAnalysisService;
 
@@ -211,15 +215,18 @@ public class DjTransitionService {
         double bpmPenalty = 1.0 - Math.min(bpmRatioDiff / (MAX_BPM_RATIO_DIFF * 2), 0.8);
         confidence *= bpmPenalty;
 
-        // DYNAMIC CROSSFADE: Adjust based on BPM
-        // Fast songs (EDM/Pop) mix better with tighter fades (6s)
-        // Slow songs (Ambient/Jazz) mix better with long fades (12s)
+        // DYNAMIC CROSSFADE: Adjust based on BPM, capped at 2s max.
+        // The old 6-12s values compounded the client's hard-cut + slow-fade-in into
+        // dead air (mobile DJ research recommends 400-700ms). The client also caps
+        // its own fade, but the backend must not advertise longer overlaps than the
+        // client will actually perform.
         int adjustedCrossfade = crossfadeSeconds;
         if (crossfadeOverride != null && crossfadeOverride >= 0) {
             adjustedCrossfade = crossfadeOverride;
-        } else if (nextBpm > 120) adjustedCrossfade = 6;
-        else if (nextBpm < 90) adjustedCrossfade = 12;
-        else adjustedCrossfade = 8;
+        } else if (nextBpm > 120) adjustedCrossfade = 1;
+        else if (nextBpm < 90) adjustedCrossfade = 2;
+        else adjustedCrossfade = 2;
+        adjustedCrossfade = Math.min(Math.max(adjustedCrossfade, 1), DJ_MAX_CROSSFADE_SECONDS);
 
         String reason = buildReasonString(exitBeats, limitedNextBeats, bestCandidate, currentBpm, nextBpm);
 

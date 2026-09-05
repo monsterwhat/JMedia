@@ -603,7 +603,7 @@ public class PlaybackController {
                 }
             }
 
-            Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, profileId);
+            Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, !fromSongEnd, profileId);
 
             if (nextSongId == null) {
                 if (!forward && st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {

@@ -177,11 +177,21 @@
          */
         startMonitoring: function() {
             if (this.monitorTimer) {
-                clearInterval(this.monitorTimer);
+                cancelAnimationFrame(this.monitorTimer);
+                this.monitorTimer = null;
+            }
+            if (this._visibilityHandler) {
+                document.removeEventListener('visibilitychange', this._visibilityHandler);
+                this._visibilityHandler = null;
             }
             
             var self = this;
-            this.monitorTimer = setInterval(function() {
+            
+            // rAF ticks in sync with the display (no 100ms timer throttling, which on
+            // mobile backgrounded tabs can fire at 1Hz+ and miss the exit beat by
+            // seconds). rAF pauses automatically when the tab is hidden; the
+            // visibilitychange handler below re-checks immediately on return.
+            var tick = function() {
                 if (!self.transitionPrepared || self.isTransitioning) return;
                 
                 // Use robust getCurrentTime from AudioEngine
@@ -200,8 +210,9 @@
                             // Preload timed out — proceed anyway with a warning
                             window.Helpers.log('[DJ] ⚠️ Preload timed out, executing transition anyway');
                         } else {
-                            // Still loading — wait for the next poll cycle (100ms)
+                            // Still loading — wait for the next frame
                             window.Helpers.log('[DJ] Waiting for preload to complete...');
+                            self.monitorTimer = requestAnimationFrame(tick);
                             return;
                         }
                     }
@@ -209,8 +220,29 @@
                     console.log('[DJ] >>> EXIT TIME REACHED! Switching to next song at ' + self.transitionData.entryTime + 's');
                     window.Helpers.log('[DJ] Exit time reached, switching to next song');
                     self.executeTransition();
+                    return;
                 }
-            }, 100); // Check every 100ms for precise timing
+
+                self.monitorTimer = requestAnimationFrame(tick);
+            };
+            
+            // Catch-up check when the tab becomes visible again — rAF is paused while
+            // hidden, so without this the transition would fire late (if at all).
+            var visibilityHandler = function() {
+                if (!self.transitionPrepared || self.isTransitioning) return;
+                if (document.visibilityState !== 'visible') return;
+                
+                var currentTime = window.AudioEngine ? window.AudioEngine.getCurrentTime() : 0;
+                var exitTime = self.transitionData.exitTime;
+                if (exitTime > 0 && currentTime >= exitTime) {
+                    console.log('[DJ] >>> EXIT TIME REACHED (on tab return)! Switching to next song');
+                    self.executeTransition();
+                }
+            };
+            this._visibilityHandler = visibilityHandler;
+            document.addEventListener('visibilitychange', visibilityHandler);
+            
+            this.monitorTimer = requestAnimationFrame(tick);
         },
         
         /**
@@ -343,10 +375,7 @@ const artworkUrl = res.data.id
                         self.isTransitioning = false;
                         self.transitionData = null;
                         
-                        if (self.monitorTimer) {
-                            clearInterval(self.monitorTimer);
-                            self.monitorTimer = null;
-                        }
+                        self.stopMonitoring();
                     }).catch(function(e) {
                         console.error('[DJ] Failed to play next song:', e);
                         window.Helpers.log('[DJ] Failed to play next song: ' + e.message);
@@ -369,10 +398,7 @@ const artworkUrl = res.data.id
          * Cancel an in-progress or prepared transition
          */
         cancelTransition: function() {
-            if (this.monitorTimer) {
-                clearInterval(this.monitorTimer);
-                this.monitorTimer = null;
-            }
+            this.stopMonitoring();
             
             this.isTransitioning = false;
             this.transitionPrepared = false;
@@ -384,6 +410,20 @@ const artworkUrl = res.data.id
             }
             
             this.updateDjIndicator('none');
+        },
+        
+        /**
+         * Stop the rAF monitor loop and visibility catch-up handler
+         */
+        stopMonitoring: function() {
+            if (this.monitorTimer) {
+                cancelAnimationFrame(this.monitorTimer);
+                this.monitorTimer = null;
+            }
+            if (this._visibilityHandler) {
+                document.removeEventListener('visibilitychange', this._visibilityHandler);
+                this._visibilityHandler = null;
+            }
         },
         
         /**

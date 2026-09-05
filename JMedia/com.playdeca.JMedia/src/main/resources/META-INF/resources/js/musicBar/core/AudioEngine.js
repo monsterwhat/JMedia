@@ -60,14 +60,15 @@
         initWebAudio: function() {
             if (this.ctx) return;
 
-            // Skip Web Audio on mobile to ensure reliable background playback (especially on iOS)
-            // AudioContext is often suspended when the app goes to the background/phone is locked
-            const isMobile = window.DeviceManager ? window.DeviceManager.shouldUseMobileUI() : false;
-            if (isMobile) {
-                window.Helpers.log('AudioEngine: Skipping Web Audio on mobile for background playback reliability');
-                return;
-            }
-            
+            // Web Audio is enabled on ALL devices, including mobile/iOS. Skipping it on
+            // mobile previously left iOS with NO functional volume control (element.volume
+            // is ignored on iOS), so crossfades ran both songs at full volume. The gain
+            // nodes are required on mobile for real, volume-controlled crossfades.
+            //
+            // Trade-off: on Android/Chrome an AudioContext can be suspended when the tab
+            // is backgrounded. The resume handlers below (click/keydown/touchstart/
+            // visibilitychange) stay attached for the app's lifetime to recover it — and
+            // play() also forces a resume, so returning to the tab restores audio.
             try {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
                 
@@ -98,25 +99,35 @@
                     initialVol = window.StateManager.getProperty('volume');
                 }
                 
+                // Gain nodes are the SINGLE volume stage: keep the underlying <audio>
+                // elements pinned at 1.0. Setting both element.volume AND gain.gain
+                // double-attenuates (vol^2) and — on iOS, where element.volume is
+                // ignored — using the element as a second stage breaks fading entirely.
+                this.audio.volume = 1.0;
+                this.audioNext.volume = 1.0;
                 this.nodes.g1.gain.value = initialVol;
                 this.nodes.g2.gain.value = 0.0;
                 
                 window.Helpers.log('AudioEngine: Web Audio nodes connected successfully with initial volume ' + initialVol);
                 
-                // Resume on user interaction
+                // Resume on user interaction. Contexts start suspended (autoplay policy)
+                // and can be suspended again when the page is backgrounded, so keep the
+                // handlers attached for the app's lifetime instead of removing them
+                // after the first successful resume.
                 const resume = () => {
-                    if (this.ctx.state === 'suspended') {
-                        this.ctx.resume().then(() => {
-                            window.Helpers.log('AudioEngine: AudioContext resumed by user interaction');
-                            document.removeEventListener('click', resume);
-                            document.removeEventListener('keydown', resume);
+                    if (this.ctx && this.ctx.state === 'suspended') {
+                        this.ctx.resume().catch((err) => {
+                            console.error('AudioEngine: AudioContext resume failed', err);
                         });
                     }
                 };
                 document.addEventListener('click', resume);
                 document.addEventListener('keydown', resume);
+                document.addEventListener('touchstart', resume, { passive: true });
+                document.addEventListener('visibilitychange', resume);
             } catch (e) {
                 console.error('AudioEngine: Web Audio API initialization failed', e);
+                this.ctx = null; // Fall back to element-volume-only paths
             }
         },
 
@@ -286,7 +297,10 @@
             const nextPlayer = this.getInactivePlayer();
             const currentGain = this.getActiveGain();
             const nextGain = this.getInactiveGain();
-            const fadeTime = duration || 8;
+            // Cap the crossfade window: a 6-12s fade reads as dead air / broken playback
+            // on phone speakers (web-audio-kit recommends 400-700ms). The backend may
+            // still send BPM-based durations up to 12s — protect the client here.
+            const fadeTime = Math.min(duration || 2, 2);
             
             // Swap active player immediately so getActivePlayer() returns the
             // fading-in player during the crossfade (Bug D fix)
@@ -378,37 +392,37 @@
                 if (self.ctx) {
                     const now = self.ctx.currentTime;
                     
-                    // CRITICAL: Also reset the HTML5 audio element volumes to prevent them from
-                    // contributing independently to the output
                     console.log('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
                     console.log('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
                     
-                    // Set element volumes - current player muted (cut), next player at targetVolume
-                    // Web Audio gain nodes will fade from 0 to targetVolume during transition
-                    currentPlayer.volume = 0;
-                    nextPlayer.volume = targetVolume;  // Use user's actual volume level
+                    // TRUE CROSSFADE: the outgoing song ramps DOWN from its current level
+                    // while the incoming song ramps UP from 0 to targetVolume, both over
+                    // fadeTime. Web Audio gain nodes are the single volume stage, so the
+                    // underlying element volumes stay pinned at 1.0.
+                    currentPlayer.volume = 1.0;
+                    nextPlayer.volume = 1.0;
                     
                     // Cancel any pending events
                     currentGain.gain.cancelScheduledValues(now);
                     nextGain.gain.cancelScheduledValues(now);
                     
-                    // CRITICAL FIX: Start BOTH at 0, not the old currentVol
-                    // This guarantees combined volume never exceeds targetVolume at any point
-                    currentGain.gain.setValueAtTime(0, now);
-                    nextGain.gain.setValueAtTime(0, now);
-                    
-                    // Fade out: 0 -> 0 (no change to fade out track)
-                    // Fade in: 0 -> targetVolume
+                    // Fade out: snapshot the current gain level and ramp to 0.
+                    // Using the live gain value (not a hard 0) means no instant mute.
+                    const currentLevel = Math.max(0.0001, currentGain.gain.value);
+                    currentGain.gain.setValueAtTime(currentLevel, now);
                     currentGain.gain.linearRampToValueAtTime(0, now + fadeTime);
+                    
+                    // Fade in: 0 -> targetVolume
+                    nextGain.gain.setValueAtTime(0, now);
                     nextGain.gain.linearRampToValueAtTime(targetVolume, now + fadeTime);
                     
-                    console.log('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', using zero-start crossfade');
-                    console.log('[AudioEngine crossfade] Schedule: currentGain 0 -> 0, nextGain 0 -> ' + targetVolume + ' over ' + fadeTime + 's');
+                    console.log('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', true crossfade over ' + fadeTime + 's');
+                    console.log('[AudioEngine crossfade] Schedule: currentGain ' + currentLevel.toFixed(3) + ' -> 0, nextGain 0 -> ' + targetVolume);
                 } else {
-                    // Fallback: HTML5 Volume Fading (Mobile/Safari)
-                    // CRITICAL: Both must start at 0 to prevent volume spike
-                    currentPlayer.volume = 0;
-                    nextPlayer.volume = 0;
+                    // Fallback: HTML5 Volume Fading (only when Web Audio is unavailable)
+                    // TRUE crossfade: outgoing fades from its current volume to 0 while
+                    // the incoming fades from 0 up to targetVolume.
+                    const savedCurrentVol = currentPlayer.volume;
                     
                     const steps = 40;
                     const interval = (fadeTime * 1000) / steps;
@@ -417,11 +431,9 @@
                     const fadeInterval = setInterval(() => {
                         currentStep++;
                         
-                        // Simple linear crossfade to targetVolume
                         const progress = currentStep / steps;
                         
-                        // Both start at 0 - old player stays at 0, new fades in to targetVolume
-                        currentPlayer.volume = 0;
+                        currentPlayer.volume = savedCurrentVol * (1 - progress);
                         nextPlayer.volume = targetVolume * progress;
                         
                         if (currentStep >= steps) {
@@ -485,10 +497,9 @@
                             window.DjTransitionManager.transitionPrepared = false;
                             window.DjTransitionManager.isTransitioning = false;
                             window.DjTransitionManager.transitionData = null;
-                            // Clear the monitor timer
-                            if (window.DjTransitionManager.monitorTimer) {
-                                clearInterval(window.DjTransitionManager.monitorTimer);
-                                window.DjTransitionManager.monitorTimer = null;
+                            // Stop the rAF monitor loop and visibility catch-up
+                            if (window.DjTransitionManager.stopMonitoring) {
+                                window.DjTransitionManager.stopMonitoring();
                             }
                             window.DjTransitionManager.updateDjIndicator('complete');
                         }
@@ -511,7 +522,9 @@
                             window.Helpers.log('AudioEngine: Applying pending volume ' + finalVolume + ' after crossfade');
                         }
                         
-                        // MUST set both the gain node AND the HTML5 audio element volume
+                        // MUST set the gain node AND keep the HTML5 audio element pinned
+                        // at 1.0 — the gain node is the single volume stage. Setting the
+                        // element volume too double-attenuates (finalVolume^2).
                         if (this.ctx) {
                             // Get current time first to cancel all future events
                             const now = this.ctx.currentTime;
@@ -521,10 +534,9 @@
                             newGain.gain.setValueAtTime(finalVolume, now);
                             newGain.gain.value = finalVolume; // Force immediate value as well
                             
-                            // Also set HTML5 element volume
-                            newPlayer.volume = finalVolume;
+                            newPlayer.volume = 1.0; // Pin element; gain controls volume
                             
-                            window.Helpers.log('AudioEngine: Set gain to ' + finalVolume + ', player volume to ' + finalVolume);
+                            window.Helpers.log('AudioEngine: Set gain to ' + finalVolume + ', element pinned at 1.0');
                         } else {
                             newPlayer.volume = finalVolume;
                         }
@@ -605,16 +617,16 @@
             if (typeof vol !== 'number') vol = 0.8;
             vol = window.Helpers.clamp(vol, 0, 1);
             
-            // Apply to Web Audio if available
+            // Apply volume to the SINGLE active stage: the gain node when Web Audio
+            // exists, else the element volume. Setting both would double-attenuate
+            // (vol^2) because the element feeds the gain node.
+            const player = this.getActivePlayer();
             if (gain && this.ctx) {
                 const safeVol = Math.max(0.0001, vol);
                 gain.gain.setValueAtTime(gain.gain.value, this.ctx.currentTime);
                 gain.gain.linearRampToValueAtTime(safeVol, this.ctx.currentTime + 0.1);
-            }
-            
-            // ALWAYS apply to element as well for visual/sync purposes
-            const player = this.getActivePlayer();
-            if (player) {
+                if (player) player.volume = 1.0; // element stays pinned while gain is active
+            } else if (player) {
                 player.volume = vol;
             }
             
@@ -664,22 +676,22 @@
                 // SKIP VOLUME RESTORE DURING CROSSFADE - gain nodes are controlled by crossfade curves
                 // Setting volume during an active curve throws "Can't add events during a curve event"
                 if (!window.SynchronizationManager || !window.SynchronizationManager.getFlag('isCrossfading')) {
-                    // RESTORE VOLUME ON LOAD
+                    // RESTORE VOLUME ON LOAD — single active volume stage: the gain node
+                    // when Web Audio exists, else the element volume.
                     let currentVol = 0.8;
                     if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
                         currentVol = window.DeviceManager.getDeviceVolume();
                     } else if (window.StateManager) {
                         currentVol = window.StateManager.getProperty('volume');
                     }
-                    // Only touch the Web Audio gain node if it exists. On mobile, initWebAudio()
-                    // is skipped for background-playback reliability, so nodes.g1/g2 stay null and
-                    // gain.gain.value would throw a TypeError here — silently aborting performSetSource
-                    // BEFORE player.play(), which killed DJ/autoplay/next on phones. The HTML5 element
-                    // volume is always set as the fallback (and on desktop too, for element-level sync).
+                    // Guard nodes existence so a failed Web Audio init does not throw
+                    // here and abort performSetSource before player.play().
                     if (this.nodes.g1 && this.nodes.g2 && this.ctx) {
                         gain.gain.value = currentVol;
+                        player.volume = 1.0; // element pinned; gain is the volume stage
+                    } else {
+                        player.volume = currentVol;
                     }
-                    player.volume = currentVol;
                 }
             } else if (play && player.paused) {
                 player.play();
