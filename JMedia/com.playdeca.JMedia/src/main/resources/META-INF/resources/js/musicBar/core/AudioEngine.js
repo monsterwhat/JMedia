@@ -32,12 +32,17 @@
         // Deferred volume during crossfade
         _pendingVolume: null,
         
+        // iOS autoplay-policy unlock state
+        _iosUnlocked: false,
+        _iosUnlockArmed: false,
+        
         init: function() {
             if (this.initialized) return;
             this.initialized = true;
             
             this.initializeAudioElements();
             this.initWebAudio();
+            this._unlockIOSAudio();
             this.setupEventListeners();
             window.Helpers.log('AudioEngine: Web Audio initialized (idempotent)');
             
@@ -139,13 +144,108 @@
                 this.audioNext = document.createElement('audio');
                 this.audioNext.id = 'audioPlayerNext';
                 this.audioNext.crossOrigin = 'anonymous'; // Critical for Web Audio
+                // iOS: dynamically-created elements must carry these attributes or
+                // playback is silently blocked / forced into fullscreen.
+                this.audioNext.preload = 'auto';
+                this.audioNext.setAttribute('playsinline', '');
+                this.audioNext.setAttribute('webkit-playsinline', '');
                 document.body.appendChild(this.audioNext);
             }
             
             this.audio.crossOrigin = 'anonymous';
+            // Ensure the primary element also carries the iOS-friendly attributes
+            // (the static element in index.html has them, but be defensive).
+            this.audio.preload = 'auto';
+            this.audio.setAttribute('playsinline', '');
+            this.audio.setAttribute('webkit-playsinline', '');
             this.audioElementReady = true;
             this.setupAudioEvents(this.audio);
             this.setupAudioEvents(this.audioNext);
+        },
+
+        isIOS: function() {
+            if (window.PlayerUtils && typeof window.PlayerUtils.isIOS === 'function') {
+                return window.PlayerUtils.isIOS();
+            }
+            return /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
+                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+                   (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
+        },
+
+        /**
+         * iOS unlock: AudioContext + both <audio> elements must be touched by a
+         * user gesture before any play() produces sound. Arms one-time gesture
+         * handlers that resume the context and muted play()->pause() both
+         * elements synchronously inside the gesture (no setTimeout/async gap).
+         * Re-arms when the context re-suspends (e.g. tab backgrounded).
+         */
+        _unlockIOSAudio: function() {
+            if (!this.isIOS() || this._iosUnlockArmed) return;
+            this._iosUnlockArmed = true;
+
+            const unlock = () => {
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch((err) => {
+                        console.warn('AudioEngine: iOS AudioContext resume failed', err);
+                    });
+                }
+                [this.audio, this.audioNext].forEach((el) => {
+                    if (!el) return;
+                    const wasMuted = el.muted;
+                    el.muted = true;
+                    const p = el.play();
+                    if (p && typeof p.catch === 'function') {
+                        p.then(() => {
+                            el.pause();
+                            el.muted = wasMuted;
+                        }).catch((err) => {
+                            console.warn('AudioEngine: iOS unlock prime failed on ' + el.id, err);
+                            el.muted = wasMuted;
+                        });
+                    }
+                });
+                this._iosUnlocked = true;
+            };
+
+            const arm = () => {
+                document.addEventListener('touchend', unlock, { once: true, passive: true });
+                document.addEventListener('click', unlock, { once: true });
+                document.addEventListener('keydown', unlock, { once: true });
+            };
+
+            arm();
+            document.addEventListener('visibilitychange', () => {
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this._iosUnlocked = false;
+                    arm();
+                }
+            });
+        },
+
+        _showAutoplayBlockedToast: function() {
+            if (window.showToast) {
+                window.showToast('Tap play to resume', 'warning');
+            }
+        },
+
+        _armAutoplayRetry: function(player) {
+            const retry = () => {
+                if (!this.autoplayBlocked) return;
+                this.autoplayBlocked = false; // prevent double-fire from touchend+click
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch((err) => {
+                        console.warn('AudioEngine: AudioContext resume failed during autoplay retry', err);
+                    });
+                }
+                player.play().then(() => {
+                    this.resetAutoplayState();
+                }).catch((err) => {
+                    console.warn('AudioEngine: Autoplay retry play() failed', err);
+                });
+            };
+            document.addEventListener('touchend', retry, { once: true, passive: true });
+            document.addEventListener('click', retry, { once: true });
+            document.addEventListener('keydown', retry, { once: true });
         },
 
         setupAudioEvents: function(el) {
@@ -289,10 +389,60 @@
 
         crossfadeTo: function(songId, entryTime, duration) {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked crossfadeTo â€” video is active');
+                console.log('[AudioEngine] Blocked crossfadeTo — video is active');
                 this._isCrossfading = false;
                 return;
             }
+
+            // iOS: single-element direct swap — dual-player crossfade is
+            // unreliable/silent on iOS because only one audio stream can play.
+            if (this.isIOS()) {
+                const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+                if (!iosProfileId || iosProfileId === 'undefined') {
+                    console.log('[AudioEngine crossfadeTo] Waiting for valid profileId...');
+                    const self = this;
+                    setTimeout(function() { self.crossfadeTo(songId, entryTime, duration); }, 200);
+                    return;
+                }
+                if (!songId || songId === 'null' || songId === 'undefined') {
+                    console.log('[AudioEngine crossfadeTo] Invalid songId, skipping');
+                    return;
+                }
+                if (this._isCrossfading) {
+                    console.log('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
+                    return;
+                }
+                this._isCrossfading = true;
+
+                const player = this.getActivePlayer();
+                const url = '/api/music/stream/' + iosProfileId + '/' + songId;
+                player._currentSongId = songId;
+                player.src = url;
+                player.load();
+                player.onloadedmetadata = () => {
+                    player.currentTime = entryTime || 0;
+                    player.play().then(() => {
+                        this._isCrossfading = false;
+                        if (window.SynchronizationManager) {
+                            window.SynchronizationManager.setFlag('isCrossfading', false);
+                        }
+                    }).catch((err) => {
+                        console.warn('AudioEngine: iOS direct-swap play() failed', err);
+                        if (err && err.name === 'NotAllowedError') {
+                            this.autoplayBlocked = true;
+                            this._showAutoplayBlockedToast();
+                            this._armAutoplayRetry(player);
+                        }
+                        this._isCrossfading = false;
+                        if (window.SynchronizationManager) {
+                            window.SynchronizationManager.setFlag('isCrossfading', false);
+                        }
+                    });
+                };
+                window.Helpers.log('AudioEngine: iOS direct swap to ' + songId + ' at ' + (entryTime || 0) + 's');
+                return;
+            }
+
             const currentPlayer = this.getActivePlayer();
             const nextPlayer = this.getInactivePlayer();
             const currentGain = this.getActiveGain();
@@ -451,7 +601,10 @@
                 // gain ramps are scheduled on the Web Audio timeline so they fire at the correct
                 // time relative to context.currentTime once the context resumes
                 if (self.ctx && self.ctx.state === 'suspended') {
-                    self.ctx.resume().then(scheduleGainRamps).catch(function() { scheduleGainRamps(); });
+                    self.ctx.resume().then(scheduleGainRamps).catch(function(err) {
+                        console.warn('AudioEngine: AudioContext resume failed before crossfade ramps', err);
+                        scheduleGainRamps();
+                    });
                 } else {
                     scheduleGainRamps();
                 }
@@ -564,7 +717,9 @@
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
-                    nextPlayer.play().catch(() => {});
+                    nextPlayer.play().catch((err) => {
+                        console.warn('AudioEngine: Retry play after crossfade failure failed', err);
+                    });
                 });
             };
 
@@ -644,7 +799,17 @@
                 return Promise.resolve();
             }
             if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
-            return this.getActivePlayer().play();
+            const player = this.getActivePlayer();
+            return player.play().catch((err) => {
+                console.warn('AudioEngine: play() failed', err);
+                if (err && err.name === 'NotAllowedError') {
+                    this.autoplayBlocked = true;
+                    this._showAutoplayBlockedToast();
+                    this._armAutoplayRetry(player);
+                    return; // handled via tap-to-resume flow
+                }
+                throw err;
+            });
         },
         
         pause: function() {
@@ -719,7 +884,14 @@
             };
 
             if (play) {
-                player.play().catch(() => { this.autoplayBlocked = true; });
+                player.play().catch((err) => {
+                    console.warn('AudioEngine: play() failed in performSetSource', err);
+                    if (err && err.name === 'NotAllowedError') {
+                        this.autoplayBlocked = true;
+                        this._showAutoplayBlockedToast();
+                        this._armAutoplayRetry(player);
+                    }
+                });
             }
             
             return true;
@@ -740,7 +912,14 @@
             player.src = url;
             player.onloadedmetadata = () => {
                 player.currentTime = seekTime;
-                player.play().catch(() => {});
+                player.play().catch((err) => {
+                    console.warn('AudioEngine: play() failed in loadAudioSourceOnly', err);
+                    if (err && err.name === 'NotAllowedError') {
+                        this.autoplayBlocked = true;
+                        this._showAutoplayBlockedToast();
+                        this._armAutoplayRetry(player);
+                    }
+                });
             };
         },
 
@@ -801,7 +980,7 @@
             const state = window.StateManager?.getState();
             const crossfadeDuration = state?.crossfadeDuration;
             const isPlaying = state?.playing;
-            if (currentSong && currentSong.id && crossfadeDuration > 0 && !state?.djModeActive && isPlaying) {
+            if (currentSong && currentSong.id && crossfadeDuration > 0 && !state?.djModeActive && isPlaying && !this.isIOS()) {
                 window.Helpers.log('AudioEngine: Non-DJ crossfade triggered for song ' + currentSong.id + ' (' + crossfadeDuration + 's)');
                 // Preload the next song in the inactive player
                 this.preloadSong(currentSong.id, backendTime || 0);

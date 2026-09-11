@@ -10,13 +10,27 @@
  */
 (function(window) {
     'use strict';
-    
+
+    /**
+     * Detect iOS — prefer PlayerUtils.isIOS() when available, else UA + touch heuristics.
+     */
+    function isIOS() {
+        if (window.PlayerUtils && typeof window.PlayerUtils.isIOS === 'function') {
+            return window.PlayerUtils.isIOS();
+        }
+        return /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
+               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+               (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
+    }
+
     window.DjTransitionManager = {
         // Transition state
         isTransitioning: false,
         transitionPrepared: false,
         transitionData: null,
         monitorTimer: null,
+        _pollTimer: null,
+        _timeupdateHandler: null,
         
         /**
          * Initialize the DJ transition manager
@@ -180,6 +194,17 @@
                 cancelAnimationFrame(this.monitorTimer);
                 this.monitorTimer = null;
             }
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
+            }
+            if (this._timeupdateHandler) {
+                var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+                if (audioEl) {
+                    audioEl.removeEventListener('timeupdate', this._timeupdateHandler);
+                }
+                this._timeupdateHandler = null;
+            }
             if (this._visibilityHandler) {
                 document.removeEventListener('visibilitychange', this._visibilityHandler);
                 this._visibilityHandler = null;
@@ -187,11 +212,9 @@
             
             var self = this;
             
-            // rAF ticks in sync with the display (no 100ms timer throttling, which on
-            // mobile backgrounded tabs can fire at 1Hz+ and miss the exit beat by
-            // seconds). rAF pauses automatically when the tab is hidden; the
-            // visibilitychange handler below re-checks immediately on return.
-            var tick = function() {
+            // Shared exit-time check: fires executeTransition() once the primary
+            // player passes exitTime and the preload gate is satisfied.
+            var checkExitTime = function() {
                 if (!self.transitionPrepared || self.isTransitioning) return;
                 
                 // Use robust getCurrentTime from AudioEngine
@@ -210,9 +233,8 @@
                             // Preload timed out — proceed anyway with a warning
                             window.Helpers.log('[DJ] ⚠️ Preload timed out, executing transition anyway');
                         } else {
-                            // Still loading — wait for the next frame
+                            // Still loading — wait for the next tick
                             window.Helpers.log('[DJ] Waiting for preload to complete...');
-                            self.monitorTimer = requestAnimationFrame(tick);
                             return;
                         }
                     }
@@ -220,11 +242,38 @@
                     console.log('[DJ] >>> EXIT TIME REACHED! Switching to next song at ' + self.transitionData.entryTime + 's');
                     window.Helpers.log('[DJ] Exit time reached, switching to next song');
                     self.executeTransition();
-                    return;
                 }
-
+            };
+            
+            // rAF ticks in sync with the display (no 100ms timer throttling, which on
+            // mobile backgrounded tabs can fire at 1Hz+ and miss the exit beat by
+            // seconds). rAF pauses automatically when the tab is hidden; the
+            // interval + timeupdate listeners below keep monitoring alive while
+            // backgrounded, and the visibilitychange handler re-checks on return.
+            var tick = function() {
+                if (!self.transitionPrepared || self.isTransitioning) return;
+                checkExitTime();
                 self.monitorTimer = requestAnimationFrame(tick);
             };
+            
+            // 500ms interval poll — rAF is suspended in backgrounded tabs, so this
+            // keeps the exit-time check running even when the tab is hidden.
+            this._pollTimer = setInterval(function() {
+                if (!self.transitionPrepared || self.isTransitioning) return;
+                checkExitTime();
+            }, 500);
+            
+            // timeupdate listener — fires on the active audio element regardless of
+            // tab visibility, giving a second, event-driven exit-time check.
+            var timeupdateHandler = function() {
+                if (!self.transitionPrepared || self.isTransitioning) return;
+                checkExitTime();
+            };
+            this._timeupdateHandler = timeupdateHandler;
+            var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+            if (audioEl) {
+                audioEl.addEventListener('timeupdate', timeupdateHandler);
+            }
             
             // Catch-up check when the tab becomes visible again — rAF is paused while
             // hidden, so without this the transition would fire late (if at all).
@@ -297,6 +346,14 @@ const artworkUrl = res.data.id
                             }
                         }).catch(err => console.error('[DJ] Failed to pre-update song metadata', err));
                 }
+            }
+
+            // iOS: single-element direct swap — iOS only allows one audio stream,
+            // so the dual-player crossfade would be silent. Swap src on the SAME
+            // active element instead. Desktop keeps the crossfadeTo path below.
+            if (isIOS()) {
+                this.executeIosDirectSwap();
+                return;
             }
 
             if (window.AudioEngine && window.AudioEngine.crossfadeTo) {
@@ -395,6 +452,80 @@ const artworkUrl = res.data.id
         },
         
         /**
+         * iOS direct swap — replace the active player's source with the next song.
+         * iOS only allows a single audio stream, so the dual-player crossfade is
+         * silent; we swap src on the SAME element instead.
+         */
+        executeIosDirectSwap: function() {
+            var self = this;
+            var primaryAudio = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+            if (!primaryAudio) {
+                console.error('[DJ] iOS direct swap failed: no active audio element');
+                window.Helpers.log('[DJ] No active audio element for iOS direct swap');
+                this.cancelTransition();
+                return;
+            }
+            
+            var entryTime = this.transitionData.entryTime;
+            var streamUrl = this.transitionData.streamUrl;
+            
+            console.log('[DJ] iOS direct swap: switching active player to ' + streamUrl + ' at ' + entryTime + 's');
+            window.Helpers.log('[DJ] iOS direct swap to next song at entry=' + entryTime + 's');
+            
+            this.updateDjIndicator('switching');
+            
+            // Save current volume
+            var savedVolume = primaryAudio.volume;
+            
+            // Switch source on the SAME element (single-stream iOS)
+            primaryAudio.src = streamUrl;
+            primaryAudio.load();
+            
+            primaryAudio.onloadedmetadata = function() {
+                console.log('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
+                primaryAudio.currentTime = entryTime;
+                primaryAudio.play().then(function() {
+                    console.log('[DJ] iOS next song playing from ' + entryTime + 's');
+                    window.Helpers.log('[DJ] iOS transition complete - now playing next song');
+                    
+                    // Restore volume
+                    primaryAudio.volume = savedVolume;
+                    
+                    // Notify server that transition has started
+                    if (self.transitionData && self.transitionData.profileId) {
+                        self.notifyTransitionStarted(self.transitionData.profileId);
+                    }
+                    
+                    // Clean up
+                    self.transitionPrepared = false;
+                    self.isTransitioning = false;
+                    self.transitionData = null;
+                    
+                    self.stopMonitoring();
+                    
+                    // Update UI indicator
+                    self.updateDjIndicator('complete');
+                }).catch(function(e) {
+                    console.error('[DJ] iOS direct play failed', e);
+                    window.Helpers.log('[DJ] iOS direct play failed: ' + (e && e.message ? e.message : e));
+                    // Restore volume and cancel
+                    primaryAudio.volume = savedVolume;
+                    if (e && e.name === 'NotAllowedError') {
+                        window.showToast('Tap play to resume');
+                    }
+                    self.cancelTransition();
+                });
+            };
+            
+            primaryAudio.onerror = function(e) {
+                console.error('[DJ] iOS failed to load next song:', e);
+                window.Helpers.log('[DJ] iOS failed to load next song');
+                primaryAudio.volume = savedVolume;
+                self.cancelTransition();
+            };
+        },
+        
+        /**
          * Cancel an in-progress or prepared transition
          */
         cancelTransition: function() {
@@ -413,12 +544,24 @@ const artworkUrl = res.data.id
         },
         
         /**
-         * Stop the rAF monitor loop and visibility catch-up handler
+         * Stop the rAF monitor loop, interval poll, timeupdate listener,
+         * and visibility catch-up handler
          */
         stopMonitoring: function() {
             if (this.monitorTimer) {
                 cancelAnimationFrame(this.monitorTimer);
                 this.monitorTimer = null;
+            }
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
+            }
+            if (this._timeupdateHandler) {
+                var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+                if (audioEl) {
+                    audioEl.removeEventListener('timeupdate', this._timeupdateHandler);
+                }
+                this._timeupdateHandler = null;
             }
             if (this._visibilityHandler) {
                 document.removeEventListener('visibilitychange', this._visibilityHandler);
