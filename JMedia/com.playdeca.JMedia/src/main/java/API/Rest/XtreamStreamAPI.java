@@ -16,6 +16,7 @@ import java.io.File;
  * IPTV clients construct URLs as: server:port/live/user/pass/id.ext
  */
 @Produces(MediaType.APPLICATION_JSON)
+@Path("/")
 public class XtreamStreamAPI {
 
     private static final Logger log = Logger.getLogger(XtreamStreamAPI.class);
