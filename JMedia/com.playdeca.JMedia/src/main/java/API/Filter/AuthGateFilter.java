@@ -20,18 +20,23 @@ public class AuthGateFilter implements ContainerRequestFilter {
     private static final Logger LOG = Logger.getLogger(AuthGateFilter.class);
     private static final String SESSION_COOKIE = "JMEDIA_SESSION";
     private static final String[] EXEMPT_PATHS = {
-        "/login.html",
-        "/api/auth",
-        "/api/setup",
-        "/api/installation",
-        "/player_api.php",
-        "/api/music/stream/",
-        "/api/video/stream/",
-        "/api/video/progress/",
-        "/api/video/storyboard/",
-        "/api/hls/master/",
-        "/api/hls/playlist/",
-        "/api/hls/media/"
+        "login.html",
+        "api/auth",
+        "api/setup",
+        "api/installation",
+        "player_api.php",
+        "get.php",
+        "xmltv.php",
+        "live",
+        "movie",
+        "series",
+        "api/music/stream",
+        "api/video/stream",
+        "api/video/progress",
+        "api/video/storyboard",
+        "api/hls/master",
+        "api/hls/playlist",
+        "api/hls/media"
     };
 
     @Context
@@ -54,8 +59,13 @@ public class AuthGateFilter implements ContainerRequestFilter {
     }
 
     private boolean isExempt(String path) {
+        String normalized = path == null ? "" : path;
+        while (normalized.startsWith("/")) normalized = normalized.substring(1);
         for (String exempt : EXEMPT_PATHS) {
-            if (path.equals(exempt) || path.startsWith(exempt + "/")) {
+            String e = exempt;
+            while (e.startsWith("/")) e = e.substring(1);
+            while (e.endsWith("/")) e = e.substring(0, e.length() - 1);
+            if (normalized.equals(e) || normalized.startsWith(e + "/")) {
                 return true;
             }
         }

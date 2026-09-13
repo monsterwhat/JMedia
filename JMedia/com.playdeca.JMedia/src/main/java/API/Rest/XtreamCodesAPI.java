@@ -931,7 +931,7 @@ public class XtreamCodesAPI {
     }
 
     private String xtreamStreamUrl(String kind, Long id, String ext) {
-        return getExternalBaseUri() + "player_api.php/" + kind + "/" + username + "/" + password + "/" + id + "." + ext;
+        return getExternalBaseUri() + kind + "/" + username + "/" + password + "/" + id + "." + ext;
     }
 
     private String redactQuery(String rawQuery) {

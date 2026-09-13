@@ -65,7 +65,7 @@ public class GetPhpApi {
             } else {
                 m3u.append(String.format("#EXTINF:-1,%s\n", esc(ch.name).replace("\r", " ").replace("\n", " ")));
             }
-            m3u.append(String.format("%splayer_api.php/live/%s/%s/%d.%s\n",
+            m3u.append(String.format("%slive/%s/%s/%d.%s\n",
                     serverUrl,
                     username,
                     password,
@@ -89,7 +89,7 @@ public class GetPhpApi {
             } else {
                 m3u.append(String.format("#EXTINF:-1,%s\n", esc(v.title).replace("\r", " ").replace("\n", " ")));
             }
-            m3u.append(String.format("%splayer_api.php/movie/%s/%s/%d.%s\n",
+            m3u.append(String.format("%smovie/%s/%s/%d.%s\n",
                     serverUrl,
                     username,
                     password,
@@ -113,7 +113,7 @@ public class GetPhpApi {
             } else {
                 m3u.append(String.format("#EXTINF:-1,%s\n", esc(ep.title).replace("\r", " ").replace("\n", " ")));
             }
-            m3u.append(String.format("%splayer_api.php/series/%s/%s/%d.%s\n",
+            m3u.append(String.format("%sseries/%s/%s/%d.%s\n",
                     serverUrl,
                     username,
                     password,
