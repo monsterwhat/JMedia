@@ -436,6 +436,10 @@ public class XtreamCodesAPI {
         List<Video> seriesEpisodes = findEpisodesForSeries(matchedSeries);
 
         log.infof("getSeriesInfo: matched %d episodes for seriesId=%s", seriesEpisodes.size(), seriesId);
+        if (seriesEpisodes.isEmpty()) {
+            log.warnf("getSeriesInfo: seriesId=%s has no episodes, treating as not found", seriesId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
         
@@ -956,6 +960,10 @@ public class XtreamCodesAPI {
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
         for (Models.Video.Series ser : allSeries) {
+            List<Video> eps = findEpisodesForSeries(ser);
+            if (eps.isEmpty()) {
+                continue;
+            }
             XtreamSeries xs = new XtreamSeries();
             xs.num = num++;
             xs.name = ser.title;
@@ -964,7 +972,7 @@ public class XtreamCodesAPI {
             String cover = seriesCover(ser.posterPath, "w500");
             String coverBig = seriesCover(ser.posterPath, "w1280");
             if (cover == null) {
-                Video firstEp = findEpisodesForSeries(ser).stream().findFirst().orElse(null);
+                Video firstEp = eps.stream().findFirst().orElse(null);
                 cover = firstEp != null ? getImageUrl(firstEp) : "";
                 coverBig = cover;
             }
@@ -1087,11 +1095,34 @@ public class XtreamCodesAPI {
 
         if (thumbnailService.hasThumbnail(videoId)) {
             byte[] img = thumbnailService.getThumbnailBytes(videoId);
-            return Response.ok(img).type("image/jpeg").build();
+            if (img != null && img.length > 0) {
+                return Response.ok(img).type("image/webp").build();
+            }
+            log.warnf("getThumbnail: cached thumbnail unreadable for videoId=%d, trying poster fallback", videoId);
+        }
+        for (String posterName : new String[]{videoId + "_poster.webp", videoId + "_poster.png"}) {
+            try {
+                java.nio.file.Path posterPath = thumbnailService.getThumbnailDirectory().resolve(posterName);
+                if (java.nio.file.Files.exists(posterPath) && java.nio.file.Files.isRegularFile(posterPath)) {
+                    byte[] img = java.nio.file.Files.readAllBytes(posterPath);
+                    if (img.length > 0) {
+                        return Response.ok(img).type(thumbnailContentType(posterName)).build();
+                    }
+                }
+            } catch (Exception e) {
+                log.warnf("getThumbnail: poster fallback %s unreadable for videoId=%d: %s", posterName, videoId, e.getMessage());
+            }
         }
         log.warnf("getThumbnail: no thumbnail for videoId=%d, serving fallback", videoId);
         return Response.temporaryRedirect(java.net.URI.create("https://placehold.co/300x450/1a1a2e/eaeaea?text=No+Image"))
                 .build();
+    }
+
+    private String thumbnailContentType(String filename) {
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        return "image/webp";
     }
 
     private String formatDuration(long totalSeconds) {

@@ -86,7 +86,7 @@ public class GetPhpApi {
                 m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
                         esc(v.tmdbId),
                         esc(v.title),
-                        esc(getImageUrl(v)),
+                        esc(getImageUrl(v, username, password)),
                         esc(genre),
                         esc(v.title)));
             } else {
@@ -110,7 +110,7 @@ public class GetPhpApi {
                 m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
                         esc(ep.tmdbId),
                         esc(ep.title),
-                        esc(getImageUrl(ep)),
+                        esc(getImageUrl(ep, username, password)),
                         esc(groupTitle),
                         esc(ep.title)));
             } else {
@@ -156,7 +156,7 @@ public class GetPhpApi {
         return uriInfo.getBaseUri().toString();
     }
 
-    private String getImageUrl(Video v) {
+    private String getImageUrl(Video v, String username, String password) {
         if (v.posterPath != null && !v.posterPath.isBlank() && v.posterPath.startsWith("http")) {
             return v.posterPath;
         }
@@ -165,7 +165,8 @@ public class GetPhpApi {
             return "https://image.tmdb.org/t/p/w500" + v.posterPath;
         }
         if (v.posterPath != null && !v.posterPath.isBlank()) {
-            return getExternalBaseUri() + "api/video/thumbnail/" + v.id;
+            return getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id
+                    + "&username=" + username + "&password=" + password;
         }
         return "";
     }
