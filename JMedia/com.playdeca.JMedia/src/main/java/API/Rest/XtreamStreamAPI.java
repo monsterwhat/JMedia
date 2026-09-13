@@ -60,7 +60,7 @@ public class XtreamStreamAPI {
                 Services.HlsService.HlsSession session =
                         hlsService.createSession(videoId, 0.0, null, null, null, "xtream-" + videoId);
                 return Response.temporaryRedirect(
-                        java.net.URI.create("/api/hls/master/" + session.sessionId + ".m3u8")).build();
+                        java.net.URI.create(getExternalBaseUri() + "api/hls/master/" + session.sessionId + ".m3u8")).build();
             } catch (Exception e) {
                 log.warnf("HLS session failed for videoId=%d, falling back to progressive stream: %s",
                         videoId, e.getMessage());
@@ -109,6 +109,8 @@ public class XtreamStreamAPI {
 
         File videoFile = filePath.toFile();
         if (!videoFile.exists() || !videoFile.isFile()) {
+            log.warnf("Movie file missing: videoId=%d, stored path=%s, resolved=%s, library=%s",
+                    video.id, video.path, filePath, libraryPath);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
@@ -336,7 +338,29 @@ public class XtreamStreamAPI {
     @Context
     jakarta.ws.rs.core.UriInfo uriInfo;
 
+    @Context
+    jakarta.ws.rs.core.HttpHeaders httpHeaders;
+
     private String getExternalBaseUri() {
+        if (httpHeaders != null) {
+            String forwardedHost = httpHeaders.getHeaderString("X-Forwarded-Host");
+            if (forwardedHost != null && !forwardedHost.isBlank()) {
+                String forwardedProto = httpHeaders.getHeaderString("X-Forwarded-Proto");
+                String forwardedPort = httpHeaders.getHeaderString("X-Forwarded-Port");
+                String scheme = (forwardedProto != null && !forwardedProto.isBlank())
+                        ? forwardedProto.split(",")[0].trim() : uriInfo.getBaseUri().getScheme();
+                String host = forwardedHost.split(",")[0].trim();
+                StringBuilder base = new StringBuilder(scheme).append("://").append(host);
+                if (forwardedPort != null && !forwardedPort.isBlank()) {
+                    String port = forwardedPort.split(",")[0].trim();
+                    if (!(("http".equals(scheme) && "80".equals(port)) || ("https".equals(scheme) && "443".equals(port)))) {
+                        base.append(":").append(port);
+                    }
+                }
+                base.append("/");
+                return base.toString();
+            }
+        }
         if (uriInfo.getBaseUri().getHost().equals("localhost") || uriInfo.getBaseUri().getHost().equals("127.0.0.1")) {
             return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost") + ":" + uriInfo.getBaseUri().getPort() + "/";
         }

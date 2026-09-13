@@ -25,6 +25,9 @@ public class GetPhpApi {
     @Context
     jakarta.ws.rs.core.UriInfo uriInfo;
 
+    @Context
+    jakarta.ws.rs.core.HttpHeaders httpHeaders;
+
     @GET
     public Response generatePlaylist(
             @QueryParam("username") String username,
@@ -128,6 +131,25 @@ public class GetPhpApi {
     }
 
     private String getExternalBaseUri() {
+        if (httpHeaders != null) {
+            String forwardedHost = httpHeaders.getHeaderString("X-Forwarded-Host");
+            if (forwardedHost != null && !forwardedHost.isBlank()) {
+                String forwardedProto = httpHeaders.getHeaderString("X-Forwarded-Proto");
+                String forwardedPort = httpHeaders.getHeaderString("X-Forwarded-Port");
+                String scheme = (forwardedProto != null && !forwardedProto.isBlank())
+                        ? forwardedProto.split(",")[0].trim() : uriInfo.getBaseUri().getScheme();
+                String host = forwardedHost.split(",")[0].trim();
+                StringBuilder base = new StringBuilder(scheme).append("://").append(host);
+                if (forwardedPort != null && !forwardedPort.isBlank()) {
+                    String port = forwardedPort.split(",")[0].trim();
+                    if (!(("http".equals(scheme) && "80".equals(port)) || ("https".equals(scheme) && "443".equals(port)))) {
+                        base.append(":").append(port);
+                    }
+                }
+                base.append("/");
+                return base.toString();
+            }
+        }
         if (uriInfo.getBaseUri().getHost().equals("localhost") || uriInfo.getBaseUri().getHost().equals("127.0.0.1")) {
             return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost") + ":" + uriInfo.getBaseUri().getPort() + "/";
         }
@@ -135,13 +157,14 @@ public class GetPhpApi {
     }
 
     private String getImageUrl(Video v) {
-        if (v.tmdbId != null && !v.tmdbId.isEmpty() && v.posterPath != null && !v.posterPath.isEmpty()) {
+        if (v.posterPath != null && !v.posterPath.isBlank() && v.posterPath.startsWith("http")) {
+            return v.posterPath;
+        }
+        if (v.tmdbId != null && !v.tmdbId.isEmpty() && v.posterPath != null && !v.posterPath.isEmpty()
+                && v.posterPath.matches("^/[^/]+$")) {
             return "https://image.tmdb.org/t/p/w500" + v.posterPath;
         }
         if (v.posterPath != null && !v.posterPath.isBlank()) {
-            if (v.posterPath.startsWith("http")) {
-                return v.posterPath;
-            }
             return getExternalBaseUri() + "api/video/thumbnail/" + v.id;
         }
         return "";

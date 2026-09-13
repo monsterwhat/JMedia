@@ -376,6 +376,25 @@ public class XtreamCodesAPI {
     }
 
     private String getExternalBaseUri() {
+        if (httpHeaders != null) {
+            String forwardedHost = httpHeaders.getHeaderString("X-Forwarded-Host");
+            if (forwardedHost != null && !forwardedHost.isBlank()) {
+                String forwardedProto = httpHeaders.getHeaderString("X-Forwarded-Proto");
+                String forwardedPort = httpHeaders.getHeaderString("X-Forwarded-Port");
+                String scheme = (forwardedProto != null && !forwardedProto.isBlank())
+                        ? forwardedProto.split(",")[0].trim() : uriInfo.getBaseUri().getScheme();
+                String host = forwardedHost.split(",")[0].trim();
+                StringBuilder base = new StringBuilder(scheme).append("://").append(host);
+                if (forwardedPort != null && !forwardedPort.isBlank()) {
+                    String port = forwardedPort.split(",")[0].trim();
+                    if (!(("http".equals(scheme) && "80".equals(port)) || ("https".equals(scheme) && "443".equals(port)))) {
+                        base.append(":").append(port);
+                    }
+                }
+                base.append("/");
+                return base.toString();
+            }
+        }
         String host = uriInfo.getBaseUri().getHost();
         if (host != null && (host.equals("localhost") || host.equals("127.0.0.1"))) {
             return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost") + ":" + uriInfo.getBaseUri().getPort() + "/";
@@ -396,10 +415,17 @@ public class XtreamCodesAPI {
         if (seriesId == null) return Response.status(Response.Status.BAD_REQUEST).build();
         
         Models.Video.Series matchedSeries = null;
-        for (Models.Video.Series sv : Models.Video.Series.<Models.Video.Series>listAll()) {
-            if (hashId(sv.title).equals(seriesId)) {
-                matchedSeries = sv;
-                break;
+        try {
+            Long numericId = Long.parseLong(seriesId);
+            matchedSeries = Models.Video.Series.findById(numericId);
+        } catch (NumberFormatException ignored) {
+        }
+        if (matchedSeries == null) {
+            for (Models.Video.Series sv : Models.Video.Series.<Models.Video.Series>listAll()) {
+                if (hashId(sv.title).equals(seriesId)) {
+                    matchedSeries = sv;
+                    break;
+                }
             }
         }
         if (matchedSeries == null) {
@@ -407,7 +433,7 @@ public class XtreamCodesAPI {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         
-        List<Video> seriesEpisodes = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", matchedSeries).list();
+        List<Video> seriesEpisodes = findEpisodesForSeries(matchedSeries);
 
         log.infof("getSeriesInfo: matched %d episodes for seriesId=%s", seriesEpisodes.size(), seriesId);
 
@@ -416,9 +442,11 @@ public class XtreamCodesAPI {
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         Models.Video.Series s = matchedSeries;
         info.put("name", s.title);
-        if (s.posterPath != null && !s.posterPath.isBlank()) {
-            info.put("cover", "https://image.tmdb.org/t/p/w500" + s.posterPath);
-            info.put("cover_big", "https://image.tmdb.org/t/p/w1280" + s.posterPath);
+        String seriesCover = seriesCover(s.posterPath, "w500");
+        String seriesCoverBig = seriesCover(s.posterPath, "w1280");
+        if (seriesCover != null) {
+            info.put("cover", seriesCover);
+            info.put("cover_big", seriesCoverBig);
         } else if (!seriesEpisodes.isEmpty()) {
             Video first = seriesEpisodes.get(0);
             info.put("cover", getImageUrl(first));
@@ -438,7 +466,14 @@ public class XtreamCodesAPI {
         info.put("youtube_trailer", s.trailerUrl != null ? s.trailerUrl : "");
         info.put("episode_run_time", s.runtimeMins != null ? String.valueOf(s.runtimeMins) : "");
         if (s.backdropPath != null && !s.backdropPath.isBlank()) {
-            info.put("backdrop_path", new ArrayList<>(List.of("https://image.tmdb.org/t/p/w1280" + s.backdropPath)));
+            String bd = seriesCover(s.backdropPath, "w1280");
+            if (bd != null) {
+                info.put("backdrop_path", new ArrayList<>(List.of(bd)));
+            } else if (matchedSeries.id != null) {
+                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "api/series/" + matchedSeries.id + "/backdrop")));
+            } else {
+                info.put("backdrop_path", new ArrayList<>());
+            }
         } else {
             info.put("backdrop_path", new ArrayList<>());
         }
@@ -484,11 +519,12 @@ public class XtreamCodesAPI {
             ep.put("id", e.id);
             ep.put("episode_num", e.episodeNumber);
             ep.put("title", e.title != null ? e.title : "Episode " + e.episodeNumber);
-            ep.put("container_extension", "m3u8");
+            String epExt = e.container != null && !e.container.isBlank() ? e.container.strip().toLowerCase() : "m3u8";
+            ep.put("container_extension", epExt);
             ep.put("season", e.seasonNumber != null ? e.seasonNumber : 1);
             ep.put("custom_sid", "");
             ep.put("added", e.dateAdded != null ? String.valueOf(e.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
-            ep.put("direct_source", xtreamStreamUrl("series", e.id, "m3u8"));
+            ep.put("direct_source", xtreamStreamUrl("series", e.id, epExt));
             
             java.util.Map<String, Object> epInfo = new java.util.HashMap<>();
             epInfo.put("name", e.title != null ? e.title : "Episode " + e.episodeNumber);
@@ -511,6 +547,9 @@ public class XtreamCodesAPI {
 
     @Context
     jakarta.ws.rs.core.UriInfo uriInfo;
+
+    @Context
+    jakarta.ws.rs.core.HttpHeaders httpHeaders;
 
     private Response loginResponse(User user, String password) {
         XtreamLoginResponse response = new XtreamLoginResponse();
@@ -544,28 +583,78 @@ public class XtreamCodesAPI {
     }
 
     private Response getVodCategories() {
-        // Map genres to categories
-        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
-        List<XtreamCategory> categories = genres.stream()
-                .map(g -> new XtreamCategory(g.id.toString(), g.name))
+        return Response.ok(buildGenreCategories()).build();
+    }
+
+    private static final int FALLBACK_GENRE_BASE = 90000;
+
+    private List<XtreamCategory> buildGenreCategories() {
+        java.util.Map<String, String> ids = genreIdByName();
+        java.util.Map<String, String> nameById = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, String> e : ids.entrySet()) {
+            nameById.putIfAbsent(e.getValue(), e.getKey());
+        }
+        return nameById.entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey(java.util.Comparator.comparingInt(v -> {
+                    try { return Integer.parseInt(v); } catch (NumberFormatException ex) { return Integer.MAX_VALUE; }
+                })))
+                .map(e -> new XtreamCategory(e.getKey(), toDisplayGenre(e.getValue())))
                 .collect(Collectors.toList());
-        return Response.ok(categories).build();
+    }
+
+    private java.util.List<String> distinctMediaGenres() {
+        java.util.Set<String> names = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        try {
+            java.util.List<String> vg = Video.getEntityManager()
+                    .createQuery("SELECT DISTINCT g FROM Video v JOIN v.genres g", String.class).getResultList();
+            if (vg != null) for (String n : vg) if (n != null && !n.isBlank()) names.add(n.strip());
+        } catch (Exception e) {
+            log.debugf("distinctMediaGenres video query failed: %s", e.getMessage());
+        }
+        try {
+            java.util.List<String> sg = Models.Video.Series.getEntityManager()
+                    .createQuery("SELECT DISTINCT g FROM Series s JOIN s.genres g", String.class).getResultList();
+            if (sg != null) for (String n : sg) if (n != null && !n.isBlank()) names.add(n.strip());
+        } catch (Exception e) {
+            log.debugf("distinctMediaGenres series query failed: %s", e.getMessage());
+        }
+        return new java.util.ArrayList<>(names);
+    }
+
+    private String toDisplayGenre(String lower) {
+        if (lower == null || lower.isBlank()) return "";
+        String[] parts = lower.split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(p.charAt(0)));
+            if (p.length() > 1) sb.append(p.substring(1));
+        }
+        return sb.toString();
     }
 
     private java.util.Map<String, String> genreIdByName() {
-        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
         java.util.Map<String, String> map = new java.util.HashMap<>();
-        for (Models.Video.Genre g : genres) {
-            map.put(g.name.toLowerCase(), g.id.toString());
+        for (Models.Video.Genre g : Models.Video.Genre.<Models.Video.Genre>list("isActive = true")) {
+            if (g.name != null && !g.name.isBlank()) map.put(g.name.toLowerCase(), g.id.toString());
+        }
+        int idx = 0;
+        for (String name : distinctMediaGenres()) {
+            String key = name.toLowerCase();
+            if (!map.containsKey(key)) map.put(key, String.valueOf(FALLBACK_GENRE_BASE + idx++));
         }
         return map;
     }
 
     private java.util.Map<String, String> genreIdByNameReverse() {
-        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
         java.util.Map<String, String> map = new java.util.HashMap<>();
-        for (Models.Video.Genre g : genres) {
-            map.put(g.id.toString(), g.name);
+        for (Models.Video.Genre g : Models.Video.Genre.<Models.Video.Genre>list("isActive = true")) {
+            if (g.name != null && !g.name.isBlank()) map.put(g.id.toString(), g.name);
+        }
+        java.util.Map<String, String> byName = genreIdByName();
+        for (java.util.Map.Entry<String, String> e : byName.entrySet()) {
+            map.putIfAbsent(e.getValue(), toDisplayGenre(e.getKey()));
         }
         return map;
     }
@@ -573,15 +662,28 @@ public class XtreamCodesAPI {
     private Response getVodStreams(String catId) {
         List<Video> videos;
         if (catId != null && !catId.equals("0")) {
-            Long genreId = null;
-            try {
-                genreId = Long.parseLong(catId);
-            } catch (NumberFormatException e) {
-            }
-            if (genreId != null) {
-                videos = Video.<Video>find("SELECT DISTINCT v FROM Video v JOIN VideoGenre vg ON v.id = vg.video.id WHERE vg.genre.id = ?1 AND v.type = 'movie' ORDER BY v.popularityScore DESC", genreId).list();
+            String genreName = genreIdByNameReverse().get(catId);
+            if (genreName != null) {
+                videos = findMoviesByGenreName(genreName);
             } else {
-                videos = Video.<Video>find("type = 'movie'").list();
+                Long genreId = null;
+                try {
+                    genreId = Long.parseLong(catId);
+                } catch (NumberFormatException e) {
+                    log.debugf("getVodStreams: ignoring non-numeric category_id=%s", catId);
+                }
+                if (genreId != null) {
+                    List<Video> byJoin;
+                    try {
+                        byJoin = Video.<Video>find("SELECT DISTINCT v FROM Video v JOIN VideoGenre vg ON v.id = vg.video.id WHERE vg.genre.id = ?1 AND v.type = 'movie' ORDER BY v.popularityScore DESC", genreId).list();
+                    } catch (Exception e) {
+                        log.debugf("getVodStreams VideoGenre join failed, returning all movies: %s", e.getMessage());
+                        byJoin = Video.<Video>find("type = 'movie'").list();
+                    }
+                    videos = byJoin;
+                } else {
+                    videos = Video.<Video>find("type = 'movie'").list();
+                }
             }
         } else {
             videos = Video.<Video>find("type = 'movie'").list();
@@ -599,8 +701,10 @@ public class XtreamCodesAPI {
             s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
             s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
             s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
-            s.containerExtension = "m3u8";
+            String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
+            s.containerExtension = vodExt;
             s.streamType = "movie";
+            s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
             // Map genre IDs
             if (v.genres != null && !v.genres.isEmpty()) {
                 s.categoryId = genreIds.getOrDefault(v.genres.get(0).toLowerCase(), "0");
@@ -618,12 +722,7 @@ public class XtreamCodesAPI {
     }
 
     private Response getSeriesCategories() {
-        List<XtreamCategory> categories = new ArrayList<>();
-        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
-        for (Models.Video.Genre g : genres) {
-            categories.add(new XtreamCategory(g.id.toString(), g.name));
-        }
-        return Response.ok(categories).build();
+        return Response.ok(buildGenreCategories()).build();
     }
 
     private Response getLiveCategories() {
@@ -860,17 +959,17 @@ public class XtreamCodesAPI {
             XtreamSeries xs = new XtreamSeries();
             xs.num = num++;
             xs.name = ser.title;
-            xs.seriesId = hashId(ser.title);
+            xs.seriesId = ser.id != null ? String.valueOf(ser.id) : hashId(ser.title);
 
-            // Cover: prefer series poster, fall back to first episode poster
-            if (ser.posterPath != null && !ser.posterPath.isBlank()) {
-                xs.cover = "https://image.tmdb.org/t/p/w500" + ser.posterPath;
-                xs.coverBig = "https://image.tmdb.org/t/p/w1280" + ser.posterPath;
-            } else {
-                Video firstEp = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY id", ser).firstResult();
-                xs.cover = firstEp != null ? getImageUrl(firstEp) : "";
-                xs.coverBig = xs.cover;
+            String cover = seriesCover(ser.posterPath, "w500");
+            String coverBig = seriesCover(ser.posterPath, "w1280");
+            if (cover == null) {
+                Video firstEp = findEpisodesForSeries(ser).stream().findFirst().orElse(null);
+                cover = firstEp != null ? getImageUrl(firstEp) : "";
+                coverBig = cover;
             }
+            xs.cover = cover;
+            xs.coverBig = coverBig;
 
             xs.plot = (ser.overview != null && !ser.overview.isBlank()) ? ser.overview : "";
             Double seriesRating = ser.tmdbRating;
@@ -896,7 +995,12 @@ public class XtreamCodesAPI {
             xs.genre = seriesGenres != null ? String.join(", ", seriesGenres) : "";
             xs.youtubeTrailer = ser.trailerUrl != null ? ser.trailerUrl : "";
             if (ser.backdropPath != null && !ser.backdropPath.isBlank()) {
-                xs.backdropPath = new ArrayList<>(List.of("https://image.tmdb.org/t/p/w1280" + ser.backdropPath));
+                String bd = seriesCover(ser.backdropPath, "w1280");
+                if (bd != null) {
+                    xs.backdropPath = new ArrayList<>(List.of(bd));
+                } else if (ser.id != null) {
+                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "api/series/" + ser.id + "/backdrop"));
+                }
             }
             seriesList.add(xs);
         }
@@ -904,14 +1008,51 @@ public class XtreamCodesAPI {
         return Response.ok(seriesList).build();
     }
 
+    private List<Video> findMoviesByGenreName(String genreName) {
+        try {
+            List<Video> result = Video.<Video>find(
+                    "SELECT DISTINCT v FROM Video v JOIN v.genres g WHERE LOWER(g) = LOWER(?1) AND v.type = 'movie' ORDER BY v.popularityScore DESC",
+                    genreName).list();
+            if (result != null && !result.isEmpty()) return result;
+        } catch (Exception e) {
+            log.debugf("findMoviesByGenreName HQL failed for genre=%s: %s", genreName, e.getMessage());
+        }
+        String lower = genreName.toLowerCase();
+        return Video.<Video>find("type = 'movie'").list().stream()
+                .filter(v -> v.genres != null && v.genres.stream().anyMatch(g -> g != null && g.equalsIgnoreCase(lower)))
+                .collect(Collectors.toList());
+    }
+
+    private List<Video> findEpisodesForSeries(Models.Video.Series ser) {
+        List<Video> eps = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", ser).list();
+        if (!eps.isEmpty()) return eps;
+        if (ser.title != null && !ser.title.isBlank()) {
+            eps = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", ser.title).list();
+        }
+        return eps;
+    }
+
+    private String seriesCover(String posterPath, String size) {
+        if (posterPath == null || posterPath.isBlank()) return null;
+        if (posterPath.startsWith("http")) return posterPath;
+        if (posterPath.matches("^/[^/]+$")) return "https://image.tmdb.org/t/p/" + size + posterPath;
+        return null;
+    }
+
     private String getImageUrl(Video v) {
-        if (v.tmdbId != null && !v.tmdbId.isEmpty() && v.posterPath != null && !v.posterPath.isEmpty()) {
+        // Enrichment stores absolute TMDB URLs (VideoMetadataService) while the
+        // thumbnail pipeline stores local paths - only prefix bare TMDB paths.
+        if (v.posterPath != null && !v.posterPath.isBlank() && v.posterPath.startsWith("http")) {
+            return v.posterPath;
+        }
+        if (v.tmdbId != null && !v.tmdbId.isEmpty() && v.posterPath != null && !v.posterPath.isEmpty()
+                && v.posterPath.matches("^/[^/]+$")) {
             String url = "https://image.tmdb.org/t/p/w500" + v.posterPath;
             log.debugf("getImageUrl: video=%d, using TMDB poster: %s", v.id, url);
             return url;
         }
         String url = getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id + "&username=" + username + "&password=" + password;
-        log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, url);
+        log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, redactQuery(url));
         return url;
     }
 
