@@ -44,7 +44,11 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     );
 
     // Streaming endpoints that must work even without auth (video element can't handle 401 JSON)
+    // Xtream /movie|/series|/live carry their own path credentials, enforced by XtreamStreamAPI.
     private static final List<String> STREAMING_ENDPOINTS = Arrays.asList(
+            "/movie/",
+            "/series/",
+            "/live/",
             "/api/video/stream/",
             "/api/video/progress/",
             "/api/video/storyboard/",
