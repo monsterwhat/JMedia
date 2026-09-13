@@ -2227,6 +2227,280 @@ public class VideoMetadataService {
     }
 
     // =====================================================================================
+    // Genre/category-only enrichment.
+    //
+    // Lightweight path for category scans: fills ONLY Video.genres (and, for episodes, the
+    // parent Series.genres) from TMDB or the free IMDb Dev API. No images, no ffprobe, no
+    // subtitles, no IntroDB. Series genres propagate to episodes without per-episode API calls.
+    // =====================================================================================
+
+    /**
+     * Whether a video still needs genre/category data. True when the video's own genre list
+     * is null/empty; for episodes also true when the parent series' genre list is null/empty
+     * (episode categories come from the show). Never throws on lazy, uninitialized collections —
+     * an uninitialized genre list is treated as needing enrichment.
+     */
+    public boolean needsCategoryEnrichment(Video video) {
+        if (video == null || !video.isActive) return false;
+        if (video.genres == null || !Hibernate.isInitialized(video.genres) || video.genres.isEmpty()) return true;
+        if ("episode".equalsIgnoreCase(video.type) && video.series != null
+                && Hibernate.isInitialized(video.series)
+                && (video.series.genres == null || !Hibernate.isInitialized(video.series.genres)
+                    || video.series.genres.isEmpty())) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Genre-only enrichment by video id. Loads a detached snapshot (same contract as
+     * {@link #loadVideoForEnrichment(Long)}) and delegates to {@link #enrichGenresOnly(Video)}.
+     */
+    public void enrichGenresOnly(Long videoId) {
+        if (videoId == null) return;
+        Video video = self.loadVideoForEnrichment(videoId);
+        if (video == null) {
+            LOG.warn("[EnrichGenresOnly] Video {} not found", videoId);
+            return;
+        }
+        enrichGenresOnlyInternal(video);
+    }
+
+    /**
+     * Genre-only enrichment for a single video. Reloads a fully-initialized detached snapshot
+     * (same contract as {@link #fetchAndEnrichMetadata}) so lazy genres/series collections are
+     * safe to read and mutate outside a session. Fills ONLY the genre lists (video + parent
+     * series for episodes) from TMDB, falling back to the free IMDb Dev API when TMDB is
+     * unavailable. Never touches images, audio tracks, subtitles or IntroDB, and never
+     * overwrites existing genres. Persists through {@link #persistEnrichedVideo(Video)}.
+     */
+    public void enrichGenresOnly(Video video) {
+        if (video == null || video.id == null) return;
+        Video loaded = self.loadVideoForEnrichment(video.id);
+        if (loaded == null) {
+            LOG.warn("[EnrichGenresOnly] Video {} not found", video.id);
+            return;
+        }
+        enrichGenresOnlyInternal(loaded);
+    }
+
+    private void enrichGenresOnlyInternal(Video video) {
+        if (!needsCategoryEnrichment(video)) {
+            LOG.debug("[EnrichGenresOnly] Video {} ('{}') already has genres, skipping", video.id, video.title);
+            return;
+        }
+
+        LOG.info("[EnrichGenresOnly] Starting genre-only enrichment for video {} ('{}')", video.id, video.title);
+
+        try {
+            // 1. Cheapest path: propagate genres from the parent series — no API call.
+            if ("episode".equalsIgnoreCase(video.type) && video.series != null
+                    && video.series.genres != null && !video.series.genres.isEmpty()) {
+                video.genres = new ArrayList<>(video.series.genres);
+                LOG.info("[EnrichGenresOnly] Propagated {} genres from series '{}' to episode {}",
+                        video.genres.size(), video.series.title, video.id);
+                self.persistEnrichedVideo(video);
+                return;
+            }
+
+            Settings settings = settingsService.getOrCreateSettings();
+
+            // 2. TMDB genre fetch (movie details / show details).
+            String tmdbKey = getApiKey();
+            if (Boolean.TRUE.equals(settings.getTmdbEnabled()) && tmdbKey != null && !tmdbKey.isBlank()) {
+                List<String> genres = fetchGenresFromTmdb(video, tmdbKey);
+                if (genres != null && !genres.isEmpty()) {
+                    video.genres = genres;
+                    LOG.info("[EnrichGenresOnly] Fetched {} genres from TMDB for video {} ('{}')",
+                            genres.size(), video.id, video.title);
+                    self.persistEnrichedVideo(video);
+                    return;
+                }
+            }
+
+            // 3. Free IMDb Dev API fallback when TMDB yielded nothing.
+            if (Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
+                List<String> genres = fetchGenresFromImdbDev(video);
+                if (genres != null && !genres.isEmpty()) {
+                    video.genres = genres;
+                    LOG.info("[EnrichGenresOnly] Fetched {} genres from IMDb Dev for video {} ('{}')",
+                            genres.size(), video.id, video.title);
+                    self.persistEnrichedVideo(video);
+                    return;
+                }
+            }
+
+            LOG.warn("[EnrichGenresOnly] No genres found for video {} ('{}') from any provider", video.id, video.title);
+        } catch (Exception e) {
+            LOG.warn("[EnrichGenresOnly] Failed for video {} ('{}'): {}", video.id, video.title, e.getMessage());
+        }
+    }
+
+    /**
+     * Fetches ONLY the genre list for a video from TMDB. For movies, searches the movie by
+     * title and reads genres from the movie details. For episodes, searches the show by
+     * seriesTitle and reads genres from the show details (also filling the parent series so
+     * sibling episodes propagate without further API calls). Returns null when nothing found.
+     */
+    private List<String> fetchGenresFromTmdb(Video video, String tmdbKey) throws IOException, InterruptedException {
+        Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+
+        if ("movie".equalsIgnoreCase(video.type)) {
+            String query = video.title != null ? URLEncoder.encode(video.title, StandardCharsets.UTF_8) : null;
+            if (query == null) return null;
+            String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
+            String searchUrl = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", query, yearSuffix)
+                    : String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, query, yearSuffix);
+            JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+            if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
+            String tmdbId = searchRoot.path("results").get(0).path("id").asText(null);
+            if (tmdbId == null) return null;
+            video.tmdbId = tmdbId;
+
+            String detailUrl = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/movie/%s", tmdbId)
+                    : String.format("https://api.themoviedb.org/3/movie/%s?api_key=%s", tmdbId, tmdbKey);
+            JsonNode root = fetchJson(detailUrl, authHeaders);
+            return parseGenres(root);
+        }
+
+        if ("episode".equalsIgnoreCase(video.type)) {
+            String seriesQuery = video.seriesTitle != null ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
+            if (seriesQuery == null) return null;
+            String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
+            String searchUrl = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", seriesQuery, yearSuffix)
+                    : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, seriesQuery, yearSuffix);
+            JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+            if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
+            String showId = searchRoot.path("results").get(0).path("id").asText(null);
+            if (showId == null) return null;
+            video.tmdbId = showId;
+
+            String showUrl = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/tv/%s", showId)
+                    : String.format(TMDB_TV_DETAILS, showId, tmdbKey);
+            JsonNode showRoot = fetchJson(showUrl, authHeaders);
+            List<String> genres = parseGenres(showRoot);
+            if (genres != null && !genres.isEmpty() && video.series != null
+                    && (video.series.genres == null || video.series.genres.isEmpty())) {
+                video.series.genres = new ArrayList<>(genres);
+            }
+            return genres;
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetches ONLY the genre list for a video from the free IMDb Dev API. For episodes the
+     * show's genres are used (episode categories come from the show) and the parent series is
+     * filled as well. Returns null when nothing found.
+     */
+    private List<String> fetchGenresFromImdbDev(Video video) {
+        try {
+            if (video.showImdbId == null || video.showImdbId.isBlank()) {
+                video.showImdbId = findSeriesImdbId(video);
+            }
+            String seriesId = video.showImdbId;
+            String targetId = ("episode".equalsIgnoreCase(video.type)) ? seriesId : video.imdbId;
+            if (targetId == null || targetId.isBlank()) targetId = seriesId;
+            if (targetId == null || targetId.isBlank()) return null;
+
+            String url = String.format(IMDB_DEV_TITLE_URL, targetId);
+            JsonNode root = fetchJson(url);
+            if (root == null || root.has("errorMessage")) return null;
+            if (!root.path("genres").isArray()) return null;
+
+            List<String> genres = new ArrayList<>();
+            for (JsonNode g : root.path("genres")) {
+                String name = g.asText();
+                if (name != null && !name.isBlank()) genres.add(name);
+            }
+            if (genres.isEmpty()) return null;
+
+            if ("episode".equalsIgnoreCase(video.type) && video.series != null
+                    && (video.series.genres == null || video.series.genres.isEmpty())) {
+                video.series.genres = new ArrayList<>(genres);
+            }
+            return genres;
+        } catch (Exception e) {
+            LOG.warn("[EnrichGenresOnly] IMDb Dev genre fetch failed for video {}: {}", video.id, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts genre names from a TMDB details response ({@code genres: [{name: ...}]}).
+     * Returns null when the node has no usable genres array.
+     */
+    private List<String> parseGenres(JsonNode root) {
+        if (root == null || !root.has("genres") || !root.get("genres").isArray()) return null;
+        List<String> genres = new ArrayList<>();
+        for (JsonNode g : root.path("genres")) {
+            if (g.has("name")) {
+                String name = g.get("name").asText();
+                if (name != null && !name.isBlank()) genres.add(name);
+            }
+        }
+        return genres.isEmpty() ? null : genres;
+    }
+
+    /**
+     * Copies a series' genres to every episode with an empty genre list in one bulk
+     * INSERT..SELECT (no per-episode API calls or per-row transactions).
+     *
+     * @param seriesTitle the series title to look up
+     * @return number of genre rows inserted into episodes (an episode with N genres counts as N rows)
+     */
+    public int propagateSeriesGenresToEpisodes(String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isBlank()) return 0;
+        Series series = Series.find("title = ?1", seriesTitle).firstResult();
+        if (series == null) {
+            LOG.warn("[PropagateSeriesGenres] No series found for title '{}'", seriesTitle);
+            return 0;
+        }
+        return self.propagateSeriesGenresToEpisodes(series.id);
+    }
+
+    /**
+     * Copies a series' genres to every episode with an empty genre list in one bulk
+     * INSERT..SELECT (no per-episode API calls or per-row transactions).
+     *
+     * @param seriesId the series entity ID
+     * @return number of genre rows inserted into episodes (an episode with N genres counts as N rows)
+     */
+    @jakarta.transaction.Transactional
+    public int propagateSeriesGenresToEpisodes(Long seriesId) {
+        if (seriesId == null) return 0;
+        Series series = Series.findById(seriesId);
+        if (series == null) {
+            LOG.warn("[PropagateSeriesGenres] Series {} not found", seriesId);
+            return 0;
+        }
+        if (series.genres == null || series.genres.isEmpty()) {
+            LOG.info("[PropagateSeriesGenres] Series {} ('{}') has no genres, nothing to propagate", seriesId, series.title);
+            return 0;
+        }
+
+        int updated = Video.getEntityManager()
+                .createNativeQuery(
+                        "INSERT INTO video_genres_list (video_id, genre) " +
+                        "SELECT v.id, sg.genre " +
+                        "FROM video v " +
+                        "JOIN series_genres sg ON sg.series_id = v.series_id " +
+                        "WHERE v.series_id = ?1 AND v.type = 'episode' " +
+                        "AND NOT EXISTS (SELECT 1 FROM video_genres_list vg WHERE vg.video_id = v.id)")
+                .setParameter(1, seriesId)
+                .executeUpdate();
+
+        LOG.info("[PropagateSeriesGenres] Propagated {} genre rows from series {} ('{}') to episodes",
+                updated, seriesId, series.title);
+        return updated;
+    }
+
+    // =====================================================================================
     // Short-transaction persistence helpers.
     //
     // Enrichment used to run inside ONE @Transactional method held open across TMDB/OMDb/

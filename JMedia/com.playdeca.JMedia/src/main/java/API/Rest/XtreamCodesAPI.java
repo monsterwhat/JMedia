@@ -697,29 +697,25 @@ public class XtreamCodesAPI {
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
-            XtreamVodStream s = new XtreamVodStream();
-            s.num = num++;
-            s.name = v.title;
-            s.streamId = v.id;
-            s.streamIcon = getImageUrl(v);
-            s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
-            s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
-            s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
-            String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
-            s.containerExtension = vodExt;
-            s.streamType = "movie";
-            s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
-            // Map genre IDs
-            if (v.genres != null && !v.genres.isEmpty()) {
-                s.categoryId = genreIds.getOrDefault(v.genres.get(0).toLowerCase(), "0");
-                for (String g : v.genres) {
-                    String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
-                    if (!"0".equals(gid)) s.categoryIds.add(Integer.parseInt(gid));
-                }
-            } else {
-                s.categoryId = "0";
+            List<String> gids = genreIdList(v.genres, genreIds);
+            List<Integer> allIds = genreIntIds(gids);
+            for (String gid : gids) {
+                XtreamVodStream s = new XtreamVodStream();
+                s.num = num++;
+                s.name = v.title;
+                s.streamId = v.id;
+                s.streamIcon = getImageUrl(v);
+                s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
+                s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
+                s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
+                String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
+                s.containerExtension = vodExt;
+                s.streamType = "movie";
+                s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
+                s.categoryId = gid;
+                s.categoryIds.addAll(allIds);
+                streams.add(s);
             }
-            streams.add(s);
         }
         log.infof("getVodStreams returning %d streams, sample: %s", streams.size(), streams.isEmpty() ? "empty" : toJson(streams.subList(0, Math.min(3, streams.size()))));
         return Response.ok(streams).build();
@@ -965,7 +961,6 @@ public class XtreamCodesAPI {
                 continue;
             }
             XtreamSeries xs = new XtreamSeries();
-            xs.num = num++;
             xs.name = ser.title;
             xs.seriesId = ser.id != null ? String.valueOf(ser.id) : hashId(ser.title);
 
@@ -986,15 +981,8 @@ public class XtreamCodesAPI {
             xs.releaseDate = ser.releaseDate;
             xs.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
             List<String> seriesGenres = ser.genres;
-            if (seriesGenres != null && !seriesGenres.isEmpty()) {
-                xs.categoryId = genreIds.getOrDefault(seriesGenres.get(0).toLowerCase(), "0");
-                for (String g : seriesGenres) {
-                    String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
-                    if (!"0".equals(gid)) xs.categoryIds.add(Integer.parseInt(gid));
-                }
-            } else {
-                xs.categoryId = "0";
-            }
+            List<String> seriesGenreIds = genreIdList(seriesGenres, genreIds);
+            List<Integer> seriesAllIds = genreIntIds(seriesGenreIds);
             xs.year = ser.releaseDate != null ? ser.releaseDate : "";
             xs.cast = (ser.cast != null && !ser.cast.isEmpty())
                 ? String.join(", ", ser.cast) : "";
@@ -1010,10 +998,59 @@ public class XtreamCodesAPI {
                     xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "api/series/" + ser.id + "/backdrop"));
                 }
             }
-            seriesList.add(xs);
+            boolean firstSeriesEntry = true;
+            for (String gid : seriesGenreIds) {
+                XtreamSeries entry = firstSeriesEntry ? xs : copySeriesEntry(xs);
+                firstSeriesEntry = false;
+                entry.num = num++;
+                entry.categoryId = gid;
+                entry.categoryIds = new ArrayList<>(seriesAllIds);
+                seriesList.add(entry);
+            }
         }
         log.infof("getSeries: returning %d series", seriesList.size());
         return Response.ok(seriesList).build();
+    }
+
+    private static List<String> genreIdList(List<String> genres, java.util.Map<String, String> genreIds) {
+        List<String> ids = new ArrayList<>();
+        if (genres != null) {
+            for (String g : genres) {
+                if (g == null) continue;
+                String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
+                if (!"0".equals(gid) && !ids.contains(gid)) ids.add(gid);
+            }
+        }
+        if (ids.isEmpty()) ids.add("0");
+        return ids;
+    }
+
+    private static List<Integer> genreIntIds(List<String> ids) {
+        List<Integer> out = new ArrayList<>();
+        for (String gid : ids) {
+            if (!"0".equals(gid)) out.add(Integer.parseInt(gid));
+        }
+        return out;
+    }
+
+    private static XtreamSeries copySeriesEntry(XtreamSeries src) {
+        XtreamSeries c = new XtreamSeries();
+        c.name = src.name;
+        c.seriesId = src.seriesId;
+        c.cover = src.cover;
+        c.coverBig = src.coverBig;
+        c.plot = src.plot;
+        c.cast = src.cast;
+        c.director = src.director;
+        c.genre = src.genre;
+        c.releaseDate = src.releaseDate;
+        c.lastModified = src.lastModified;
+        c.rating = src.rating;
+        c.rating5based = src.rating5based;
+        c.year = src.year;
+        c.backdropPath = new ArrayList<>(src.backdropPath);
+        c.youtubeTrailer = src.youtubeTrailer;
+        return c;
     }
 
     private List<Video> findMoviesByGenreName(String genreName) {

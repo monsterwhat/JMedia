@@ -582,6 +582,10 @@ public class VideoAPI {
                     
                     // Queue metadata enrichment for background processing
                     executor.submit(() -> videoEnrichmentWorker.queueAllUnenriched());
+
+                    // Auto-run the genre/category backfill after every scan so new
+                    // videos land in Xtream categories without a manual trigger.
+                    executor.submit(() -> videoEnrichmentWorker.queueAllMissingGenres());
                     
                     // Queue thumbnails for background processing
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());

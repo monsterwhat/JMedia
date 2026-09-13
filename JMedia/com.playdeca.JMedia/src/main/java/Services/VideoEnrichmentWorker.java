@@ -9,9 +9,12 @@ import io.quarkus.runtime.Startup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import Models.Video.Video;
+import Models.Video.Series;
 import Models.Settings.Settings;
 import Utils.PoolSizeResolver;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,6 +48,15 @@ public class VideoEnrichmentWorker {
     private final AtomicInteger enriched = new AtomicInteger(0);
     private final AtomicInteger notFound = new AtomicInteger(0);
 
+    // Genre-only (category) sweep queue — reuses the same virtual-thread pool as the main
+    // enrichment queue. needsEnrichment() skips ENRICHED-status videos, so genre-missing
+    // ENRICHED videos need this dedicated queue (Xtream categories derive from genres).
+    private final LinkedBlockingQueue<Long> categoryQueue = new LinkedBlockingQueue<>();
+    private final LinkedBlockingQueue<Long> categorySeriesQueue = new LinkedBlockingQueue<>();
+    private static final int CATEGORY_PAGE_SIZE = 500;
+    private final AtomicInteger categoryPending = new AtomicInteger(0);
+    private final AtomicInteger categoryProcessed = new AtomicInteger(0);
+
     @PostConstruct
     void init() {
         start();
@@ -54,6 +66,9 @@ public class VideoEnrichmentWorker {
                 return;
             }
             queueAllUnenriched();
+            // Auto-run the genre/category backfill on startup so Xtream categories fill
+            // in without a manual scan trigger (covers ENRICHED videos with empty genres).
+            queueAllMissingGenres();
         }, "VideoEnrichmentWorker-startup");
         startupThread.setDaemon(true);
         startupThread.start();
@@ -119,9 +134,22 @@ public class VideoEnrichmentWorker {
         while (isRunning.get()) {
             try {
                 Long videoId = queue.poll(POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                if (videoId == null) continue;
-                pending.decrementAndGet();
-                processVideo(videoId);
+                if (videoId != null) {
+                    pending.decrementAndGet();
+                    processVideo(videoId);
+                    continue;
+                }
+                Long categoryVideoId = categoryQueue.poll(1, TimeUnit.SECONDS);
+                if (categoryVideoId != null) {
+                    categoryPending.decrementAndGet();
+                    processCategoryVideo(categoryVideoId);
+                    continue;
+                }
+                Long categorySeriesId = categorySeriesQueue.poll(1, TimeUnit.SECONDS);
+                if (categorySeriesId != null) {
+                    categoryPending.decrementAndGet();
+                    processCategorySeries(categorySeriesId);
+                }
             } catch (InterruptedException e) {
                 LOG.info("VideoEnrichmentWorker worker interrupted");
                 Thread.currentThread().interrupt();
@@ -167,6 +195,80 @@ public class VideoEnrichmentWorker {
         }
     }
 
+    private void processCategoryVideo(Long videoId) {
+        requestContextController.activate();
+        try {
+            Video video = Video.findById(videoId);
+            if (video == null || !video.isActive) {
+                LOG.debug("VideoEnrichmentWorker: category video {} not found or inactive, skipping", videoId);
+                return;
+            }
+            if (!needsCategoryEnrichment(video)) {
+                LOG.debug("VideoEnrichmentWorker: video {} ({}) already has genres, skipping", videoId, video.title);
+                return;
+            }
+            LOG.info("VideoEnrichmentWorker: enriching genres for '{}' (id={}, type={})", video.title, videoId, video.type);
+            // enrichGenresOnly fills ONLY the genre lists (video + parent series for episodes)
+            // from TMDB/IMDb Dev without overwriting existing data — lighter than full enrichment.
+            videoMetadataService.enrichGenresOnly(videoId);
+            categoryProcessed.incrementAndGet();
+            LOG.info("VideoEnrichmentWorker: genre enrichment done for '{}' (category processed: {})", video.title, categoryProcessed.get());
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed genre enrichment for video id={}: {}", videoId, e.getMessage(), e);
+        } finally {
+            requestContextController.deactivate();
+        }
+    }
+
+    private boolean needsCategoryEnrichment(Video video) {
+        return videoMetadataService.needsCategoryEnrichment(video);
+    }
+
+    private void processCategorySeries(Long seriesId) {
+        requestContextController.activate();
+        try {
+            Series series = Series.findById(seriesId);
+            if (series == null) {
+                LOG.debug("VideoEnrichmentWorker: category series {} not found, skipping", seriesId);
+                return;
+            }
+            if (series.genres != null && !series.genres.isEmpty()) {
+                int rows = videoMetadataService.propagateSeriesGenresToEpisodes(seriesId);
+                categoryProcessed.incrementAndGet();
+                LOG.info("VideoEnrichmentWorker: propagated {} genre rows for series '{}' (category processed: {})",
+                        rows, series.title, categoryProcessed.get());
+                return;
+            }
+            List<Video> episodes = Video.list("series.id = ?1 AND type = 'episode'", seriesId);
+            Video firstMissing = null;
+            for (Video ep : episodes) {
+                if (ep != null && ep.id != null && needsCategoryEnrichment(ep)) {
+                    firstMissing = ep;
+                    break;
+                }
+            }
+            if (firstMissing == null) {
+                categoryProcessed.incrementAndGet();
+                LOG.debug("VideoEnrichmentWorker: series '{}' needs no genre work, skipping", series.title);
+                return;
+            }
+            videoMetadataService.enrichGenresOnly(firstMissing.id);
+            Series reloaded = Series.findById(seriesId);
+            if (reloaded != null && reloaded.genres != null && !reloaded.genres.isEmpty()) {
+                int rows = videoMetadataService.propagateSeriesGenresToEpisodes(seriesId);
+                LOG.info("VideoEnrichmentWorker: fetched genres for series '{}', propagated {} rows (category processed: {})",
+                        series.title, rows, categoryProcessed.get() + 1);
+            } else {
+                LOG.warn("VideoEnrichmentWorker: no genres found for series '{}', skipping its episodes", series.title);
+            }
+            categoryProcessed.incrementAndGet();
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed genre enrichment for series id={}: {}", seriesId, e.getMessage(), e);
+        } finally {
+            requestContextController.deactivate();
+        }
+    }
+
     public void queueVideo(Long videoId) {
         if (videoId == null || workerPoolSize == 0) return;
         queue.offer(videoId);
@@ -196,6 +298,98 @@ public class VideoEnrichmentWorker {
         }
     }
 
+    /**
+     * Queue all active movies/episodes that are missing genre assignments into the
+     * dedicated category queue. This is the category backfill that makes Xtream
+     * get_vod_categories / get_series_categories return full category lists without
+     * requiring a full library scan.
+     *
+     * @return the number of videos queued for genre backfill
+     */
+    @jakarta.enterprise.context.control.ActivateRequestContext
+    public int queueAllMissingGenres() {
+        if (workerPoolSize == 0) {
+            LOG.info("VideoEnrichmentWorker: enrichment disabled in system settings, skipping genre backfill");
+            return 0;
+        }
+        LOG.info("VideoEnrichmentWorker: scanning library for videos missing genres...");
+        int queued = 0;
+        int seriesQueued = 0;
+        try {
+            List<Video> movies = Video.list("isActive = ?1 AND type = 'movie'", true);
+            for (Video video : movies) {
+                if (video != null && video.id != null && needsCategoryEnrichment(video)) {
+                    categoryQueue.offer(video.id);
+                    queued++;
+                    categoryPending.incrementAndGet();
+                }
+            }
+            List<Video> episodes = Video.list("isActive = ?1 AND type = 'episode'", true);
+            Set<Long> seenSeries = new HashSet<>();
+            for (Video video : episodes) {
+                if (video == null || video.id == null || !needsCategoryEnrichment(video)) continue;
+                Long sid = video.series != null ? video.series.id : null;
+                if (sid == null) {
+                    categoryQueue.offer(video.id);
+                    queued++;
+                    categoryPending.incrementAndGet();
+                } else if (seenSeries.add(sid)) {
+                    categorySeriesQueue.offer(sid);
+                    seriesQueued++;
+                    categoryPending.incrementAndGet();
+                }
+            }
+            LOG.info("VideoEnrichmentWorker: queued {} movies and {} series for genre backfill ({} episodes scanned)",
+                    queued, seriesQueued, episodes.size());
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed to scan library for videos missing genres", e);
+        }
+        return queued + seriesQueued;
+    }
+
+    /**
+     * Queue episodes of a single series that are missing genre assignments, for
+     * targeted category propagation without a full-library sweep.
+     *
+     * @param seriesTitle the series whose episodes should be backfilled
+     * @return the number of episodes queued for genre backfill
+     */
+    @jakarta.enterprise.context.control.ActivateRequestContext
+    public int queueSeriesGenres(String seriesTitle) {
+        if (workerPoolSize == 0) {
+            LOG.info("VideoEnrichmentWorker: enrichment disabled in system settings, skipping series genre backfill");
+            return 0;
+        }
+        if (seriesTitle == null || seriesTitle.isBlank()) {
+            LOG.warn("VideoEnrichmentWorker: queueSeriesGenres called with blank seriesTitle");
+            return 0;
+        }
+        Series series = Series.find("title = ?1", seriesTitle).firstResult();
+        if (series != null && series.id != null) {
+            categorySeriesQueue.offer(series.id);
+            categoryPending.incrementAndGet();
+            LOG.info("VideoEnrichmentWorker: queued series '{}' for genre backfill", seriesTitle);
+            return 1;
+        }
+        LOG.info("VideoEnrichmentWorker: scanning series '{}' for episodes missing genres...", seriesTitle);
+        int queued = 0;
+        try {
+            List<Video> episodes = Video.list("isActive = ?1 AND type = 'episode' AND seriesTitle = ?2", true, seriesTitle);
+            for (Video video : episodes) {
+                if (video != null && video.id != null && needsCategoryEnrichment(video)) {
+                    categoryQueue.offer(video.id);
+                    queued++;
+                    categoryPending.incrementAndGet();
+                }
+            }
+            LOG.info("VideoEnrichmentWorker: queued {}/{} episodes for genre backfill in series '{}'",
+                    queued, episodes.size(), seriesTitle);
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed to scan series '{}' for episodes missing genres", seriesTitle, e);
+        }
+        return queued;
+    }
+
     public EnrichmentProgress getProgress() {
         return new EnrichmentProgress(
             pending.get(), processed.get(), failed.get(),
@@ -206,8 +400,22 @@ public class VideoEnrichmentWorker {
     public boolean isRunning() { return isRunning.get(); }
     public int getQueueSize() { return queue.size(); }
 
+    /** True when enrichment workers are enabled in system settings (pool size > 0). */
+    public boolean isEnabled() { return workerPoolSize > 0; }
+
+    public CategoryProgress getCategoryProgress() {
+        return new CategoryProgress(
+            categoryPending.get(), categoryProcessed.get(),
+            categoryQueue.size() + categorySeriesQueue.size(), isRunning.get()
+        );
+    }
+
     public record EnrichmentProgress(
         int pending, int processed, int failed,
         int enriched, int notFound, int queueSize, boolean running
+    ) {}
+
+    public record CategoryProgress(
+        int pending, int processed, int queueSize, boolean running
     ) {}
 }
