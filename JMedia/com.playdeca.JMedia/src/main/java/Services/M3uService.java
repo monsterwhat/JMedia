@@ -24,7 +24,7 @@ public class M3uService {
         UPDATED
     }
 
-    @Transactional
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public Profile findProfile(Long profileId) {
         return Profile.findById(profileId);
     }
@@ -32,14 +32,14 @@ public class M3uService {
     @Transactional
     public M3uImportResponse createPlaylistAndImportChannels(Long profileId, String url, String name, String type,
             List<M3uParserService.M3uEntry> entries) {
-        Profile profile = Profile.findById(profileId);
-        if (profile == null) {
+        // Settings-DB and video-DB entities cannot share one TX (JTA enlistment fails).
+        if (profileId == null) {
             return null;
         }
 
         // Create playlist entity
         M3uPlaylist playlist = new M3uPlaylist();
-        playlist.profileId = profile.id;
+        playlist.profileId = profileId;
         playlist.url = url;
         playlist.name = name != null ? name : "Imported Playlist";
         playlist.type = type;
@@ -50,7 +50,7 @@ public class M3uService {
         playlist.persist();
 
         // Import channels
-        return importEntries(playlist, profile.id, entries);
+        return importEntries(playlist, profileId, entries);
     }
 
     @Transactional
