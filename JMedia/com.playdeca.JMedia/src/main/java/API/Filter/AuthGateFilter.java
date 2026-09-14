@@ -30,6 +30,7 @@ public class AuthGateFilter implements ContainerRequestFilter {
         "live",
         "movie",
         "series",
+        "art",
         "api/music/stream",
         "api/video/stream",
         "api/video/progress",
