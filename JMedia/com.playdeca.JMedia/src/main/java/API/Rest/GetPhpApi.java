@@ -156,6 +156,9 @@ public class GetPhpApi {
         return uriInfo.getBaseUri().toString();
     }
 
+    /** Cache-bust token for self-served artwork URLs; keep in sync with XtreamCodesAPI.ARTWORK_CACHE_BUST. */
+    private static final String ARTWORK_CACHE_BUST = "2";
+
     private String getImageUrl(Video v, String username, String password) {
         if (v.posterPath != null && !v.posterPath.isBlank() && v.posterPath.startsWith("http")) {
             return v.posterPath;
@@ -166,7 +169,7 @@ public class GetPhpApi {
         }
         if (v.posterPath != null && !v.posterPath.isBlank()) {
             return getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id
-                    + "&username=" + username + "&password=" + password;
+                    + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST;
         }
         return "";
     }

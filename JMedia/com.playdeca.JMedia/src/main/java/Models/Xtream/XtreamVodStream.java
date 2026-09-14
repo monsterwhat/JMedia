@@ -17,6 +17,9 @@ public class XtreamVodStream {
     @JsonProperty("stream_icon")
     public String streamIcon;
 
+    @JsonProperty("movie_image")
+    public String movieImage;
+
     @JsonProperty("rating")
     public String rating;
 

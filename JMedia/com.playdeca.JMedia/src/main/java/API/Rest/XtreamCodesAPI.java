@@ -124,6 +124,8 @@ public class XtreamCodesAPI {
                 return getFullEpg(liveStreamId);
             case "get_thumbnail":
                 return getThumbnail(vodId);
+            case "get_series_backdrop":
+                return getSeriesBackdrop(seriesId);
             case "changePassword":
                 return Response.ok(java.util.Map.of("user_info", java.util.Map.of("auth", 1))).build();
             default:
@@ -475,7 +477,7 @@ public class XtreamCodesAPI {
             if (bd != null) {
                 info.put("backdrop_path", new ArrayList<>(List.of(bd)));
             } else if (matchedSeries.id != null) {
-                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "api/series/" + matchedSeries.id + "/backdrop")));
+                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "player_api.php?action=get_series_backdrop&series_id=" + matchedSeries.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST)));
             } else {
                 info.put("backdrop_path", new ArrayList<>());
             }
@@ -706,6 +708,7 @@ public class XtreamCodesAPI {
                 s.name = v.title;
                 s.streamId = v.id;
                 s.streamIcon = getImageUrl(v);
+                s.movieImage = getImageUrl(v);
                 s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
                 s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
                 s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
@@ -996,7 +999,7 @@ public class XtreamCodesAPI {
                 if (bd != null) {
                     xs.backdropPath = new ArrayList<>(List.of(bd));
                 } else if (ser.id != null) {
-                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "api/series/" + ser.id + "/backdrop"));
+                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "player_api.php?action=get_series_backdrop&series_id=" + ser.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST));
                 }
             }
             boolean firstSeriesEntry = true;
@@ -1085,6 +1088,16 @@ public class XtreamCodesAPI {
         return null;
     }
 
+    /**
+     * Cache-bust token appended to every self-served artwork URL. IPTV clients
+     * (Smarters on Apple TV) cache images by URL and honor Cache-Control max-age.
+     * Artwork migrated from WebP to JPEG under the SAME URL, so the old
+     * undecodable WebP stayed cached for 24h. Changing this token changes the URL
+     * and forces clients to refetch the new JPEG bytes. Bump on any future
+     * artwork change.
+     */
+    private static final String ARTWORK_CACHE_BUST = "2";
+
     private String getImageUrl(Video v) {
         // Enrichment stores absolute TMDB URLs (VideoMetadataService) while the
         // thumbnail pipeline stores local paths - only prefix bare TMDB paths.
@@ -1097,7 +1110,7 @@ public class XtreamCodesAPI {
             log.debugf("getImageUrl: video=%d, using TMDB poster: %s", v.id, url);
             return url;
         }
-        String url = getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id + "&username=" + username + "&password=" + password;
+        String url = getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST;
         log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, redactQuery(url));
         return url;
     }
@@ -1154,6 +1167,55 @@ public class XtreamCodesAPI {
         log.warnf("getThumbnail: no thumbnail for videoId=%d, serving fallback", videoId);
         return Response.temporaryRedirect(java.net.URI.create("https://placehold.co/300x450/1a1a2e/eaeaea?text=No+Image"))
                 .build();
+    }
+
+    private Response getSeriesBackdrop(String seriesId) {
+        if (seriesId == null) return Response.status(Response.Status.BAD_REQUEST).build();
+        Models.Video.Series matchedSeries = null;
+        try {
+            Long numericId = Long.parseLong(seriesId);
+            matchedSeries = Models.Video.Series.findById(numericId);
+        } catch (NumberFormatException ignored) {
+        }
+        if (matchedSeries == null) {
+            for (Models.Video.Series sv : Models.Video.Series.<Models.Video.Series>listAll()) {
+                if (hashId(sv.title).equals(seriesId)) {
+                    matchedSeries = sv;
+                    break;
+                }
+            }
+        }
+        if (matchedSeries == null) {
+            log.warnf("getSeriesBackdrop: no series match for seriesId=%s", seriesId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        if (matchedSeries.backdropPath == null || matchedSeries.backdropPath.isBlank()) {
+            log.warnf("getSeriesBackdrop: seriesId=%s has no backdrop path", seriesId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        try {
+            if (!java.nio.file.Files.isRegularFile(java.nio.file.Path.of(matchedSeries.backdropPath))) {
+                log.warnf("getSeriesBackdrop: backdrop file missing for seriesId=%s at %s", seriesId, matchedSeries.backdropPath);
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+            byte[] raw = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(matchedSeries.backdropPath));
+            if (raw.length == 0) {
+                log.warnf("getSeriesBackdrop: empty backdrop file for seriesId=%s", seriesId);
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+            ThumbnailService.ServedImage served = thumbnailService.toJpegForServing(raw);
+            if (served.bytes() == null || served.bytes().length == 0) {
+                log.warnf("getSeriesBackdrop: empty converted payload for seriesId=%s", seriesId);
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+            return Response.ok(served.bytes())
+                    .type(served.contentType())
+                    .header("Cache-Control", "public, max-age=86400")
+                    .build();
+        } catch (Exception e) {
+            log.errorf("getSeriesBackdrop: failure for seriesId=%s at %s: %s", seriesId, matchedSeries.backdropPath, e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     private Response serveThumbnailImage(byte[] img, Long videoId) {
