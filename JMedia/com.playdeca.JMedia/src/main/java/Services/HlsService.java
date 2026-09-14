@@ -180,7 +180,8 @@ public class HlsService {
         session.addProcess(variant.name, process);
 
         if (!process.isAlive()) {
-            LOG.warn("HLS encoder for session {} variant {} exited unexpectedly with code 0", session.sessionId, variant.name);
+            LOG.info("HLS encoder for session {} variant {} finished normally, stream complete", session.sessionId, variant.name);
+            finalizePlaylist(session, variant.name);
             return;
         }
 
@@ -212,6 +213,15 @@ public class HlsService {
                 String output = readProcessOutput(process);
                 session.removeProcess(vName);
                 session.lastRestartTimes.put(vName, System.currentTimeMillis());
+
+                // Exit code 0 means the encoder finished the whole stream (VOD
+                // end-of-file): finalize the playlist and stop — do NOT restart.
+                if (exitCode == 0) {
+                    LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
+                    finalizePlaylist(session, vName);
+                    return;
+                }
+
                 int attempt = session.getRestartCount(vName) + 1;
                 session.incrementRestartCount(vName);
                 if (attempt >= HW_ENCODER_MAX_RETRIES) {
@@ -225,7 +235,6 @@ public class HlsService {
             }
 
             session.addProcess(vName, process);
-            session.restartAttempts.put(vName, 0);
             startHwMonitor(session, variant, profileId, process);
         } catch (IOException e) {
             LOG.error("Failed to start HW encoder for {}: {}", vName, e.getMessage());
@@ -249,6 +258,23 @@ public class HlsService {
         return t.length() > 500 ? t.substring(0, 500) + "..." : t;
     }
 
+    /** Appends #EXT-X-ENDLIST so HLS clients stop at the end of a completed stream. */
+    private void finalizePlaylist(HlsSession session, String variantName) {
+        try {
+            Path playlistFile = session.sessionDir.resolve(variantName + ".m3u8");
+            if (!Files.exists(playlistFile)) {
+                return;
+            }
+            String content = Files.readString(playlistFile);
+            if (!content.contains("#EXT-X-ENDLIST")) {
+                Files.writeString(playlistFile, content + "#EXT-X-ENDLIST\n");
+                LOG.info("Finalized HLS playlist for session {} variant {} (#EXT-X-ENDLIST added)", session.sessionId, variantName);
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to finalize playlist for session {} variant {}: {}", session.sessionId, variantName, e.getMessage());
+        }
+    }
+
     private void startHwMonitor(HlsSession session, VariantConfig variant, Long profileId, Process process) {
         String vName = variant.name;
         Thread monitor = new Thread(() -> {
@@ -268,6 +294,15 @@ public class HlsService {
             int exitCode = process.exitValue();
             session.removeProcess(vName);
             session.lastRestartTimes.put(vName, System.currentTimeMillis());
+
+            // Exit code 0 means the encoder finished the whole stream (VOD
+            // end-of-file): finalize the playlist and stop — do NOT restart.
+            if (exitCode == 0) {
+                LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
+                finalizePlaylist(session, vName);
+                return;
+            }
+
             int attempt = session.getRestartCount(vName) + 1;
             session.incrementRestartCount(vName);
             if (attempt >= HW_ENCODER_MAX_RETRIES) {
@@ -620,8 +655,9 @@ public class HlsService {
                     }
 
                     if (exitCode == 0) {
-                        LOG.debug("HLS encoder {} exited normally (code 0)", vName);
-                        // Encoder completed normally — no retry needed
+                        LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
+                        // Encoder completed normally — finalize playlist and do NOT retry
+                        finalizePlaylist(session, vName);
                         break;
                     }
 
