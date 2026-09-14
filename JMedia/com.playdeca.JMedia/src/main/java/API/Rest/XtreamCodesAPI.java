@@ -481,7 +481,7 @@ public class XtreamCodesAPI {
             if (bd != null) {
                 info.put("backdrop_path", new ArrayList<>(List.of(bd)));
             } else if (matchedSeries.id != null) {
-                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "player_api.php?action=get_series_backdrop&series_id=" + matchedSeries.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST)));
+                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/series/" + matchedSeries.id + ".jpg?username=" + username + "&password=" + password)));
             } else {
                 info.put("backdrop_path", new ArrayList<>());
             }
@@ -1003,7 +1003,7 @@ public class XtreamCodesAPI {
                 if (bd != null) {
                     xs.backdropPath = new ArrayList<>(List.of(bd));
                 } else if (ser.id != null) {
-                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "player_api.php?action=get_series_backdrop&series_id=" + ser.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST));
+                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password));
                 }
             }
             boolean firstSeriesEntry = true;
@@ -1114,7 +1114,7 @@ public class XtreamCodesAPI {
             log.debugf("getImageUrl: video=%d, using TMDB poster: %s", v.id, url);
             return url;
         }
-        String url = getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id + "&username=" + username + "&password=" + password + "&art=" + ARTWORK_CACHE_BUST;
+        String url = getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password;
         log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, redactQuery(url));
         return url;
     }

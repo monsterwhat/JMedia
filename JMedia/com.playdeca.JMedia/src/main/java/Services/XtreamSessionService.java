@@ -42,21 +42,29 @@ public class XtreamSessionService {
 
     @Transactional
     public void endSession(XtreamSession session, String reason) {
-        if (session == null) {
+        if (session == null || session.id == null) {
             return;
         }
-        if (session.endedAt != null) {
-            LOG.debug("Xtream session {} already ended, ignoring end with reason {}", session.sessionId, reason);
+        // Re-fetch inside this transaction: the passed instance is detached
+        // (startSession's transaction already committed before streaming ends),
+        // and persist() on a detached entity throws EntityExistsException.
+        // Dirty checking on the managed copy flushes the update on commit.
+        XtreamSession managed = XtreamSession.findById(session.id);
+        if (managed == null) {
+            LOG.debug("Xtream session id={} not found, ignoring end with reason {}", session.id, reason);
+            return;
+        }
+        if (managed.endedAt != null) {
+            LOG.debug("Xtream session {} already ended, ignoring end with reason {}", managed.sessionId, reason);
             return;
         }
         Instant now = Instant.now();
-        session.endedAt = now;
-        session.durationSeconds = ChronoUnit.SECONDS.between(session.startedAt, now);
-        session.endReason = reason;
-        session.active = false;
-        session.lastActivity = now;
-        session.persist();
-        LOG.info("Xtream session ended: sessionId={} duration={}s reason={}", session.sessionId, session.durationSeconds, reason);
+        managed.endedAt = now;
+        managed.durationSeconds = ChronoUnit.SECONDS.between(managed.startedAt, now);
+        managed.endReason = reason;
+        managed.active = false;
+        managed.lastActivity = now;
+        LOG.info("Xtream session ended: sessionId={} duration={}s reason={}", managed.sessionId, managed.durationSeconds, reason);
     }
 
     @Transactional
