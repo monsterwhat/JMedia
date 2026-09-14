@@ -8,6 +8,7 @@ import Models.Xtream.*;
 import Services.AuthService;
 import Services.VideoService;
 import Services.SettingsService;
+import Services.ThumbnailService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -1133,7 +1134,7 @@ public class XtreamCodesAPI {
         if (thumbnailService.hasThumbnail(videoId)) {
             byte[] img = thumbnailService.getThumbnailBytes(videoId);
             if (img != null && img.length > 0) {
-                return Response.ok(img).type("image/webp").build();
+                return serveThumbnailImage(img, videoId);
             }
             log.warnf("getThumbnail: cached thumbnail unreadable for videoId=%d, trying poster fallback", videoId);
         }
@@ -1143,7 +1144,7 @@ public class XtreamCodesAPI {
                 if (java.nio.file.Files.exists(posterPath) && java.nio.file.Files.isRegularFile(posterPath)) {
                     byte[] img = java.nio.file.Files.readAllBytes(posterPath);
                     if (img.length > 0) {
-                        return Response.ok(img).type(thumbnailContentType(posterName)).build();
+                        return serveThumbnailImage(img, videoId);
                     }
                 }
             } catch (Exception e) {
@@ -1155,11 +1156,16 @@ public class XtreamCodesAPI {
                 .build();
     }
 
-    private String thumbnailContentType(String filename) {
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".png")) return "image/png";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-        return "image/webp";
+    private Response serveThumbnailImage(byte[] img, Long videoId) {
+        ThumbnailService.ServedImage served = thumbnailService.toJpegForServing(img);
+        if (served.bytes() == null || served.bytes().length == 0) {
+            log.warnf("serveThumbnailImage: empty image payload for videoId=%d", videoId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return Response.ok(served.bytes())
+                .type(served.contentType())
+                .header("Cache-Control", "public, max-age=86400")
+                .build();
     }
 
     private String formatDuration(long totalSeconds) {

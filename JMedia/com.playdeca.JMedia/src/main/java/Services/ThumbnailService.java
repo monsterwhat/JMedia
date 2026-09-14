@@ -1454,4 +1454,104 @@ public class ThumbnailService {
         if (lower.contains(".gif")) return ".gif";
         return ".jpg";
     }
+
+    /**
+     * Bytes to serve plus the Content-Type they actually are (never a mismatched pair).
+     */
+    public record ServedImage(byte[] bytes, String contentType) {}
+
+    /**
+     * Converts WebP bytes to JPEG for Xtream clients whose pipelines cannot render
+     * WebP (Apple TV ImageIO / SDWebImage). JPEG, PNG and GIF pass through untouched;
+     * on failure the original bytes are returned with their detected MIME type so
+     * Content-Type always matches the payload.
+     */
+    public ServedImage toJpegForServing(byte[] rawBytes) {
+        if (rawBytes == null || rawBytes.length == 0) {
+            LOGGER.warn("toJpegForServing: empty image payload, serving as-is");
+            return new ServedImage(rawBytes, "image/webp");
+        }
+        String detected = detectContentType(rawBytes);
+        if (detected != null && !"image/webp".equals(detected)) {
+            return new ServedImage(rawBytes, detected);
+        }
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(rawBytes));
+            if (image == null) {
+                LOGGER.warn("toJpegForServing: ImageIO could not decode {} bytes (type {}), serving original",
+                        rawBytes.length, detected);
+                return new ServedImage(rawBytes, detected != null ? detected : "image/webp");
+            }
+            byte[] jpeg = encodeJpeg(image);
+            if (jpeg != null && jpeg.length > 0) {
+                return new ServedImage(jpeg, "image/jpeg");
+            }
+            LOGGER.warn("toJpegForServing: JPEG encode produced no data for {} bytes, serving original", rawBytes.length);
+        } catch (Exception e) {
+            LOGGER.warn("toJpegForServing: conversion failed for {} bytes: {}, serving original",
+                    rawBytes.length, e.getMessage());
+        }
+        return new ServedImage(rawBytes, detected != null ? detected : "image/webp");
+    }
+
+    private static byte[] encodeJpeg(BufferedImage image) throws IOException {
+        // Flatten alpha onto black - JPEG has no alpha channel.
+        BufferedImage rgb = image;
+        if (image.getColorModel().hasAlpha()) {
+            rgb = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g2d = rgb.createGraphics();
+            try {
+                g2d.setColor(java.awt.Color.BLACK);
+                g2d.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+                g2d.drawImage(image, 0, 0, null);
+            } finally {
+                g2d.dispose();
+            }
+        }
+
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
+        if (!writers.hasNext()) {
+            throw new IOException("No JPEG ImageWriter available");
+        }
+        ImageWriter writer = null;
+        ImageOutputStream ios = null;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            writer = writers.next();
+            ios = ImageIO.createImageOutputStream(out);
+            writer.setOutput(ios);
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            if (param.canWriteCompressed()) {
+                param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                param.setCompressionQuality(0.85f);
+            }
+            writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+            ios.flush();
+            return out.toByteArray();
+        } finally {
+            if (ios != null) {
+                ios.close();
+            }
+            if (writer != null) {
+                writer.dispose();
+            }
+        }
+    }
+
+    private static String detectContentType(byte[] b) {
+        if (b.length >= 3 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF) {
+            return "image/jpeg";
+        }
+        if (b.length >= 8 && (b[0] & 0xFF) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') {
+            return "image/png";
+        }
+        if (b.length >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
+                && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') {
+            return "image/webp";
+        }
+        if (b.length >= 4 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8') {
+            return "image/gif";
+        }
+        return null;
+    }
 }

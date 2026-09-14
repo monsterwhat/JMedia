@@ -190,9 +190,13 @@ public class SeriesAPI {
             if (imagePath != null && !imagePath.isBlank()) {
                 File imageFile = new File(imagePath);
                 if (imageFile.exists() && imageFile.isFile()) {
-                    String contentType = detectImageContentType(imagePath);
-                    return Response.ok(imageFile)
-                            .header("Content-Type", contentType)
+                    // Locally-generated WebP is converted to JPEG for clients whose
+                    // decoders cannot render it (Apple TV ImageIO / SDWebImage);
+                    // JPEG/PNG pass through untouched, Content-Type always matches bytes.
+                    ThumbnailService.ServedImage served = thumbnailService
+                            .toJpegForServing(java.nio.file.Files.readAllBytes(imageFile.toPath()));
+                    return Response.ok(served.bytes())
+                            .type(served.contentType())
                             .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
                             .build();
@@ -204,14 +208,6 @@ public class SeriesAPI {
             LOG.error("Error serving {} image for series ID: {}", imageType, seriesId, e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
-    }
-
-    private String detectImageContentType(String path) {
-        String lower = path.toLowerCase();
-        if (lower.endsWith(".webp")) return "image/webp";
-        if (lower.endsWith(".png")) return "image/png";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-        return "image/webp";
     }
 
     @GET
