@@ -497,8 +497,6 @@ public class VideoImportService {
 
         Models.Video.VideoState.delete("video.id", videoId);
         Models.Video.VideoGenre.delete("video.id", videoId);
-        Models.Video.SubtitleTrack.delete("video.id", videoId);
-        Models.Video.AudioTrack.delete("video.id", videoId);
         Models.Video.CollectionEntry.delete("video.id", videoId);
 
         // Delete VideoHistory referencing this media file before deleting MediaFile (FK constraint)
@@ -529,8 +527,10 @@ public class VideoImportService {
         if (fileName.startsWith(".")) {
             return true;
         }
-        // Download-in-progress markers from common downloaders
-        return fileName.contains(".tmp.") || fileName.contains(".part")
+        // Download-in-progress markers from common downloaders. Note: ".part"
+        // must be a SUFFIX match (unfinished "movie.mkv.part"), never a
+        // substring — titles like "Part 1", "Part 2" or "Party" contain it.
+        return fileName.contains(".tmp.") || fileName.endsWith(".part")
                 || fileName.contains(".crdownload") || fileName.contains(".download")
                 || fileName.contains(".!qB");
     }
@@ -717,7 +717,12 @@ public class VideoImportService {
         if (managed != null) {
             managed.processedFiles = processedFiles;
             if (processedPath != null && !processedPath.isEmpty()) {
-                managed.processedPaths.add(processedPath);
+                if (processedPath.length() > 2048) {
+                    LOGGER.warn("Skipping overlong scan path ({} chars, column limit 2048), file will reprocess on resume: {}",
+                            processedPath.length(), processedPath);
+                } else {
+                    managed.processedPaths.add(processedPath);
+                }
             }
             managed.persist();
         }

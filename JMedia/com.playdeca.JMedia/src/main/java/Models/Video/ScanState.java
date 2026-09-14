@@ -2,6 +2,7 @@ package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ public class ScanState extends PanacheEntity {
     public String libraryPath;
     
     @ElementCollection
+    @Column(length = 2048)
     public List<String> processedPaths = new ArrayList<>();
     
     public String errorMessage;

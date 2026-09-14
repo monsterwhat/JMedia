@@ -19,26 +19,29 @@ public class DatabaseMigration {
     EntityManager em;
 
     void onStart(@Observes StartupEvent event) {
-        runScript();
+        runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
+        runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
     }
 
     @Transactional
-    void runScript() {
+    void runScript(String resource, String okMessage) {
         try (
-            InputStream is = getClass().getResourceAsStream("/db/migrate-profile-session-state.sql");
+            InputStream is = getClass().getResourceAsStream(resource);
             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))
         ) {
-            String content = reader.lines().collect(Collectors.joining("\n"));
+            String content = reader.lines()
+                    .filter(line -> !line.strip().startsWith("--"))
+                    .collect(Collectors.joining("\n"));
             String[] statements = content.split(";");
             for (String statement : statements) {
                 String trimmed = statement.trim();
-                if (!trimmed.isEmpty()) {
+                if (!trimmed.isEmpty() && !trimmed.startsWith("--")) {
                     em.createNativeQuery(trimmed).executeUpdate();
                 }
             }
-            System.out.println("[DatabaseMigration] ProfileSessionState migration applied");
+            System.out.println("[DatabaseMigration] " + okMessage);
         } catch (Exception e) {
-            System.err.println("[DatabaseMigration] migration failed: " + e.getMessage());
+            System.err.println("[DatabaseMigration] migration failed for " + resource + ": " + e.getMessage());
         }
     }
 }
