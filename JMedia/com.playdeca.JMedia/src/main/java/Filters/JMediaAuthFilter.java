@@ -49,6 +49,7 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
             "/movie/",
             "/series/",
             "/live/",
+            "/art/",
             "/api/video/stream/",
             "/api/video/progress/",
             "/api/video/storyboard/",
