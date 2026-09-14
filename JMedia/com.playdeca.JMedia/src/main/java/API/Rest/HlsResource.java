@@ -67,17 +67,18 @@ public class HlsResource {
 
     @GET
     @Path("/media/{sessionId}/{variant}/{segment}")
-    @Produces("video/iso.segment")
+    @Produces({"video/iso.segment", "text/vtt"})
     public Response getSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant, @PathParam("segment") String segment) {
         // Sanitize segment name to prevent path traversal
         segment = java.nio.file.Path.of(segment).getFileName().toString();
+        String contentType = segment.endsWith(".vtt") ? "text/vtt" : "video/iso.segment";
         // Wait for segment to be available (up to 2s — hls.js retries 503 with backoff)
         long deadline = System.currentTimeMillis() + 2000;
         java.nio.file.Path segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
         
         while (System.currentTimeMillis() < deadline) {
             if (segmentPath != null && Files.exists(segmentPath)) {
-                return Response.ok(segmentPath.toFile()).type("video/iso.segment").build();
+                return Response.ok(segmentPath.toFile()).type(contentType).build();
             }
             try {
                 Thread.sleep(100);

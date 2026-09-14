@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video.AudioTrack;
+import Models.Video.SubtitleTrack;
 import Models.Video.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -104,7 +105,8 @@ public class HlsService {
         Files.createDirectories(sessionDir);
         cleanupSessionDirectory(sessionDir);
         List<AudioTrack> audioTracks = video.audioTracks != null ? new ArrayList<>(video.audioTracks) : new ArrayList<>();
-        HlsSession session = new HlsSession(sessionId, video, audioTracks, sessionDir, startSeconds);
+        List<SubtitleTrack> subtitleTracks = video.subtitleTracks != null ? new ArrayList<>(video.subtitleTracks) : new ArrayList<>();
+        HlsSession session = new HlsSession(sessionId, video, audioTracks, subtitleTracks, sessionDir, startSeconds);
         session.deviceToken = safeDeviceToken;
         
         if (qualityHeight != null && qualityHeight > 0) {
@@ -534,6 +536,11 @@ public class HlsService {
             createAudioStreams(session);
         }
 
+        // Subtitle renditions always run as separate WebVTT processes: tvOS
+        // cannot select TS-embedded subtitles and only supports separate
+        // WebVTT, so unlike audio there is no single-track mux-in case.
+        createSubtitleStreams(session);
+
         // Video encoding
         command.add("-map");
         command.add("0:v:0");
@@ -840,6 +847,113 @@ public class HlsService {
         }
     }
 
+    private void createSubtitleStreams(HlsSession session) {
+        List<SubtitleTrack> servable = servableSubtitleTracks(session);
+        if (servable.isEmpty()) {
+            return;
+        }
+        String resolvedPath = resolveVideoPath(session.video.path);
+        int n = 0;
+        for (SubtitleTrack track : servable) {
+            String subName = subtitlePlaylistName(n++);
+            String inputPath = resolvedPath;
+            String mapSpec = "0:" + track.trackIndex;
+            if (track.trackIndex == null) {
+                inputPath = track.fullPath;
+                mapSpec = "0:0";
+            }
+            try {
+                List<String> command = new ArrayList<>();
+                command.add(ffmpegDiscoveryService.findFFmpegExecutable());
+                // Subtitle encoder always starts from 0 (same as video/audio — HLS seek is handled natively)
+                command.add("-ss");
+                command.add("0");
+                command.add("-i");
+                command.add(inputPath);
+                command.add("-map");
+                command.add(mapSpec);
+                command.add("-c:s");
+                command.add("webvtt");
+                command.add("-f");
+                command.add("hls");
+                command.add("-hls_time");
+                command.add("4");
+                command.add("-hls_list_size");
+                command.add("0");
+                command.add("-hls_flags");
+                command.add("append_list+omit_endlist+split_by_time");
+                command.add("-hls_segment_filename");
+                command.add(subName + "_%04d.vtt");
+                command.add(subName + ".m3u8");
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.directory(session.sessionDir.toFile());
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                session.addProcess(subName, process);
+                final String subLabel = subName;
+                final Integer subTrackIndex = track.trackIndex;
+                new Thread(() -> {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            LOG.debug("[ffmpeg {}] {}", subLabel, line);
+                        }
+                    } catch (IOException e) {
+                        LOG.warn("Error reading ffmpeg output: {}", e.getMessage());
+                    }
+                }).start();
+                new Thread(() -> {
+                    try {
+                        int exitCode = process.waitFor();
+                        if (exitCode != 0) {
+                            LOG.warn("Subtitle encoder for track {} exited with code {}", subTrackIndex, exitCode);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, "subtitle-monitor-" + subName).start();
+                LOG.info("Started subtitle stream {} for session {}", subName, session.sessionId);
+            } catch (Exception e) {
+                LOG.error("Failed to start subtitle stream for session {}", session.sessionId, e);
+            }
+        }
+    }
+
+    private List<SubtitleTrack> servableSubtitleTracks(HlsSession session) {
+        List<SubtitleTrack> result = new ArrayList<>();
+        if (session.subtitleTracks == null) {
+            return result;
+        }
+        for (SubtitleTrack track : session.subtitleTracks) {
+            if (track == null) {
+                continue;
+            }
+            boolean hasSource = track.trackIndex != null || (track.fullPath != null && !track.fullPath.isBlank());
+            if (!hasSource) {
+                LOG.warn("Skipping subtitle track with no stream index or file for session {}", session.sessionId);
+                continue;
+            }
+            if (!isTextSubtitleCodec(track.codec)) {
+                LOG.warn("Skipping non-text subtitle track {} (codec={}) for session {}: bitmap subs cannot convert to WebVTT",
+                        track.trackIndex, track.codec, session.sessionId);
+                continue;
+            }
+            result.add(track);
+        }
+        return result;
+    }
+
+    private static String subtitlePlaylistName(int index) {
+        return "sub_" + index;
+    }
+
+    private boolean isTextSubtitleCodec(String codec) {
+        if (codec == null) return false;
+        String c = codec.toLowerCase(java.util.Locale.ROOT);
+        return c.contains("subrip") || c.contains("srt") || c.contains("ass") || c.contains("ssa")
+                || c.contains("mov_text") || c.contains("webvtt") || c.equals("vtt") || c.contains("ttml");
+    }
+
     private boolean isCopyableCodec(String codec) {
         if (codec == null) return false;
         String lower = codec.toLowerCase();
@@ -1072,6 +1186,8 @@ public class HlsService {
         sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
         String codecs = deriveCodecsString(session.video);
         int fps = session.video.frameRate != null && session.video.frameRate > 0 ? session.video.frameRate : 30;
+        List<SubtitleTrack> servableSubs = servableSubtitleTracks(session);
+        String subsAttr = servableSubs.isEmpty() ? "" : ",SUBTITLES=\"subs\"";
         
         if (session.audioTracks.size() > 1) {
             for (int i = 0; i < session.audioTracks.size(); i++) {
@@ -1080,14 +1196,30 @@ public class HlsService {
                 sb.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"" + track.displayName + "\",LANGUAGE=\"" + (track.languageCode != null ? track.languageCode : "und") + "\",AUTOSELECT=" + (track.isDefault ? "YES" : "NO") + ",DEFAULT=" + (track.isDefault ? "YES" : "NO") + ",URI=\"/api/hls/playlist/" + session.sessionId + "/" + audioName + ".m3u8\"\n");
             }
         }
+
+        if (!servableSubs.isEmpty()) {
+            int subIndex = 0;
+            for (SubtitleTrack track : servableSubs) {
+                String subName = subtitlePlaylistName(subIndex++);
+                String lang = (track.languageCode != null && !track.languageCode.isBlank()) ? track.languageCode : "und";
+                String name = (track.displayName != null && !track.displayName.isBlank()) ? track.displayName
+                        : ((track.languageName != null && !track.languageName.isBlank()) ? track.languageName : "Subtitle " + subIndex);
+                name = name.replace("\"", "'");
+                sb.append("#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"" + name + "\",LANGUAGE=\"" + lang
+                        + "\",AUTOSELECT=" + (track.isDefault ? "YES" : "NO")
+                        + ",DEFAULT=" + (track.isDefault ? "YES" : "NO")
+                        + ",FORCED=" + (track.isForced ? "YES" : "NO")
+                        + ",URI=\"/api/hls/playlist/" + session.sessionId + "/" + subName + ".m3u8\"\n");
+            }
+        }
         
         List<VariantConfig> variants = session.variants;
         if (variants == null || variants.isEmpty()) {
             String resolution = deriveResolutionString(session.video);
             if (session.audioTracks.size() > 1) {
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\",AUDIO=\"audio\",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\",AUDIO=\"audio\"" + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
             } else {
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\"" + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
             }
             sb.append("/api/hls/playlist/" + session.sessionId + "/" + VIDEO_VARIANT + ".m3u8\n");
         } else {
@@ -1107,7 +1239,7 @@ public class HlsService {
                 int vH = v.height;
                 if (vH % 2 != 0) vH--;
                 String audioAttr = (session.audioTracks.size() > 1) ? ",AUDIO=\"audio\"" : "";
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=" + v.bandwidth + ",RESOLUTION=" + vW + "x" + vH + ",CODECS=\"" + codecs + "\"" + audioAttr + ",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=" + v.bandwidth + ",RESOLUTION=" + vW + "x" + vH + ",CODECS=\"" + codecs + "\"" + audioAttr + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
                 sb.append("/api/hls/playlist/" + session.sessionId + "/" + v.name + ".m3u8\n");
             }
         }
@@ -1144,7 +1276,7 @@ public class HlsService {
         Set<String> names = new HashSet<>();
         for (String line : playlist.split("\n")) {
             String trimmed = line.trim();
-            if ((trimmed.endsWith(".ts") || trimmed.endsWith(".m4s")) && !trimmed.startsWith("#")) {
+            if ((trimmed.endsWith(".ts") || trimmed.endsWith(".m4s") || trimmed.endsWith(".vtt")) && !trimmed.startsWith("#")) {
                 String name = trimmed.contains("/") ?
                     trimmed.substring(trimmed.lastIndexOf('/') + 1) : trimmed;
                 names.add(name);
@@ -1159,7 +1291,7 @@ public class HlsService {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < lines.length; i++) {
             String trimmed = lines[i].trim();
-            if ((trimmed.endsWith(".ts") || trimmed.endsWith(".m4s")) && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
+            if ((trimmed.endsWith(".ts") || trimmed.endsWith(".m4s") || trimmed.endsWith(".vtt")) && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
                 sb.append(prefix).append(trimmed);
                 } else if (trimmed.startsWith("#EXT-X-MAP:URI=\"")) {
                     int idx = trimmed.indexOf("\"", 16);
@@ -1182,7 +1314,7 @@ public class HlsService {
     private String buildPartialPlaylist(HlsSession session, String variantName, Set<String> alreadyListed) {
         StringBuilder sb = new StringBuilder();
 
-        String segmentExt = USE_FMP4_HLS ? ".m4s" : ".ts";
+        String segmentExt = variantName.startsWith("sub_") ? ".vtt" : (USE_FMP4_HLS ? ".m4s" : ".ts");
         File[] segments = session.sessionDir.toFile().listFiles(
             (dir, name) -> name.startsWith(variantName + "_") && name.endsWith(segmentExt)
         );
@@ -1214,7 +1346,7 @@ public class HlsService {
             sb.append("#EXT-X-VERSION:").append(USE_FMP4_HLS ? 7 : 3).append("\n");
             sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
             sb.append("#EXT-X-TARGETDURATION:").append((int)Math.ceil(targetDuration)).append("\n");
-            if (USE_FMP4_HLS) {
+            if (USE_FMP4_HLS && !variantName.startsWith("sub_")) {
                 sb.append("#EXT-X-MAP:URI=\"/api/hls/media/" + session.sessionId + "/" + variantName + "/init.mp4\"\n");
             }
             sb.append("#EXT-X-MEDIA-SEQUENCE:").append(parseSegmentNumber(segments[0].getName())).append("\n");
@@ -1418,6 +1550,7 @@ public class HlsService {
         public final String sessionId;
         public final Video video;
         public final List<AudioTrack> audioTracks;
+        public final List<SubtitleTrack> subtitleTracks;
         public final Path sessionDir;
         public final double startSeconds;
         public final long createdAt;
@@ -1436,10 +1569,11 @@ public class HlsService {
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;
 
-        public HlsSession(String id, Video v, List<AudioTrack> tracks, Path d, double s) {
+        public HlsSession(String id, Video v, List<AudioTrack> tracks, List<SubtitleTrack> subs, Path d, double s) {
             sessionId = id;
             video = v;
             audioTracks = tracks;
+            subtitleTracks = subs;
             sessionDir = d;
             startSeconds = s;
             createdAt = System.currentTimeMillis();
@@ -1487,7 +1621,7 @@ public class HlsService {
     }
 
     private void cleanupSessionDirectory(Path sessionDir) {
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionDir, "*.{ts,m4s,m3u8,mp4}")) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionDir, "*.{ts,m4s,m3u8,mp4,vtt}")) {
             for (Path entry : stream) {
                 Files.deleteIfExists(entry);
             }
