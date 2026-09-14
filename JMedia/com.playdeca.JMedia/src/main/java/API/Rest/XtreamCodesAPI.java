@@ -42,6 +42,9 @@ public class XtreamCodesAPI {
     @Inject
     Services.ThumbnailService thumbnailService;
 
+    @Inject
+    Services.XtreamSessionService xtreamSessionService;
+
     @QueryParam("username")
     String username;
 
@@ -410,6 +413,7 @@ public class XtreamCodesAPI {
     public Response proxyStream(@QueryParam("url") String url) {
         if (url == null || url.isBlank()) return Response.status(Response.Status.BAD_REQUEST).build();
         if (!isValidStreamCredentials(username, password)) return unauthorizedStreamResponse();
+        xtreamSessionService.bumpLiveActivity(username);
         return proxyExternalStream(url, username, password);
     }
 

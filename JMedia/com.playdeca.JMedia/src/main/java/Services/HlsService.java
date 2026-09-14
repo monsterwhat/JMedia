@@ -67,6 +67,7 @@ public class HlsService {
     @Inject VideoService videoService;
     @Inject SettingsService settingsService;
     @Inject FFmpegDiscoveryService ffmpegDiscoveryService;
+    @Inject XtreamSessionService xtreamSessionService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
@@ -92,6 +93,7 @@ public class HlsService {
         HlsSession existing = activeSessions.get(sessionId);
         if (existing != null) {
             LOG.info("Destroying existing HLS session {} for re-creation", sessionId);
+            endXtreamLinkedSession(existing, "disconnected");
             existing.stop();
             activeSessions.remove(sessionId);
         }
@@ -103,6 +105,7 @@ public class HlsService {
         cleanupSessionDirectory(sessionDir);
         List<AudioTrack> audioTracks = video.audioTracks != null ? new ArrayList<>(video.audioTracks) : new ArrayList<>();
         HlsSession session = new HlsSession(sessionId, video, audioTracks, sessionDir, startSeconds);
+        session.deviceToken = safeDeviceToken;
         
         if (qualityHeight != null && qualityHeight > 0) {
             session.qualityHeight = qualityHeight;
@@ -258,6 +261,12 @@ public class HlsService {
         return t.length() > 500 ? t.substring(0, 500) + "..." : t;
     }
 
+    private void endXtreamLinkedSession(HlsSession session, String reason) {
+        if (session != null && session.deviceToken != null) {
+            xtreamSessionService.endByDeviceToken(session.deviceToken, reason);
+        }
+    }
+
     /** Appends #EXT-X-ENDLIST so HLS clients stop at the end of a completed stream. */
     private void finalizePlaylist(HlsSession session, String variantName) {
         try {
@@ -273,6 +282,9 @@ public class HlsService {
         } catch (IOException e) {
             LOG.warn("Failed to finalize playlist for session {} variant {}: {}", session.sessionId, variantName, e.getMessage());
         }
+        // A clean EOF means the Xtream stream finished; endSession is idempotent so
+        // multiple variants calling this are harmless.
+        endXtreamLinkedSession(session, "completed");
     }
 
     private void startHwMonitor(HlsSession session, VariantConfig variant, Long profileId, Process process) {
@@ -1309,6 +1321,7 @@ public class HlsService {
         HlsSession session = activeSessions.remove(sessionId);
         if (session != null) {
             session.stop();
+            endXtreamLinkedSession(session, "disconnected");
             try {
                 if (session.sessionDir != null) {
                     deleteDirectory(session.sessionDir);
@@ -1354,7 +1367,10 @@ public class HlsService {
     public void shutdown() {
         hwRetryExecutor.shutdownNow();
         sessionCleanupExecutor.shutdownNow();
-        activeSessions.values().forEach(HlsSession::stop);
+        activeSessions.values().forEach(s -> {
+            endXtreamLinkedSession(s, "disconnected");
+            s.stop();
+        });
         activeSessions.clear();
         LOG.info("HlsService shutdown complete");
     }
@@ -1388,6 +1404,8 @@ public class HlsService {
         }
         
         for (String sessionId : toRemove) {
+            HlsSession session = activeSessions.get(sessionId);
+            endXtreamLinkedSession(session, "timeout");
             destroySession(sessionId);
         }
         
@@ -1412,6 +1430,8 @@ public class HlsService {
         private Integer preferredAudioTrackIndex = null;
 
         public volatile boolean stopped = false;
+
+        public volatile String deviceToken;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;

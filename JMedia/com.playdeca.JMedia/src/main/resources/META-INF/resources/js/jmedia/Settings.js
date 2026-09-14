@@ -461,6 +461,9 @@
                                 requestAnimationFrame(() => {
                                     console.log('[Settings] Calling loadSessions after DOM ready');
                                     window.loadSessions();
+                                    if (window.loadXtreamSessions) {
+                                        window.loadXtreamSessions();
+                                    }
                                 });
                             });
                         } else {

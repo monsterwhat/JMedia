@@ -3,9 +3,11 @@ package API.Rest;
 import API.ApiResponse;
 import Models.Settings.Session;
 import Models.Settings.User;
+import Models.Settings.XtreamSession;
 import Services.ProfileService;
 import Services.SessionService;
 import Services.UserService;
+import Services.XtreamSessionService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -30,6 +32,9 @@ public class UserManagementAPI {
     
     @Inject
     ProfileService profileService;
+    
+    @Inject
+    XtreamSessionService xtreamSessionService;
     
     private boolean isAdmin(HttpHeaders headers) {
         String sessionId = getSessionId(headers);
@@ -181,6 +186,42 @@ public class UserManagementAPI {
         
         return Response.ok()
                 .entity(ApiResponse.success(sessionList))
+                .build();
+    }
+    
+    @GET
+    @Path("/sessions/xtream")
+    public Response listXtreamSessions(@Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        List<XtreamSession> sessions = xtreamSessionService.listRecent(200);
+        List<Map<String, Object>> sessionList = new ArrayList<>();
+        for (XtreamSession s : sessions) {
+            sessionList.add(s.toInfoMap());
+        }
+        
+        return Response.ok()
+                .entity(ApiResponse.success(sessionList))
+                .build();
+    }
+    
+    @DELETE
+    @Path("/sessions/xtream")
+    public Response clearXtreamSessions(@Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        xtreamSessionService.clearHistory();
+        
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of("message", "Xtream playback history cleared")))
                 .build();
     }
     

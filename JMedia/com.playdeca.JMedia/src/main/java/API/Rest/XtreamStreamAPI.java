@@ -2,14 +2,19 @@ package API.Rest;
 
 import Models.Video.Video;
 import Models.Video.LiveChannel;
+import Models.Settings.User;
 import Services.AuthService;
+import Utils.IpResolutionUtils;
+import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.container.ContainerRequestContext;
 import org.jboss.logging.Logger;
 import java.io.File;
+import java.util.Optional;
 
 /**
  * Root-level streaming endpoints for Xtream Codes compliance.
@@ -27,16 +32,25 @@ public class XtreamStreamAPI {
 
     @Inject Services.HlsService hlsService;
 
+    @Inject Services.XtreamSessionService xtreamSessionService;
+
+    @Context
+    ContainerRequestContext requestContext;
+
+    @Context
+    HttpServerRequest vertxRequest;
+
     @GET
     @Path("/movie/{username}/{password}/{videoId}.{ext}")
     public Response streamMovie(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
                                 @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
                                 @HeaderParam("Range") String rangeHeader) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
+        Optional<User> userOpt = authService.authenticate(pathUsername, pathPassword);
+        if (userOpt.isEmpty()) return unauthorizedStreamResponse();
         log.infof("Stream movie request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Movie not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
-        return streamVideoWithHls(video, videoId, ext, rangeHeader);
+        return streamVideoWithHls(video, videoId, "movie", ext, rangeHeader, userOpt.get(), resolveClientIp());
     }
 
     @GET
@@ -44,30 +58,35 @@ public class XtreamStreamAPI {
     public Response streamSeries(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
                                  @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
                                  @HeaderParam("Range") String rangeHeader) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
+        Optional<User> userOpt = authService.authenticate(pathUsername, pathPassword);
+        if (userOpt.isEmpty()) return unauthorizedStreamResponse();
         log.infof("Stream series request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Series episode not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
-        return streamVideoWithHls(video, videoId, ext, rangeHeader);
+        return streamVideoWithHls(video, videoId, "series", ext, rangeHeader, userOpt.get(), resolveClientIp());
     }
 
     /**
      * TS/HLS-only IPTV apps request .m3u8; serve a transcoded HLS session for
      * those and keep progressive byte-serving for direct-source extensions.
      */
-    private Response streamVideoWithHls(Video video, Long videoId, String ext, String rangeHeader) {
+    private Response streamVideoWithHls(Video video, Long videoId, String type, String ext, String rangeHeader, User user, String ip) {
         if ("m3u8".equalsIgnoreCase(ext)) {
+            Models.Settings.XtreamSession rec = xtreamSessionService.startSession(type, user.getUsername(), String.valueOf(user.id), videoId, "m3u8", ip);
             try {
                 Services.HlsService.HlsSession session =
-                        hlsService.createSession(videoId, 0.0, null, null, null, "xtream-" + videoId);
+                        hlsService.createSession(videoId, 0.0, null, null, null, "xtream:" + rec.sessionId);
                 return Response.temporaryRedirect(
                         java.net.URI.create(getExternalBaseUri() + "api/hls/master/" + session.sessionId + ".m3u8")).build();
             } catch (Exception e) {
                 log.warnf("HLS session failed for videoId=%d, falling back to progressive stream: %s",
                         videoId, e.getMessage());
+                // Record stays open; the progressive path below reuses it (ext stays "m3u8").
+                return proxyLocalVideo(video, ext, rangeHeader, rec);
             }
         }
-        return proxyLocalVideo(video, ext, rangeHeader);
+        Models.Settings.XtreamSession rec = xtreamSessionService.startSession(type, user.getUsername(), String.valueOf(user.id), videoId, ext, ip);
+        return proxyLocalVideo(video, ext, rangeHeader, rec);
     }
 
     @GET
@@ -75,15 +94,17 @@ public class XtreamStreamAPI {
     public Response streamLive(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
                                @PathParam("channelId") Long channelId, @PathParam("ext") String ext,
                                @HeaderParam("Range") String rangeHeader) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
+        Optional<User> userOpt = authService.authenticate(pathUsername, pathPassword);
+        if (userOpt.isEmpty()) return unauthorizedStreamResponse();
         log.infof("Stream live request: channelId=%d, ext=%s", channelId, ext);
         LiveChannel ch = LiveChannel.findById(channelId);
         if (ch == null || ch.streamUrl == null || ch.streamUrl.isBlank()) {
             log.warnf("Live channel not found or no URL: channelId=%d", channelId);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
+        Models.Settings.XtreamSession rec = xtreamSessionService.startSession("live", userOpt.get().getUsername(), String.valueOf(userOpt.get().id), channelId, ext, resolveClientIp());
         log.infof("Proxying live stream: channelId=%d, url=%s", channelId, ch.streamUrl);
-        return proxyExternalStream(ch.streamUrl, pathUsername, pathPassword);
+        return proxyExternalStream(ch.streamUrl, pathUsername, pathPassword, rec);
     }
 
     private boolean isValidStreamCredentials(String pathUsername, String pathPassword) {
@@ -102,7 +123,16 @@ public class XtreamStreamAPI {
         return Response.status(Response.Status.UNAUTHORIZED).entity(authFail).build();
     }
 
-    private Response proxyLocalVideo(Video video, String ext, String rangeHeader) {
+    private String resolveClientIp() {
+        try {
+            return IpResolutionUtils.getClientIp(requestContext, vertxRequest);
+        } catch (Exception e) {
+            log.warnf("Failed to resolve client IP, defaulting to unknown: %s", e.getMessage());
+            return "unknown";
+        }
+    }
+
+    private Response proxyLocalVideo(Video video, String ext, String rangeHeader, Models.Settings.XtreamSession rec) {
         String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
         java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
         java.nio.file.Path filePath = baseFilePath.isAbsolute()
@@ -159,17 +189,23 @@ public class XtreamStreamAPI {
 
         final String ct = contentType;
         jakarta.ws.rs.core.StreamingOutput stream = out -> {
-            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(videoFile, "r")) {
-                raf.seek(finalStart);
-                byte[] buf = new byte[65536];
-                long remaining = finalContentLength;
-                while (remaining > 0) {
-                    int read = raf.read(buf, 0, (int) Math.min(buf.length, remaining));
-                    if (read == -1) break;
-                    out.write(buf, 0, read);
-                    remaining -= read;
+            try {
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(videoFile, "r")) {
+                    raf.seek(finalStart);
+                    byte[] buf = new byte[65536];
+                    long remaining = finalContentLength;
+                    while (remaining > 0) {
+                        int read = raf.read(buf, 0, (int) Math.min(buf.length, remaining));
+                        if (read == -1) break;
+                        out.write(buf, 0, read);
+                        remaining -= read;
+                    }
                 }
+            } catch (Exception e) {
+                xtreamSessionService.endSession(rec, "error");
+                throw e;
             }
+            xtreamSessionService.endSession(rec, "completed");
         };
 
         Response.ResponseBuilder rb = Response.status(rangeHeader != null ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
@@ -244,7 +280,7 @@ public class XtreamStreamAPI {
         throw new java.net.ConnectException("Too many redirects: " + url);
     }
 
-    private Response proxyExternalStream(String url, String pathUsername, String pathPassword) {
+    private Response proxyExternalStream(String url, String pathUsername, String pathPassword, Models.Settings.XtreamSession rec) {
         try {
             java.net.HttpURLConnection conn = openValidatedConnection(url);
 
@@ -254,6 +290,7 @@ public class XtreamStreamAPI {
 
             jakarta.ws.rs.core.Response.ResponseBuilder rb;
             if (status >= 400) {
+                xtreamSessionService.endSession(rec, "error");
                 return Response.status(Response.Status.BAD_GATEWAY).build();
             }
             rb = Response.ok();
@@ -285,6 +322,7 @@ public class XtreamStreamAPI {
                                 .append("\n");
                     }
                 }
+                // Record stays open; HLS live segments bump lastActivity via XtreamCodesAPI.proxyStream.
                 return Response.ok(rewritten.toString())
                         .type("application/vnd.apple.mpegurl")
                         .build();
@@ -293,20 +331,27 @@ public class XtreamStreamAPI {
             final java.io.InputStream inputStream = conn.getInputStream();
             jakarta.ws.rs.core.StreamingOutput stream = out -> {
                 try {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = inputStream.read(buf)) != -1) {
-                        out.write(buf, 0, n);
-                        out.flush();
+                    try {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = inputStream.read(buf)) != -1) {
+                            out.write(buf, 0, n);
+                            out.flush();
+                        }
+                    } finally {
+                        try { inputStream.close(); } catch (Exception ignored) {}
+                        conn.disconnect();
                     }
-                } catch (Exception ignored) {} finally {
-                    try { inputStream.close(); } catch (Exception ignored) {}
-                    conn.disconnect();
+                    xtreamSessionService.endSession(rec, "completed");
+                } catch (Exception e) {
+                    xtreamSessionService.endSession(rec, "disconnected");
+                    throw e;
                 }
             };
             rb.entity(stream);
             return rb.build();
         } catch (Exception e) {
+            xtreamSessionService.endSession(rec, "error");
             log.warnf("Proxy stream error: %s", e.getClass().getSimpleName());
             return Response.status(Response.Status.BAD_GATEWAY)
                     .entity("{\"error\":\"Failed to connect to stream\"}")

@@ -40,6 +40,19 @@
         }
     }
 
+    function formatDuration(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds) || seconds <= 0) return '—';
+        const total = Math.floor(seconds);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const parts = [];
+        if (h > 0) parts.push(h + 'h');
+        if (m > 0) parts.push(m + 'm');
+        if (s > 0 || parts.length === 0) parts.push(s + 's');
+        return parts.join(' ');
+    }
+
     function getCurrentSessionId() {
         try {
             const cookies = document.cookie.split(';');
@@ -79,6 +92,35 @@
 
     function clearSessionsError() {
         const error = document.getElementById('sessionsError');
+        if (error) {
+            error.style.display = 'none';
+        }
+    }
+
+    function showXtreamSessionsLoading(show) {
+        const loading = document.getElementById('xtreamSessionsLoading');
+        if (loading) {
+            loading.style.display = show ? 'block' : 'none';
+            if (show) {
+                loading.innerHTML = '<i class="pi pi-spin pi-spinner mr-2"></i> Loading Xtream sessions...';
+            }
+        }
+    }
+
+    function showXtreamSessionsError(message) {
+        const error = document.getElementById('xtreamSessionsError');
+        const tableBody = document.getElementById('xtreamSessionsTableBody');
+        if (error) {
+            error.textContent = message;
+            error.style.display = 'block';
+        }
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="has-text-centered has-text-danger">Error loading Xtream sessions</td></tr>';
+        }
+    }
+
+    function clearXtreamSessionsError() {
+        const error = document.getElementById('xtreamSessionsError');
         if (error) {
             error.style.display = 'none';
         }
@@ -220,6 +262,126 @@
                 console.error('[Sessions] Error cleaning up sessions:', e);
                 Toast.error('Error cleaning up sessions');
             }
+        },
+
+        loadXtreamSessions: async function() {
+            console.log('[Sessions] loadXtreamSessions called');
+            let attempts = 0;
+            const maxAttempts = 10;
+
+            const waitForElement = () => {
+                const tableBody = document.getElementById('xtreamSessionsTableBody');
+                if (tableBody || attempts >= maxAttempts) {
+                    return tableBody;
+                }
+                attempts++;
+                console.log('[Sessions] Waiting for xtream element, attempt:', attempts);
+                return null;
+            };
+
+            let tableBody = waitForElement();
+
+            if (!tableBody) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                tableBody = document.getElementById('xtreamSessionsTableBody');
+            }
+
+            if (!tableBody) {
+                console.error('[Sessions] xtreamSessionsTableBody element not found after retries!');
+                return;
+            }
+
+            console.log('[Sessions] Xtream elements found, starting fetch...');
+            clearXtreamSessionsError();
+            showXtreamSessionsLoading(true);
+            tableBody.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/users/sessions/xtream');
+                console.log('[Sessions] Xtream response status:', response.status);
+
+                if (!response.ok) {
+                    const result = await response.json().catch(() => ({}));
+                    const errorMsg = result.error || `Failed to load Xtream sessions (${response.status})`;
+                    console.error('[Sessions] Xtream API error:', errorMsg);
+                    showXtreamSessionsError(errorMsg);
+                    showXtreamSessionsLoading(false);
+                    return;
+                }
+
+                const result = await response.json();
+                const sessions = result.data || [];
+                console.log('[Sessions] Received Xtream sessions:', sessions.length);
+
+                showXtreamSessionsLoading(false);
+
+                if (sessions.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="8" class="has-text-centered">No Xtream playback sessions yet</td></tr>';
+                    return;
+                }
+
+                sessions.forEach(session => {
+                    const typeTag = `<span class="tag is-light">${escapeHtml(session.type || 'unknown')}</span>`;
+                    const stream = `#${escapeHtml(session.streamId)}<code>.${escapeHtml(session.ext || '')}</code>`;
+                    let statusTag;
+                    if (session.active) {
+                        statusTag = '<span class="tag is-success">Active</span>';
+                    } else {
+                        const reason = session.endReason || 'unknown';
+                        let cls = 'is-light';
+                        if (reason === 'completed') {
+                            cls = 'is-success';
+                        } else if (reason === 'disconnected' || reason === 'timeout') {
+                            cls = 'is-warning';
+                        } else if (reason === 'error') {
+                            cls = 'is-danger';
+                        }
+                        statusTag = `<span class="tag ${cls}">${escapeHtml(reason)}</span>`;
+                    }
+                    const duration = session.active ? 'In progress' : formatDuration(session.durationSeconds);
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${typeTag}</td>
+                        <td><span class="has-text-weight-semibold">${escapeHtml(session.username || 'Unknown')}</span></td>
+                        <td>${stream}</td>
+                        <td><code>${escapeHtml(session.ipAddress || 'Unknown')}</code></td>
+                        <td>${formatTimestamp(session.startedAt)}</td>
+                        <td>${duration}</td>
+                        <td>${formatTimestamp(session.endedAt)}</td>
+                        <td>${statusTag}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+
+                console.log('[Sessions] Xtream sessions rendered successfully');
+
+            } catch (e) {
+                console.error('[Sessions] Xtream exception:', e);
+                showXtreamSessionsError('Connection error: ' + e.message);
+                showXtreamSessionsLoading(false);
+            }
+        },
+
+        clearXtreamSessions: async function() {
+            console.log('[Sessions] Clearing Xtream playback history');
+            if (!confirm('Clear all Xtream playback history? This cannot be undone.')) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/users/sessions/xtream', {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    Toast.error(result.error || 'Failed to clear Xtream history');
+                    return;
+                }
+                Toast.success('Xtream playback history cleared');
+                JMedia.SessionManagement.loadXtreamSessions();
+            } catch (e) {
+                console.error('[Sessions] Error clearing Xtream history:', e);
+                Toast.error('Error clearing Xtream history');
+            }
         }
     };
 
@@ -227,6 +389,8 @@
     window.loadSessions = JMedia.SessionManagement.loadSessions;
     window.revokeSession = JMedia.SessionManagement.revokeSession;
     window.cleanupSessions = JMedia.SessionManagement.cleanupSessions;
+    window.loadXtreamSessions = JMedia.SessionManagement.loadXtreamSessions;
+    window.clearXtreamSessions = JMedia.SessionManagement.clearXtreamSessions;
 
     document.addEventListener('DOMContentLoaded', () => {
         const refreshBtn = document.getElementById('refreshSessionsBtn');
@@ -239,6 +403,18 @@
         if (cleanupBtn) {
             cleanupBtn.addEventListener('click', () => {
                 JMedia.SessionManagement.cleanupSessions();
+            });
+        }
+        const xtreamRefreshBtn = document.getElementById('xtreamRefreshBtn');
+        if (xtreamRefreshBtn) {
+            xtreamRefreshBtn.addEventListener('click', () => {
+                JMedia.SessionManagement.loadXtreamSessions();
+            });
+        }
+        const xtreamClearBtn = document.getElementById('xtreamClearBtn');
+        if (xtreamClearBtn) {
+            xtreamClearBtn.addEventListener('click', () => {
+                JMedia.SessionManagement.clearXtreamSessions();
             });
         }
     });
@@ -255,6 +431,20 @@
         cleanupBtn.addEventListener('click', () => {
             console.log('[Sessions] Cleanup button clicked (immediate)');
             JMedia.SessionManagement.cleanupSessions();
+        });
+    }
+    const xtreamRefreshBtn = document.getElementById('xtreamRefreshBtn');
+    if (xtreamRefreshBtn) {
+        xtreamRefreshBtn.addEventListener('click', () => {
+            console.log('[Sessions] Xtream refresh button clicked (immediate)');
+            JMedia.SessionManagement.loadXtreamSessions();
+        });
+    }
+    const xtreamClearBtn = document.getElementById('xtreamClearBtn');
+    if (xtreamClearBtn) {
+        xtreamClearBtn.addEventListener('click', () => {
+            console.log('[Sessions] Xtream clear button clicked (immediate)');
+            JMedia.SessionManagement.clearXtreamSessions();
         });
     }
 

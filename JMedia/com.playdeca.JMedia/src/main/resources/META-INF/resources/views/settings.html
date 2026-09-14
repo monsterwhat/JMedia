@@ -545,6 +545,35 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="glass-box p-6 mt-5">
+                        <div class="level">
+                            <div class="level-left"><h6 class="title is-6">Xtream Playback Sessions</h6></div>
+                            <div class="level-right">
+                                <button id="xtreamClearBtn" class="button is-danger is-small mr-2"><i class="pi pi-trash mr-1"></i> Clear Xtream History</button>
+                                <button id="xtreamRefreshBtn" class="button is-info is-small"><i class="pi pi-refresh mr-1"></i> Refresh</button>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <p class="help-text">Tracks Xtream stream tune-ins (movie/series/live). Duration is the server-side stream duration, not necessarily viewing time. Records are kept for 30 days.</p>
+                        </div>
+                        <div id="xtreamSessionsLoading" style="display: none;" class="has-text-centered p-4">
+                            <i class="pi pi-spin pi-spinner mr-2"></i> Loading Xtream sessions...
+                        </div>
+                        <div id="xtreamSessionsError" style="display: none;" class="notification is-danger is-light"></div>
+                        <div class="table-container">
+                            <table class="table is-fullwidth is-hoverable">
+                                <thead>
+                                    <tr>
+                                        <th>Type</th><th>Username</th><th>Stream</th><th>IP Address</th>
+                                        <th>Started</th><th>Duration</th><th>Ended</th><th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="xtreamSessionsTableBody">
+                                    <!-- Populated by js/jmedia/SessionManagement.js -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Sync Configuration Tab -->
