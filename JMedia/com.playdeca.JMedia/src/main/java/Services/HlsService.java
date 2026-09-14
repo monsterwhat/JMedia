@@ -28,6 +28,7 @@ public class HlsService {
     private static final String VIDEO_VARIANT = "video_stream";
     private static final boolean USE_FMP4_HLS = true;
     private static final int MAX_ACTIVE_SESSIONS = 8;
+    private static final int HW_ENCODER_MAX_RETRIES = 3;
 
     private static class VariantConfig {
         final String name;
@@ -208,19 +209,44 @@ public class HlsService {
 
             if (!process.isAlive()) {
                 int exitCode = process.exitValue();
-                LOG.warn("HW encoder for {} exited early (code {}), will retry in 10s", vName, exitCode);
+                String output = readProcessOutput(process);
                 session.removeProcess(vName);
                 session.lastRestartTimes.put(vName, System.currentTimeMillis());
-                scheduleHwRetry(session, variant, profileId);
+                int attempt = session.getRestartCount(vName) + 1;
+                session.incrementRestartCount(vName);
+                if (attempt >= HW_ENCODER_MAX_RETRIES) {
+                    LOG.warn("HW encoder for {} exited early (code {}), {} consecutive failures, falling back to software. Last output: {}", vName, exitCode, attempt, truncateForLog(output));
+                    fallBackToSoftwareEncoder(session, variant, profileId);
+                } else {
+                    LOG.warn("HW encoder for {} exited early (code {}), will retry in 10s (attempt {}/{}). Output: {}", vName, exitCode, attempt, HW_ENCODER_MAX_RETRIES, truncateForLog(output));
+                    scheduleHwRetry(session, variant, profileId);
+                }
                 return;
             }
 
             session.addProcess(vName, process);
+            session.restartAttempts.put(vName, 0);
             startHwMonitor(session, variant, profileId, process);
         } catch (IOException e) {
             LOG.error("Failed to start HW encoder for {}: {}", vName, e.getMessage());
             scheduleHwRetry(session, variant, profileId);
         }
+    }
+
+    private void fallBackToSoftwareEncoder(HlsSession session, VariantConfig variant, Long profileId) {
+        LOG.warn("Falling back to software encoder for session {} variant {}", session.sessionId, variant.name);
+        cleanVariantFiles(session, variant.name);
+        try {
+            launchAndMonitorVariantEncoder(session, variant, profileId, false);
+        } catch (IOException e) {
+            LOG.error("Failed to start software encoder for session {} variant {}: {}", session.sessionId, variant.name, e.getMessage());
+        }
+    }
+
+    private String truncateForLog(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        return t.length() > 500 ? t.substring(0, 500) + "..." : t;
     }
 
     private void startHwMonitor(HlsSession session, VariantConfig variant, Long profileId, Process process) {
@@ -240,10 +266,17 @@ public class HlsService {
                 Thread.currentThread().interrupt();
             }
             int exitCode = process.exitValue();
-            LOG.warn("HW encoder {} exited (code {}), scheduling retry in 10s", vName, exitCode);
             session.removeProcess(vName);
             session.lastRestartTimes.put(vName, System.currentTimeMillis());
-            scheduleHwRetry(session, variant, profileId);
+            int attempt = session.getRestartCount(vName) + 1;
+            session.incrementRestartCount(vName);
+            if (attempt >= HW_ENCODER_MAX_RETRIES) {
+                LOG.warn("HW encoder {} exited (code {}), {} consecutive failures, falling back to software", vName, exitCode, attempt);
+                fallBackToSoftwareEncoder(session, variant, profileId);
+            } else {
+                LOG.warn("HW encoder {} exited (code {}), will retry in 10s (attempt {}/{})", vName, exitCode, attempt, HW_ENCODER_MAX_RETRIES);
+                scheduleHwRetry(session, variant, profileId);
+            }
         });
         monitor.setDaemon(true);
         monitor.start();
@@ -316,7 +349,8 @@ public class HlsService {
             if (session.audioTracks.isEmpty()) {
                 copyCommand.add("-map"); copyCommand.add("0:a?");
             } else if (session.audioTracks.size() == 1) {
-                copyCommand.add("-map"); copyCommand.add("0:a:" + session.audioTracks.get(0).trackIndex);
+                // trackIndex is ffprobe's global stream index; 0:a:N is audio-relative and fails when audio isn't stream 0
+                copyCommand.add("-map"); copyCommand.add("0:" + session.audioTracks.get(0).trackIndex);
             } else {
                 copyCommand.add("-map"); copyCommand.add("0:a?");
             }
@@ -437,7 +471,7 @@ public class HlsService {
         } else if (session.audioTracks.size() == 1) {
             AudioTrack track = session.audioTracks.get(0);
             command.add("-map");
-            command.add("0:a:" + track.trackIndex);
+            command.add("0:" + track.trackIndex);
             command.add("-c:a");
             if (isCopyableCodec(track.codec)) {
                 command.add("copy");
@@ -699,7 +733,7 @@ public class HlsService {
                 command.add("-i");
                 command.add(resolvedPath);
                 command.add("-map");
-                command.add("0:a:" + track.trackIndex);
+                command.add("0:" + track.trackIndex);
                 command.add("-c:a");
                 if (isCopyableCodec(track.codec)) {
                     command.add("copy");
