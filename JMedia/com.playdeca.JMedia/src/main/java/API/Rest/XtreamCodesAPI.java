@@ -706,24 +706,22 @@ public class XtreamCodesAPI {
         for (Video v : videos) {
             List<String> gids = genreIdList(v.genres, genreIds);
             List<Integer> allIds = genreIntIds(gids);
-            for (String gid : gids) {
-                XtreamVodStream s = new XtreamVodStream();
-                s.num = num++;
-                s.name = v.title;
-                s.streamId = v.id;
-                s.streamIcon = getImageUrl(v);
-                s.movieImage = getImageUrl(v);
-                s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
-                s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
-                s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
-                String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
-                s.containerExtension = vodExt;
-                s.streamType = "movie";
-                s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
-                s.categoryId = gid;
-                s.categoryIds.addAll(allIds);
-                streams.add(s);
-            }
+            XtreamVodStream s = new XtreamVodStream();
+            s.num = num++;
+            s.name = v.title;
+            s.streamId = v.id;
+            s.streamIcon = getImageUrl(v);
+            s.movieImage = getImageUrl(v);
+            s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
+            s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
+            s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
+            String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
+            s.containerExtension = vodExt;
+            s.streamType = "movie";
+            s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
+            s.categoryId = gids.get(0);
+            s.categoryIds.addAll(allIds);
+            streams.add(s);
         }
         log.infof("getVodStreams returning %d streams, sample: %s", streams.size(), streams.isEmpty() ? "empty" : toJson(streams.subList(0, Math.min(3, streams.size()))));
         return Response.ok(streams).build();
@@ -731,6 +729,27 @@ public class XtreamCodesAPI {
 
     private Response getSeriesCategories() {
         return Response.ok(buildGenreCategories()).build();
+    }
+
+    // Base for synthesized numeric live-group category ids. Playlist ids occupy
+    // small ints, so groups stay clear in the 1M+ range. Derived deterministically
+    // from the normalized group name so app caches survive restarts (apps parse
+    // category_id as integer — the old g_<playlist>_<uuid> strings broke them).
+    private static final int LIVE_GROUP_ID_BASE = 1000000;
+    private static final int LIVE_GROUP_ID_RANGE = 8000000;
+    private static final java.util.Map<String, String> LIVE_GROUP_ID_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static String normalizeGroupName(String group) {
+        return group == null ? "" : group.strip().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String liveGroupCategoryId(String normalizedGroup) {
+        return LIVE_GROUP_ID_CACHE.computeIfAbsent(normalizedGroup, key -> {
+            long h = java.util.UUID.nameUUIDFromBytes(("live-group:" + key)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).getMostSignificantBits() & Long.MAX_VALUE;
+            return String.valueOf(LIVE_GROUP_ID_BASE + (h % LIVE_GROUP_ID_RANGE));
+        });
     }
 
     private Response getLiveCategories() {
@@ -742,19 +761,30 @@ public class XtreamCodesAPI {
             categories.add(new XtreamCategory(String.valueOf(pl.id), name));
         }
 
+        // Merge same-named groups across playlists (case-insensitive): one category
+        // per group name, so "Movies" appears once instead of once per playlist.
+        // Display name is title-cased from the normalized key so it is stable
+        // regardless of which playlist was scanned first.
+        java.util.Set<String> groupKeys = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (Models.Video.M3uPlaylist pl : playlists) {
-            String parentCategoryId = String.valueOf(pl.id);
             List<LiveChannel> channels = LiveChannel.find("playlist.id = ?1", pl.id).list();
-            java.util.Set<String> seenGroups = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (LiveChannel ch : channels) {
-                String group = ch.groupTitle != null && !ch.groupTitle.isBlank() ? ch.groupTitle : null;
-                if (group != null && seenGroups.add(group)) {
-                    String groupCatId = "g_" + pl.id + "_" + hashId(group);
-                    XtreamCategory groupCat = new XtreamCategory(groupCatId, group);
-                    groupCat.parentId = Integer.parseInt(parentCategoryId);
-                    categories.add(groupCat);
+                if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+                    groupKeys.add(normalizeGroupName(ch.groupTitle));
                 }
             }
+        }
+        java.util.Map<String, String> idByDisplay = new java.util.HashMap<>();
+        for (String key : groupKeys) {
+            String gid = liveGroupCategoryId(key);
+            String clash = idByDisplay.get(gid);
+            if (clash != null) {
+                log.errorf("Live group id collision for category id %s, keeping first name", gid);
+                continue;
+            }
+            String display = toDisplayGenre(key);
+            idByDisplay.put(gid, display);
+            categories.add(new XtreamCategory(gid, display));
         }
 
         return Response.ok(categories).build();
@@ -790,8 +820,17 @@ public class XtreamCodesAPI {
             } else {
                 try {
                     Long playlistId = Long.parseLong(catId);
-                    effectiveCategoryId = catId;
-                    channels = LiveChannel.find("playlist.id = ?1", playlistId).list();
+                    if (Models.Video.M3uPlaylist.findById(playlistId) != null) {
+                        effectiveCategoryId = catId;
+                        channels = LiveChannel.find("playlist.id = ?1", playlistId).list();
+                    } else {
+                        channels = filterLiveByGroupId(catId);
+                        if (!channels.isEmpty()) {
+                            effectiveCategoryId = catId;
+                        } else {
+                            channels = new ArrayList<>();
+                        }
+                    }
                 } catch (NumberFormatException e) {
                     channels = LiveChannel.listAll();
                 }
@@ -813,12 +852,12 @@ public class XtreamCodesAPI {
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
             s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             s.put("is_adult", "0");
-            // Report the same category id space that get_live_categories issues
-            // (playlist id, or g_<playlist>_<hash> when grouped): video-genre ids
-            // made client-side live filtering match nothing.
+            // Report the numeric group id space that get_live_categories issues.
+            // Channels in a named group share one merged category across playlists;
+            // ungrouped channels fall back to their playlist id.
             String channelCategoryId;
-            if (ch.playlist != null && ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-                channelCategoryId = "g_" + ch.playlist.id + "_" + hashId(ch.groupTitle);
+            if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+                channelCategoryId = liveGroupCategoryId(normalizeGroupName(ch.groupTitle));
             } else if (ch.playlist != null) {
                 channelCategoryId = String.valueOf(ch.playlist.id);
             } else {
@@ -838,6 +877,19 @@ public class XtreamCodesAPI {
             streams.add(s);
         }
         return Response.ok(streams).build();
+    }
+
+    private List<LiveChannel> filterLiveByGroupId(String numericGroupId) {
+        List<LiveChannel> matched = new ArrayList<>();
+        for (LiveChannel ch : LiveChannel.<LiveChannel>listAll()) {
+            if (ch.groupTitle == null || ch.groupTitle.isBlank()) {
+                continue;
+            }
+            if (liveGroupCategoryId(normalizeGroupName(ch.groupTitle)).equals(numericGroupId)) {
+                matched.add(ch);
+            }
+        }
+        return matched;
     }
 
     private Response getLiveStreamInfo(Long streamId) {
@@ -1006,15 +1058,10 @@ public class XtreamCodesAPI {
                     xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password));
                 }
             }
-            boolean firstSeriesEntry = true;
-            for (String gid : seriesGenreIds) {
-                XtreamSeries entry = firstSeriesEntry ? xs : copySeriesEntry(xs);
-                firstSeriesEntry = false;
-                entry.num = num++;
-                entry.categoryId = gid;
-                entry.categoryIds = new ArrayList<>(seriesAllIds);
-                seriesList.add(entry);
-            }
+            xs.num = num++;
+            xs.categoryId = seriesGenreIds.get(0);
+            xs.categoryIds = new ArrayList<>(seriesAllIds);
+            seriesList.add(xs);
         }
         log.infof("getSeries: returning %d series", seriesList.size());
         return Response.ok(seriesList).build();
@@ -1039,26 +1086,6 @@ public class XtreamCodesAPI {
             if (!"0".equals(gid)) out.add(Integer.parseInt(gid));
         }
         return out;
-    }
-
-    private static XtreamSeries copySeriesEntry(XtreamSeries src) {
-        XtreamSeries c = new XtreamSeries();
-        c.name = src.name;
-        c.seriesId = src.seriesId;
-        c.cover = src.cover;
-        c.coverBig = src.coverBig;
-        c.plot = src.plot;
-        c.cast = src.cast;
-        c.director = src.director;
-        c.genre = src.genre;
-        c.releaseDate = src.releaseDate;
-        c.lastModified = src.lastModified;
-        c.rating = src.rating;
-        c.rating5based = src.rating5based;
-        c.year = src.year;
-        c.backdropPath = new ArrayList<>(src.backdropPath);
-        c.youtubeTrailer = src.youtubeTrailer;
-        return c;
     }
 
     private List<Video> findMoviesByGenreName(String genreName) {

@@ -445,6 +445,7 @@
                             'library-management': 'Library', 'import-installation': 'Import Setup',
                             'playlist-creator': 'Playlists',
                             'user-management': 'Users', 'session-management': 'Sessions',
+                            'xtream-categories': 'Xtream Categories',
                             'ai-subtitle-generator': 'AI Subtitles', 'sync-configuration': 'Sync'
                         };
                         window.Breadcrumbs.set([
@@ -473,6 +474,19 @@
                     if (target === 'sync-configuration') {
                         if (JMedia.Sync && JMedia.Sync.loadAll) {
                             JMedia.Sync.loadAll();
+                        }
+                    }
+                    if (target === 'xtream-categories') {
+                        if (window.loadXtreamGenres || window.loadXtreamTitles) {
+                            requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                    console.log('[Settings] Calling loadXtreamGenres/loadXtreamTitles after DOM ready');
+                                    if (window.loadXtreamGenres) window.loadXtreamGenres();
+                                    if (window.loadXtreamTitles) window.loadXtreamTitles();
+                                });
+                            });
+                        } else {
+                            console.error('[Settings] window.loadXtreamGenres/loadXtreamTitles is not defined!');
                         }
                     }
                     if (target === 'ai-subtitle-generator') {

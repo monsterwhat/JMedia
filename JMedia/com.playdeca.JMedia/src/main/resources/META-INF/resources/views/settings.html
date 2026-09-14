@@ -576,6 +576,100 @@
                     </div>
                 </div>
 
+                <!-- Xtream Categories Tab -->
+                <div id="xtream-categories" class="tab-pane">
+                    <div class="glass-box p-6">
+                        <div class="level">
+                            <div class="level-left"><h6 class="title is-6">Xtream Categories</h6></div>
+                            <div class="level-right">
+                                <div class="buttons has-addons are-small mr-2">
+                                    <button id="xtreamCatsTypeMoviesBtn" class="button is-info is-selected" onclick="window.setXtreamCatsType('movie')">Movies</button>
+                                    <button id="xtreamCatsTypeSeriesBtn" class="button" onclick="window.setXtreamCatsType('series')">Series</button>
+                                </div>
+                                <button id="xtreamCatsRefreshBtn" class="button is-info is-small"><i class="pi pi-refresh mr-1"></i> Refresh</button>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <p class="help-text">Curate the Xtream VOD/series categories exposed to IPTV clients. The first genre on a title is its primary Xtream category.</p>
+                        </div>
+                        <div class="field has-addons mb-3">
+                            <div class="control is-expanded">
+                                <input class="input is-small" type="text" id="xtreamCatsSearch" placeholder="Search titles...">
+                            </div>
+                            <div class="control">
+                                <div class="select is-small">
+                                    <select id="xtreamCatsGenreFilter">
+                                        <option value="">All genres</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="level is-mobile mb-3">
+                            <div class="level-left">
+                                <span id="xtreamCatsPagerInfo" class="tag">Showing 0 of 0</span>
+                            </div>
+                            <div class="level-right">
+                                <div class="buttons are-small">
+                                    <button id="xtreamCatsPrevBtn" class="button is-small is-light" onclick="window.xtreamCatsPagePrev()"><i class="pi pi-chevron-left mr-1"></i> Prev</button>
+                                    <button id="xtreamCatsNextBtn" class="button is-small is-light" onclick="window.xtreamCatsPageNext()">Next <i class="pi pi-chevron-right ml-1"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="xtreamCatsLoading" style="display: none;" class="has-text-centered p-4">
+                            <i class="pi pi-spin pi-spinner mr-2"></i> Loading titles...
+                        </div>
+                        <div id="xtreamCatsError" style="display: none;" class="notification is-danger is-light"></div>
+                        <div id="xtreamCatsBulkBar" class="box p-3 mb-3" style="display: none; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);">
+                            <div class="level is-mobile mb-2">
+                                <div class="level-left">
+                                    <span id="xtreamCatsSelectedCount" class="tag is-info">0 selected</span>
+                                </div>
+                                <div class="level-right">
+                                    <div class="buttons are-small">
+                                        <button id="xtreamCatsSelectAllBtn" class="button is-small is-light">Select All</button>
+                                        <button id="xtreamCatsClearBtn" class="button is-small is-light">Clear</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="xtreamCatsSingleBox" style="display: none;">
+                                <p class="is-size-7 has-text-grey mb-1">Categories for <strong id="xtreamCatsSingleTitle"></strong> <span class="has-text-grey-light">(first = primary Xtream category)</span>:</p>
+                                <div id="xtreamCatsSingleGenres" class="mb-2"></div>
+                                <div class="field has-addons mb-2">
+                                    <div class="control is-expanded">
+                                        <div class="select is-small is-fullwidth">
+                                            <select id="xtreamCatsSingleAddPicker">
+                                                <option value="">Add a genre...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="control">
+                                        <button id="xtreamCatsSingleAddBtn" class="button is-small is-success"><i class="pi pi-plus mr-1"></i> Add</button>
+                                    </div>
+                                </div>
+                                <div class="buttons are-small">
+                                    <button id="xtreamCatsSingleSaveBtn" class="button is-small is-info"><i class="pi pi-save mr-1"></i> Save Order</button>
+                                </div>
+                            </div>
+                            <div id="xtreamCatsMultiBox" style="display: none;">
+                                <p class="is-size-7 has-text-grey mb-1">Set one category as primary for all selected titles (adds it where missing):</p>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded">
+                                        <div class="select is-small is-fullwidth">
+                                            <select id="xtreamCatsMultiGenrePicker">
+                                                <option value="">Choose a genre...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="control">
+                                        <button id="xtreamCatsMultiSetBtn" class="button is-small is-info"><i class="pi pi-star mr-1"></i> Set as Main Category</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="xtreamCatsGrid" class="mb-3" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;"></div>
+                    </div>
+                </div>
+
                 <!-- Sync Configuration Tab -->
                 <div id="sync-configuration" class="tab-pane">
                     <div class="glass-box p-6">
