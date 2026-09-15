@@ -564,6 +564,79 @@ public class FFmpegDiscoveryService {
         }
     }
 
+    /**
+     * Probes which encoders a specific GPU device actually supports.
+     * Host-level "supports AV1" is not enough for multi-GPU (iGPU without AV1
+     * encode + Arc A380 with AV1): each render node / NV index is probed
+     * individually so the scheduler routes AV1 jobs only to capable devices.
+     * Uses Jellyfin-style per-device init: vaapi=va:&lt;path&gt; + qsv=hw@va.
+     */
+    public Set<String> probeEncodersForDevice(GpuDetectionService.GpuInfo gpu) {
+        String ffmpeg = findFFmpegExecutable();
+        if (ffmpeg == null || gpu == null) {
+            return Set.of();
+        }
+        List<String> candidates;
+        if (gpu.vendor() == GpuDetectionService.GpuVendor.NVIDIA) {
+            candidates = List.of("h264_nvenc", "hevc_nvenc", "av1_nvenc");
+        } else if (gpu.vendor() == GpuDetectionService.GpuVendor.INTEL) {
+            candidates = List.of("h264_qsv", "hevc_qsv", "av1_qsv");
+        } else if (gpu.vendor() == GpuDetectionService.GpuVendor.AMD) {
+            candidates = List.of("h264_vaapi", "hevc_vaapi", "av1_vaapi");
+        } else {
+            return Set.of();
+        }
+        Set<String> supported = new java.util.HashSet<>();
+        for (String enc : candidates) {
+            try {
+                ProcessBuilder pb;
+                if (enc.endsWith("_vaapi") && gpu.devicePath() != null) {
+                    pb = new ProcessBuilder(
+                        ffmpeg, "-v", "error", "-hide_banner",
+                        "-init_hw_device", "vaapi=va:" + gpu.devicePath(),
+                        "-f", "lavfi", "-i", "testsrc=duration=0.1:size=320x240:rate=1",
+                        "-vf", "format=nv12,hwupload",
+                        "-c:v", enc, "-frames:v", "1", "-f", "null", "-"
+                    );
+                } else if (enc.endsWith("_qsv") && gpu.devicePath() != null
+                        && gpu.devicePath().startsWith("/dev/dri/")) {
+                    pb = new ProcessBuilder(
+                        ffmpeg, "-v", "error", "-hide_banner",
+                        "-init_hw_device", "vaapi=va:" + gpu.devicePath(),
+                        "-init_hw_device", "qsv=hw@va",
+                        "-f", "lavfi", "-i", "testsrc=duration=0.1:size=320x240:rate=1",
+                        "-vf", "format=nv12,hwupload=extra_hw_frames=64",
+                        "-c:v", enc, "-frames:v", "1", "-f", "null", "-"
+                    );
+                } else if (enc.endsWith("_qsv") || enc.endsWith("_nvenc") || enc.endsWith("_amf")) {
+                    pb = new ProcessBuilder(
+                        ffmpeg, "-v", "error", "-hide_banner",
+                        "-f", "lavfi", "-i", "testsrc=duration=0.1:size=320x240:rate=1",
+                        "-c:v", enc, "-frames:v", "1", "-f", "null", "-"
+                    );
+                } else {
+                    continue;
+                }
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                boolean finished = p.waitFor(15, TimeUnit.SECONDS);
+                if (!finished) {
+                    p.destroyForcibly();
+                    LOG.debug("Per-device probe timed out: {} on {}", enc, gpu.devicePath());
+                    continue;
+                }
+                if (p.exitValue() == 0) {
+                    supported.add(enc);
+                    LOG.info("Device {} supports {}",
+                        gpu.devicePath() != null ? gpu.devicePath() : String.valueOf(gpu.deviceIndex()), enc);
+                }
+            } catch (Exception e) {
+                LOG.debug("Per-device probe failed: {} on {}: {}", enc, gpu.devicePath(), e.getMessage());
+            }
+        }
+        return Set.copyOf(supported);
+    }
+
     public synchronized void invalidateEncoder(String encoder) {
         probedFailedEncoders.add(encoder);
         probedUsableEncoders.remove(encoder);

@@ -53,6 +53,9 @@ public class TranscodingService {
     FFmpegDiscoveryService discoveryService;
 
     @Inject
+    GpuScheduler gpuScheduler;
+
+    @Inject
     SettingsService settingsService;
 
     @Inject
@@ -1036,7 +1039,14 @@ public class TranscodingService {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         
-        // Configure hardware decoder with zero-copy output format when encoder matches vendor
+        // Configure hardware decoder with zero-copy output format when encoder matches vendor.
+        // Multi-GPU: one capability-filtered lease per stream; AV1 jobs match only
+        // AV1-capable GPUs, other codecs balance by live load. Null lease = software path.
+        GpuScheduler.GpuLease gpuLease = null;
+        if (useHardware && hardwareDecoder != null && needsVideoTranscode
+                && videoEncoder != null && !videoEncoder.equals("copy") && !videoEncoder.startsWith("libx")) {
+            gpuLease = gpuScheduler.acquire(video.videoCodec, videoEncoder);
+        }
         if (useHardware && hardwareDecoder != null && needsVideoTranscode) {
             LOG.info("Using hardware-accelerated decoding: {} for codec: {}", hardwareDecoder, video.videoCodec);
             if (hardwareDecoder.contains("cuvid")) {
@@ -1044,7 +1054,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("nvenc")) {
                     command.add("-hwaccel_output_format"); command.add("cuda");
                 }
-                String index = discoveryService.getBestNvidiaDeviceIndex();
+                String index = gpuLease != null && gpuLease.gpu().deviceIndex() >= 0
+                    ? String.valueOf(gpuLease.gpu().deviceIndex())
+                    : discoveryService.getBestNvidiaDeviceIndex();
                 if (index != null) {
                     command.add("-hwaccel_device"); command.add(index);
                 }
@@ -1055,7 +1067,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("qsv")) {
                     command.add("-hwaccel_output_format"); command.add("qsv");
                 }
-                String device = discoveryService.getBestQsvDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestQsvDevicePath();
                 if (device != null) {
                     command.add("-qsv_device"); command.add(device);
                 }
@@ -1064,7 +1078,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("vaapi")) {
                     command.add("-hwaccel_output_format"); command.add("vaapi");
                 }
-                String device = discoveryService.getBestVaaPiDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestVaaPiDevicePath();
                 if (device != null) {
                     command.add("-hwaccel_device"); command.add(device);
                 }
@@ -1073,7 +1089,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
-                GpuDetectionService.GpuInfo amfGpu = discoveryService.getBestAmfGpu();
+                GpuDetectionService.GpuInfo amfGpu = gpuLease != null
+                    ? gpuLease.gpu()
+                    : discoveryService.getBestAmfGpu();
                 if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
                     command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
                 }
@@ -1271,6 +1289,10 @@ public class TranscodingService {
 
         ProcessBuilder pb = new ProcessBuilder(command);
         Process process = pb.start();
+        if (gpuLease != null) {
+            final GpuScheduler.GpuLease leaseToRelease = gpuLease;
+            process.onExit().thenRun(() -> gpuScheduler.release(leaseToRelease));
+        }
         
         String processKey = (cacheFile != null ? cacheFile.getFileName().toString() : "live-" + video.id) + "-" + System.nanoTime();
         activeProcesses.put(processKey, process);
@@ -2090,8 +2112,14 @@ public class TranscodingService {
     private Path runGapAttempt(String ffmpegPath, File videoFile, Path tempFile, Video video,
                                double gapStartSeconds, double gapDurationSeconds,
                                int audioTrackIndex, int qualityHeight, boolean useHardware) {
+        String gapHwEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
+        GpuScheduler.GpuLease gapLease = null;
+        if (useHardware && gapHwEncoder != null && !gapHwEncoder.startsWith("libx")) {
+            gapLease = gpuScheduler.acquire(video.videoCodec, gapHwEncoder);
+        }
         List<String> command = buildGapFfmpegCommand(ffmpegPath, videoFile, tempFile, video,
-                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware);
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware, gapLease);
+        final GpuScheduler.GpuLease gapLeaseToRelease = gapLease;
         Future<Path> future = gapExecutor.submit(() -> runGapProcess(command, tempFile, videoFile, gapStartSeconds));
         try {
             return future.get(60, TimeUnit.SECONDS);
@@ -2106,6 +2134,10 @@ public class TranscodingService {
             LOG.warn("Gap transcode for {} timed out after 60s, cancelling", videoFile.getName());
             future.cancel(true);
             return null;
+        } finally {
+            if (gapLeaseToRelease != null) {
+                gpuScheduler.release(gapLeaseToRelease);
+            }
         }
     }
 
@@ -2130,7 +2162,8 @@ public class TranscodingService {
      *  libx264 command with no hwaccel flags. */
     private List<String> buildGapFfmpegCommand(String ffmpegPath, File videoFile, Path tempFile, Video video,
                                                double gapStartSeconds, double gapDurationSeconds,
-                                               int audioTrackIndex, int qualityHeight, boolean useHardware) {
+                                               int audioTrackIndex, int qualityHeight, boolean useHardware,
+                                               GpuScheduler.GpuLease gpuLease) {
         String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
         boolean isHardwareEncoder = useHardware && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
@@ -2168,7 +2201,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("nvenc")) {
                     command.add("-hwaccel_output_format"); command.add("cuda");
                 }
-                String index = discoveryService.getBestNvidiaDeviceIndex();
+                String index = gpuLease != null && gpuLease.gpu().deviceIndex() >= 0
+                    ? String.valueOf(gpuLease.gpu().deviceIndex())
+                    : discoveryService.getBestNvidiaDeviceIndex();
                 if (index != null) {
                     command.add("-hwaccel_device"); command.add(index);
                 }
@@ -2179,7 +2214,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("qsv")) {
                     command.add("-hwaccel_output_format"); command.add("qsv");
                 }
-                String device = discoveryService.getBestQsvDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestQsvDevicePath();
                 if (device != null) {
                     command.add("-qsv_device"); command.add(device);
                 }
@@ -2188,7 +2225,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("vaapi")) {
                     command.add("-hwaccel_output_format"); command.add("vaapi");
                 }
-                String device = discoveryService.getBestVaaPiDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestVaaPiDevicePath();
                 if (device != null) {
                     command.add("-hwaccel_device"); command.add(device);
                 }
@@ -2197,7 +2236,9 @@ public class TranscodingService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
-                GpuDetectionService.GpuInfo amfGpu = discoveryService.getBestAmfGpu();
+                GpuDetectionService.GpuInfo amfGpu = gpuLease != null
+                    ? gpuLease.gpu()
+                    : discoveryService.getBestAmfGpu();
                 if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
                     command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
                 }

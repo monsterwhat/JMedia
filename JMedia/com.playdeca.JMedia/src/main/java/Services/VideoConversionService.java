@@ -67,6 +67,9 @@ public class VideoConversionService {
     FFmpegDiscoveryService discoveryService;
 
     @Inject
+    GpuScheduler gpuScheduler;
+
+    @Inject
     VideoService videoService;
 
     @Inject
@@ -597,10 +600,20 @@ public class VideoConversionService {
             }
 
             try {
-                List<String> command = buildFfmpegCommand(ffmpegPath, inputFile, tempOutput, video,
-                        encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams, job.options);
-                runFfmpegProcess(job, command, video, inputFile, outputPath, tempOutput);
-                conversionStarted = true; // FFmpeg completed successfully
+                GpuScheduler.GpuLease conversionLease = null;
+                if (isHardwareAttempt) {
+                    conversionLease = gpuScheduler.acquire(video.videoCodec, encoder);
+                }
+                try {
+                    List<String> command = buildFfmpegCommand(ffmpegPath, inputFile, tempOutput, video,
+                            encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams, job.options, conversionLease);
+                    runFfmpegProcess(job, command, video, inputFile, outputPath, tempOutput);
+                    conversionStarted = true;
+                } finally {
+                    if (conversionLease != null) {
+                        gpuScheduler.release(conversionLease);
+                    }
+                }
             } catch (Exception e) {
                 lastException = e;
                 LOG.warn("Encoder '{}' failed for video {}: {}", encoder, video.id, e.getMessage());
@@ -890,7 +903,7 @@ public class VideoConversionService {
                                              Video video, String videoEncoder,
                                              boolean isHardwareAttempt, String hardwareDecoder,
                                              String preset, List<Integer> textSubtitleStreams,
-                                             ConversionOptions options) {
+                                             ConversionOptions options, GpuScheduler.GpuLease gpuLease) {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -902,7 +915,9 @@ public class VideoConversionService {
                 if (videoEncoder.contains("nvenc")) {
                     command.add("-hwaccel_output_format"); command.add("cuda");
                 }
-                String index = discoveryService.getBestNvidiaDeviceIndex();
+                String index = gpuLease != null && gpuLease.gpu().deviceIndex() >= 0
+                    ? String.valueOf(gpuLease.gpu().deviceIndex())
+                    : discoveryService.getBestNvidiaDeviceIndex();
                 if (index != null) {
                     command.add("-hwaccel_device"); command.add(index);
                 }
@@ -913,7 +928,9 @@ public class VideoConversionService {
                 if (videoEncoder.contains("qsv")) {
                     command.add("-hwaccel_output_format"); command.add("qsv");
                 }
-                String device = discoveryService.getBestQsvDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestQsvDevicePath();
                 if (device != null) {
                     command.add("-qsv_device"); command.add(device);
                 }
@@ -922,7 +939,9 @@ public class VideoConversionService {
                 if (videoEncoder.contains("vaapi")) {
                     command.add("-hwaccel_output_format"); command.add("vaapi");
                 }
-                String device = discoveryService.getBestVaaPiDevicePath();
+                String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                    ? gpuLease.gpu().devicePath()
+                    : discoveryService.getBestVaaPiDevicePath();
                 if (device != null) {
                     command.add("-hwaccel_device"); command.add(device);
                 }
@@ -931,7 +950,9 @@ public class VideoConversionService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
-                GpuDetectionService.GpuInfo amfGpu = discoveryService.getBestAmfGpu();
+                GpuDetectionService.GpuInfo amfGpu = gpuLease != null
+                    ? gpuLease.gpu()
+                    : discoveryService.getBestAmfGpu();
                 if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
                     command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
                 }

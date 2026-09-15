@@ -30,8 +30,19 @@ public class GpuDetectionService {
         int vramMb,
         boolean hasEncoder,
         boolean hasDecoder,
-        String driverVersion
-    ) {}
+        String driverVersion,
+        java.util.Set<String> supportedEncoders
+    ) {
+        public GpuInfo {
+            supportedEncoders = supportedEncoders == null
+                ? java.util.Set.of()
+                : java.util.Set.copyOf(supportedEncoders);
+        }
+
+        public boolean supportsEncoder(String encoder) {
+            return encoder != null && supportedEncoders.contains(encoder);
+        }
+    }
 
     public record BestGpuSelection(
         Optional<GpuInfo> nvidia,
@@ -41,6 +52,7 @@ public class GpuDetectionService {
     ) {}
 
     private BestGpuSelection bestSelection;
+    private List<GpuInfo> allUsableGpus = new ArrayList<>();
 
     @PostConstruct
     public void init() {
@@ -55,6 +67,13 @@ public class GpuDetectionService {
             detectGpus();
         }
         return bestSelection;
+    }
+
+    public synchronized List<GpuInfo> getUsableGpus() {
+        if (bestSelection == null) {
+            detectGpus();
+        }
+        return allUsableGpus;
     }
 
     public synchronized void refresh() {
@@ -74,9 +93,18 @@ public class GpuDetectionService {
         // 3. Detect Windows GPUs (D3D11VA, DXVA2, QSV, AMF, MediaFoundation)
         allGpus.addAll(detectWindowsGpu());
 
-        // 4. Select best
+        // 4. Retain full heterogeneous pool (multi-GPU: 2x A380, iGPU + dGPU, NVIDIA + Intel)
+        this.allUsableGpus = List.copyOf(allGpus);
+
+        // 5. Select best (kept for /gpu-info compat)
         bestSelection = selectBest(allGpus);
-        LOG.info("GPU detection completed. Best GPU: {}", bestSelection.bestOverall().map(GpuInfo::name).orElse("None"));
+        LOG.info("GPU detection completed. Pool size: {}, Best GPU: {}",
+            allUsableGpus.size(),
+            bestSelection.bestOverall().map(GpuInfo::name).orElse("None"));
+        for (GpuInfo g : allUsableGpus) {
+            LOG.info("GPU pool entry: {} vendor={} path={} idx={} encoders={}",
+                g.name(), g.vendor(), g.devicePath(), g.deviceIndex(), g.supportedEncoders());
+        }
     }
 
     private List<GpuInfo> detectNvidia() {
@@ -112,7 +140,8 @@ public class GpuDetectionService {
                                 vram,
                                 true,
                                 true,
-                                driver
+                                driver,
+                                java.util.Set.of("h264_nvenc", "hevc_nvenc", "av1_nvenc")
                             ));
                         }
                     }
@@ -163,7 +192,10 @@ public class GpuDetectionService {
                     0,
                     true,
                     true,
-                    "mesa-va-drivers"
+                    "mesa-va-drivers",
+                    gpuVendor == GpuVendor.INTEL
+                        ? java.util.Set.of("h264_qsv", "hevc_qsv", "av1_qsv")
+                        : java.util.Set.of("h264_vaapi", "hevc_vaapi", "av1_vaapi")
                 ));
             } catch (Exception e) {
                 LOG.warn("Failed to detect VAAPI device {}: {}", node.getName(), e.getMessage());
@@ -308,7 +340,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.UNKNOWN, GpuType.DISCRETE,
                 "D3D11VA (DirectX 11 Video Acceleration)",
-                "d3d11va", 0, 0, true, true, "ffmpeg-probed"
+                "d3d11va", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of()
             ));
         }
 
@@ -316,7 +349,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.UNKNOWN, GpuType.DISCRETE,
                 "DXVA2 (DirectX Video Acceleration 2)",
-                "dxva2", 0, 0, true, true, "ffmpeg-probed"
+                "dxva2", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of()
             ));
         }
 
@@ -324,7 +358,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.INTEL, GpuType.INTEGRATED,
                 "Intel QuickSync (QSV)",
-                "qsv", 0, 0, true, true, "ffmpeg-probed"
+                "qsv", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of("h264_qsv", "hevc_qsv", "av1_qsv")
             ));
         }
 
@@ -332,7 +367,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.AMD, GpuType.DISCRETE,
                 "AMD Advanced Media Framework (AMF)",
-                "amf", 0, 0, true, true, "ffmpeg-probed"
+                "amf", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of("h264_amf", "hevc_amf", "av1_amf")
             ));
         }
 
@@ -340,7 +376,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.UNKNOWN, GpuType.DISCRETE,
                 "MediaFoundation (h264_mf)",
-                "mf", 0, 0, true, true, "ffmpeg-probed"
+                "mf", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of("h264_mf")
             ));
         }
 
@@ -348,7 +385,8 @@ public class GpuDetectionService {
             gpus.add(new GpuInfo(
                 GpuVendor.UNKNOWN, GpuType.DISCRETE,
                 "MediaFoundation (hevc_mf)",
-                "mf", 0, 0, true, true, "ffmpeg-probed"
+                "mf", 0, 0, true, true, "ffmpeg-probed",
+                java.util.Set.of("hevc_mf")
             ));
         }
 

@@ -68,6 +68,7 @@ public class HlsService {
     @Inject VideoService videoService;
     @Inject SettingsService settingsService;
     @Inject FFmpegDiscoveryService ffmpegDiscoveryService;
+    @Inject GpuScheduler gpuScheduler;
     @Inject XtreamSessionService xtreamSessionService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
@@ -434,9 +435,16 @@ public class HlsService {
         command.add(ffmpegPath);
 
         // HW decoding (must be placed before -i)
+        // Multi-GPU: acquire one capability-filtered lease per variant encoder.
+        // AV1 jobs only match AV1-capable GPUs (e.g. Arc A380 over older iGPU);
+        // H.264 jobs balance across all capable GPUs by live load.
         String hwDecoder = null;
+        GpuScheduler.GpuLease gpuLease = null;
         if (useHardware) {
             hwDecoder = ffmpegDiscoveryService.getHardwareDecoder(session.video.videoCodec);
+            if (hwDecoder != null && !"libx264".equals(hwEncoder)) {
+                gpuLease = gpuScheduler.acquire(session.video.videoCodec, hwEncoder);
+            }
             if (hwDecoder != null) {
                 LOG.info("Using hardware-accelerated decoding: {} for codec: {}", hwDecoder, session.video.videoCodec);
                 if (hwDecoder.contains("cuvid")) {
@@ -444,7 +452,9 @@ public class HlsService {
                     if (hwEncoder.contains("nvenc")) {
                         command.add("-hwaccel_output_format"); command.add("cuda");
                     }
-                    String index = ffmpegDiscoveryService.getBestNvidiaDeviceIndex();
+                    String index = gpuLease != null && gpuLease.gpu().deviceIndex() >= 0
+                        ? String.valueOf(gpuLease.gpu().deviceIndex())
+                        : ffmpegDiscoveryService.getBestNvidiaDeviceIndex();
                     if (index != null) {
                         command.add("-hwaccel_device"); command.add(index);
                     }
@@ -455,7 +465,9 @@ public class HlsService {
                     if (hwEncoder.contains("qsv")) {
                         command.add("-hwaccel_output_format"); command.add("qsv");
                     }
-                    String device = ffmpegDiscoveryService.getBestQsvDevicePath();
+                    String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                        ? gpuLease.gpu().devicePath()
+                        : ffmpegDiscoveryService.getBestQsvDevicePath();
                     if (device != null) {
                         command.add("-qsv_device"); command.add(device);
                     }
@@ -464,7 +476,9 @@ public class HlsService {
                     if (hwEncoder.contains("vaapi")) {
                         command.add("-hwaccel_output_format"); command.add("vaapi");
                     }
-                    String device = ffmpegDiscoveryService.getBestVaaPiDevicePath();
+                    String device = gpuLease != null && gpuLease.gpu().devicePath() != null
+                        ? gpuLease.gpu().devicePath()
+                        : ffmpegDiscoveryService.getBestVaaPiDevicePath();
                     if (device != null) {
                         command.add("-hwaccel_device"); command.add(device);
                     }
@@ -473,7 +487,9 @@ public class HlsService {
                     if (hwEncoder.contains("amf")) {
                         command.add("-hwaccel_output_format"); command.add("amf");
                     }
-                    GpuDetectionService.GpuInfo amfGpu = ffmpegDiscoveryService.getBestAmfGpu();
+                    GpuDetectionService.GpuInfo amfGpu = gpuLease != null
+                        ? gpuLease.gpu()
+                        : ffmpegDiscoveryService.getBestAmfGpu();
                     if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
                         command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
                     }
@@ -638,7 +654,12 @@ public class HlsService {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(session.sessionDir.toFile());
         pb.redirectErrorStream(true);
-        return pb.start();
+        Process started = pb.start();
+        if (gpuLease != null) {
+            final GpuScheduler.GpuLease leaseToRelease = gpuLease;
+            started.onExit().thenRun(() -> gpuScheduler.release(leaseToRelease));
+        }
+        return started;
     }
 
     private void startEncoderMonitor(HlsSession session, VariantConfig variant, Long profileId, Process process, boolean useHardware) {
