@@ -1445,28 +1445,26 @@ public class TranscodingService {
                             LOG.info("FFmpeg exited with code {} for {}", code, videoFile.getName());
                         }
                     }
-                    // Completion semantics: a killed transcode (client disconnect,
-                    // EPIPE, or intentional supersede) is VALID CACHE — keep the
-                    // file and record the segment as complete-with-coverage. Only a
-                    // genuine non-zero failure deletes the file.
-                    boolean keepAsCompleteSegment = clientDisconnected || code == EPIPE || superseded;
+                    // Completion semantics: only a clean exit (code 0) records the
+                    // segment as complete. A killed transcode (client disconnect,
+                    // EPIPE, intentional supersede, zombie kill) keeps its valid
+                    // prefix on disk WITHOUT the completion marker — the resume
+                    // detector in runFFmpegWithPermit grows it on the next request.
+                    // Marking a killed writer's partial file complete freezes a
+                    // stub: the skip-restart guard serves it forever and range
+                    // requests past its end get 416 in a loop. Only a genuine
+                    // non-zero failure deletes the file.
+                    boolean killedWriter = clientDisconnected || code == EPIPE || superseded;
                     if (cacheFile != null) {
                         if (code == 0) {
                             segmentCacheService.completeSegment(cacheFile);
                             if (Files.exists(cacheFile)) {
                                 writeCompletedMarker(cacheFile);
                             }
-                        } else if (zombieKilled) {
+                        } else if (zombieKilled || killedWriter) {
                             trimPartialTrailingFragment(cacheFile);
-                            LOG.info("Zombie writer {} killed; segment {} kept for resume (no completion marker)",
-                                     processKey, cacheFile.getFileName());
-                        } else if (keepAsCompleteSegment) {
-                            trimPartialTrailingFragment(cacheFile);
-                            LOG.debug("Killed transcode kept as complete segment (valid cache)");
-                            segmentCacheService.completeSegment(cacheFile);
-                            if (Files.exists(cacheFile)) {
-                                writeCompletedMarker(cacheFile);
-                            }
+                            LOG.info("Killed writer {} (code {}, superseded={}); segment {} kept for resume (no completion marker)",
+                                     processKey, code, superseded, cacheFile.getFileName());
                         } else {
                             deleteCacheFile(cacheFile);
                         }
