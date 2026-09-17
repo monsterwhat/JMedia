@@ -3,6 +3,8 @@ package Models.Settings;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +15,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = false)
 @Entity
 public class Settings extends PanacheEntity {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Settings.class);
 
     private String libraryPath;
     private String videoLibraryPath;
@@ -420,7 +424,13 @@ public class Settings extends PanacheEntity {
     }
 
     public String getDefaultPlayer() {
-        return defaultPlayer != null ? defaultPlayer : "simple";
+        String player = defaultPlayer != null ? defaultPlayer : "simple";
+        if (!"simple".equals(player)) {
+            // Legacy alternate player engines have been removed; normalize any legacy stored value to simple.
+            LOGGER.warn("Unsupported defaultPlayer '{}' found in settings; normalizing to 'simple'", player);
+            return "simple";
+        }
+        return player;
     }
 
     public void setDefaultPlayer(String defaultPlayer) {

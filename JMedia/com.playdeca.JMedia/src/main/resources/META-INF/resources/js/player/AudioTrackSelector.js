@@ -26,7 +26,7 @@
             window.saveAudioTrackPreference = (trackId) => this.savePreference(trackId);
         }
 
-        init() {
+        async init() {
             const p = this.player;
             if (!p) return;
 
@@ -46,19 +46,15 @@
             this.trackList = this.menu ? this.menu.querySelector('#audioTrackList') : null;
             this.display = p.container ? p.container.querySelector('#currentAudioTrackDisplay') : null;
 
-            this.loadTracks();
             this.updateCurrentDisplay();
 
-            const videoId = p.videoId;
-            if (videoId) {
-                const savedTrack = localStorage.getItem('jmedia_audio_track_' + videoId);
-                if (savedTrack) {
-                    setTimeout(() => {
-                        if (p.switchAudioTrack) {
-                            p.switchAudioTrack(this._resolveTrackIndex(savedTrack));
-                        }
-                    }, 1000);
-                }
+            // Load the DB track list (source of truth for ffprobe index
+            // resolution), then apply the saved/default audio preference
+            // deterministically once the tracks are available — no blind
+            // setTimeout race that could resolve against stale/empty tracks.
+            await this.loadTracks();
+            if (p.applyAudioPreference) {
+                p.applyAudioPreference();
             }
         }
 
@@ -68,25 +64,49 @@
             const videoId = p.videoId;
             if (!videoId) return;
 
-            if (p.getAudioTracks) {
-                const playerTracks = p.getAudioTracks();
-                if (playerTracks && playerTracks.length > 0) {
-                    window.availableAudioTracks = playerTracks;
-                    this.populateMenu();
-                    return;
-                }
-            }
+            // Deduplicate concurrent loads (init + menu open can overlap).
+            if (this._tracksLoadingPromise) return this._tracksLoadingPromise;
 
+            this._tracksLoadingPromise = this._fetchDbTracks(videoId);
+            try {
+                await this._tracksLoadingPromise;
+            } finally {
+                this._tracksLoadingPromise = null;
+            }
+        }
+
+        async _fetchDbTracks(videoId) {
+            // DB tracks (with ffprobe trackIndex) are the source of truth for
+            // ?audioTrack= resolution. Element tracks are display-only fallback.
             try {
                 const response = await fetch('/api/video/' + videoId + '/audio-tracks');
                 if (response.ok) {
                     const data = await response.json();
                     const payload = data.data || data;
-                    window.availableAudioTracks = payload || [];
-                    this.populateMenu();
+                    if (payload && payload.length > 0) {
+                        window.availableAudioTracks = payload;
+                        this.populateMenu();
+                        return;
+                    }
+                    console.warn('[AudioSelector] No DB audio tracks for video', videoId);
+                } else {
+                    console.warn('[AudioSelector] Audio tracks request failed with status', response.status);
                 }
             } catch (error) {
                 console.error('Error loading audio tracks:', error);
+            }
+
+            // Fallback: element tracks for display only. They carry no ffprobe
+            // trackIndex (ids are array indices), so mark the list display-only
+            // and never use it for ?audioTrack= resolution.
+            const p = this.player;
+            if (p && p.getAudioTracks) {
+                const playerTracks = p.getAudioTracks();
+                if (playerTracks && playerTracks.length > 0) {
+                    window.availableAudioTracks = playerTracks;
+                    window.availableAudioTracks._displayOnly = true;
+                    this.populateMenu();
+                }
             }
         }
 
@@ -203,8 +223,13 @@
 
         // The DB id is not the ffprobe stream index: resolve the track object
         // and prefer its trackIndex, falling back to a raw int for legacy ids.
+        // Element-track fallbacks (id = array index, no trackIndex) are
+        // display-only and never used for index resolution.
         _resolveTrackIndex(trackId) {
-            const track = window.availableAudioTracks.find(t => t.id == trackId);
+            if (trackId === 'default' || trackId === null || trackId === undefined) return null;
+            const list = window.availableAudioTracks || [];
+            if (list._displayOnly) return null;
+            const track = list.find(t => t.id == trackId);
             if (track && track.trackIndex !== undefined && track.trackIndex !== null) {
                 return track.trackIndex;
             }
@@ -237,8 +262,9 @@
             // trackId is the DB id; the server's ?audioTrack= expects the ffprobe
             // stream index (trackIndex), so resolve the track object first.
             const trackIndex = this._resolveTrackIndex(trackId);
-
-            if (p && p.switchAudioTrack) {
+            if (trackIndex === null || trackIndex === undefined) {
+                console.warn('[AudioSelector] Cannot resolve track to ffprobe index (display-only fallback?):', trackId);
+            } else if (p && p.switchAudioTrack) {
                 p.switchAudioTrack(trackIndex);
             }
 

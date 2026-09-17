@@ -2411,37 +2411,6 @@ function setTheme(theme) {
   }
 }
 
-function savePlayerSetting(value) {
-  localStorage.setItem('video-player', value);
-  reloadPlayerIfOpen();
-}
-
-function saveDefaultPlayerSetting(value) {
-  localStorage.setItem('video-default-player', value);
-  const profileId = localStorage.getItem('activeProfileId');
-  fetch(`/api/settings/${profileId}/default-player`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ defaultPlayer: value })
-  }).catch(() => {});
-  reloadPlayerIfOpen();
-}
-
-function reloadPlayerIfOpen() {
-  const modal = document.getElementById('player-modal');
-  if (modal && modal.classList.contains('active')) {
-    const content = document.getElementById('player-modal-content');
-    const playerEl = content?.querySelector('[data-video-id]');
-    if (playerEl) {
-      const videoId = playerEl.getAttribute('data-video-id');
-      if (videoId) {
-        closePlayerModal();
-        setTimeout(() => openPlayerModal(parseInt(videoId)), 300);
-      }
-    }
-  }
-}
-
 function updateCrossfadeDisplay(value) {
   const display = document.getElementById('crossfade-value');
   if (display) display.textContent = `${value}s`;
@@ -2478,28 +2447,6 @@ function saveSettings() {
 }
 
 async function loadSettings() {
-  // Migrate old localStorage keys (swap-video-areas)
-  ['video-test-player', 'video-test-default-player'].forEach(oldKey => {
-      const val = localStorage.getItem(oldKey);
-      if (val !== null) {
-          const newKey = oldKey.replace('video-test-', 'video-');
-          if (localStorage.getItem(newKey) === null) {
-              localStorage.setItem(newKey, val);
-          }
-          localStorage.removeItem(oldKey);
-      }
-  });
-  const savedPlayer = localStorage.getItem('video-player');
-  if (savedPlayer) {
-    const select = document.getElementById('player-select');
-    if (select) select.value = savedPlayer;
-  }
-  const savedDefaultPlayer = localStorage.getItem('video-default-player');
-  if (savedDefaultPlayer) {
-    const defaultSel = document.getElementById('default-player-select');
-    if (defaultSel) defaultSel.value = savedDefaultPlayer;
-  }
-
   try {
     const profileId = localStorage.getItem('activeProfileId');
     const playbackData = await fetchJSON(`/api/settings/${profileId}`);
@@ -2510,10 +2457,6 @@ async function loadSettings() {
         if (toggle && playbackData[key] !== undefined) {
           toggle.classList.toggle('active', !!playbackData[key]);
         }
-      }
-      if (playbackData.defaultPlayer) {
-        const defaultSel = document.getElementById('default-player-select');
-        if (defaultSel) defaultSel.value = playbackData.defaultPlayer;
       }
     }
   } catch (e) {}
@@ -2668,8 +2611,6 @@ function closePlayerModal() {
 
   try {
     if (window.ConversionGate) window.ConversionGate.destroy();
-    if (typeof window.destroyOPlayerAdapter === 'function') window.destroyOPlayerAdapter();
-    if (typeof window.destroyVideoJsAdapter === 'function') window.destroyVideoJsAdapter();
     if (window.currentPlayerInstance) {
       if (window.currentPlayerInstance.progressReporter) {
         window.currentPlayerInstance.progressReporter.saveNow();
@@ -2686,7 +2627,7 @@ function closePlayerModal() {
 
   if (content) {
     // B12 belt-and-suspenders: force-abort any media fetch still alive inside
-    // the modal regardless of engine (simple/oplayer/videojs/fallback). Blanking
+    // the modal. Blanking
     // src + load() guarantees the browser drops the connection, so the server's
     // output.write throws and the ffmpeg remux/transcode is killed.
     content.querySelectorAll('video').forEach(function(v) {
@@ -3660,9 +3601,8 @@ function readFileAsBase64(file) {
 }
 
 function refreshPlayerSubtitleTracks() {
-  // OPlayer/Video.js: TestPlayerFeatures re-fetches tracks, rebuilds #subtitleList
-  // AND pushes them into OPlayer's native subtitle API. currentPlayerInstance is
-  // SimplePlayer-only, so it is a no-op for OPlayer.
+  // TestPlayerFeatures re-fetches tracks and rebuilds #subtitleList.
+  // currentPlayerInstance is SimplePlayer-only, so it is a no-op for it.
   if (window.testPlayerFeatures && typeof window.testPlayerFeatures.loadSubtitles === 'function') {
     window.testPlayerFeatures.loadSubtitles(true);
     return;

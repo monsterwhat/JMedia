@@ -1237,13 +1237,13 @@ public class SettingsApi {
             Object playerVal = data.get("defaultPlayer");
             if (playerVal == null || !(playerVal instanceof String)) {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("'defaultPlayer' must be a string: 'simple', 'videojs', or 'oplayer'"))
+                    .entity(ApiResponse.error("'defaultPlayer' must be a string: 'simple'"))
                     .build();
             }
             String player = (String) playerVal;
-            if (!"simple".equals(player) && !"videojs".equals(player) && !"oplayer".equals(player)) {
+            if (!"simple".equals(player)) {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("Invalid player. Must be 'simple', 'videojs', or 'oplayer'"))
+                    .entity(ApiResponse.error("Invalid player. Only 'simple' is supported; legacy players are no longer available"))
                     .build();
             }
             Settings settings = settingsController.getOrCreateSettings();

@@ -1,7 +1,6 @@
 <link rel="stylesheet" href="/css/player.css"/>
 <link rel="stylesheet" href="/css/subtitle-styling.css"/>
 
-{#if defaultPlayer == 'simple'}
 {#include subtitleSettingsComponent}{/include}
 <div class="player-container paused" id="customPlayer"
       data-video-id="{item.id}"
@@ -57,6 +56,7 @@
 <script src="/js/player/SkipController.js"></script>
 <script src="/js/player/ProgressReporter.js"></script>
 <script src="/js/player/NavigationManager.js?v=2"></script>
+<script src="/lib/hls.min.js"></script>
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {
@@ -76,204 +76,9 @@
                 setTimeout(tryInit, 50);
             }
         };
-        tryInit();
+tryInit();
     })();
 </script>
-{#else}
-{#include subtitleSettingsComponent}{/include}
-<div class="player-container" id="customPlayer"
-      data-video-id="{item.id}"
-      data-title="{item.title ?: item.seriesTitle}"
-      data-path="{item.path.replace('\\', '/')}"
-      data-duration="{item.duration}"
-      data-type="{item.type ?: 'movie'}"
-      data-series-title="{item.seriesTitle ?: ''}"
-      data-logo-path="/api/video/logo/{item.id}"
-      data-season-number="{item.seasonNumber ?: 1}"
-      data-episode-number="{item.episodeNumber ?: 0}"
-      data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
-      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
-      data-start-time="{resumeTime}"
-      data-next-id="{nextEpisodeId}"
-      data-prev-id="{prevEpisodeId}"
-      data-needs-transcode="{needsTranscoding}"
-      data-needs-conversion="{needsConversion}"
-      data-conversion-job-id="{conversionJobId ?: ''}"
-      data-conversion-status="{conversionStatus ?: ''}"
-      data-video-codec="{item.videoCodec ?: ''}"
-      data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
-      data-intro-start="{item.introStart ?: 0}"
-      data-intro-end="{item.introEnd ?: 0}"
-      data-outro-start="{item.outroStart ?: 0}"
-      data-outro-end="{item.outroEnd ?: 0}"
-      data-recap-start="{item.recapStart ?: 0}"
-      data-recap-end="{item.recapEnd ?: 0}"
-      data-preferred-audio-language="{item.preferredAudioLanguage ?: ''}"
-      data-default-audio-track-id="{item.defaultAudioTrackId ?: ''}"
-      data-auto-skip-intro="{autoSkipIntro}"
-      data-auto-skip-recap="{autoSkipRecap}"
-      data-auto-skip-outro="{autoSkipOutro}">
-
-    <div class="video-wrapper">
-        {#if defaultPlayer == 'oplayer'}
-        <div id="oplayerContainer" class="oplayer-wrapper"></div>
-        {#else}
-        <video id="videoElement" class="video-js vjs-default-skin" crossorigin="anonymous" playsinline autoplay></video>
-{/if}
-        <canvas id="assCanvas" class="ass-canvas"></canvas>
-    </div>
-
-    <!-- Back button + logo (original player keeps the back button) -->
-    <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;display:flex;align-items:center;gap:12px;">
-        <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
-        <img class="series-logo" src="/api/video/logo/{item.id}" alt=""
-             onload="this.style.display='block';this.nextElementSibling.style.display='none';"
-             onerror="this.style.display='none';"
-             style="display:none;max-height:40px;width:auto;pointer-events:none;">
-        <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">{item.title ?: item.seriesTitle}</span>
-    </div>
-
-    <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
-
-    <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
-        <i class="pi pi-cog"></i>
-    </button>
-
-    <!-- Settings/Subtitle menu -->
-    <div class="subtitle-menu settings-menu" id="subtitleMenu">
-        <div class="settings-page active" data-page="main">
-            <div class="menu-header">Settings</div>
-            <div class="settings-item" data-page="subtitles">
-                <span>Subtitles</span>
-                <i class="pi pi-chevron-right"></i>
-            </div>
-            <div class="settings-item" data-page="offset">
-                <span>Timing Offset</span>
-                <i class="pi pi-chevron-right"></i>
-            </div>
-            <div class="settings-item" data-page="style">
-                <span>Style</span>
-                <i class="pi pi-chevron-right"></i>
-            </div>
-            <div class="settings-item" data-page="quality">
-                <span>Video Quality</span>
-                <i class="pi pi-chevron-right"></i>
-            </div>
-            <div class="settings-item" data-page="player">
-                <span>Video Player</span>
-                <i class="pi pi-chevron-right"></i>
-            </div>
-        </div>
-        <div class="settings-page" data-page="subtitles">
-            <div class="settings-back"><i class="pi pi-chevron-left"></i> Subtitles</div>
-            <div class="subtitle-list" id="subtitleList">
-                <div class="subtitle-option active" id="sub-off" data-id="off">Off</div>
-            </div>
-        </div>
-        <div class="settings-page" data-page="offset">
-            <div class="settings-back"><i class="pi pi-chevron-left"></i> Timing Offset</div>
-            <div class="subtitle-correction-row">
-                <button class="correction-btn" id="subMinusBtn">-0.2s</button>
-                <div class="correction-val" id="subCorrectionVal" title="Click to edit manually">0.0s</div>
-                <button class="correction-btn" id="subPlusBtn">+0.2s</button>
-                <button class="correction-btn correction-reset" id="subResetBtn" title="Reset to 0">↺</button>
-            </div>
-        </div>
-        <div class="settings-page" data-page="style" id="subtitleStylePage">
-            <div class="settings-back"><i class="pi pi-chevron-left"></i> Style</div>
-            <div class="settings-content" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
-                    <span>Font Size: <span id="subFontSizeVal">100</span>%</span>
-                    <input type="range" id="subFontSize" min="50" max="200" value="100" step="5">
-                </label>
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
-                    <span>Color</span>
-                    <input type="color" id="subFontColor" value="#ffffff">
-                </label>
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
-                    <span>Position: <span id="subPositionVal">90</span>% from bottom</span>
-                    <input type="range" id="subPosition" min="0" max="100" value="90">
-                </label>
-            </div>
-        </div>
-        <div class="settings-page" data-page="quality">
-            <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Quality</div>
-            <div class="quality-options" id="qualityOptions">
-                <button class="quality-btn" data-quality="720">720p</button>
-                <button class="quality-btn" data-quality="1080">1080p</button>
-                <button class="quality-btn" data-quality="2160">4K</button>
-                <button class="quality-btn" data-quality="480">480p</button>
-                <button class="quality-btn" data-quality="0">Source</button>
-            </div>
-        </div>
-        <div class="settings-page" data-page="player">
-            <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Player</div>
-            <div class="quality-options" id="playerOptions">
-                <button class="quality-btn player-option" data-player="simple"{#if defaultPlayer == 'simple'} style="border-color:#48c774;color:#48c774;"{/if}>JMedia Player</button>
-                <button class="quality-btn player-option" data-player="videojs"{#if defaultPlayer == 'videojs'} style="border-color:#48c774;color:#48c774;"{/if}>Video.js</button>
-                <button class="quality-btn player-option" data-player="oplayer"{#if defaultPlayer == 'oplayer'} style="border-color:#48c774;color:#48c774;"{/if}>OPlayer</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-{#if defaultPlayer == 'videojs'}
-<link href="/lib/videojs/video-js.css" rel="stylesheet">
-<script src="/js/player/ConversionGate.js"></script>
-<script src="/js/player/playerFallback.js"></script>
-<script src="/js/video/VideoWebSocketManager.js"></script>
-<script src="/lib/videojs/video.min.js"></script>
-<script src="/js/player/Utils.js?v=3"></script>
-<script src="/js/player/videojs-adapter.js?v=8"></script>
-<script src="/js/test-player-common.js?v=2"></script>
-<script>
-    (function() {
-        if (window.ConversionGate) window.ConversionGate.init();
-        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
-        console.log("[Playback] Initializing Video.js...");
-        var videoId = {item.id};
-        var tryInit = function() {
-            if (window.ConversionGate) window.ConversionGate.init();
-            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
-            if (window.videojs && window.initVideoJsAdapter) {
-                initVideoJsAdapter(videoId);
-            } else {
-                setTimeout(tryInit, 50);
-            }
-        };
-        tryInit();
-    })();
-</script>
-{#else}
-<script src="/js/player/ConversionGate.js"></script>
-<script src="/js/player/playerFallback.js"></script>
-<script src="/lib/oplayer/core.min.js"></script>
-<script src="/lib/oplayer/ui.min.js"></script>
-<script src="/lib/hls.min.js"></script>
-<script src="/lib/oplayer/hls.min.js"></script>
-<script src="/js/player/Utils.js?v=3"></script>
-<script src="/js/player/oplayer-adapter.js?v=8"></script>
-<script src="/js/test-player-common.js?v=2"></script>
-<script>
-    (function() {
-        if (window.ConversionGate) window.ConversionGate.init();
-        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
-        console.log("[Playback] Initializing OPlayer...");
-        var videoId = {item.id};
-        var tryInit = function() {
-            if (window.ConversionGate) window.ConversionGate.init();
-            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
-            if (window.OPlayer && window.initOPlayerAdapter) {
-                initOPlayerAdapter(videoId);
-            } else {
-                setTimeout(tryInit, 50);
-            }
-        };
-        tryInit();
-    })();
-</script>
-{/if}
-{/if}
 
 {#if hasCarousel}
 <div class="underplayer-carousel-section">

@@ -88,41 +88,88 @@
         applyAudioPreference() {
             const p = this.player;
             const videoId = p.videoId;
-            let trackToApply = null;
-            let isDefault = false;
+            if (!videoId) return;
 
             const savedTrack = localStorage.getItem('jmedia_audio_track_' + videoId);
-            if (savedTrack) {
-                if (savedTrack === 'default') {
-                    isDefault = true;
-                    trackToApply = -1;
-                } else {
-                    trackToApply = parseInt(savedTrack);
-                }
+            let trackId = savedTrack;
+            let isDefault = false;
+
+            if (savedTrack === 'default') {
+                isDefault = true;
                 console.log('[SimplePlayer] Found saved track in localStorage:', savedTrack);
+            } else if (!trackId && p.defaultAudioTrackId) {
+                trackId = p.defaultAudioTrackId;
+                console.log('[SimplePlayer] Using defaultAudioTrackId:', trackId);
             }
 
-            if (trackToApply === null && p.defaultAudioTrackId) {
-                trackToApply = parseInt(p.defaultAudioTrackId);
-                console.log('[SimplePlayer] Using defaultAudioTrackId:', trackToApply);
+            if (!trackId) return;
+
+            // 'default' needs no track-list resolution — apply immediately.
+            if (isDefault) {
+                if (p.setAudioTrack) p.setAudioTrack('default');
+                p.currentAudioTrackIndex = null;
+                console.log('[SimplePlayer] Applied audio preference: default');
+                this._syncSelectorUI('default');
+                return;
             }
 
-            if (isDefault || (trackToApply !== null && !isNaN(trackToApply))) {
-                if (isDefault && p.setAudioTrack) {
-                    p.setAudioTrack('default');
-                } else {
-                    if (window.player && window.player.switchAudioTrack) {
-                        window.player.switchAudioTrack(trackToApply);
+            // The DB track list (window.availableAudioTracks) is the source of
+            // truth for ffprobe index resolution. If it hasn't loaded yet,
+            // defer and retry after loadTracks completes instead of misusing
+            // the raw DB id as a stream index.
+            if (!window.availableAudioTracks || window.availableAudioTracks.length === 0) {
+                const selector = window.__audioTrackSelectorInstance;
+                const stillLoading = selector && selector._tracksLoadingPromise;
+                if (stillLoading) {
+                    this._audioPrefRetries = (this._audioPrefRetries || 0) + 1;
+                    if (this._audioPrefRetries <= 50) {
+                        setTimeout(() => this.applyAudioPreference(), 100);
+                        return;
                     }
-                    if (p.video && p.video.audioTracks && p.video.audioTracks.length > 0) {
-                        p.video.audioTracks.forEach((track, idx) => {
-                            track.enabled = (idx === trackToApply);
-                        });
-                    }
+                    console.warn('[SimplePlayer] Audio tracks never loaded; skipping audio preference', trackId);
+                    return;
                 }
-                p.currentAudioTrackIndex = isDefault ? null : trackToApply;
-                console.log('[SimplePlayer] Applied audio preference:', isDefault ? 'default' : trackToApply);
+                console.warn('[SimplePlayer] No audio tracks available; skipping audio preference', trackId);
+                return;
             }
+            this._audioPrefRetries = 0;
+
+            const trackToApply = this._resolveTrackIndex(trackId);
+            if (trackToApply !== null && !isNaN(trackToApply)) {
+                if (p.switchAudioTrack) {
+                    p.switchAudioTrack(trackToApply);
+                } else {
+                    console.warn('[SimplePlayer] switchAudioTrack unavailable; cannot apply audio track', trackToApply);
+                }
+                p.currentAudioTrackIndex = trackToApply;
+                console.log('[SimplePlayer] Applied audio preference:', trackToApply);
+                this._syncSelectorUI(trackId);
+            } else {
+                console.warn('[SimplePlayer] Could not resolve audio track to ffprobe index:', trackId);
+            }
+        }
+
+        _syncSelectorUI(trackId) {
+            const selector = window.__audioTrackSelectorInstance;
+            if (!selector) return;
+            selector.currentTrackId = trackId;
+            selector.updateSelection();
+            selector.updateCurrentDisplay();
+        }
+
+        // Mirrors AudioTrackSelector._resolveTrackIndex: the DB id is not the
+        // ffprobe stream index, so resolve the track object and prefer its
+        // trackIndex, falling back to a raw int for legacy ids.
+        _resolveTrackIndex(trackId) {
+            if (trackId === 'default' || trackId === null || trackId === undefined) return null;
+            const list = window.availableAudioTracks || [];
+            if (list._displayOnly) return null;
+            const track = list.find(t => t.id == trackId);
+            if (track && track.trackIndex !== undefined && track.trackIndex !== null) {
+                return track.trackIndex;
+            }
+            const parsed = parseInt(trackId);
+            return isNaN(parsed) ? (track ? (track.id ?? 0) : 0) : parsed;
         }
 
         async refreshMarkers(retries = 3) {

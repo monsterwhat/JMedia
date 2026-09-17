@@ -47,16 +47,6 @@
 
             if (!this.videoId || !this.adapter || !this.video) {
                 console.warn('[TestPlayerFeatures] Missing videoId, adapter, or video element');
-                /* Signal the cross-engine fallback dispatcher (playerFallback.js)
-                 * so an engine that failed to produce a usable <video> element
-                 * hands off to the next engine in the chain. */
-                if (typeof window.requestPlayerFallback === 'function') {
-                    window.requestPlayerFallback(this.videoId);
-                } else {
-                    window.dispatchEvent(new CustomEvent('oplayer:fallback-requested', {
-                        detail: { videoId: this.videoId }
-                    }));
-                }
                 return;
             }
 
@@ -480,7 +470,6 @@
                 var json = await res.json();
                 var tracks = json.tracks || json.data || [];
 
-                // Store for OPlayer API integration
                 this._subtitleTracks = tracks;
 
                 var list = document.getElementById('subtitleList');
@@ -510,62 +499,12 @@
 
                 // Restore last selection
                 var lastTrack = localStorage.getItem(LS_PREFIX + 'subtitle_track');
-                var isOPlayer = !!(window.__oplayerPlayer && window.__oplayerPlayer.context && window.__oplayerPlayer.context.ui);
                 if (lastTrack && lastTrack !== 'off') {
                     var match = list.querySelector('.subtitle-option[data-id="' + lastTrack + '"]');
                     if (match) {
-                        if (!isOPlayer) {
-                            /* <track>-based players re-apply through the option click;
-                             * OPlayer is re-applied by the native push below, and
-                             * clicking would run _turnOffSubtitles() (clear + hide)
-                             * plus a second changeSource for no reason. Still mark
-                             * the option so the custom menu highlight matches. */
-                            match.click();
-                        } else {
-                            list.querySelectorAll('.subtitle-option').forEach(function (el) { el.classList.remove('active'); });
-                            match.classList.add('active');
-                        }
-                    }
-                }
-
-                /* Push tracks to OPlayer native subtitle API if active */
-                if (isOPlayer) {
-                    /* Derive the default from the adapter's live selection (which
-                     * mirrors the engine even for native-panel picks), falling back
-                     * to the persisted id. An all-false list makes the engine drop
-                     * currentSubtitle and silently skip the re-fetch — the OPlayer
-                     * timing selector "doing nothing". */
-                    var selId = lastTrack;
-                    if (self.adapter && typeof self.adapter.getSelectedSubtitleId === 'function') {
-                        var liveId = self.adapter.getSelectedSubtitleId();
-                        if (liveId) selId = liveId;
-                    }
-                    var oplayerSubs = tracks.map(function (t) {
-                        return {
-                            name: t.displayName || t.filename || ('Track ' + t.id),
-                            src: self._subtitleUrl(t.id),
-                            default: String(t.id) === String(selId)
-                        };
-                    });
-                    try {
-                        var ui = window.__oplayerPlayer.context.ui;
-                        ui.subtitle.changeSource(oplayerSubs);
-                        /* changeSource only re-fetches when no track exists yet or on
-                         * the next loadedmetadata — force it now so a correction
-                         * change (no media reload) applies the new URL immediately. */
-                        if (ui.subtitle.$track) ui.subtitle.fetchSubtitle();
-                    } catch (e) {
-                        console.warn('[TestPlayerFeatures] Failed to push subtitles to OPlayer:', e);
-                    }
-                    /* Keep the adapter mirror authoritative so seek-time restores
-                     * re-apply the same track. */
-                    if (selId && selId !== 'off' && self.adapter && typeof self.adapter.setSubtitleSelection === 'function') {
-                        for (var si = 0; si < tracks.length; si++) {
-                            if (String(tracks[si].id) === String(selId)) {
-                                self.adapter.setSubtitleSelection(si, tracks);
-                                break;
-                            }
-                        }
+                        /* Re-apply through the option click so the custom menu
+                         * highlight matches the restored track. */
+                        match.click();
                     }
                 }
             } catch (err) {
@@ -579,55 +518,7 @@
 
             if (track.id === 'off') return;
 
-            /* Use OPlayer native subtitle API when OPlayer is active */
-            if (window.__oplayerPlayer && window.__oplayerPlayer.context && window.__oplayerPlayer.context.ui) {
-                var oplayerSubs = (this._subtitleTracks || []).map(function (t) {
-                    return {
-                        name: t.displayName || t.filename || ('Track ' + t.id),
-                        src: self._subtitleUrl(t.id),
-                        default: t.id === track.id
-                    };
-                });
-                try {
-                    var ui = window.__oplayerPlayer.context.ui;
-                    ui.subtitle.changeSource(oplayerSubs);
-                    /* _turnOffSubtitles() above left the engine's track in place and
-                     * changeSource won't re-fetch with a track already loaded — force
-                     * it or the selection change never renders. */
-                    if (ui.subtitle.$track) ui.subtitle.fetchSubtitle();
-                } catch (e) {
-                    console.warn('[TestPlayerFeatures] OPlayer subtitle changeSource failed:', e);
-                }
-                localStorage.setItem(LS_PREFIX + 'subtitle_track', track.id);
-                /* Tell the adapter which track the local UI selected so it can
-                 * re-apply it (with the fresh ?start=) after a server-side seek.
-                 * Without this the adapter's _subtitleIdx stays -1 and the
-                 * seek-time restore in oplayer-adapter.js never fires. */
-                if (this.adapter && typeof this.adapter.setSubtitleSelection === 'function') {
-                    var selIdx = -1;
-                    for (var k = 0; k < this._subtitleTracks.length; k++) {
-                        if (this._subtitleTracks[k].id === track.id) { selIdx = k; break; }
-                    }
-                    if (selIdx >= 0) this.adapter.setSubtitleSelection(selIdx, this._subtitleTracks);
-                }
-                return;
-            }
-
-            /* video.js route: add through the adapter so the track lands in video.js's
-             * emulated text track list. Plain <track> elements appended to the element
-             * are ignored because the player runs with nativeTextTracks:false
-             * (emulation mode). */
-            if (this.adapter && typeof this.adapter.addSubtitleTrack === 'function') {
-                try {
-                    this.adapter.addSubtitleTrack(track, this._subtitleUrl(track.id));
-                    localStorage.setItem(LS_PREFIX + 'subtitle_track', track.id);
-                    return;
-                } catch (e) {
-                    console.warn('[TestPlayerFeatures] addSubtitleTrack failed, falling back to native <track>:', e);
-                }
-            }
-
-            /* Fallback: native <track> element approach for simple player */
+            /* Native <track> element approach for the simple player */
             var trackEl = document.createElement('track');
             trackEl.kind = 'subtitles';
             trackEl.src = self._subtitleUrl(track.id);
@@ -682,22 +573,7 @@
         }
 
         _turnOffSubtitles() {
-            /* Clear OPlayer native subtitles if active */
-            if (window.__oplayerPlayer && window.__oplayerPlayer.context && window.__oplayerPlayer.context.ui) {
-                try {
-                    var sub = window.__oplayerPlayer.context.ui.subtitle;
-                    /* hide() drops the cuechange listener and clears the subtitle DOM
-                     * — changeSource([]) alone leaves the loaded track's cues
-                     * rendering ("off but still shown"). Guard $track: the engine's
-                     * hide() has no null check and would throw when destroyed. */
-                    if (sub.$track) sub.hide();
-                    sub.changeSource([]);
-                } catch (e) {
-                    console.warn('[TestPlayerFeatures] Failed to clear OPlayer subtitles:', e);
-                }
-            }
-
-            /* Clear player-specific remote tracks (e.g. video.js emulated list) */
+            /* Clear player-specific remote tracks */
             if (this.adapter && typeof this.adapter.clearSubtitles === 'function') {
                 try {
                     this.adapter.clearSubtitles();
@@ -1170,7 +1046,7 @@
                                     // started; swapping while paused aborts the stream fetch
                                     // (media-resource-aborted DOMExceptions) and buffers the
                                     // whole file in memory for nothing (autoplay-blocked case).
-                                    // Adapters that manage their own stream lifecycle (OPlayer)
+                                    // Adapters that manage their own stream lifecycle
                                     // opt out via disableBlobSwap to avoid racing the live fetch.
                                     if (!self.adapter.disableBlobSwap && self.video.readyState <= 1 && !self.video.paused) {
                                         var mime = response.headers.get('Content-Type') || 'video/mp4';

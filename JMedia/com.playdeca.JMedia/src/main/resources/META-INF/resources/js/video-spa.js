@@ -364,10 +364,6 @@ class VideoSPA {
 
     async destroyCurrentPlayer() {
         if (window.ConversionGate) window.ConversionGate.destroy();
-        // Clean up OPlayer adapter (WebSocket + OPlayer instance) if active
-        if (typeof window.destroyOPlayerAdapter === 'function') {
-            window.destroyOPlayerAdapter();
-        }
         if (window.currentPlayerInstance && typeof window.currentPlayerInstance.destroy === 'function') {
             await window.currentPlayerInstance.destroy();
         }

@@ -15,6 +15,39 @@
         }
 
         /**
+         * Build a `/api/video/stream/{videoId}.mp4` URL with the full query set:
+         * optional server-side ?start= (transcode resume/seek), the currently
+         * selected audio track (preserved across every reload path), preferred
+         * quality, and a fresh trace= cache-buster. Params are collected into an
+         * array so the `?`/`&` separator is always correct regardless of which
+         * params are present (fixes the direct-file branch that previously
+         * produced `...mp4&trace=` when quality was unset).
+         *
+         * @param {number|null} start  absolute position for a server-side seek,
+         *                             or null/0 when the URL must not carry ?start=
+         *                             (direct files use client-side seek instead)
+         * @param {Object} [opts]
+         * @param {boolean} [opts.includeStart]  set false to force-omit ?start=
+         * @param {string[]} [opts.extraParams]   additional query params to append
+         * @returns {string} full stream URL
+         */
+        buildStreamUrl(start, opts) {
+            const p = this.player;
+            const includeStart = !opts || opts.includeStart !== false;
+            const params = [];
+            if (includeStart && start > 0) params.push(`start=${start}`);
+            if (p.currentAudioTrackIndex !== null && p.currentAudioTrackIndex >= 0) {
+                params.push(`audioTrack=${p.currentAudioTrackIndex}`);
+            }
+            if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+            if (opts && Array.isArray(opts.extraParams)) {
+                opts.extraParams.forEach(ep => params.push(ep));
+            }
+            params.push(`trace=${this._traceId()}`);
+            return `/api/video/stream/${p.videoId}.mp4${params.length ? '?' + params.join('&') : ''}`;
+        }
+
+        /**
          * Check if browser supports WebCodecs API (VideoDecoder + VideoEncoder)
          * Required for hevc.js HEVC to H.264 transcoding
          */
@@ -97,7 +130,7 @@
             console.log('[SimplePlayer] Initializing hevc.js stream for HEVC playback');
 
             // Get the direct MP4 URL
-            const videoUrl = `/api/video/stream/${p.videoId}.mp4?${savedTime > 0 ? `start=${savedTime}&` : ''}trace=${this._traceId()}`;
+            const videoUrl = this.buildStreamUrl(savedTime);
             
             p.streamStartOffset = savedTime || 0;
             p._showLoading('Loading HEVC video (client-side transcoding)...');
@@ -189,7 +222,6 @@
 
         initDirectStream(savedTime) {
             const p = this.player;
-            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             /* Clear any previously painted frame (e.g. the previous video's last
              * frame) so a frozen frame from an old movie cannot linger while the
              * new source loads. No-op on initial load (fresh element, no src). */
@@ -199,9 +231,9 @@
             } catch (e) {}
             if (p.needsTranscode && savedTime > 0) {
                 console.log('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${savedTime}&trace=${_traceId()}`;
+                p.video.src = this.buildStreamUrl(savedTime);
             } else {
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?trace=${_traceId()}`;
+                p.video.src = this.buildStreamUrl(null);
             }
 
             p._showLoading('Loading video...');
@@ -228,8 +260,7 @@
                             const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
                             p.streamStartOffset = currentTime;
                             p.lastKnownGoodPosition = 0;
-                            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
+                            p.video.src = this.buildStreamUrl(currentTime);
                             p.video.load();
                             p.video.play().catch(() => {});
                         }, 1000);
@@ -349,13 +380,8 @@
             const absTime = Math.max(0, p.streamStartOffset > 0 ? p.lastKnownGoodPosition + p.streamStartOffset : p.lastKnownGoodPosition);
             p.streamStartOffset = absTime;
 
-            const params = [];
-            if (absTime > 0) params.push(`start=${absTime}`);
-            if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
-            params.push(`trace=${this._traceId()}`);
-            const queryString = params.length ? '?' + params.join('&') : '';
             const setupFallback = () => {
-                p.video.src = `/api/video/stream/${p.videoId}.mp4${queryString}`;
+                p.video.src = this.buildStreamUrl(absTime);
                 p.video.load();
                 p.video.addEventListener('loadedmetadata', () => {
                     p._fallbackInProgress = false;
@@ -440,7 +466,6 @@
 
             const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
 
-            const audioParam = (trackIndex !== null && trackIndex >= 0) ? `&audioTrack=${trackIndex}` : '';
             // Transcode: reload with a server-side seek (?start=) so the new audio track's
             // fresh transcode starts AT the current position. The old approach loaded without
             // ?start= and attempted a client-side seek after metadata - but the new audio
@@ -460,17 +485,12 @@
             p.video.src = "";
             p.video.load();
 
-            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
             if (p.needsTranscode) {
                 p.streamStartOffset = Math.max(0, savedTime);
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, savedTime)}${audioParam}${qualityParam}&trace=${this._traceId()}`;
+                p.video.src = this.buildStreamUrl(Math.max(0, savedTime));
             } else {
                 p.streamStartOffset = 0;
-                const params = [];
-                if (trackIndex !== null && trackIndex >= 0) params.push(`audioTrack=${trackIndex}`);
-                if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
-                params.push(`trace=${this._traceId()}`);
-                p.video.src = `/api/video/stream/${p.videoId}.mp4${params.length ? '?' + params.join('&') : ''}`;
+                p.video.src = this.buildStreamUrl(null);
                 p.video.addEventListener('loadedmetadata', () => {
                     if (!p._destroyed && savedTime > 0) {
                         const target = Math.min(savedTime, (isFinite(p.video.duration) ? p.video.duration : savedTime) || savedTime);
@@ -660,9 +680,7 @@
             // F7: Reset stall-detection state (mirror switchAudioTrack)
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
-            const audioParam = p.currentAudioTrackIndex !== null ? `&audioTrack=${p.currentAudioTrackIndex}` : '';
-            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, time)}${audioParam}${qualityParam}&trace=${this._traceId()}`;
+            p.video.src = this.buildStreamUrl(Math.max(0, time));
             p.video.load();
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so

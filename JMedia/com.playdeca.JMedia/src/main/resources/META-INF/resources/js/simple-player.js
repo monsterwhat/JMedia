@@ -138,16 +138,14 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             if (this.needsTranscode) {
-                const qualityParam = this._preferredQuality > 0 ? `&quality=${this._preferredQuality}` : '';
                 const setupStream = () => {
                     if (savedTime > 0) {
                         this.streamStartOffset = savedTime;
-                        this.video.src = `/api/video/stream/${this.videoId}.mp4?start=${savedTime}${qualityParam}&trace=${_traceId()}`;
+                        this.video.src = this.streamMgr.buildStreamUrl(savedTime);
                     } else {
                         this.streamStartOffset = 0;
-                        this.video.src = `/api/video/stream/${this.videoId}.mp4?trace=${_traceId()}`;
+                        this.video.src = this.streamMgr.buildStreamUrl(null);
                     }
                     this.subtitleController.loadSubtitles();
                     this.video.play().then(() => {
@@ -179,11 +177,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                    Server-side ?start= can fail for direct streams, causing the progress bar
                    to show the resume time while the video is actually at 0:00. */
                 this.streamStartOffset = 0;
-                const params = [];
-                if (this._canNativeHevc) params.push('nativeHevc=1');
-                if (this._canNativeAv1) params.push('nativeAv1=1');
-                params.push(`trace=${_traceId()}`);
-                this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
+                const extraParams = [];
+                if (this._canNativeHevc) extraParams.push('nativeHevc=1');
+                if (this._canNativeAv1) extraParams.push('nativeAv1=1');
+                this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams });
                 this.subtitleController.loadSubtitles();
                 // F2a: Attach error handler for plain direct stream (was only on transcode path)
                 var self = this;
@@ -424,7 +421,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                                 const MAX_FORWARD_YANK = 5;
                                 const yankIsForward = (target - this.video.currentTime) > MAX_FORWARD_YANK;
                                 if (drift > 3 && (!yankIsForward || locked) && (!locked || converged)) {
-                                    // Bound to loaded duration (OPlayer parity): seeking a
+                                    // Bound to loaded duration: seeking a
                                     // data-less element past its end fires spurious 'ended'.
                                     this.video.currentTime = (isFinite(dur) && dur > 0 && target > dur - 1) ? dur - 1 : target;
                                 }

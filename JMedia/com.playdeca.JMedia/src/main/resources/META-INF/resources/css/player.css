@@ -285,39 +285,6 @@ body[data-video-active="true"] .music-player {
     pointer-events: none !important;
 }
 
-/* OPlayer native UI needs pointer events inside the wrapper */
-.oplayer-wrapper {
-    width: 100% !important;
-    height: 100% !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    pointer-events: auto !important;
-}
-
-/* OPlayer root element */
-.oplayer-wrapper .o-player {
-    pointer-events: auto !important;
-}
-
-/* VideoJS native controls need pointer events inside the wrapper */
-#videoElement.video-js {
-    pointer-events: auto !important;
-}
-
-/* VideoJS container — fill the .video-wrapper */
-#videoElement.video-js,
-#videoElement.video-js .vjs-tech {
-    width: 100% !important;
-    height: 100% !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-}
-#videoElement.video-js {
-    background: #000 !important;
-}
-
 .ass-canvas {
     position: absolute !important;
     top: 0 !important;
@@ -1906,8 +1873,6 @@ body[data-video-active="true"] .music-player {
         aspect-ratio: 2 / 3;
     }
 }
-
-/* OPlayer native header hidden via config (header: false) */
 
 /* ===== Audio Track Selector =====
    Styles were originally inlined in templates/audioTrackSelector.html, but that

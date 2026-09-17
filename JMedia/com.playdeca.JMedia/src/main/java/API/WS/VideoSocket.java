@@ -81,7 +81,7 @@ public class VideoSocket {
             // Bind this session to the profile so broadcasts route only to same-profile
             // clients. The previous profile-blind addVideoSession(session) caused cross-
             // profile state bleed: a state broadcast for profile 2 reached profile 1's
-            // tab, whose OPlayerAdapter then swapped sources ("Remote source swap -> 3753")
+            // tab, whose secondary player engine then swapped sources ("Remote source swap -> 3753")
             // because currentVideoId didn't match its own videoId.
             webSocketManager.addVideoSession(session, profileId);
             sendCurrentState(session, profileId);

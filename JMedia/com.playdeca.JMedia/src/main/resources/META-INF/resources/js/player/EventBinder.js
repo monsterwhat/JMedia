@@ -77,9 +77,7 @@
                         p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
                         if (p._streamFallbackCount < p._maxStreamFallbacks) {
                             const saved = p.streamStartOffset || p.lastKnownGoodPosition || p.initialResumeTime || 0;
-                            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                            const traceId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${saved}${qualityParam}&trace=${traceId}`;
+                            p.video.src = p.streamMgr.buildStreamUrl(saved);
                             if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
                             p.video.load();
                             p.video.play().catch(() => {});
@@ -180,11 +178,7 @@
                             // F2b: Direct files ignore ?start=, so reset offset to 0 for correct position reporting
                             p.streamStartOffset = p.needsTranscode ? pos : 0;
                             p.lastKnownGoodPosition = 0;
-                            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                            const traceId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                            p.video.src = p.needsTranscode
-                                ? `/api/video/stream/${p.videoId}.mp4?start=${pos}${qualityParam}&trace=${traceId}`
-                                : `/api/video/stream/${p.videoId}.mp4${qualityParam}&trace=${traceId}`;
+                            p.video.src = p.streamMgr.buildStreamUrl(p.needsTranscode ? pos : null);
                             p.video.load();
                             p.video.play().catch(() => {});
                         } else {
@@ -321,28 +315,6 @@
                     p.subtitleMenu.classList.remove('active');
                     if (window.subtitleManager) {
                         window.subtitleManager.openModal(p.videoId, p.container.dataset.title, p.container.dataset.path);
-                    }
-                    return;
-                }
-                const playerOpt = e.target.closest('.player-option');
-                if (playerOpt) {
-                    e.stopPropagation();
-                    var playerName = playerOpt.dataset.player;
-                    if (playerName) {
-                        p.container.querySelectorAll('.player-option').forEach(function(b) { b.style.borderColor = ''; b.style.color = ''; });
-                        playerOpt.style.borderColor = '#48c774';
-                        playerOpt.style.color = '#48c774';
-                        if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
-                        var profileId = localStorage.getItem('activeProfileId');
-                        fetch('/api/settings/' + profileId + '/default-player', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ defaultPlayer: playerName })
-                        }).then(function() {
-                            location.reload();
-                        }).catch(function() {
-                            if (window.Toast) window.Toast.error('Failed to switch player');
-                        });
                     }
                     return;
                 }

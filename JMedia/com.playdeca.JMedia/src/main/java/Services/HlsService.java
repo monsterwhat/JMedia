@@ -91,13 +91,16 @@ public class HlsService {
         String nonce = UUID.randomUUID().toString().substring(0, 8);
         String sessionId = "vid-" + videoId + "-" + safeDeviceToken + "-" + profilePart + "-" + nonce;
 
-        // Destroy existing session before creating a new one to kill orphaned FFmpeg processes
-        HlsSession existing = activeSessions.get(sessionId);
+        // The random nonce keeps the sessionId unique (Xtream/external clients depend on the
+        // vid-{videoId}-{device}-{profile}-{nonce} format), so a plain map lookup can never find
+        // a prior session. Instead, deterministically scan for an existing session for the same
+        // video+device+profile and destroy it first — otherwise every re-create spawns a duplicate
+        // transcode and orphans the previous FFmpeg process.
+        HlsSession existing = findSessionByVideoDeviceProfile(videoId, safeDeviceToken, profileId);
         if (existing != null) {
-            LOG.info("Destroying existing HLS session {} for re-creation", sessionId);
+            LOG.info("Destroying existing HLS session {} for same video/device/profile re-creation", existing.sessionId);
             endXtreamLinkedSession(existing, "disconnected");
-            existing.stop();
-            activeSessions.remove(sessionId);
+            destroySession(existing.sessionId);
         }
 
         Video video = videoService.findById(videoId);
@@ -109,6 +112,7 @@ public class HlsService {
         List<SubtitleTrack> subtitleTracks = video.subtitleTracks != null ? new ArrayList<>(video.subtitleTracks) : new ArrayList<>();
         HlsSession session = new HlsSession(sessionId, video, audioTracks, subtitleTracks, sessionDir, startSeconds);
         session.deviceToken = safeDeviceToken;
+        session.profileId = profileId;
         
         if (qualityHeight != null && qualityHeight > 0) {
             session.qualityHeight = qualityHeight;
@@ -147,6 +151,25 @@ public class HlsService {
             startVariantEncoder(session, variant, profileId);
         }
         return session;
+    }
+
+    private HlsSession findSessionByVideoDeviceProfile(Long videoId, String deviceToken, Long profileId) {
+        for (HlsSession session : activeSessions.values()) {
+            if (matchesVideoDeviceProfile(session, videoId, deviceToken, profileId)) {
+                return session;
+            }
+        }
+        return null;
+    }
+
+    private boolean matchesVideoDeviceProfile(HlsSession session, Long videoId, String deviceToken, Long profileId) {
+        if (session == null || session.video == null || videoId == null) return false;
+        if (!videoId.equals(session.video.id)) return false;
+        String sessionDevice = session.deviceToken != null ? session.deviceToken : "unknown";
+        if (!sessionDevice.equals(deviceToken)) return false;
+        Long sessionProfile = session.profileId != null ? session.profileId : -1L;
+        Long targetProfile = profileId != null ? profileId : -1L;
+        return sessionProfile.equals(targetProfile);
     }
 
     private void startVariantEncoder(HlsSession session, VariantConfig variant, Long profileId) {
@@ -1213,10 +1236,17 @@ public class HlsService {
         String subsAttr = servableSubs.isEmpty() ? "" : ",SUBTITLES=\"subs\"";
         
         if (session.audioTracks.size() > 1) {
+            Integer preferredIndex = session.getPreferredAudioTrackIndex();
             for (int i = 0; i < session.audioTracks.size(); i++) {
                 AudioTrack track = session.audioTracks.get(i);
                 String audioName = "audio_" + track.trackIndex;
-                sb.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"" + track.displayName + "\",LANGUAGE=\"" + (track.languageCode != null ? track.languageCode : "und") + "\",AUTOSELECT=" + (track.isDefault ? "YES" : "NO") + ",DEFAULT=" + (track.isDefault ? "YES" : "NO") + ",URI=\"/api/hls/playlist/" + session.sessionId + "/" + audioName + ".m3u8\"\n");
+                boolean preferred = preferredIndex != null && preferredIndex >= 0
+                        && preferredIndex.equals(track.trackIndex);
+                boolean isDefault = preferred || track.isDefault;
+                if (preferred) {
+                    LOG.info("Marking preferred audio track {} (index {}) as DEFAULT in master playlist for session {}", track.displayName, track.trackIndex, session.sessionId);
+                }
+                sb.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"" + track.displayName + "\",LANGUAGE=\"" + (track.languageCode != null ? track.languageCode : "und") + "\",AUTOSELECT=" + (isDefault ? "YES" : "NO") + ",DEFAULT=" + (isDefault ? "YES" : "NO") + ",URI=\"/api/hls/playlist/" + session.sessionId + "/" + audioName + ".m3u8\"\n");
             }
         }
 
@@ -1588,6 +1618,8 @@ public class HlsService {
         public volatile boolean stopped = false;
 
         public volatile String deviceToken;
+
+        public Long profileId;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;
