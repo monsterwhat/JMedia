@@ -184,27 +184,35 @@
             this._iosUnlockArmed = true;
 
             const unlock = () => {
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this.ctx.resume().catch((err) => {
-                        console.warn('AudioEngine: iOS AudioContext resume failed', err);
+                // Resume FIRST and prime only after the context is running:
+                // priming play() while still suspended leaves the element
+                // playing silently on iOS with no later recovery.
+                const prime = () => {
+                    [this.audio, this.audioNext].forEach((el) => {
+                        if (!el) return;
+                        const wasMuted = el.muted;
+                        el.muted = true;
+                        const p = el.play();
+                        if (p && typeof p.catch === 'function') {
+                            p.then(() => {
+                                el.pause();
+                                el.muted = wasMuted;
+                            }).catch((err) => {
+                                console.warn('AudioEngine: iOS unlock prime failed on ' + el.id, err);
+                                el.muted = wasMuted;
+                            });
+                        }
                     });
+                    this._iosUnlocked = true;
+                };
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume().then(prime).catch((err) => {
+                        console.warn('AudioEngine: iOS AudioContext resume failed', err);
+                        prime();
+                    });
+                } else {
+                    prime();
                 }
-                [this.audio, this.audioNext].forEach((el) => {
-                    if (!el) return;
-                    const wasMuted = el.muted;
-                    el.muted = true;
-                    const p = el.play();
-                    if (p && typeof p.catch === 'function') {
-                        p.then(() => {
-                            el.pause();
-                            el.muted = wasMuted;
-                        }).catch((err) => {
-                            console.warn('AudioEngine: iOS unlock prime failed on ' + el.id, err);
-                            el.muted = wasMuted;
-                        });
-                    }
-                });
-                this._iosUnlocked = true;
             };
 
             const arm = () => {
@@ -798,9 +806,10 @@
                 console.log('[AudioEngine] Blocked play() â€” video is active');
                 return Promise.resolve();
             }
-            if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
             const player = this.getActivePlayer();
-            return player.play().catch((err) => {
+            // Start the element only once the context is running: on iOS an
+            // element routed through a suspended context plays silently.
+            const startPlayback = () => player.play().catch((err) => {
                 console.warn('AudioEngine: play() failed', err);
                 if (err && err.name === 'NotAllowedError') {
                     this.autoplayBlocked = true;
@@ -810,6 +819,13 @@
                 }
                 throw err;
             });
+            if (this.ctx && this.ctx.state === 'suspended') {
+                return this.ctx.resume().then(startPlayback).catch((err) => {
+                    console.warn('AudioEngine: context resume failed, playing anyway', err);
+                    return startPlayback();
+                });
+            }
+            return startPlayback();
         },
         
         pause: function() {
