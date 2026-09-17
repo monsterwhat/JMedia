@@ -1020,6 +1020,27 @@ public class TranscodingService {
             videoEncoder = "copy";
         }
 
+        // VAAPI-encode-from-software-decode upload path: when the encoder is
+        // VAAPI but no VAAPI decoder was selected, the encoder would receive
+        // system-memory frames and die in filter init (exit 218). Route frames
+        // through the VAAPI device via hwupload instead; with no usable render
+        // node, fall back to software encoding rather than emitting a command
+        // that cannot work.
+        String vaapiUploadDevice = null;
+        boolean vaapiUpload = useHardware && needsVideoTranscode
+                && videoEncoder != null && videoEncoder.contains("vaapi")
+                && (hardwareDecoder == null || !hardwareDecoder.contains("vaapi"));
+        if (vaapiUpload) {
+            vaapiUploadDevice = discoveryService.getBestVaaPiDevicePath();
+            if (vaapiUploadDevice == null) {
+                LOG.warn("No VAAPI render node for {} — falling back to software encoder", videoFile.getName());
+                videoEncoder = videoEncoder.contains("hevc") ? "libx265" : "libx264";
+                vaapiUpload = false;
+            } else {
+                LOG.info("VAAPI upload path for {}: sw decode -> {} via {}", videoFile.getName(), videoEncoder, vaapiUploadDevice);
+            }
+        }
+
         // Compute the effective output codec tag so different codec variants (HEVC vs H.264)
         // get separate cache files, preventing cross-codec poisoning.
         String effectiveCodecTag;
@@ -1105,6 +1126,12 @@ public class TranscodingService {
             }
         }
 
+        // VAAPI upload path (sw decode -> VAAPI encode): declare the render
+        // node before -i so the hwupload filter below has a device to use.
+        if (vaapiUpload && vaapiUploadDevice != null) {
+            command.add("-va_device"); command.add(vaapiUploadDevice);
+        }
+
         // True when decode frames stay on the device (-hwaccel_output_format matched
         // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
         // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
@@ -1152,6 +1179,9 @@ public class TranscodingService {
                     command.add("-preset"); command.add("speed");
                     command.add("-usage"); command.add("transcoding");
                     command.add("-quality"); command.add("quality");
+                } else if (videoEncoder.contains("vaapi")) {
+                    // VAAPI encoders have no -preset option (quality via
+                    // -rc_mode/-qp below); passing one fails the command.
                 } else {
                     command.add("-preset"); command.add(preset);
                 }
@@ -1178,6 +1208,15 @@ public class TranscodingService {
                 if (videoEncoder.equals("libx264")) {
                     command.add("-pix_fmt"); command.add("yuv420p");
                     command.add("-tune"); command.add("zerolatency");
+            } else if (vaapiUpload) {
+                // Software-decoded frames must be uploaded to the VAAPI device;
+                // -pix_fmt on system frames is what died with exit 218.
+                String uploadFilter = "format=nv12|vaapi,hwupload";
+                if (qualityHeight > 0) {
+                    String vaapiScale = buildScaleFilter("vaapi", videoEncoder, qualityHeight, video.resolution);
+                    if (vaapiScale != null) uploadFilter += "," + vaapiScale;
+                }
+                command.add("-vf"); command.add(uploadFilter);
             } else if (videoEncoder.contains("h264")) {
                 // H.264 hardware encoders accept 8-bit only; force nv12 so
                 // 10-bit sources (x265/AV1 Main10) convert deterministically.
@@ -1196,7 +1235,9 @@ public class TranscodingService {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
-                if (qualityHeight > 0) {
+                // The VAAPI upload branch above already emits a single -vf
+                // (hwupload [+ scale_vaapi]); a second -vf would discard it.
+                if (qualityHeight > 0 && !vaapiUpload) {
                     String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
                     if (scaleFilter != null) {
                         command.add("-vf"); command.add(scaleFilter);
@@ -2190,6 +2231,24 @@ public class TranscodingService {
             videoEncoder = "copy";
         }
 
+        // VAAPI-encode-from-software-decode upload path (mirrors the streaming
+        // pipeline above): without it a VAAPI encoder fed system-memory frames
+        // dies in filter init (exit 218).
+        String vaapiUploadDevice = null;
+        boolean vaapiUpload = useHardware && needsVideoTranscode
+                && videoEncoder != null && videoEncoder.contains("vaapi")
+                && (hardwareDecoder == null || !hardwareDecoder.contains("vaapi"));
+        if (vaapiUpload) {
+            vaapiUploadDevice = discoveryService.getBestVaaPiDevicePath();
+            if (vaapiUploadDevice == null) {
+                LOG.warn("No VAAPI render node for gap fill of {} — falling back to software encoder", videoFile.getName());
+                videoEncoder = videoEncoder.contains("hevc") ? "libx265" : "libx264";
+                vaapiUpload = false;
+            } else {
+                LOG.info("VAAPI upload path for gap fill of {}: sw decode -> {} via {}", videoFile.getName(), videoEncoder, vaapiUploadDevice);
+            }
+        }
+
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -2249,6 +2308,9 @@ public class TranscodingService {
                 command.add("-hwaccel"); command.add("dxva2");
             }
         }
+        if (vaapiUpload && vaapiUploadDevice != null) {
+            command.add("-va_device"); command.add(vaapiUploadDevice);
+        }
 
         // True when decode frames stay on the device (-hwaccel_output_format matched
         // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
@@ -2280,7 +2342,7 @@ public class TranscodingService {
                 command.add("-preset"); command.add("speed");
                 command.add("-usage"); command.add("transcoding");
                 command.add("-quality"); command.add("quality");
-            } else if (!videoEncoder.equals("copy")) {
+            } else if (!videoEncoder.equals("copy") && !videoEncoder.contains("vaapi")) {
                 command.add("-preset"); command.add(preset);
             }
             if (videoEncoder.contains("nvenc")) {
@@ -2299,6 +2361,13 @@ public class TranscodingService {
             if (videoEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
                 command.add("-tune"); command.add("zerolatency");
+            } else if (vaapiUpload) {
+                String uploadFilter = "format=nv12|vaapi,hwupload";
+                if (qualityHeight > 0) {
+                    String vaapiScale = buildScaleFilter("vaapi", videoEncoder, qualityHeight, video.resolution);
+                    if (vaapiScale != null) uploadFilter += "," + vaapiScale;
+                }
+                command.add("-vf"); command.add(uploadFilter);
             } else if (videoEncoder.contains("h264")) {
                 boolean addedGpuFmtFilter = false;
                 if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution) == null) {
@@ -2315,7 +2384,7 @@ public class TranscodingService {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
-            if (qualityHeight > 0) {
+            if (qualityHeight > 0 && !vaapiUpload) {
                 String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
                 if (scaleFilter != null) {
                     command.add("-vf"); command.add(scaleFilter);
