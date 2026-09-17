@@ -609,6 +609,43 @@ public class TranscodingService {
         return null;
     }
 
+    private static boolean isTenBitProfile(String profile) {
+        return profile != null && profile.contains("10");
+    }
+
+    /**
+     * Upload filter for VAAPI-encode-from-software-decode: converts to a
+     * VAAPI-compatible format in software, then uploads to the render node.
+     * 10-bit sources targeting HEVC keep p010le end-to-end (with main10 set
+     * by the caller); everything else normalizes to nv12 since 8-bit-only
+     * encoders (h264_vaapi) reject 10-bit surfaces.
+     */
+    private String buildVaapiUploadFilter(String videoEncoder, int qualityHeight, String resolution, String videoProfile) {
+        boolean keepTenBit = videoEncoder != null && videoEncoder.contains("hevc") && isTenBitProfile(videoProfile);
+        String pixFmt = keepTenBit ? "p010le" : "nv12";
+        String filter = "format=" + pixFmt + "|vaapi,hwupload";
+        if (qualityHeight > 0) {
+            int w = 1920, h = 1080;
+            try {
+                if (resolution != null && resolution.contains("x")) {
+                    String[] p = resolution.split("x");
+                    w = Integer.parseInt(p[0]);
+                    h = Integer.parseInt(p[1]);
+                }
+            } catch (Exception ignored) {}
+            // Never upscale — matches buildScaleFilter semantics.
+            if (h > 0 && qualityHeight < h) {
+                double aspect = (double) w / h;
+                int targetH = qualityHeight;
+                int targetW = (int) Math.round(targetH * aspect);
+                if (targetW % 2 != 0) targetW--;
+                if (targetH % 2 != 0) targetH--;
+                filter += ",scale_vaapi=" + targetW + ":" + targetH + ":format=" + pixFmt;
+            }
+        }
+        return filter;
+    }
+
     public boolean isIOSClient(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) {
             return false;
@@ -1201,6 +1238,9 @@ public class TranscodingService {
                 } else if (videoEncoder.contains("vaapi")) {
                     command.add("-rc_mode"); command.add("CQP");
                     command.add("-qp"); command.add("23");
+                    if (videoEncoder.contains("hevc") && isTenBitProfile(video.videoProfile)) {
+                        command.add("-profile:v"); command.add("main10");
+                    }
                 } else {
                     command.add("-crf"); command.add("23");
                 }
@@ -1209,14 +1249,7 @@ public class TranscodingService {
                     command.add("-pix_fmt"); command.add("yuv420p");
                     command.add("-tune"); command.add("zerolatency");
             } else if (vaapiUpload) {
-                // Software-decoded frames must be uploaded to the VAAPI device;
-                // -pix_fmt on system frames is what died with exit 218.
-                String uploadFilter = "format=nv12|vaapi,hwupload";
-                if (qualityHeight > 0) {
-                    String vaapiScale = buildScaleFilter("vaapi", videoEncoder, qualityHeight, video.resolution);
-                    if (vaapiScale != null) uploadFilter += "," + vaapiScale;
-                }
-                command.add("-vf"); command.add(uploadFilter);
+                command.add("-vf"); command.add(buildVaapiUploadFilter(videoEncoder, qualityHeight, video.resolution, video.videoProfile));
             } else if (videoEncoder.contains("h264")) {
                 // H.264 hardware encoders accept 8-bit only; force nv12 so
                 // 10-bit sources (x265/AV1 Main10) convert deterministically.
@@ -2355,6 +2388,9 @@ public class TranscodingService {
             } else if (videoEncoder.contains("vaapi")) {
                 command.add("-rc_mode"); command.add("CQP");
                 command.add("-qp"); command.add("23");
+                if (videoEncoder.contains("hevc") && isTenBitProfile(video.videoProfile)) {
+                    command.add("-profile:v"); command.add("main10");
+                }
             } else {
                 command.add("-crf"); command.add("23");
             }
@@ -2362,12 +2398,7 @@ public class TranscodingService {
                 command.add("-pix_fmt"); command.add("yuv420p");
                 command.add("-tune"); command.add("zerolatency");
             } else if (vaapiUpload) {
-                String uploadFilter = "format=nv12|vaapi,hwupload";
-                if (qualityHeight > 0) {
-                    String vaapiScale = buildScaleFilter("vaapi", videoEncoder, qualityHeight, video.resolution);
-                    if (vaapiScale != null) uploadFilter += "," + vaapiScale;
-                }
-                command.add("-vf"); command.add(uploadFilter);
+                command.add("-vf"); command.add(buildVaapiUploadFilter(videoEncoder, qualityHeight, video.resolution, video.videoProfile));
             } else if (videoEncoder.contains("h264")) {
                 boolean addedGpuFmtFilter = false;
                 if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution) == null) {
