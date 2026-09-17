@@ -66,13 +66,21 @@
             }
             try {
                 const res = await fetch(`/api/video/playback/next/${p.videoId}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.nextVideoId) {
-                        this._navigateToVideo(data.nextVideoId);
-                    }
+                if (!res.ok) {
+                    console.error('Failed to load next episode:', res.status);
+                    if (window.Toast) window.Toast.error('Could not load next episode');
+                    return;
                 }
-            } catch (e) { console.error('Failed to load next episode', e); }
+                const data = await res.json();
+                if (data.nextVideoId) {
+                    this._navigateToVideo(data.nextVideoId);
+                } else if (window.Toast) {
+                    window.Toast.info('No next episode');
+                }
+            } catch (e) {
+                console.error('Failed to load next episode', e);
+                if (window.Toast) window.Toast.error('Could not load next episode');
+            }
         }
 
         async playPreviousEpisode() {
@@ -89,13 +97,21 @@
             }
             try {
                 const res = await fetch(`/api/video/playback/previous/${p.videoId}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.previousVideoId) {
-                        this._navigateToVideo(data.previousVideoId);
-                    }
+                if (!res.ok) {
+                    console.error('Failed to load previous episode:', res.status);
+                    if (window.Toast) window.Toast.error('Could not load previous episode');
+                    return;
                 }
-            } catch (e) { console.error('Failed to load previous episode', e); }
+                const data = await res.json();
+                if (data.previousVideoId) {
+                    this._navigateToVideo(data.previousVideoId);
+                } else if (window.Toast) {
+                    window.Toast.info('No previous episode');
+                }
+            } catch (e) {
+                console.error('Failed to load previous episode', e);
+                if (window.Toast) window.Toast.error('Could not load previous episode');
+            }
         }
     };
 })(window);

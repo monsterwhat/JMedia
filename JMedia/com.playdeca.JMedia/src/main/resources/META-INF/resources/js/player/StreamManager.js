@@ -672,6 +672,7 @@
                 p._swapSafetyTimer = null;
             }, 10000);
 
+            const resumeAfterSeek = !p.video.paused && !p.video.ended;
             p.video.pause();
             p.video.src = "";
             p.video.load();
@@ -682,6 +683,13 @@
             p.lastKnownGoodPosition = 0;
             p.video.src = this.buildStreamUrl(Math.max(0, time));
             p.video.load();
+            // Autoplay attribute alone is unreliable here: the reload happens
+            // outside the original user gesture (remote/keyboard/auto seeks),
+            // so the browser may block it silently with no pause event — leaving
+            // the playing icon over a frozen frame. Resume explicitly instead.
+            if (resumeAfterSeek) {
+                p.video.play().catch((e) => console.log('[SimplePlayer] Resume after seek blocked, awaiting gesture:', e));
+            }
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
             // the server's phantom clock snaps to the new absolute position (element + offset).

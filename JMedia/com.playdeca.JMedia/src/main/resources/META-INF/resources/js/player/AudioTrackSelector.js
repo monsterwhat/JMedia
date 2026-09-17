@@ -180,11 +180,12 @@
                     document.body.appendChild(menu);
                 }
                 menu.style.position = 'fixed';
-                menu.style.top = (rect.bottom + 4) + 'px';
-                menu.style.left = rect.left + 'px';
                 menu.style.zIndex = '30000';
+                menu.style.display = 'block';
+                this._positionMenu(menu, rect);
+            } else {
+                menu.style.display = 'block';
             }
-            menu.style.display = 'block';
             this.loadTracks();
 
             if (!this._repositionHandler) {
@@ -217,8 +218,20 @@
             if (!menu || menu.style.display === 'none') return;
             const rect = this.button ? this.button.getBoundingClientRect() : null;
             if (!rect) return;
-            menu.style.top = (rect.bottom + 4) + 'px';
-            menu.style.left = rect.left + 'px';
+            this._positionMenu(menu, rect);
+        }
+
+        // Anchor below the button, but flip above it when the menu would
+        // otherwise extend past the viewport bottom (e.g. player docked low
+        // on short screens). Left edge is clamped to stay on-screen.
+        _positionMenu(menu, rect) {
+            const height = menu.offsetHeight || 0;
+            const spaceBelow = window.innerHeight - rect.bottom - 4;
+            const top = (height > 0 && spaceBelow < height && rect.top - height - 4 >= 0)
+                ? rect.top - height - 4
+                : rect.bottom + 4;
+            menu.style.top = top + 'px';
+            menu.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 4)) + 'px';
         }
 
         // The DB id is not the ffprobe stream index: resolve the track object
