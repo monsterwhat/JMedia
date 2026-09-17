@@ -4,6 +4,8 @@ import Models.Settings.User;
 import Models.Video.Video;
 import Models.Video.LiveChannel;
 import Models.Video.M3uPlaylist;
+import Models.Video.MediaCollection;
+import Models.Video.CollectionEntry;
 import Models.Xtream.*;
 import Services.AuthService;
 import Services.VideoService;
@@ -594,7 +596,13 @@ public class XtreamCodesAPI {
     }
 
     private Response getVodCategories() {
-        return Response.ok(buildGenreCategories()).build();
+        List<XtreamCategory> categories = buildGenreCategories();
+        for (MediaCollection c : listCollectionsForXtream()) {
+            if (collectionHasVodMembers(c)) {
+                categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
+            }
+        }
+        return Response.ok(categories).build();
     }
 
     private static final int FALLBACK_GENRE_BASE = 90000;
@@ -672,7 +680,11 @@ public class XtreamCodesAPI {
 
     private Response getVodStreams(String catId) {
         List<Video> videos;
-        if (catId != null && !catId.equals("0")) {
+        Long collectionId = parseCollectionCategoryId(catId);
+        if (collectionId != null) {
+            videos = findVideosForCollection(collectionId);
+            log.infof("getVodStreams: collection=%d returning %d videos", collectionId, videos.size());
+        } else if (catId != null && !catId.equals("0")) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
                 videos = findMoviesByGenreName(genreName);
@@ -719,8 +731,13 @@ public class XtreamCodesAPI {
             s.containerExtension = vodExt;
             s.streamType = "movie";
             s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
-            s.categoryId = gids.get(0);
-            s.categoryIds.addAll(allIds);
+            if (collectionId != null) {
+                s.categoryId = catId;
+                s.categoryIds.add((int) (COLLECTION_CATEGORY_BASE + collectionId));
+            } else {
+                s.categoryId = gids.get(0);
+                s.categoryIds.addAll(allIds);
+            }
             streams.add(s);
         }
         log.infof("getVodStreams returning %d streams, sample: %s", streams.size(), streams.isEmpty() ? "empty" : toJson(streams.subList(0, Math.min(3, streams.size()))));
@@ -728,7 +745,13 @@ public class XtreamCodesAPI {
     }
 
     private Response getSeriesCategories() {
-        return Response.ok(buildGenreCategories()).build();
+        List<XtreamCategory> categories = buildGenreCategories();
+        for (MediaCollection c : listCollectionsForXtream()) {
+            if (collectionHasSeriesMembers(c)) {
+                categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
+            }
+        }
+        return Response.ok(categories).build();
     }
 
     // Base for synthesized numeric live-group category ids. Playlist ids occupy
@@ -750,6 +773,122 @@ public class XtreamCodesAPI {
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)).getMostSignificantBits() & Long.MAX_VALUE;
             return String.valueOf(LIVE_GROUP_ID_BASE + (h % LIVE_GROUP_ID_RANGE));
         });
+    }
+
+    // Base for synthesized numeric collection category ids. Genre ids occupy
+    // small ints and live groups 1M-9M, so collections stay clear in the 20M+
+    // range. Derived deterministically from the collection's DB id so app
+    // caches survive restarts.
+    private static final int COLLECTION_CATEGORY_BASE = 20000000;
+
+    private static String collectionCategoryId(Long collectionId) {
+        return String.valueOf(COLLECTION_CATEGORY_BASE + collectionId);
+    }
+
+    private static Long parseCollectionCategoryId(String catId) {
+        if (catId == null) return null;
+        try {
+            long parsed = Long.parseLong(catId);
+            if (parsed < COLLECTION_CATEGORY_BASE) return null;
+            return parsed - COLLECTION_CATEGORY_BASE;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private List<MediaCollection> listCollectionsForXtream() {
+        try {
+            return MediaCollection.<MediaCollection>listAll().stream()
+                    .filter(c -> c.name != null && !c.name.isBlank())
+                    .sorted(java.util.Comparator
+                            .comparingInt((MediaCollection c) -> c.sortOrder)
+                            .thenComparing(c -> c.name, String.CASE_INSENSITIVE_ORDER))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warnf("listCollectionsForXtream failed, returning empty list: %s", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    private boolean collectionHasVodMembers(MediaCollection c) {
+        try {
+            for (CollectionEntry e : CollectionEntry.<CollectionEntry>find(
+                    "SELECT e FROM CollectionEntry e LEFT JOIN FETCH e.video LEFT JOIN FETCH e.series WHERE e.collection = ?1 ORDER BY e.orderIndex ASC", c).list()) {
+                if (e.video != null && "movie".equals(e.video.type)) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.debugf("collectionHasVodMembers query failed for collection=%d: %s", c.id, e.getMessage());
+            return true; // include on failure to avoid hiding
+        }
+    }
+
+    private boolean collectionHasSeriesMembers(MediaCollection c) {
+        try {
+            for (CollectionEntry e : CollectionEntry.<CollectionEntry>find(
+                    "SELECT e FROM CollectionEntry e LEFT JOIN FETCH e.video LEFT JOIN FETCH e.series WHERE e.collection = ?1 ORDER BY e.orderIndex ASC", c).list()) {
+                if (e.series != null) return true;
+                if (e.video != null && "episode".equals(e.video.type)) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.debugf("collectionHasSeriesMembers query failed for collection=%d: %s", c.id, e.getMessage());
+            return true; // include on failure to avoid hiding
+        }
+    }
+
+    private List<Video> findVideosForCollection(Long collectionId) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) {
+            log.warnf("getVodStreams: collection=%d not found", collectionId);
+            return new ArrayList<>();
+        }
+        try {
+            List<Video> videos = new ArrayList<>();
+            for (CollectionEntry e : CollectionEntry.<CollectionEntry>find(
+                    "SELECT e FROM CollectionEntry e LEFT JOIN FETCH e.video LEFT JOIN FETCH e.series WHERE e.collection = ?1 ORDER BY e.orderIndex ASC", c).list()) {
+                if (e.video != null && "movie".equals(e.video.type)) {
+                    videos.add(e.video);
+                }
+            }
+            return videos;
+        } catch (Exception e) {
+            log.warnf("getVodStreams: collection=%d entry query failed: %s", collectionId, e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Models.Video.Series> findSeriesForCollection(Long collectionId) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) {
+            log.warnf("getSeries: collection=%d not found", collectionId);
+            return new ArrayList<>();
+        }
+        try {
+            java.util.LinkedHashMap<Long, Models.Video.Series> byId = new java.util.LinkedHashMap<>();
+            for (CollectionEntry e : CollectionEntry.<CollectionEntry>find(
+                    "SELECT e FROM CollectionEntry e LEFT JOIN FETCH e.video LEFT JOIN FETCH e.series WHERE e.collection = ?1 ORDER BY e.orderIndex ASC", c).list()) {
+                if (e.series != null) {
+                    byId.putIfAbsent(e.series.id, e.series);
+                } else if (e.video != null && "episode".equals(e.video.type)) {
+                    Models.Video.Series parent = resolveParentSeries(e.video);
+                    if (parent != null) byId.putIfAbsent(parent.id, parent);
+                }
+            }
+            return new ArrayList<>(byId.values());
+        } catch (Exception e) {
+            log.warnf("getSeries: collection=%d entry query failed: %s", collectionId, e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    private Models.Video.Series resolveParentSeries(Video v) {
+        if (v.series != null) return v.series;
+        if (v.seriesTitle != null && !v.seriesTitle.isBlank()) {
+            List<Models.Video.Series> matches = Models.Video.Series.<Models.Video.Series>find("title = ?1", v.seriesTitle).list();
+            if (!matches.isEmpty()) return matches.get(0);
+        }
+        return null;
     }
 
     private Response getLiveCategories() {
@@ -1000,7 +1139,11 @@ public class XtreamCodesAPI {
         log.infof("getSeries: catId=%s", catId);
 
         List<Models.Video.Series> allSeries;
-        if (catId != null && !catId.isBlank()) {
+        Long collectionId = parseCollectionCategoryId(catId);
+        if (collectionId != null) {
+            allSeries = findSeriesForCollection(collectionId);
+            log.infof("getSeries: collection=%d resolved to %d series", collectionId, allSeries.size());
+        } else if (catId != null && !catId.isBlank()) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
                 allSeries = Models.Video.Series.<Models.Video.Series>find("SELECT s FROM Series s JOIN s.genres g WHERE LOWER(g) LIKE ?1", "%" + genreName.toLowerCase() + "%").list();
@@ -1059,8 +1202,13 @@ public class XtreamCodesAPI {
                 }
             }
             xs.num = num++;
-            xs.categoryId = seriesGenreIds.get(0);
-            xs.categoryIds = new ArrayList<>(seriesAllIds);
+            if (collectionId != null) {
+                xs.categoryId = catId;
+                xs.categoryIds = new ArrayList<>(List.of((int) (COLLECTION_CATEGORY_BASE + collectionId)));
+            } else {
+                xs.categoryId = seriesGenreIds.get(0);
+                xs.categoryIds = new ArrayList<>(seriesAllIds);
+            }
             seriesList.add(xs);
         }
         log.infof("getSeries: returning %d series", seriesList.size());
