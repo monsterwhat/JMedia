@@ -911,6 +911,11 @@
          * Handle state changes from StateManager
          */
         handleStateChange: function(oldState, newState) {
+            if (window.videoPlaying) {
+                window.Helpers.log('ResponsivePlayer: Video active — ignoring music state change');
+                console.log('[ResponsivePlayer] Blocked handleStateChange — video is active');
+                return;
+            }
             // React to relevant state changes
             if (oldState.currentSongId !== newState.currentSongId) {
                 // Song changed - fetch full song data
@@ -934,6 +939,11 @@
          * Fetch current song data (Metadata only)
          */
         fetchCurrentSongData: function(songId) {
+            if (window.videoPlaying) {
+                window.Helpers.log('[ResponsivePlayer] Blocked fetchCurrentSongData — video is active');
+                console.log('[ResponsivePlayer] Blocked fetchCurrentSongData — video is active');
+                return;
+            }
             if (!songId) {
                 window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData: No songId provided');
                 return;

@@ -904,6 +904,81 @@ public class VideoService {
         }
     }
 
+    /**
+     * Merge-safe subtitle track refresh: adds newly discovered tracks while
+     * preserving existing rows (id, isDefault, isManual, isAiGenerated,
+     * userPreferenceOrder) so per-video user preferences keep pointing at valid
+     * tracks. Existing tracks are matched by fullPath (external) or
+     * trackIndex+codec (embedded); only missing fields are back-filled. Never
+     * deletes or clears the video's track collection.
+     */
+    @Transactional
+    public void mergeSubtitleTracks(Long videoId, List<SubtitleTrack> discovered) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return;
+        }
+
+        List<SubtitleTrack> existing = (video.subtitleTracks != null) ? video.subtitleTracks : new ArrayList<>();
+
+        // Nothing to do when there are no tracks at all
+        if ((discovered == null || discovered.isEmpty()) && existing.isEmpty()) {
+            return;
+        }
+
+        if (video.subtitleTracks == null) {
+            video.subtitleTracks = new ArrayList<>();
+        }
+
+        for (SubtitleTrack track : discovered) {
+            if (track == null) {
+                continue;
+            }
+            SubtitleTrack match = findMatchingSubtitleTrack(existing, track);
+            if (match != null) {
+                // Preserve the existing row; back-fill only missing fields
+                mergeMissingFields(match, track);
+            } else {
+                track.video = video;
+                video.subtitleTracks.add(track);
+            }
+        }
+
+        // Recompute hasSubtitles from the merged collection
+        video.hasSubtitles = video.subtitleTracks.stream().anyMatch(t -> t.isActive);
+        video.dateModified = LocalDateTime.now();
+        video.persist();
+    }
+
+    private SubtitleTrack findMatchingSubtitleTrack(List<SubtitleTrack> existing, SubtitleTrack track) {
+        for (SubtitleTrack candidate : existing) {
+            // External tracks: match by absolute file path
+            if (track.fullPath != null && track.fullPath.equals(candidate.fullPath)) {
+                return candidate;
+            }
+            // Embedded tracks: match by stream index + codec
+            if (track.isEmbedded && candidate.isEmbedded
+                    && Objects.equals(track.trackIndex, candidate.trackIndex)
+                    && Objects.equals(track.codec, candidate.codec)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private void mergeMissingFields(SubtitleTrack existing, SubtitleTrack discovered) {
+        if (existing.filename == null) existing.filename = discovered.filename;
+        if (existing.format == null) existing.format = discovered.format;
+        if (existing.encoding == null) existing.encoding = discovered.encoding;
+        if (existing.fileSize == null) existing.fileSize = discovered.fileSize;
+        if (existing.languageCode == null) existing.languageCode = discovered.languageCode;
+        if (existing.languageName == null) existing.languageName = discovered.languageName;
+        if (existing.displayName == null) existing.displayName = discovered.displayName;
+        if (existing.codec == null) existing.codec = discovered.codec;
+        if (existing.trackIndex == null) existing.trackIndex = discovered.trackIndex;
+        if (existing.isAiGenerated == null) existing.isAiGenerated = discovered.isAiGenerated;
+    }
+
     @Transactional
     public void updateAudioTracks(Long videoId, List<Models.Video.AudioTrack> tracks) {
         Video video = Video.findById(videoId);

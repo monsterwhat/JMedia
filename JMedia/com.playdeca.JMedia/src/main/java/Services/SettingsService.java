@@ -104,7 +104,6 @@ public class SettingsService {
         if (settings.getAcousticBrainzEnabled() == null) settings.setAcousticBrainzEnabled(true);
         if (settings.getDeezerEnabled() == null) settings.setDeezerEnabled(true);
         if (settings.getTheAudioDbEnabled() == null) settings.setTheAudioDbEnabled(true);
-        if (settings.getOpenSubtitlesEnabled() == null) settings.setOpenSubtitlesEnabled(true);
 
         return settings;
     }

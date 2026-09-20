@@ -59,12 +59,37 @@
         },
         
         /**
-         * Handle state changes from StateManager
-         */
+          * Handle state changes from StateManager
+          */
         handleStateChange: function(detail) {
             const changes = detail.changes || {};
             const oldState = detail.oldState || {};
             const newState = detail.newState || {};
+
+            // Gate DJ state changes while video is active — music and video contend.
+            // The AudioEngine already blocks setSource while video is active; this
+            // gate ensures the DJ indicator/monitor path honors the same memo and
+            // prevents the false->true->false flap observed during video playback.
+            if (window.videoPlaying) {
+                if (oldState.djModeActive !== newState.djModeActive) {
+                    console.log('[DJ] Blocked DJ Mode change while video is active:', oldState.djModeActive, '->', newState.djModeActive);
+                    window.Helpers.log('[DJ] Blocked DJ Mode change while video is active: ' + oldState.djModeActive + ' -> ' + newState.djModeActive);
+                }
+                const djFlapped = oldState.djModeActive !== newState.djModeActive;
+                const djTransitionFlapped = (oldState.djTransitionPlanned !== newState.djTransitionPlanned) ||
+                    (newState.djTransitionPlanned === true && oldState.djNextSongId !== newState.djNextSongId);
+                if (djFlapped || djTransitionFlapped || this.transitionPrepared || this.isTransitioning) {
+                    console.log('[DJ] Video active — forcing DJ indicator to none and cancelling transition');
+                    this.cancelTransition();
+                    this.updateDjIndicator('none');
+                } else if (newState.djModeActive === true) {
+                    // Even without a flap, never show active while video is active
+                    console.log('[DJ] Video active — suppressing DJ active indicator');
+                    this.updateDjIndicator('none');
+                }
+                // Skip all DJ transition preparation while video is active
+                return;
+            }
             
             // Check if djTransitionPlanned CHANGED to true, or if the target song changed
             // (user may have skipped, causing re-plan to a different next song)
@@ -609,10 +634,15 @@ const artworkUrl = res.data.id
         },
 
         /**
-         * Update DJ Mode visual indicator in the UI
-         */
+          * Update DJ Mode visual indicator in the UI
+          */
         updateDjIndicator: function(state) {
             console.log('[DJ] updateDjIndicator called with state:', state);
+            if (window.videoPlaying && state !== 'none') {
+                console.log('[DJ] Blocked updateDjIndicator(' + state + ') — video is active, forcing none');
+                window.Helpers.log('[DJ] Blocked updateDjIndicator(' + state + ') — video is active');
+                state = 'none';
+            }
             
             // Try to find the indicator, with caching
             if (!this._indicatorEl || !document.body.contains(this._indicatorEl)) {

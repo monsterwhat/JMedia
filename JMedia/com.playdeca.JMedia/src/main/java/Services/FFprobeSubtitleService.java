@@ -148,7 +148,7 @@ public class FFprobeSubtitleService {
         track.isEmbedded = true;
         track.codec = codec;
         track.trackIndex = index;
-        track.fullPath = video.path; // Use video path as full path for embedded tracks
+        track.fullPath = null; // Embedded tracks have no sidecar file; use trackIndex+video.path for extraction
         
         // Extract language from tags
         JsonNode tags = stream.path("tags");

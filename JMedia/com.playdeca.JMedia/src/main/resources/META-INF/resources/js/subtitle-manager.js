@@ -48,9 +48,6 @@ class SubtitleManager {
         this.currentVideoId = videoId;
         this.currentVideoTitle = videoTitle;
         
-        const input = document.getElementById('subtitleSearchInput');
-        if (input) input.value = videoTitle;
-        
         const pathEl = document.getElementById('subtitle-modal-path');
         if (pathEl) {
             pathEl.textContent = videoPath || '';
@@ -59,7 +56,7 @@ class SubtitleManager {
         
         // Refresh subtitle list from server
         this.refreshSubtitleList();
-        this.switchTab('search');
+        this.switchTab('manual');
     }
     
     async refreshSubtitleList() {
@@ -86,7 +83,7 @@ class SubtitleManager {
     }
 
     switchTab(tab) {
-        const tabs = ['search', 'manual', 'ai', 'style', 'upload'];
+        const tabs = ['manual', 'ai', 'style', 'upload'];
         tabs.forEach(t => {
             const btn = document.getElementById(`${t}-tab-btn`);
             const content = document.getElementById(`${t}-tab-content`);
@@ -96,7 +93,10 @@ class SubtitleManager {
 
         if (tab === 'manual') this.scanLocal();
         else if (tab === 'style') this.loadStyle();
-        else if (tab === 'ai') this.loadAiAudioTracks();
+        else if (tab === 'ai') {
+            this.loadAiAudioTracks();
+            this.loadTranslateTracks();
+        }
     }
 
     async loadAiAudioTracks() {
@@ -600,37 +600,6 @@ class SubtitleManager {
         } catch (e) {} finally { btn.classList.remove('is-loading'); }
     }
 
-    async search() {
-        const query = document.getElementById('subtitleSearchInput').value;
-        const lang = document.getElementById('subtitleLanguageSelect').value;
-        const body = document.getElementById('subtitleSearchResultsBody');
-        body.innerHTML = '<tr><td colspan="5" class="has-text-centered">Searching...</td></tr>';
-        try {
-            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}/search?language=${lang}&query=${encodeURIComponent(query)}`);
-            const data = await res.json();
-            body.innerHTML = data.map(res => `
-                <tr>
-                    <td>${res.filename}</td>
-                    <td>${res.language}</td>
-                    <td>${res.rating}</td>
-                    <td>${res.downloadCount}</td>
-                    <td><button class="button is-small is-success" onclick="subtitleManager.download('${res.id}', this, '${lang}')">Download</button></td>
-                </tr>
-            `).join('') || '<tr><td colspan="5">No results</td></tr>';
-        } catch (e) { body.innerHTML = '<tr><td colspan="5">Error</td></tr>'; }
-    }
-
-    async download(fileId, btn, lang) {
-        btn.classList.add('is-loading');
-        try {
-            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}/download?fileId=${fileId}&language=${lang}`, { method: 'POST' });
-            if (res.ok) {
-                if (window.showToast) window.showToast('Downloaded!', 'success');
-                this.refreshSubtitleList();
-            }
-        } catch (e) {} finally { btn.classList.remove('is-loading'); }
-    }
-
     async generateAiSubtitles() {
         if (!this.currentVideoId) return;
 
@@ -647,8 +616,11 @@ class SubtitleManager {
         try {
             const audioSel = document.getElementById('subtitleAiAudioTrack');
             const audioTrack = audioSel && audioSel.value !== '' ? audioSel.value : null;
+            const langSel = document.getElementById('subtitleAiLanguage');
+            const language = langSel && langSel.value !== '' ? langSel.value : null;
             let url = `/api/video/subtitles/${this.currentVideoId}/generate`;
             if (audioTrack != null) url += '?audioTrack=' + encodeURIComponent(audioTrack);
+            if (language != null) url += (audioTrack != null ? '&' : '?') + 'language=' + encodeURIComponent(language);
             const res = await fetch(url, { method: 'POST' });
 
             if (res.status === 503) {
@@ -681,6 +653,106 @@ class SubtitleManager {
             if (window.showToast) window.showToast('Failed to start AI generation: ' + e.message, 'error');
             btn.classList.remove('is-loading');
             btn.disabled = false;
+        } finally {
+            btn.classList.remove('is-loading');
+        }
+    }
+
+    async loadTranslateTracks() {
+        const sel = document.getElementById('subtitleTranslateTrack');
+        const btn = document.getElementById('startSubtitleTranslateBtn');
+        if (!sel || !this.currentVideoId) return;
+
+        sel.innerHTML = '<option value="">Loading existing subtitles...</option>';
+        try {
+            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}`);
+            if (!res.ok) {
+                sel.innerHTML = '<option value="">No existing subtitles found</option>';
+                if (btn) btn.disabled = true;
+                return;
+            }
+            const data = await res.json();
+            const tracks = data.tracks || data.data || [];
+            if (tracks.length === 0) {
+                sel.innerHTML = '<option value="">No existing subtitles found</option>';
+                if (btn) btn.disabled = true;
+                return;
+            }
+            sel.innerHTML = '';
+            tracks.forEach(track => {
+                const opt = document.createElement('option');
+                opt.value = track.id;
+                opt.textContent = (track.displayName || track.languageName || track.languageCode || track.filename || ('Track ' + track.id)) + (track.isEmbedded ? ' (embedded)' : '');
+                sel.appendChild(opt);
+            });
+            if (btn) btn.disabled = false;
+        } catch (e) {
+            console.error('Failed to load subtitle tracks for translation:', e);
+            sel.innerHTML = '<option value="">No existing subtitles found</option>';
+            if (btn) btn.disabled = true;
+        }
+    }
+
+    async translateExistingSubtitles() {
+        if (!this.currentVideoId) return;
+
+        const btn = document.getElementById('startSubtitleTranslateBtn');
+        if (!btn) return;
+
+        const trackSel = document.getElementById('subtitleTranslateTrack');
+        const langSel = document.getElementById('subtitleTranslateLanguage');
+        const trackId = trackSel ? trackSel.value : '';
+        const language = langSel ? langSel.value : '';
+
+        if (!trackId) {
+            if (window.showToast) window.showToast('Select a subtitle track to translate', 'error');
+            console.error('Translate subtitles: no track selected');
+            return;
+        }
+        if (!language) {
+            if (window.showToast) window.showToast('Select a target language', 'error');
+            console.error('Translate subtitles: no target language selected');
+            return;
+        }
+
+        btn.classList.add('is-loading');
+
+        const statusEl = document.getElementById('aiGenerationStatus');
+        if (statusEl) statusEl.textContent = 'Initializing translation...';
+
+        try {
+            const url = `/api/video/subtitles/${this.currentVideoId}/translate?trackId=${encodeURIComponent(trackId)}&language=${encodeURIComponent(language)}`;
+            const res = await fetch(url, { method: 'POST' });
+
+            if (res.status === 503) {
+                const message = 'Parakeet AI is not available on this server';
+                if (window.showToast) window.showToast(message, 'error');
+                if (statusEl) statusEl.textContent = message;
+                btn.classList.remove('is-loading');
+                return;
+            }
+
+            if (!res.ok) {
+                let message = 'Failed to start translation';
+                try {
+                    const errData = await res.json();
+                    if (errData && errData.error) message = errData.error;
+                } catch (e) {
+                    console.error('Failed to parse translation error response:', e);
+                }
+                if (window.showToast) window.showToast(message, 'error');
+                btn.classList.remove('is-loading');
+                return;
+            }
+
+            const progress = document.getElementById('aiGenerationProgress');
+            if (progress) progress.style.display = 'block';
+            if (statusEl) statusEl.textContent = 'Initializing translation...';
+            this.startAiPolling(this.currentVideoId);
+        } catch (e) {
+            console.error('Failed to start subtitle translation:', e);
+            if (window.showToast) window.showToast('Failed to start translation: ' + e.message, 'error');
+            btn.classList.remove('is-loading');
         } finally {
             btn.classList.remove('is-loading');
         }

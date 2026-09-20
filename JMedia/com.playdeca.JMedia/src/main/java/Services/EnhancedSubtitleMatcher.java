@@ -8,9 +8,13 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class EnhancedSubtitleMatcher {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(EnhancedSubtitleMatcher.class);
     
     // Language Code Mappings (ISO 639-2 ↔ Display Names)
     private static final Map<String, LanguageInfo> LANGUAGE_MAP = Map.ofEntries(
@@ -59,7 +63,7 @@ public class EnhancedSubtitleMatcher {
         try {
             tracks.addAll(ffprobeSubtitleService.extractSubtitleTracks(video, videoPath.toString()));
         } catch (Exception e) {
-            System.err.println("Error discovering internal subtitles: " + e.getMessage());
+            LOGGER.error("Error discovering internal subtitles: {}", e.getMessage(), e);
         }
         
         // 3. Language code analysis and track naming
@@ -104,7 +108,7 @@ public class EnhancedSubtitleMatcher {
                 ));
             }
         } catch (Exception e) {
-            System.err.println("Error scanning subtitle files in video folder: " + e.getMessage());
+            LOGGER.error("Error scanning subtitle files in video folder: {}", e.getMessage(), e);
         }
         
         return tracks;
@@ -128,13 +132,13 @@ public class EnhancedSubtitleMatcher {
                 .collect(Collectors.toList());
             
             for (Path subtitleFile : subtitleFiles) {
-                SubtitleTrack track = createTrackFromFile(subtitleFile, videoBasename, video);
+                SubtitleTrack track = createTrackFromFile(subtitleFile, videoDir, videoBasename, video);
                 if (track != null) {
                     tracks.add(track);
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error discovering subtitle files recursively: " + e.getMessage());
+            LOGGER.error("Error discovering subtitle files recursively: {}", e.getMessage(), e);
         }
         
         return tracks;
@@ -145,13 +149,14 @@ public class EnhancedSubtitleMatcher {
         return SUPPORTED_FORMATS.stream().anyMatch(format -> filename.endsWith("." + format));
     }
     
-    private SubtitleTrack createTrackFromFile(Path subtitleFile, String videoBasename, Video video) {
+    private SubtitleTrack createTrackFromFile(Path subtitleFile, Path videoDir, String videoBasename, Video video) {
         try {
             String filename = subtitleFile.getFileName().toString();
             String format = getFileExtension(filename);
             
-            // Check if this subtitle belongs to the video
-            if (!isSubtitleForVideo(filename, videoBasename)) {
+            // Check if this subtitle belongs to the video (smart-match: filename,
+            // video-named subfolder, or AI-generated naming)
+            if (!isSubtitleForVideo(subtitleFile, videoDir, videoBasename)) {
                 return null;
             }
             
@@ -163,15 +168,74 @@ public class EnhancedSubtitleMatcher {
             track.fileSize = Files.size(subtitleFile);
             track.isEmbedded = false;
             
+            // Flag AI-generated subtitles so they are preserved as such on merge
+            if (isAiGeneratedSubtitleForVideo(filename, videoBasename)) {
+                track.isAiGenerated = true;
+            }
+            
             // Extract language and special tags
             extractLanguageAndTags(filename, track);
             
             return track;
             
         } catch (Exception e) {
-            System.err.println("Error creating subtitle track from file: " + e.getMessage());
+            LOGGER.error("Error creating subtitle track from file: {}", e.getMessage(), e);
             return null;
         }
+    }
+    
+    /**
+     * Smart-match: a subtitle file belongs to a video when
+     * (a) its filename matches the video basename (existing rules), OR
+     * (b) it sits inside a video-named subfolder (a directory component under the
+     *     video's folder whose name matches the basename using the same rules as
+     *     filenames), OR
+     * (c) its filename looks like an AI-generated subtitle for this video.
+     *
+     * Conservative by design: generic folders such as "Subs", "Subtitles" or
+     * "Spanish" never match on their own — the video name must appear in the
+     * subfolder path, or the filename must match the basename.
+     */
+    private boolean isSubtitleForVideo(Path subtitleFile, Path videoDir, String videoBasename) {
+        String filename = subtitleFile.getFileName().toString();
+        
+        // (a) Filename matches the video basename (existing behavior)
+        if (isSubtitleForVideo(filename, videoBasename)) {
+            return true;
+        }
+        
+        // (b) File sits inside a video-named subfolder
+        Path parent = subtitleFile.getParent();
+        if (parent != null && videoDir != null) {
+            Path relative = videoDir.relativize(parent);
+            for (Path part : relative) {
+                if (isSubtitleForVideo(part.toString(), videoBasename)) {
+                    return true;
+                }
+            }
+        }
+        
+        // (c) AI-generated subtitle naming for this video
+        return isAiGeneratedSubtitleForVideo(filename, videoBasename);
+    }
+    
+    /**
+     * AI-generated subtitle naming: &lt;basename&gt;.&lt;lang&gt;.srt,
+     * &lt;basename&gt;.&lt;lang&gt;.ai.srt, or a filename containing the video
+     * basename together with a ".parakeet." or ".ai." marker.
+     */
+    private boolean isAiGeneratedSubtitleForVideo(String filename, String videoBasename) {
+        String lower = filename.toLowerCase();
+        String vidName = videoBasename.toLowerCase();
+        
+        // <basename>.<lang>.srt or <basename>.<lang>.ai.srt
+        if (lower.startsWith(vidName + ".")) {
+            return true;
+        }
+        
+        // contains ".parakeet." or ".ai." AND contains the basename
+        return lower.contains(vidName)
+                && (lower.contains(".parakeet.") || lower.contains(".ai."));
     }
     
     private boolean isSubtitleForVideo(String subtitleFilename, String videoBasename) {

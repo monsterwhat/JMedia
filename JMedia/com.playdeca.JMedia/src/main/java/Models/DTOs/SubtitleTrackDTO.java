@@ -6,6 +6,7 @@ public class SubtitleTrackDTO {
     public Long id;
     public String filename;
     public String languageCode;
+    public String language;
     public String languageName;
     public String displayName;
     public String format;
@@ -21,6 +22,7 @@ public class SubtitleTrackDTO {
         this.id = track.id;
         this.filename = track.filename;
         this.languageCode = track.languageCode;
+        this.language = track.languageCode;
         this.languageName = track.languageName;
         this.displayName = track.displayName;
         this.format = track.format;

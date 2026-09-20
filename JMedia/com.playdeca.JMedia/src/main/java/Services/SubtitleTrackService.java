@@ -2,6 +2,7 @@ package Services;
 
 import Models.Video.SubtitleTrack;
 import Models.Video.Video;
+import Models.DTOs.LocalSubtitleFile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -23,7 +25,13 @@ public class SubtitleTrackService {
     private static final int MAX_SUBTITLE_BASE64_LENGTH = 40_000_000;
 
     @Inject
-    SubtitleDownloadService downloadService;
+    SettingsService settingsService;
+
+    @Inject
+    EnhancedSubtitleMatcher subtitleMatcher;
+
+    @Inject
+    VideoService videoService;
 
     /**
      * Deletes an AI-generated subtitle track: removes the physical file from disk,
@@ -102,7 +110,7 @@ public class SubtitleTrackService {
         int lastSlash = Math.max(videoPathStr.lastIndexOf('/'), videoPathStr.lastIndexOf('\\'));
         int lastDot = videoPathStr.lastIndexOf('.');
         String videoBasename = videoPathStr.substring(lastSlash + 1, lastDot > lastSlash ? lastDot : videoPathStr.length());
-        String langCode = (language != null && !language.isBlank()) ? downloadService.mapToThreeLetterLanguage(language) : "und";
+        String langCode = (language != null && !language.isBlank()) ? mapToThreeLetterLanguage(language) : "und";
 
         String saveFilename = videoBasename + ".upload." + langCode + "." + ext;
         java.nio.file.Path videoDir = java.nio.file.Paths.get(video.path).getParent();
@@ -162,6 +170,122 @@ public class SubtitleTrackService {
     public boolean hasAiSubtitles(Long videoId) {
         if (videoId == null) return false;
         return SubtitleTrack.count("video.id = ?1 and isAiGenerated = ?2", videoId, true) > 0;
+    }
+
+    public String mapToThreeLetterLanguage(String lang) {
+        if (lang == null || lang.isBlank()) return "all";
+        
+        // Handle explicit SPL request from user
+        if (lang.equalsIgnoreCase("spl")) return "spl";
+        
+        if (lang.length() == 3) return lang.toLowerCase();
+        
+        // Common mappings for 2-letter to 3-letter codes
+        return switch (lang.toLowerCase()) {
+            case "en" -> "eng";
+            case "es" -> "spa";
+            case "fr" -> "fre";
+            case "de" -> "deu";
+            case "it" -> "ita";
+            case "pt" -> "por";
+            case "ru" -> "rus";
+            case "ja" -> "jpn";
+            case "ko" -> "kor";
+            case "zh" -> "chi";
+            default -> lang;
+        };
+    }
+
+    public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Video video) {
+        return subtitleMatcher.scanAllSubtitleFiles(Paths.get(video.path), video);
+    }
+
+    @Transactional
+    public void addLocalSubtitle(Video video, String filePath) {
+        Video managedVideo = Video.findById(video.id);
+        if (managedVideo == null) return;
+
+        String ext = getFileExtension(filePath);
+        if (!List.of("srt", "vtt", "ass", "ssa", "sub", "idx").contains(ext)) {
+            throw new RuntimeException("Unsupported subtitle format: " + ext + ". Supported: srt, vtt, ass, ssa, sub, idx");
+        }
+
+        String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path videoPath = Paths.get(managedVideo.path);
+        if (!videoPath.isAbsolute()) {
+            videoPath = Paths.get(libraryPath, managedVideo.path);
+        }
+        Path videoDir = videoPath.toAbsolutePath().normalize().getParent();
+        if (videoDir == null) {
+            throw new RuntimeException("Cannot determine video directory");
+        }
+
+        Path candidate = Paths.get(filePath);
+        if (!candidate.isAbsolute()) {
+            candidate = videoDir.resolve(candidate);
+        }
+
+        Path path;
+        Path videoDirCanonical;
+        try {
+            path = candidate.toRealPath();
+            videoDirCanonical = Files.exists(videoDir) ? videoDir.toRealPath() : videoDir;
+        } catch (IOException e) {
+            throw new RuntimeException("File does not exist: " + filePath);
+        }
+        if (!path.startsWith(videoDirCanonical)) {
+            throw new RuntimeException("Subtitle file must be located in the video directory");
+        }
+
+        // Check for duplicates
+        if (managedVideo.subtitleTracks != null && managedVideo.subtitleTracks.stream()
+                .anyMatch(t -> filePath.equals(t.fullPath) || t.fullPath != null && t.fullPath.equals(path.toString()))) {
+            return;
+        }
+
+        // Create manual track
+        SubtitleTrack track = new SubtitleTrack();
+        track.filename = path.getFileName().toString();
+        track.fullPath = path.toString();
+        track.format = getFileExtension(track.filename);
+        track.video = managedVideo;
+        track.isManual = true;
+
+        // Extract language and metadata using the matcher
+        subtitleMatcher.extractLanguageAndTags(track.filename, track);
+
+        // If still no display name, the matcher fix will fallback to filename
+        if (track.displayName == null || track.displayName.equals("Unknown")) {
+            track.displayName = track.filename + " (Manual)";
+        }
+
+        track.persist();
+        
+        if (managedVideo.subtitleTracks == null) {
+            managedVideo.subtitleTracks = new ArrayList<>();
+        }
+        managedVideo.subtitleTracks.add(track);
+        managedVideo.persist();
+        
+        LOG.info("Manually added subtitle track: " + filePath + " to video: " + managedVideo.title);
+    }
+
+    private String getFileExtension(String filename) {
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0 && lastDot < filename.length() - 1) {
+            return filename.substring(lastDot + 1).toLowerCase();
+        }
+        return "";
+    }
+
+    @Transactional
+    public void refreshSubtitleTracks(Video video) {
+        Video managedVideo = Video.findById(video.id);
+        if (managedVideo == null) return;
+        
+        List<SubtitleTrack> tracks = subtitleMatcher.discoverSubtitleTracks(Paths.get(managedVideo.path), managedVideo);
+        videoService.mergeSubtitleTracks(managedVideo.id, tracks);
+        LOG.info("Refreshed subtitle tracks for video: " + managedVideo.title);
     }
 
     /**

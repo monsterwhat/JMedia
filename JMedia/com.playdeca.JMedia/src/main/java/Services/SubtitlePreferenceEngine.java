@@ -112,11 +112,15 @@ public class SubtitlePreferenceEngine {
             return trackLang.equalsIgnoreCase(preferredLang);
         }
         
-        // Check 3-letter to 2-letter mapping
-        Map<String, String> twoLetterMap = Map.of(
-            "eng", "en", "fre", "fr", "spa", "es", "deu", "de",
-            "ita", "it", "por", "pt", "rus", "ru", "jpn", "ja",
-            "kor", "ko", "chi", "zh"
+        // Check 3-letter to 2-letter mapping (2-letter keys included so both
+        // sides normalize to the same 2-letter code)
+        Map<String, String> twoLetterMap = Map.ofEntries(
+            Map.entry("eng", "en"), Map.entry("fre", "fr"), Map.entry("spa", "es"), Map.entry("deu", "de"),
+            Map.entry("ita", "it"), Map.entry("por", "pt"), Map.entry("rus", "ru"), Map.entry("jpn", "ja"),
+            Map.entry("kor", "ko"), Map.entry("chi", "zh"),
+            Map.entry("en", "en"), Map.entry("es", "es"), Map.entry("fr", "fr"), Map.entry("de", "de"),
+            Map.entry("it", "it"), Map.entry("pt", "pt"), Map.entry("ru", "ru"), Map.entry("ja", "ja"),
+            Map.entry("ko", "ko"), Map.entry("zh", "zh")
         );
         
         String trackTwoLetter = twoLetterMap.get(trackLang.toLowerCase());
@@ -171,12 +175,13 @@ public class SubtitlePreferenceEngine {
     }
     
     private UserSubtitlePreferences getUserPreferences(Long userId) {
-        // In a real implementation, this would query the database
-        // For now, return default preferences
-        UserSubtitlePreferences prefs = new UserSubtitlePreferences();
-        prefs.userId = userId;
-        prefs.preferredLanguage = "eng"; // Default to English
-        prefs.enableAutoSelection = true;
+        UserSubtitlePreferences prefs = userInteractionService.getUserSubtitlePreferences(userId);
+        if (prefs == null) {
+            prefs = new UserSubtitlePreferences();
+            prefs.userId = userId;
+            prefs.preferredLanguage = "eng"; // Default to English
+            prefs.enableAutoSelection = true;
+        }
         return prefs;
     }
     

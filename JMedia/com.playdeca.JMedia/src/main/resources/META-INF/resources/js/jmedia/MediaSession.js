@@ -80,7 +80,13 @@
     };
 
     JMedia.MediaSession.setupHandlers = (apiPost, setPlaybackTime, audio) => {
+        var _isVideoBlocked = function() {
+            if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return true;
+            if (window.videoPlaying) return true;
+            return false;
+        };
         const handlePlayPause = () => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked play/pause — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'play/pause' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'playPause', profileId: window.globalActiveProfileId }
@@ -91,6 +97,7 @@
         navigator.mediaSession.setActionHandler('pause', handlePlayPause);
 
         navigator.mediaSession.setActionHandler('previoustrack', () => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked previoustrack — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'previoustrack' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'previous', profileId: window.globalActiveProfileId }
@@ -98,6 +105,7 @@
         });
 
         navigator.mediaSession.setActionHandler('nexttrack', () => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked nexttrack — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'nexttrack' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'next', profileId: window.globalActiveProfileId }
@@ -105,6 +113,7 @@
         });
 
         navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekto — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'seekto' action to", details.seekTime);
             window.dispatchEvent(new CustomEvent('requestAudioControl', {
                 detail: { action: 'setTime', value: details.seekTime, source: 'mediaSession' }
@@ -112,6 +121,7 @@
         });
 
         navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekbackward — video is active"); return; }
             const skipTime = details.seekOffset || 10;
             console.log("[MediaSession.js] Media Session: 'seekbackward' action by", skipTime, "seconds.");
             const audioEl = JMedia.PlaybackApi.getAudioElement();
@@ -124,6 +134,7 @@
         });
 
         navigator.mediaSession.setActionHandler('seekforward', (details) => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekforward — video is active"); return; }
             const skipTime = details.seekOffset || 10;
             console.log("[MediaSession.js] Media Session: 'seekforward' action by", skipTime, "seconds.");
             const audioEl = JMedia.PlaybackApi.getAudioElement();
@@ -136,6 +147,7 @@
         });
 
         navigator.mediaSession.setActionHandler('stop', () => {
+            if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked stop — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'stop' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'pause', profileId: window.globalActiveProfileId }

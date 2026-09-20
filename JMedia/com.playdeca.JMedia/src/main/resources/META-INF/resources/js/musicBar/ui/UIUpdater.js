@@ -48,9 +48,15 @@
         /**
          * Set up event listeners
          */
-        setupEventListeners: function() {
-            // Listen for state changes to trigger UI updates
+         setupEventListeners: function() {
+            // Listen for state changes to trigger UI updates — ignore while video is active
+            // to prevent [UIUpdater] Updating images churn during video playback.
             window.addEventListener('musicStateChanged', () => {
+                if (window.videoPlaying) {
+                    window.Helpers.log('UIUpdater: Video active — skipping throttledUpdate');
+                    console.log('[UIUpdater] Blocked update — video is active');
+                    return;
+                }
                 this.throttledUpdate();
             });
             
@@ -66,6 +72,11 @@
          */
         performUIUpdate: function() {
             if (!window.StateManager) return;
+            if (window.videoPlaying) {
+                window.Helpers.log('UIUpdater: Video active — skipping performUIUpdate');
+                console.log('[UIUpdater] Blocked performUIUpdate — video is active');
+                return;
+            }
             
             const state = window.StateManager.getState();
             const els = this.domElements;

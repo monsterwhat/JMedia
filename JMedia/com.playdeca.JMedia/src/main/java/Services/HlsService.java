@@ -70,6 +70,7 @@ public class HlsService {
     @Inject FFmpegDiscoveryService ffmpegDiscoveryService;
     @Inject GpuScheduler gpuScheduler;
     @Inject XtreamSessionService xtreamSessionService;
+    @Inject SubtitleTrackService subtitleTrackService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
@@ -105,6 +106,19 @@ public class HlsService {
 
         Video video = videoService.findById(videoId);
         if (video == null) throw new IOException("Video not found: " + videoId);
+
+        // Re-sync subtitle tracks before snapshotting them into the HLS session so IPTV/Xtream
+        // clients playing the master playlist see freshly discovered subtitles (external sidecars,
+        // AI-generated, Subs/ subfolders). Discovery is best-effort: if it fails, keep whatever was
+        // already persisted and stream on — never block session creation on subtitle discovery.
+        if (video.path != null && !video.path.isBlank()) {
+            try {
+                subtitleTrackService.refreshSubtitleTracks(video);
+            } catch (Exception e) {
+                LOG.warn("Subtitle discovery failed for video {} ({}); continuing with persisted subtitle tracks", videoId, video.title, e);
+            }
+        }
+
         Path sessionDir = getHlsBasePath().resolve(sessionId).toAbsolutePath();
         Files.createDirectories(sessionDir);
         cleanupSessionDirectory(sessionDir);

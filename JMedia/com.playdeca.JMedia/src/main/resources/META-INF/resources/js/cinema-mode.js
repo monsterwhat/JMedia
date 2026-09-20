@@ -3168,6 +3168,7 @@ function openSubtitleSearchSidebar() {
   if (toggleBtn) toggleBtn.classList.add('active');
   var aiTab = document.getElementById('subtitle-search-ai-tab');
   if (aiTab && aiTab.style.display !== 'none') loadSubtitleAiAudioTracks();
+  if (aiTab && aiTab.style.display !== 'none') loadSidebarTranslateTracks();
 }
 
 function closeSubtitleSearchSidebar() {
@@ -3186,14 +3187,11 @@ function toggleSubtitleSearchSidebar() {
     closeSubtitleSearchSidebar();
     return;
   }
-  var container = getPlayerContainer();
-  var input = document.getElementById('subtitleSearchQuery');
-  if (input && container && container.dataset.title) input.value = container.dataset.title;
   openSubtitleSearchSidebar();
 }
 
 function switchSubtitleSearchTab(tab) {
-  var tabs = ['search', 'local', 'upload', 'ai'];
+  var tabs = ['local', 'upload', 'ai'];
   tabs.forEach(function(t) {
     var content = document.getElementById('subtitle-search-' + t + '-tab');
     var btn = document.querySelector('[data-click="switchSubtitleSearchTab:' + t + '"]');
@@ -3202,6 +3200,7 @@ function switchSubtitleSearchTab(tab) {
   });
   if (tab === 'local') scanLocalSubtitles();
   if (tab === 'ai') loadSubtitleAiAudioTracks();
+  if (tab === 'ai') loadSidebarTranslateTracks();
 }
 
 async function loadSubtitleAiAudioTracks() {
@@ -3347,6 +3346,93 @@ function resetAiGenerationUI() {
   }
 }
 
+async function loadSidebarTranslateTracks() {
+  var sel = document.getElementById('subtitleSearchTranslateTrack');
+  var btn = document.getElementById('startAiTranslateBtn');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Loading...</option>';
+  if (btn) btn.disabled = true;
+  var videoId = getSubtitleSearchVideoId();
+  if (!videoId) return;
+  try {
+    var resp = await fetch('/api/video/subtitles/' + videoId);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var json = await resp.json();
+    var tracks = json.tracks || json.data || [];
+    if (!tracks || tracks.length === 0) {
+      sel.innerHTML = '<option value="">No existing subtitles</option>';
+      if (btn) btn.disabled = true;
+      return;
+    }
+    sel.innerHTML = tracks.map(function(t) {
+      var label = (t.displayName || t.languageName || t.languageCode || t.filename || ('Track ' + t.id)) + (t.isEmbedded ? ' (embedded)' : '');
+      return '<option value="' + escapeHtml(String(t.id)) + '">' + escapeHtml(label) + '</option>';
+    }).join('');
+    if (btn) btn.disabled = false;
+  } catch (e) {
+    console.error('Failed to load subtitle tracks for translation:', e);
+    sel.innerHTML = '<option value="">No existing subtitles</option>';
+    if (btn) btn.disabled = true;
+    if (window.showToast) window.showToast('Failed to load subtitle tracks', 'error');
+  }
+}
+
+async function translateExistingSubtitles() {
+  var videoId = getSubtitleSearchVideoId();
+  if (!videoId) {
+    if (window.showToast) window.showToast('No video selected', 'error');
+    return;
+  }
+  var btn = document.getElementById('startAiTranslateBtn');
+  if (btn) {
+    btn.classList.add('loading');
+    btn.disabled = true;
+  }
+  var trackSel = document.getElementById('subtitleSearchTranslateTrack');
+  var trackId = trackSel ? trackSel.value : '';
+  if (!trackId) {
+    if (window.showToast) window.showToast('Select a subtitle track to translate', 'error');
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+    return;
+  }
+  var langSelect = document.getElementById('subtitleSearchTranslateLang');
+  var lang = langSelect && langSelect.value ? langSelect.value : 'en';
+  var url = '/api/video/subtitles/' + videoId + '/translate?trackId=' + encodeURIComponent(trackId) + '&language=' + encodeURIComponent(lang);
+  try {
+    var resp = await fetch(url, { method: 'POST' });
+    if (resp.status === 503) {
+      if (window.showToast) window.showToast('Parakeet AI is not available on this server', 'error');
+      resetAiGenerationUI();
+      return;
+    }
+    if (!resp.ok) {
+      var data = await resp.json().catch(function() { return {}; });
+      if (window.showToast) window.showToast(data.error || 'Failed to start translation', 'error');
+      resetAiGenerationUI();
+      return;
+    }
+    var progress = document.getElementById('subtitleAiGenerationProgress');
+    if (progress) progress.style.display = 'flex';
+    var statusEl = document.getElementById('subtitleAiGenerationStatus');
+    if (statusEl) statusEl.textContent = 'Translating...';
+    if (_aiPollInterval === null) {
+      _aiPollInterval = setInterval(pollAiGenerationStatus, 2000);
+    }
+  } catch (e) {
+    console.error('Failed to start translation:', e);
+    if (window.showToast) window.showToast('Failed to start translation: ' + e.message, 'error');
+    resetAiGenerationUI();
+  } finally {
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+}
+
 function escapeHtml(str) {
   return String(str == null ? '' : str)
     .replace(/&/g, '&amp;')
@@ -3354,105 +3440,6 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-var _lastSubtitleSearchResults = null;
-var _lastSubtitleSearchLang = null;
-
-async function runSubtitleSearch() {
-  var videoId = getSubtitleSearchVideoId();
-  var body = document.getElementById('subtitle-search-results-body');
-  if (!videoId || !body) return;
-  var input = document.getElementById('subtitleSearchQuery');
-  var langSelect = document.getElementById('subtitleSearchLang');
-  var query = input ? input.value : '';
-  var lang = langSelect ? langSelect.value : 'en';
-  body.innerHTML = '<div class="subtitle-search-status"><i class="fa-solid fa-spinner fa-spin"></i><span>Searching subtitles...</span></div>';
-  try {
-    var resp = await fetch('/api/video/subtitles/' + videoId + '/search?language=' + encodeURIComponent(lang) + '&query=' + encodeURIComponent(query));
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var data = await resp.json();
-    _lastSubtitleSearchResults = data;
-    _lastSubtitleSearchLang = lang;
-    renderSubtitleSearchResults(data, lang);
-  } catch (e) {
-    body.innerHTML = '<div class="subtitle-search-empty">Search failed — is OpenSubtitles enabled in settings?</div>';
-  }
-}
-
-async function renderSubtitleSearchResults(results, lang) {
-  var body = document.getElementById('subtitle-search-results-body');
-  if (!body) return;
-  var videoId = getSubtitleSearchVideoId();
-  var downloaded = {};
-  try {
-    var resp = await fetch('/api/video/subtitles/' + videoId);
-    if (resp.ok) {
-      var d = await resp.json();
-      var tracks = d.tracks || d.data || [];
-      tracks.forEach(function(t) {
-        var fn = t.filename || '';
-        (results || []).forEach(function(r) {
-          if (fn.indexOf('os-' + r.id) !== -1) downloaded[String(r.id)] = true;
-        });
-      });
-    }
-  } catch (e) { /* network hiccup — treat as nothing downloaded yet */ }
-
-  if (!results || results.length === 0) {
-    body.innerHTML = '<div class="subtitle-search-empty">No subtitles found. Try a different name or language.</div>';
-    return;
-  }
-
-  body.innerHTML = results.map(function(r) {
-    var isAdded = !!downloaded[String(r.id)];
-    var langCode = escapeHtml(r.languageCode || String(r.language || '').substring(0, 2));
-    var rating = r.rating != null ? r.rating : '—';
-    var downloads = r.downloadCount != null ? r.downloadCount : 0;
-    return '\
-    <button class="episode-sidebar-item subtitle-result-item' + (isAdded ? ' added' : '') + '" data-click="downloadSubtitleResult" data-file-id="' + escapeHtml(r.id) + '" data-lang="' + escapeHtml(lang) + '">\
-      <div class="subtitle-result-badge">' + langCode + '</div>\
-      <div class="subtitle-result-main">\
-        <div class="subtitle-result-title">' + escapeHtml(r.filename) + '</div>\
-        <div class="subtitle-result-meta">' + escapeHtml(r.language) + ' • ★ ' + rating + ' • ' + downloads + ' downloads • ' + escapeHtml(r.format || 'srt') + '</div>\
-      </div>\
-      <span class="subtitle-result-download">' + (isAdded
-        ? '<i class="fa-solid fa-check"></i> Added'
-        : '<i class="fa-solid fa-download"></i> Download') + '</span>\
-    </button>';
-  }).join('');
-}
-
-async function downloadSubtitleResult(el) {
-  var videoId = getSubtitleSearchVideoId();
-  if (!videoId || !el) return;
-  var fileId = el.getAttribute('data-file-id');
-  var lang = el.getAttribute('data-lang');
-  if (!fileId) return;
-  var item = el.classList.contains('subtitle-result-item') ? el : el.closest('.subtitle-result-item');
-  var pill = item ? item.querySelector('.subtitle-result-download') : null;
-  el.classList.add('loading');
-  el.style.pointerEvents = 'none';
-  if (pill) pill.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-  try {
-    var resp = await fetch('/api/video/subtitles/' + videoId + '/download?fileId=' + encodeURIComponent(fileId) + '&language=' + encodeURIComponent(lang), { method: 'POST' });
-    if (!resp.ok) {
-      if (window.showToast) window.showToast('Download failed', 'error');
-    } else {
-      if (window.showToast) window.showToast('Subtitle downloaded!', 'success');
-      refreshPlayerSubtitleTracks();
-      if (item) item.classList.add('added');
-      if (_lastSubtitleSearchResults) renderSubtitleSearchResults(_lastSubtitleSearchResults, _lastSubtitleSearchLang);
-    }
-  } catch (e) {
-    if (window.showToast) window.showToast('Download failed — ' + e.message, 'error');
-  } finally {
-    el.classList.remove('loading');
-    el.style.pointerEvents = '';
-    if (pill && !(item && item.classList.contains('added'))) {
-      pill.innerHTML = '<i class="fa-solid fa-download"></i> Download';
-    }
-  }
 }
 
 async function scanLocalSubtitles() {
@@ -3621,20 +3608,6 @@ async function initSubtitleSearchSidebar() {
     return;
   }
   toggleBtn.style.display = '';
-  try {
-    var resp = await fetch('/api/video/subtitles/' + videoId);
-    if (!resp.ok) return;
-    var data = await resp.json();
-    var tracks = data.tracks || data.data || [];
-    if (tracks.length === 0) {
-      var container = getPlayerContainer();
-      var input = document.getElementById('subtitleSearchQuery');
-      // Pre-fill the search box only; do NOT auto-open the sidebar — its full-screen
-      // backdrop would sit above the player topbar and swallow clicks on the episode
-      // list toggle. The sidebar opens on demand via the subtitle button.
-      if (input && container && container.dataset.title) input.value = container.dataset.title;
-    }
-  } catch (e) { /* network hiccup — leave button-only access */ }
 }
 
 // ============================================================

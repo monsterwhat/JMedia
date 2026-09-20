@@ -250,7 +250,15 @@
                                             const tracksArr = Array.from(p.video.textTracks || []);
                                             console.log('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
 
-                                            let textTrack = tracksArr.find(tr => tr.label === (t.displayName || 'Subtitle'));
+                                            // Match by the appended <track> element's id (unique per subtitle id) so two
+                                            // tracks sharing a displayName (e.g. "Español" vs "Español (LATAM)") resolve to
+                                            // the exact track the user clicked. Fall back to label matching if the element's
+                                            // textTrack isn't exposed yet.
+                                            let textTrack = Array.from(p.video.querySelectorAll('track')).find(el => el.id === 'subtitle-track-' + t.id)?.track;
+
+                                            if (!textTrack) {
+                                                textTrack = tracksArr.find(tr => tr.label === (t.displayName || 'Subtitle'));
+                                            }
 
                                             if (!textTrack) {
                                                 textTrack = tracksArr.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
@@ -345,7 +353,7 @@
                     const track = p.video.textTracks[i];
                     if (track.mode === 'hidden') continue;
                     const trackEl = p.video.querySelector(`track[id="subtitle-track-${p.lastSelectedTrackId}"]`);
-                    const isSelected = trackEl && (track.label === trackEl.label);
+                    const isSelected = trackEl && (track === trackEl.track || (trackEl.track == null && track.label === trackEl.label));
                     track.mode = isSelected ? 'showing' : 'hidden';
                 }
             }
@@ -372,7 +380,7 @@
                 for (let i = 0; i < p.video.textTracks.length; i++) {
                     const track = p.video.textTracks[i];
                     const trackEl = p.video.querySelector(`track[id="subtitle-track-${p.lastSelectedTrackId}"]`);
-                    const isSelected = trackEl && (track.label === trackEl.label);
+                    const isSelected = trackEl && (track === trackEl.track || (trackEl.track == null && track.label === trackEl.label));
                     track.mode = isSelected ? 'showing' : 'hidden';
                 }
             }

@@ -68,6 +68,16 @@
          * @param {string} profileId - Profile ID
          */
         togglePlayPause: function(profileId) {
+            if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
+                console.log('[PlaybackController] Blocked togglePlayPause — video is active (coordinator)');
+                window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active (coordinator)');
+                return false;
+            }
+            if (window.videoPlaying) {
+                console.log('[PlaybackController] Blocked togglePlayPause — video is active');
+                window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active');
+                return false;
+            }
             if (!window.ActionTracker || !window.StateManager || !window.AudioEngine) {
                 window.Helpers.log('PlaybackController: Dependencies not available');
                 return false;
@@ -212,10 +222,25 @@
         },
         
         /**
-         * Toggle DJ Mode
-         * @param {string} profileId - Profile ID
-         */
+          * Toggle DJ Mode
+          * @param {string} profileId - Profile ID
+          */
         toggleDjMode: function(profileId) {
+            if (window.VideoModeCoordinator && window.VideoModeCoordinator.isDjLocked && window.VideoModeCoordinator.isDjLocked()) {
+                console.log('[DJ] Blocked toggleDjMode — DJ locked by VideoModeCoordinator');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — DJ locked (video active)');
+                return;
+            }
+            if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
+                console.log('[DJ] Blocked toggleDjMode — video is active (coordinator)');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active (coordinator)');
+                return;
+            }
+            if (window.videoPlaying) {
+                console.log('[DJ] Blocked toggleDjMode — video is active');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active');
+                return;
+            }
             const currentState = window.StateManager.getState();
             const newMode = !currentState.djModeActive;
             

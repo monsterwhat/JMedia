@@ -35,31 +35,45 @@
         },
 
         initVideoDetection: function() {
+            if (window.VideoModeCoordinator) {
+                setTimeout(function() {
+                    try { window.VideoModeCoordinator.syncFromDom('MusicBarInit.initVideoDetection'); } catch (e) { console.error('[MusicBarInit] coordinator sync failed', e); }
+                }, 500);
+                document.body.addEventListener('htmx:afterSwap', function() {
+                    setTimeout(function() { try { window.VideoModeCoordinator.syncFromDom('htmx:afterSwap'); } catch (e) { console.error('[MusicBarInit] htmx sync failed', e); } }, 100);
+                });
+                document.body.addEventListener('htmx:afterSettle', function() {
+                    setTimeout(function() { try { window.VideoModeCoordinator.syncFromDom('htmx:afterSettle'); } catch (e) { console.error('[MusicBarInit] htmx settle sync failed', e); } }, 100);
+                });
+                return;
+            }
             setTimeout(this.checkVideoPageState, 500);
-
-            document.body.addEventListener('htmx:afterSwap', () => {
-                setTimeout(this.checkVideoPageState, 100);
+            document.body.addEventListener('htmx:afterSwap', function() {
+                setTimeout(JMedia.MusicBarInit.checkVideoPageState, 100);
             });
-            document.body.addEventListener('htmx:afterSettle', () => {
-                setTimeout(this.checkVideoPageState, 100);
+            document.body.addEventListener('htmx:afterSettle', function() {
+                setTimeout(JMedia.MusicBarInit.checkVideoPageState, 100);
             });
-            setInterval(this.checkVideoPageState, 1000);
+            setInterval(JMedia.MusicBarInit.checkVideoPageState, 1000);
         },
 
         checkVideoPageState: function() {
-            const playerContainer = document.querySelector('.player-container');
-            const videoElement = document.getElementById('videoElement');
-            const customPlayer = document.getElementById('customPlayer');
-            const isActivePlayer = playerContainer || videoElement || customPlayer;
-            const isVideoPath = window.location.pathname.startsWith('/video');
-            const musicPlayer = document.querySelector('.persistent-music-player') ||
+            if (window.VideoModeCoordinator) {
+                try { window.VideoModeCoordinator.syncFromDom('MusicBarInit.checkVideoPageState'); } catch (e) { console.error('[MusicBarInit] coordinator sync failed', e); }
+                return;
+            }
+            var playerContainer = document.querySelector('.player-container');
+            var videoElement = document.getElementById('videoElement');
+            var customPlayer = document.getElementById('customPlayer');
+            var isActivePlayer = playerContainer || videoElement || customPlayer;
+            var isVideoPath = window.location.pathname.indexOf('/video') === 0;
+            var musicPlayer = document.querySelector('.persistent-music-player') ||
                                document.querySelector('.mobile-player') ||
                                document.getElementById('musicPlayerContainer');
 
             if (isActivePlayer || isVideoPath) {
-                // Suspend DJ activity when entering video section
-                if (!window.videoPlaying && window.DjTransitionManager) {
-                    window.DjTransitionManager.suspendForVideo();
+                if (!window.videoPlaying && window.DjTransitionManager && typeof window.DjTransitionManager.suspendForVideo === 'function') {
+                    try { window.DjTransitionManager.suspendForVideo(); } catch (e) { console.error('[MusicBarInit] suspendForVideo failed', e); }
                 }
                 window.videoPlaying = true;
                 document.body.classList.add('video-active');
@@ -67,11 +81,10 @@
                     musicPlayer.classList.add('video-active');
                     musicPlayer.style.setProperty('display', 'none', 'important');
                 }
-                // Only pause audio when an actual player is present (not just browsing)
-                const audio = JMedia.PlaybackApi.getAudioElement();
+                var audio = JMedia.PlaybackApi.getAudioElement();
                 if (audio && !audio.paused) {
-                    audio.pause();
-                    JMedia.PlaybackApi.pause();
+                    try { audio.pause(); } catch (e) { console.error('[MusicBarInit] audio pause failed', e); }
+                    try { JMedia.PlaybackApi.pause(); } catch (e) { console.error('[MusicBarInit] PlaybackApi pause failed', e); }
                 }
             } else if (window.videoPlaying === true) {
                 window.videoPlaying = false;
@@ -109,14 +122,15 @@
 
         initUIUpdateLoop: function() {
             setInterval(function() {
-                if (window.videoPlaying === true) {
-                    const player = document.getElementById('musicPlayerContainer');
+                var isVideo = window.VideoModeCoordinator ? window.VideoModeCoordinator.isVideoActive() : window.videoPlaying === true;
+                if (isVideo) {
+                    var player = document.getElementById('musicPlayerContainer');
                     if (player && player.style.display !== 'none') {
-                        player.style.setProperty('display', 'none', 'important');
+                        try { player.style.setProperty('display', 'none', 'important'); } catch (e) { console.error('[MusicBarInit] UI loop hide failed', e); }
                     }
-                    const audio = JMedia.PlaybackApi.getAudioElement();
+                    var audio = JMedia.PlaybackApi.getAudioElement();
                     if (audio && !audio.paused) {
-                        audio.pause();
+                        try { audio.pause(); } catch (e) { console.error('[MusicBarInit] UI loop pause failed', e); }
                     }
                 }
             }, 250);
@@ -294,17 +308,27 @@
     };
 
     window.setVideoPlaying = function(active) {
-        window.videoPlaying = active;
-        const player = document.getElementById('musicPlayerContainer');
+        if (window.VideoModeCoordinator) {
+            window.VideoModeCoordinator.setVideoMode(!!active, 'setVideoPlaying');
+            return;
+        }
+        window.videoPlaying = !!active;
+        var player = document.getElementById('musicPlayerContainer');
         if (active) {
-            if (player) player.style.setProperty('display', 'none', 'important');
+            if (player) {
+                try { player.style.setProperty('display', 'none', 'important'); } catch (e) { console.error('[MusicBarInit] setVideoPlaying hide failed', e); }
+            }
             if (JMedia.PlaybackApi.isPlaying()) {
-                const audio = JMedia.PlaybackApi.getAudioElement();
-                if (audio && !audio.paused) audio.pause();
-                JMedia.PlaybackApi.pause();
+                var audio = JMedia.PlaybackApi.getAudioElement();
+                if (audio && !audio.paused) {
+                    try { audio.pause(); } catch (e) { console.error('[MusicBarInit] setVideoPlaying pause failed', e); }
+                }
+                try { JMedia.PlaybackApi.pause(); } catch (e) { console.error('[MusicBarInit] setVideoPlaying api pause failed', e); }
             }
         } else {
-            if (player) player.style.setProperty('display', 'flex', 'important');
+            if (player) {
+                try { player.style.setProperty('display', 'flex', 'important'); } catch (e) { console.error('[MusicBarInit] setVideoPlaying show failed', e); }
+            }
         }
     };
 

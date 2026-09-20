@@ -306,6 +306,8 @@
          */
         setupArrowKeyControls: function() {
             document.addEventListener('keydown', (e) => {
+                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
+                if (window.videoPlaying) return;
                 switch (e.key) {
                     case 'ArrowLeft':
                         if (e.ctrlKey || e.metaKey) {
@@ -483,9 +485,10 @@
          */
         setupKeyboardShortcuts: function() {
             if (!this.settings.keyboardShortcuts) return;
-            
+
             document.addEventListener('keydown', (e) => {
-                // Global shortcuts
+                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
+                if (window.videoPlaying) return;
                 if (e.ctrlKey || e.metaKey) {
                     switch (e.key.toLowerCase()) {
                         case 'f':

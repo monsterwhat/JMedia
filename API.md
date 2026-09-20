@@ -258,11 +258,11 @@ All REST API responses follow the standard `ApiResponse` format:
 | GET | `/{videoId}` | List all subtitle tracks for video | `videoId` (path) |
 | GET | `/track/{trackId}` | Get subtitle track metadata | `trackId` (path) |
 | GET | `/track/{trackId}/raw` | Get raw subtitle content (WebVTT) | `trackId` (path) |
-| POST | `/{videoId}/generate` | Generate subtitles via Whisper AI | `videoId` (path), `language` (query) |
-| GET | `/{videoId}/search` | Search OpenSubtitles for video | `videoId` (path), `languages` (query) |
-| POST | `/{videoId}/download` | Download subtitle from OpenSubtitles | `videoId` (path), subtitle file ID (body) |
-| GET | `/{videoId}/local-files` | List local subtitle files matching video | `videoId` (path) |
+| POST | `/{videoId}/generate` | Generate subtitles via Parakeet TDT 0.6B v3 | `videoId` (path), `language` (query), `audioTrack` (query) |
+| POST | `/{videoId}/translate` | Translate existing subtitle via NLLB | `videoId` (path), `trackId` (query), `language` (query) |
+| GET | `/{videoId}/local-files` | List local subtitle files matching video (scan video folder) | `videoId` (path) |
 | POST | `/{videoId}/add-local` | Add local subtitle file to video | `videoId` (path), file path (body) |
+| POST | `/{videoId}/upload` | Upload subtitle file (SRT/VTT/ASS/SSA/SUB) | `videoId` (path), file content, filename, language (body) |
 | POST | `/preference` | Set global subtitle preference | Language, style preferences (body) |
 | POST | `/per-video-preference` | Set subtitle preference for specific video | Video ID, track ID (body) |
 

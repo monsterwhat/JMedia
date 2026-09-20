@@ -141,66 +141,64 @@
                 if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
 
                 const isVideoPage = viewName === 'video' || viewName === 'video-classic';
-                const musicPlayer = document.querySelector('.persistent-music-player') ||
-                                   document.querySelector('.mobile-player') ||
-                                   document.getElementById('musicPlayerContainer');
-
-                if (isVideoPage) {
-                    // IMMEDIATELY block ALL music — before any async work
-                    window.videoPlaying = true;
-                    document.body.classList.add('video-active');
-                    document.body.setAttribute('data-video-active', 'true');
-
-                    if (musicPlayer) {
-                        musicPlayer.style.setProperty('display', 'none', 'important');
-                        musicPlayer.classList.add('video-active');
-                    }
-
-                    if (window.AudioEngine) {
-                        window.AudioEngine.pause();
-                        const players = [window.AudioEngine.audio, window.AudioEngine.audioNext];
-                        players.forEach(a => {
-                            if (a) {
-                                a.pause();
-                                a.removeAttribute('src');
-                                a.load();
+                if (window.VideoModeCoordinator) {
+                    window.VideoModeCoordinator.setVideoMode(isVideoPage, 'App.loadView:' + viewName);
+                    if (isVideoPage) {
+                        var coordPlayers = window.AudioEngine ? [window.AudioEngine.audio, window.AudioEngine.audioNext] : [];
+                        for (var _ai = 0; _ai < coordPlayers.length; _ai++) {
+                            var _ap = coordPlayers[_ai];
+                            if (_ap) {
+                                try { _ap.removeAttribute('src'); _ap.load(); } catch (e) { console.error('[App] clear audio src failed', e); }
                             }
-                        });
-                        if (window.AudioEngine._isCrossfading) {
-                            window.AudioEngine._isCrossfading = false;
                         }
                     }
-
-                    // Kill any straggler audio elements not managed by AudioEngine
-                    document.querySelectorAll('audio').forEach(a => {
-                        a.pause();
-                        a.removeAttribute('src');
-                        a.load();
-                    });
-
-                    if (window.DjTransitionManager) {
-                        window.DjTransitionManager.suspendForVideo();
-                    }
-
-                    // Force state to not-playing (blocks WebSocket re-trigger)
-                    if (window.StateManager) {
-                        window.StateManager.updateState({ playing: false }, 'app.videoPage');
-                    }
-
-                    // Do NOT call PlaybackApi.pause() here — that tells the SERVER to pause,
-                    // which broadcasts playing:false to ALL connected clients (other windows/tabs).
-                    // We only stop audio LOCALLY so other monitors can keep playing music.
                 } else {
-                    window.videoPlaying = false;
-                    document.body.classList.remove('video-active');
-                    document.body.setAttribute('data-video-active', 'false');
-
-                    if (musicPlayer) {
-                        musicPlayer.style.removeProperty('display');
-                        musicPlayer.classList.remove('video-playing', 'video-active');
+                    var musicPlayer = document.querySelector('.persistent-music-player') ||
+                                       document.querySelector('.mobile-player') ||
+                                       document.getElementById('musicPlayerContainer');
+                    if (isVideoPage) {
+                        window.videoPlaying = true;
+                        document.body.classList.add('video-active');
+                        document.body.setAttribute('data-video-active', 'true');
+                        if (musicPlayer) {
+                            musicPlayer.style.setProperty('display', 'none', 'important');
+                            musicPlayer.classList.add('video-active');
+                        }
+                        if (window.AudioEngine) {
+                            window.AudioEngine.pause();
+                            var players = [window.AudioEngine.audio, window.AudioEngine.audioNext];
+                            players.forEach(function(a) {
+                                if (a) {
+                                    a.pause();
+                                    a.removeAttribute('src');
+                                    a.load();
+                                }
+                            });
+                            if (window.AudioEngine._isCrossfading) {
+                                window.AudioEngine._isCrossfading = false;
+                            }
+                        }
+                        document.querySelectorAll('audio').forEach(function(a) {
+                            a.pause();
+                            a.removeAttribute('src');
+                            a.load();
+                        });
+                        if (window.DjTransitionManager) {
+                            window.DjTransitionManager.suspendForVideo();
+                        }
+                        if (window.StateManager) {
+                            window.StateManager.updateState({ playing: false }, 'app.videoPage');
+                        }
+                    } else {
+                        window.videoPlaying = false;
+                        document.body.classList.remove('video-active');
+                        document.body.setAttribute('data-video-active', 'false');
+                        if (musicPlayer) {
+                            musicPlayer.style.removeProperty('display');
+                            musicPlayer.classList.remove('video-playing', 'video-active');
+                        }
+                        window.musicWasPlayingBeforeVideo = false;
                     }
-                    // NO auto-resume — user must manually press play on the music page
-                    window.musicWasPlayingBeforeVideo = false;
                 }
 
                 // Keep the browser tab title/favicon in sync with the current view.

@@ -13,34 +13,9 @@ function createSubtitleSearchSidebarHTML() {
       </button>\
     </div>\
     <div class="episode-sidebar-seasons" id="subtitle-search-tabs">\
-      <button class="episode-sidebar-season-btn active" data-click="switchSubtitleSearchTab:search">Search</button>\
-      <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:local">Local Files</button>\
+      <button class="episode-sidebar-season-btn active" data-click="switchSubtitleSearchTab:local">Local Files</button>\
       <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:upload">Upload</button>\
       <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:ai">AI Generation</button>\
-    </div>\
-    <div class="subtitle-search-body" id="subtitle-search-search-tab">\
-      <form class="subtitle-search-form" onsubmit="return false;">\
-        <input class="subtitle-search-input" id="subtitleSearchQuery" placeholder="Search by name..." onkeydown="if(event.key===\'Enter\')runSubtitleSearch()">\
-        <select class="subtitle-search-lang" id="subtitleSearchLang">\
-          <option value="en">English</option>\
-          <option value="es">Español</option>\
-          <option value="spl">Español (Latinoamérica)</option>\
-          <option value="fr">Français</option>\
-          <option value="de">Deutsch</option>\
-          <option value="it">Italiano</option>\
-          <option value="pt">Português</option>\
-          <option value="ru">Русский</option>\
-          <option value="ja">日本語</option>\
-          <option value="ko">한국어</option>\
-          <option value="zh">中文</option>\
-        </select>\
-        <button class="subtitle-search-go" data-click="runSubtitleSearch" title="Search">\
-          <i class="fa-solid fa-magnifying-glass"></i>\
-        </button>\
-      </form>\
-      <div class="episode-sidebar-list" id="subtitle-search-results-body">\
-        <div class="subtitle-search-empty">Search to find subtitles online</div>\
-      </div>\
     </div>\
     <div class="subtitle-search-body" id="subtitle-search-local-tab" style="display:none;">\
       <form class="subtitle-search-form" onsubmit="return false;">\
@@ -86,7 +61,7 @@ function createSubtitleSearchSidebarHTML() {
         <select class="subtitle-search-lang" id="subtitleSearchAiLang">\
           <option value="en">English</option>\
           <option value="es">Español</option>\
-          <option value="spl">Español (Latinoamérica)</option>\
+          <option value="es">Español (Latinoamérica)</option>\
           <option value="fr">Français</option>\
           <option value="de">Deutsch</option>\
           <option value="it">Italiano</option>\
@@ -103,6 +78,29 @@ function createSubtitleSearchSidebarHTML() {
           <i class="fa-solid fa-magic"></i><span>Generate with AI</span>\
         </button>\
       </form>\
+      <h4><i class="fa-solid fa-language"></i> Translate Existing Subtitle</h4>\
+      <form class="subtitle-search-form" onsubmit="return false;">\
+        <select class="subtitle-search-lang" id="subtitleSearchTranslateTrack" title="Subtitle track to translate">\
+          <option value="">Loading...</option>\
+        </select>\
+        <select class="subtitle-search-lang" id="subtitleSearchTranslateLang">\
+          <option value="en">English</option>\
+          <option value="es">Español</option>\
+          <option value="es">Español (Latinoamérica)</option>\
+          <option value="fr">Français</option>\
+          <option value="de">Deutsch</option>\
+          <option value="it">Italiano</option>\
+          <option value="pt">Português</option>\
+          <option value="ru">Русский</option>\
+          <option value="ja">日本語</option>\
+          <option value="ko">한국어</option>\
+          <option value="zh">中文</option>\
+        </select>\
+        <button class="subtitle-search-go" id="startAiTranslateBtn" data-click="translateExistingSubtitles">\
+          <i class="fa-solid fa-language"></i><span>Translate</span>\
+        </button>\
+      </form>\
+      <div class="subtitle-upload-hint">Adds a new <code>.&lt;lang&gt;.srt</code> track from the selected subtitle (no audio transcription).</div>\
       <div class="subtitle-search-status" id="subtitleAiGenerationProgress" style="display:none;">\
         <i class="fa-solid fa-spinner fa-spin"></i><span id="subtitleAiGenerationStatus">Generating subtitles...</span>\
         <button class="subtitle-search-go" id="cancelAiSidebarBtn" data-click="cancelAiGeneration" style="margin: 0 auto;">\

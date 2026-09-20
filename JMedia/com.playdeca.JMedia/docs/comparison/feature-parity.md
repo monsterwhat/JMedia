@@ -88,7 +88,7 @@
 | External subtitle files (SUB) | ✅ - subtitle-manager.js (upload supports SUB) | ✅ | ✅ |
 | AI subtitle generation (Parakeet) | ✅ - Services/ParakeetService.java, Services/AiSubtitleJobService.java | ❌ | ❌ |
 | AI subtitle translation (27 languages) | ✅ - Services/ParakeetService.java, settings.html AI tab (en/es/fr/de/it/pt/nl/ru/ja/zh/ko/ar/hi/tr/pl/sv/da/no/fi/el/cs/ro/hu/uk/th/vi/id/ms/he) | ❌ | ❌ |
-| Subtitle download (OpenSubtitles) | ✅ - Services/SubtitleDownloadService.java (downloadSubtitleWithLang) | 🔒 | ✅ |
+| AI subtitle translation (NLLB, 27 languages) | ✅ - Services/ParakeetService.java (translateSubtitle via NLLB — en/es/fr/de/it/pt/nl/ru/ja/zh/ko/ar/hi/tr/pl/sv/da/no/fi/el/cs/ro/hu/uk/th/vi/id/ms/he) | ❌ | ❌ |
 | Subtitle upload (local files) | ✅ - SubtitleAPI.uploadSubtitle(), subtitle-manager.js UI (SRT/VTT/ASS/SSA/SUB) | ✅ | ✅ |
 | Subtitle scanning/matching | ✅ - Services/EnhancedSubtitleMatcher.java (20+ language auto-detection, filename-based) | ✅ | ✅ |
 | Forced subtitle support | ✅ - FFprobeSubtitleService.java:159 (disposition.forced flag) | ✅ | ✅ |

@@ -333,8 +333,45 @@
                 stateUpdates.djModeActive = currentState.djModeActive;
             }
 
+            // Gate DJ and song churn while video is active — prevents the 1s flap
+            // where server DJ broadcasts interleave with subtitle cue renders and
+            // drive UIUpdater + AudioEngine Blocked setSource spam.
+            if (window.videoPlaying) {
+                window.Helpers.log('WebSocketManager: Video active — blocking DJ/music state churn');
+                console.log('[WebSocketManager] Video active — blocking DJ/music state churn');
+                if (currentState) {
+                    stateUpdates.djModeActive = currentState.djModeActive;
+                    stateUpdates.djNextSongId = currentState.djNextSongId;
+                    stateUpdates.djEntryTime = currentState.djEntryTime;
+                    stateUpdates.djExitTime = currentState.djExitTime;
+                    stateUpdates.djTransitionPlanned = currentState.djTransitionPlanned;
+                    stateUpdates.djTransitionConfidence = currentState.djTransitionConfidence;
+                    stateUpdates.djTransitionReason = currentState.djTransitionReason;
+                    stateUpdates.crossfadeDuration = currentState.crossfadeDuration;
+                    // Block song/image churn that fires [UIUpdater] Updating images for song while video plays
+                    if (state.currentSongId !== currentState.currentSongId) {
+                        window.Helpers.log('WebSocketManager: Video active — blocking song change ' + currentState.currentSongId + ' -> ' + state.currentSongId);
+                        console.log('[WebSocketManager] Blocked song change while video active:', currentState.currentSongId, '->', state.currentSongId);
+                        stateUpdates.currentSongId = currentState.currentSongId;
+                        stateUpdates.artist = currentState.artist;
+                        stateUpdates.songName = currentState.songName;
+                        stateUpdates.duration = currentState.duration;
+                        stateUpdates.currentSongData = currentState.currentSongData;
+                    }
+                    stateUpdates.cue = currentState.cue;
+                    stateUpdates.shuffleMode = currentState.shuffleMode;
+                    stateUpdates.repeatMode = currentState.repeatMode;
+                } else {
+                    stateUpdates.djModeActive = false;
+                    stateUpdates.djTransitionPlanned = false;
+                }
+            }
+
             if (!window.videoPlaying) {
                 stateUpdates.playing = state.playing;
+            } else {
+                // While video is active, never let server override local playing:false
+                window.Helpers.log('WebSocketManager: Video active — preserving local playing:' + (currentState ? currentState.playing : false));
             }
 
             window.dispatchEvent(new CustomEvent('requestStateUpdate', {

@@ -184,7 +184,7 @@
 |----------|--------------|-----------|---------|
 | Embedded Track Extraction | Extract embedded subtitle tracks from video files via FFprobe. | Desktop / Mobile | ✅ |
 | External File Matching | Automatic .srt/.vtt/.ass/.ssa file matching to videos. | Desktop / Mobile | ✅ |
-| OpenSubtitles Integration | Search and download subtitles from OpenSubtitles.org. | Desktop / Mobile | ✅ |
+| Local Subtitle Scan & Upload | Scan video folder for subtitle files and upload local files (SRT/VTT/ASS/SSA/SUB). | Desktop / Mobile | ✅ |
 | AI Subtitle Generation | AI-powered subtitle generation via NVIDIA Parakeet TDT 0.6B v3. | Desktop / Mobile | ✅ |
 | Format Conversion | Automatic SRT/ASS/SSA to WebVTT conversion with timestamp offset. | Desktop / Mobile | ✅ |
 | Subtitle Preference Engine | Intelligent auto-selection by language, style, and user preference. | Desktop / Mobile | ✅ |
@@ -309,7 +309,7 @@
 |------|-----------|
 | **Music Playback & Library** | ~90% — Core playback, queue, playlists, DJ mode, audio analysis complete |
 | **Video Playback & Library** | ~95% — Full streaming, HLS, subtitles, metadata enrichment, thumbnails, storyboards |
-| **Subtitle Management** | ~95% — Extraction, matching, download, generation, conversion, preferences |
+| **Subtitle Management** | ~95% — Extraction, matching, local scan/upload, Parakeet TDT generation, NLLB translation, conversion, preferences |
 | **Video Collections** | ~90% — Full CRUD, watch progress, HTMX UI |
 | **Xtream Codes Emulation** | ~90% — Full VOD/series API emulation |
 | **Authentication & Security** | ~85% — Login, sessions, rate limiting, roles complete |

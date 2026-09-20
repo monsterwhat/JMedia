@@ -5,7 +5,6 @@ import Models.Video.SubtitleTrack;
 import Models.Settings.User;
 import Models.Video.UserSubtitlePreferences;
 import Models.Video.Video;
-import Models.DTOs.SubtitleSearchResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -15,7 +14,6 @@ import Services.SubtitleFormatConverter;
 import Services.SubtitlePreferenceEngine;
 import Services.UserInteractionService;
 import Services.ParakeetService;
-import Services.SubtitleDownloadService;
 import Services.SubtitleTrackService;
 import Services.FFprobeSubtitleService; 
 import Services.PgsOcrService;
@@ -44,9 +42,6 @@ public class SubtitleAPI {
     @Inject
     private ParakeetService parakeetService;
     
-    @Inject
-    private SubtitleDownloadService downloadService;
-
     @Inject
     private Services.VideoService videoService;
 
@@ -100,63 +95,42 @@ public class SubtitleAPI {
         return Response.ok(createSuccessResponse("Generation cancelled")).build();
     }
     
-    @GET
-    @Path("/{videoId}/search")
-    public Response searchSubtitle(@PathParam("videoId") Long videoId,
-                                 @QueryParam("language") @DefaultValue("en") String language,
-                                 @QueryParam("query") String query) {
-        Video video = Video.findById(videoId);
-        if (video == null) {
-            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
-        }
-
-        try {
-            List<SubtitleSearchResult> results = downloadService.searchSubtitles(video, language, query);
-            return Response.ok(results).build();
-        } catch (Exception e) {
-            LOGGER.error("Subtitle search failed", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Subtitle search failed")).build();
-        }
-    }
-    
     @POST
-    @Path("/{videoId}/download")
-    public Response downloadSubtitle(@PathParam("videoId") Long videoId, 
-                                   @QueryParam("fileId") String fileId,
-                                   @QueryParam("language") String language,
-                                   @HeaderParam("X-User-ID") Long userId) {
+    @Path("/{videoId}/translate")
+    public Response translateSubtitle(@PathParam("videoId") Long videoId,
+                                      @QueryParam("trackId") Long trackId,
+                                      @QueryParam("language") String language) {
         Video video = Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
         }
         
-        if (fileId == null || fileId.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST).entity("fileId is required").build();
+        if (trackId == null || language == null || language.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("trackId and language are required").build();
+        }
+        
+        SubtitleTrack track = SubtitleTrack.findById(trackId);
+        if (track == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Subtitle track not found").build();
+        }
+        if (track.video == null || !track.video.id.equals(videoId)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("trackId does not belong to the given video").build();
+        }
+        
+        if (!parakeetService.isParakeetAvailable()) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity("Parakeet is not available on this server").build();
         }
         
         try {
-            downloadService.downloadSubtitleWithLang(video, fileId, language);
-            
-            // Return updated tracks immediately to avoid race conditions
-            List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
-            tracks = preferenceEngine.sortTracksByPreference(tracks, userId);
-            SubtitleTrack preferredTrack = preferenceEngine.selectBestSubtitleTrack(videoId, userId);
-            
-            List<Models.DTOs.SubtitleTrackDTO> dtoTracks = tracks.stream()
-                .map(Models.DTOs.SubtitleTrackDTO::new)
-                .collect(java.util.stream.Collectors.toList());
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Subtitle downloaded successfully");
-            response.put("tracks", dtoTracks);
-            response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
-            
-            return Response.ok(response).build();
+            parakeetService.translateSubtitle(track, language, null);
+            return Response.ok(createSuccessResponse("Subtitle translation started in background")).build();
         } catch (Exception e) {
-            LOGGER.error("Subtitle download failed", e);
+            LOGGER.error("Failed to start subtitle translation", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Subtitle download failed")).build();
+                    .entity(Map.of("error", "Failed to start subtitle translation")).build();
         }
     }
     
@@ -169,7 +143,7 @@ public class SubtitleAPI {
         }
         
         try {
-            List<Models.DTOs.LocalSubtitleFile> potentialTracks = downloadService.scanAllSubtitleFiles(video);
+            List<Models.DTOs.LocalSubtitleFile> potentialTracks = subtitleTrackService.scanAllSubtitleFiles(video);
             return Response.ok(potentialTracks).build();
         } catch (Exception e) {
             LOGGER.error("Failed to scan local subtitle files", e);
@@ -195,7 +169,7 @@ public class SubtitleAPI {
         }
         
         try {
-            downloadService.addLocalSubtitle(video, filePath);
+            subtitleTrackService.addLocalSubtitle(video, filePath);
             
             // Return updated tracks immediately
             List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
@@ -265,15 +239,19 @@ public class SubtitleAPI {
     @GET
     @Path("/{videoId}")
     public Response getSubtitleTracks(@PathParam("videoId") Long videoId,
-                                       @HeaderParam("X-User-ID") Long userId) {
+                                       @HeaderParam("X-User-ID") Long userId,
+                                       @QueryParam("refresh") @DefaultValue("false") boolean refresh) {
         try {
             List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
             
-            // If no tracks found, attempt on-demand discovery for this specific video
-            if (tracks.isEmpty()) {
+            // On-demand discovery: when no tracks are stored yet, or when an explicit
+            // refresh is requested, re-scan the video's folder and merge new tracks in
+            // (merge preserves existing/manual tracks and their IDs).
+            if (tracks.isEmpty() || refresh) {
                 Video video = Video.findById(videoId);
                 if (video != null && video.path != null) {
-                    LOGGER.info("No subtitle tracks found for video {}, attempting on-demand discovery for embedded/external tracks...", videoId);
+                    LOGGER.info("{} subtitle tracks for video {}, attempting on-demand discovery for embedded/external tracks...",
+                            refresh ? "Refreshing" : "No", videoId);
                     java.nio.file.Path videoPath = java.nio.file.Paths.get(video.path);
                     if (!videoPath.isAbsolute()) {
                         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
@@ -282,16 +260,15 @@ public class SubtitleAPI {
                     
                     if (java.nio.file.Files.exists(videoPath)) {
                         List<SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
-                        if (discovered != null && !discovered.isEmpty()) {
+                        if (discovered != null) {
                             // Ensure all tracks are properly initialized
                             for (SubtitleTrack track : discovered) {
                                 track.video = video;
-                                
                             }
-                            videoService.updateSubtitleTracks(videoId, discovered);
-                            tracks = userInteractionService.getSubtitleTracks(videoId);
-                            LOGGER.info("On-demand discovery found {} tracks for video {}", tracks.size(), videoId);
+                            videoService.mergeSubtitleTracks(videoId, discovered);
                         }
+                        tracks = userInteractionService.getSubtitleTracks(videoId);
+                        LOGGER.info("On-demand discovery found {} tracks for video {}", tracks.size(), videoId);
                     }
                 }
             }

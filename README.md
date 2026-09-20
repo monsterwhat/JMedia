@@ -49,7 +49,7 @@ Unlike traditional streaming services, JMedia ensures that your data — from yo
 ### 🎬 **Full Video Management System**
 - **Smart Video Import**: Automatic library scanning with metadata extraction using `ffprobe`.
 - **Content Detection**: Intelligent detection of movies and TV series with episode/season parsing.
-- **Subtitle Support**: Automatic subtitle file matching (.srt, .vtt, .ass, .ssa) with OpenSubtitle integration and preference engine.
+- **Subtitle Support**: Automatic subtitle file matching (.srt, .vtt, .ass, .ssa) with local-folder scan, file upload, AI generation via Parakeet TDT and NLLB translation, plus preference engine.
 - **Subtitle Generation**: AI-powered subtitle generation via NVIDIA Parakeet TDT 0.6B v3.
 - **Video Streaming**: HTTP-based streaming with range request support and on-the-fly MKV-to-MP4 transcoding (configurable/disableable).
 - **HLS Streaming**: Adaptive bitrate streaming with FFmpeg segmenter, master/variant playlists, and media segments.
@@ -153,7 +153,7 @@ This means:
 | **Real-Time Communication** | Jakarta WebSockets |
 | **Audio Processing** | jaudiotagger (metadata), TarsosDSP (BPM/beat detection) |
 | **Video Processing** | ffprobe, FFmpeg (transcoding, HLS segmenting, conversion) |
-| **Subtitle Processing** | FFprobe (embedded extraction), OpenSubtitle (search/download), JASSUB (ASS rendering in browser) |
+| **Subtitle Processing** | FFprobe (embedded extraction), local-folder scan + upload, Parakeet TDT 0.6B v3 (AI generation) + NLLB (translation), JASSUB (ASS rendering in browser) |
 | **AI/ML** | OpenAI Whisper (music lyrics), NVIDIA Parakeet TDT 0.6B v3 (video subtitles) |
 | **Video Players** | Video.js, OPlayer (with HLS.js, HEVC WASM decoding, custom adapters) |
 | **External APIs** | IMDb, TMDb, OMDb, TVMaze (metadata enrichment), IntroDB (intro/credits detection) |
@@ -428,7 +428,7 @@ The REST API endpoints are located in `src/main/java/API/Rest`. JMedia exposes *
 - **SeriesAPI**: `/api/series/` - Series details, episodes, posters, backdrops
 
 ### 🎭 **Subtitle API Endpoints**
-- **SubtitleAPI**: `/api/video/subtitles` - Subtitle generation (Parakeet), OpenSubtitles search/download, local file management, per-video preferences, track management
+- **SubtitleAPI**: `/api/video/subtitles` - AI subtitle generation via Parakeet TDT 0.6B v3, translation via NLLB, local-folder scan and file upload, per-video preferences, track management
 - **AiSubtitleApi**: `/api/ai-subtitles` - AI subtitle generation status, tracks, cancellation, languages
 
 ### 📺 **IPTV & Live TV API Endpoints**
@@ -513,6 +513,5 @@ This license ensures:
 - [FFmpeg/ffprobe](https://ffmpeg.org/) — Multimedia processing
 - [Whisper](https://github.com/openai/whisper) — AI transcription for music lyrics
 - [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — AI transcription for video subtitles
-- [OpenSubtitle](https://www.opensubtitles.org/) — Subtitle database
 - [IMDb](https://www.imdb.com/) — Movie and TV metadata
 - The open-source community and all contributors
