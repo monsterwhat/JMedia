@@ -577,7 +577,9 @@ public class TranscodingService {
                 w = Integer.parseInt(p[0]);
                 h = Integer.parseInt(p[1]);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            LOG.debug("Unparseable resolution '{}', defaulting scale to 1920x1080: {}", resolution, e.getMessage());
+        }
         // Never upscale — if source is already below the target, no scaling needed.
         if (h > 0 && qualityHeight >= h) return null;
         double aspect = (double) w / h;
@@ -612,7 +614,9 @@ public class TranscodingService {
                 w = Integer.parseInt(p[0]);
                 h = Integer.parseInt(p[1]);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            LOG.debug("Unparseable resolution '{}', defaulting scale to 1920x1080: {}", resolution, e.getMessage());
+        }
         // Never upscale — if source is already below the target, no scaling needed.
         if (h > 0 && qualityHeight >= h) return null;
         double aspect = (double) w / h;
@@ -693,7 +697,9 @@ public class TranscodingService {
                 w = Integer.parseInt(p[0]);
                 h = Integer.parseInt(p[1]);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            LOG.debug("Unparseable resolution '{}', defaulting format to 1920x1080: {}", resolution, e.getMessage());
+        }
 
         boolean decoderIsCuda = hardwareDecoder.contains("cuvid");
         boolean encoderIsNvenc = videoEncoder.contains("nvenc");
@@ -739,7 +745,9 @@ public class TranscodingService {
                     w = Integer.parseInt(p[0]);
                     h = Integer.parseInt(p[1]);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                LOG.debug("Unparseable resolution '{}', defaulting vaapi upload to 1920x1080: {}", resolution, e.getMessage());
+            }
             // Never upscale — matches buildScaleFilter semantics.
             if (h > 0 && qualityHeight < h) {
                 double aspect = (double) w / h;
@@ -1998,7 +2006,7 @@ public class TranscodingService {
             try {
                 writtenFrontier = coverage.startSeconds + FragmentedMp4Seeker.endTimeSeconds(coverage.file);
             } catch (java.io.IOException e) {
-                LOG.debug("Failed to read written frontier of segment {}: {}", coverage.file, e.getMessage());
+                LOG.warn("Failed to read written frontier of segment {}: {}", coverage.file, e.getMessage());
             }
             coverageProtectsWriter = startSeconds - writtenFrontier <= FAR_SEEK_AHEAD_SECONDS;
         }
@@ -2665,7 +2673,7 @@ public class TranscodingService {
             try {
                 Files.deleteIfExists(tempFile);
             } catch (IOException e) {
-                LOG.debug("Could not delete failed gap temp {}: {}", tempFile, e.getMessage());
+                LOG.warn("Could not delete failed gap temp {}: {}", tempFile, e.getMessage());
             }
             return null;
         } catch (IOException e) {
@@ -2676,7 +2684,7 @@ public class TranscodingService {
             try {
                 Files.deleteIfExists(tempFile);
             } catch (IOException ex) {
-                LOG.debug("Could not delete gap temp {} after launch failure: {}", tempFile, ex.getMessage());
+                LOG.warn("Could not delete gap temp {} after launch failure: {}", tempFile, ex.getMessage());
             }
             return null;
         } finally {
