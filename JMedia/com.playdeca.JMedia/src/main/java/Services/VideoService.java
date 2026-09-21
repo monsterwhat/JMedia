@@ -1859,6 +1859,25 @@ public class VideoService {
         if (seriesTitle == null) return;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         for (Video v : videos) {
+            boolean showImdbChanged = isIdChanged(showImdbId, v.showImdbId);
+            boolean tvdbChanged = isIdChanged(tvdbId, v.tvdbId);
+            boolean tmdbChanged = isIdChanged(tmdbId, v.tmdbId);
+            if (showImdbChanged || tvdbChanged || tmdbChanged) {
+                String oldShow = v.showImdbId;
+                String oldTvdb = v.tvdbId;
+                String oldTmdb = v.tmdbId;
+                String newShow = showImdbChanged ? showImdbId.trim() : oldShow;
+                String newTvdb = tvdbChanged ? String.valueOf(tvdbId) : oldTvdb;
+                String newTmdb = tmdbChanged ? String.valueOf(tmdbId) : oldTmdb;
+                LOGGER.info("Clearing intro/outro/recap markers for video {} (series='{}' S{}E{}) due to ID change: showImdbId '{}'->'{}', tvdbId '{}'->'{}', tmdbId '{}'->'{}'", v.id, seriesTitle, v.seasonNumber, v.episodeNumber, oldShow, newShow, oldTvdb, newTvdb, oldTmdb, newTmdb);
+                v.introStart = null;
+                v.introEnd = null;
+                v.outroStart = null;
+                v.outroEnd = null;
+                v.recapStart = null;
+                v.recapEnd = null;
+                VideoMetadataService.evictNoDataCache(v.id);
+            }
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
@@ -1910,6 +1929,25 @@ public class VideoService {
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         int queued = 0;
         for (Video v : videos) {
+            boolean showImdbChanged = isIdChanged(showImdbId, v.showImdbId);
+            boolean tvdbChanged = isIdChanged(tvdbId, v.tvdbId);
+            boolean tmdbChanged = isIdChanged(tmdbId, v.tmdbId);
+            if (showImdbChanged || tvdbChanged || tmdbChanged) {
+                String oldShow = v.showImdbId;
+                String oldTvdb = v.tvdbId;
+                String oldTmdb = v.tmdbId;
+                String newShow = showImdbChanged ? showImdbId.trim() : oldShow;
+                String newTvdb = tvdbChanged ? String.valueOf(tvdbId) : oldTvdb;
+                String newTmdb = tmdbChanged ? String.valueOf(tmdbId) : oldTmdb;
+                LOGGER.info("Clearing intro/outro/recap markers for video {} (series='{}' S{}E{}) due to ID change: showImdbId '{}'->'{}', tvdbId '{}'->'{}', tmdbId '{}'->'{}'", v.id, seriesTitle, v.seasonNumber, v.episodeNumber, oldShow, newShow, oldTvdb, newTvdb, oldTmdb, newTmdb);
+                v.introStart = null;
+                v.introEnd = null;
+                v.outroStart = null;
+                v.outroEnd = null;
+                v.recapStart = null;
+                v.recapEnd = null;
+                VideoMetadataService.evictNoDataCache(v.id);
+            }
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
@@ -2229,6 +2267,23 @@ public class VideoService {
             LOGGER.error("Failed to refetch images for series '{}': {}", seriesTitle, e.getMessage(), e);
 return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.ERROR, "Failed to refetch images: " + e.getMessage());
         }
+    }
+
+    private boolean isIdChanged(String incoming, String stored) {
+        if (incoming == null || incoming.isBlank()) return false;
+        String nIncoming = incoming.trim();
+        String nStored = stored != null ? stored.trim() : null;
+        if (nStored == null || nStored.isBlank()) return true;
+        return !nIncoming.equals(nStored);
+    }
+
+    private boolean isIdChanged(Integer incoming, String stored) {
+        if (incoming == null) return false;
+        String nIncoming = String.valueOf(incoming).trim();
+        if (nIncoming.isBlank()) return false;
+        String nStored = stored != null ? stored.trim() : null;
+        if (nStored == null || nStored.isBlank()) return true;
+        return !nIncoming.equals(nStored);
     }
 
     public List<Video> personalizeVideoRecommendations(List<Video> videos, Long userId) {

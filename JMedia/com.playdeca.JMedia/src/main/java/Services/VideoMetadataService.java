@@ -47,6 +47,11 @@ public class VideoMetadataService {
     /** Cache of video IDs where IntroDB returned no data, to avoid repeated API calls. */
     private static final Map<Long, Long> INTRODB_NO_DATA_CACHE = new ConcurrentHashMap<>();
     private static final long INTRODB_NO_DATA_TTL_MS = 24 * 60 * 60 * 1000L; // 24 hours
+
+    public static void evictNoDataCache(Long videoId) {
+        if (videoId == null) return;
+        INTRODB_NO_DATA_CACHE.remove(videoId);
+    }
     
     @Inject
     SettingsService settingsService;
