@@ -119,7 +119,7 @@ public class ArtworkAPI {
         }
         return Response.ok(served.bytes())
                 .type(served.contentType())
-                .header("Cache-Control", "public, max-age=86400")
+                .header("Cache-Control", "public, no-cache")
                 .build();
     }
 

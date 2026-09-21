@@ -1858,11 +1858,13 @@ public class VideoService {
     public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId, Integer tmdbId) {
         if (seriesTitle == null) return;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
+        boolean anyIdChanged = false;
         for (Video v : videos) {
             boolean showImdbChanged = isIdChanged(showImdbId, v.showImdbId);
             boolean tvdbChanged = isIdChanged(tvdbId, v.tvdbId);
             boolean tmdbChanged = isIdChanged(tmdbId, v.tmdbId);
             if (showImdbChanged || tvdbChanged || tmdbChanged) {
+                anyIdChanged = true;
                 String oldShow = v.showImdbId;
                 String oldTvdb = v.tvdbId;
                 String oldTmdb = v.tmdbId;
@@ -1876,6 +1878,10 @@ public class VideoService {
                 v.outroEnd = null;
                 v.recapStart = null;
                 v.recapEnd = null;
+                LOGGER.info("Clearing API-derived text for video {} (series='{}' S{}E{}) due to ID change: episodeTitle, overview{}", v.id, seriesTitle, v.seasonNumber, v.episodeNumber, v.titleManuallyEdited ? "" : ", title");
+                v.episodeTitle = null;
+                v.overview = null;
+                if (!v.titleManuallyEdited) v.title = null;
                 VideoMetadataService.evictNoDataCache(v.id);
             }
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
@@ -1885,6 +1891,18 @@ public class VideoService {
             if (tmdbId != null) v.tmdbId = String.valueOf(tmdbId);
             v.dateModified = LocalDateTime.now();
             v.persist();
+        }
+        if (anyIdChanged) {
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null && series.overview != null) {
+                    LOGGER.info("Clearing API-derived series overview for '{}' due to ID change", seriesTitle);
+                    series.overview = null;
+                    series.persist();
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to clear series overview for '{}': {}", seriesTitle, e.getMessage(), e);
+            }
         }
         if (tvdbId != null) {
             try {
@@ -1948,6 +1966,10 @@ public class VideoService {
                 v.recapEnd = null;
                 VideoMetadataService.evictNoDataCache(v.id);
             }
+            LOGGER.info("Clearing API-derived text for video {} (series='{}' S{}E{}) for full refresh: episodeTitle, overview{}", v.id, seriesTitle, v.seasonNumber, v.episodeNumber, v.titleManuallyEdited ? "" : ", title");
+            v.episodeTitle = null;
+            v.overview = null;
+            if (!v.titleManuallyEdited) v.title = null;
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
@@ -1970,6 +1992,16 @@ public class VideoService {
             }
             videoEnrichmentWorker.queueVideo(v.id);
             queued++;
+        }
+        try {
+            Series series = Series.find("title", seriesTitle).firstResult();
+            if (series != null && series.overview != null) {
+                LOGGER.info("Clearing API-derived series overview for '{}' for full refresh", seriesTitle);
+                series.overview = null;
+                series.persist();
+            }
+        } catch (Exception e) {
+            LOGGER.error("Failed to clear series overview for '{}': {}", seriesTitle, e.getMessage(), e);
         }
         if (tvdbId != null) {
             try {

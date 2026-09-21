@@ -71,7 +71,7 @@ public class StreamAPI {
         try {
             InputStream is = Files.newInputStream(file);
             return Response.ok(is)
-                    .header("Cache-Control", "public, max-age=86400")
+                    .header("Cache-Control", "public, no-cache")
                     .type(contentType)
                     .build();
         } catch (IOException e) {

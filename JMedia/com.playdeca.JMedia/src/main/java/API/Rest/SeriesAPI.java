@@ -197,7 +197,7 @@ public class SeriesAPI {
                             .toJpegForServing(java.nio.file.Files.readAllBytes(imageFile.toPath()));
                     return Response.ok(served.bytes())
                             .type(served.contentType())
-                            .header("Cache-Control", "public, max-age=86400")
+                            .header("Cache-Control", "public, no-cache")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
                             .build();
                 }
