@@ -217,6 +217,14 @@
                 </div>
 
                 <div class="field">
+                    <label class="label">TVDB ID</label>
+                    <div class="control">
+                        <input class="input" type="text" name="tvdbId" value="{tvdbId ?: ''}" placeholder="e.g. 76773">
+                    </div>
+                    <p class="help has-text-grey">The TVDB ID for this TV series (e.g. 76773 for The Simpsons). Changing this will re-fetch all metadata.</p>
+                </div>
+
+                <div class="field">
                     <label class="label">Series Poster Path/URL</label>
                     <div class="control">
                         <input class="input" type="text" name="posterPath" value="{posterPath ?: ''}" placeholder="/path/to/poster.jpg">

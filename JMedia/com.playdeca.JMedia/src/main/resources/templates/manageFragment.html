@@ -6,12 +6,16 @@
         </div>
         <div class="field is-grouped is-flex-wrap-wrap">
             <div class="control has-icons-left">
-                <input class="input" type="text" name="search" placeholder="Search title, file..." 
+                <input id="manageSearchInput" class="input" type="text" name="search" placeholder="Search title, file..." 
                        value="{search ?: ''}"
                        hx-get="/api/video/manage" 
                        hx-include="[name='type']"
-                       hx-trigger="keyup changed delay:500ms" 
-                       hx-target="#spa-content"
+                       hx-trigger="keyup changed delay:400ms, search" 
+                       hx-target="#manage-results"
+                       hx-select="#manage-results"
+                       hx-swap="innerHTML"
+                       hx-indicator="#manage-results"
+                       autocomplete="off"
                        style="width: 250px;">
                 <span class="icon is-left">
                     <i class="pi pi-search"></i>
@@ -19,7 +23,7 @@
             </div>
             <div class="control">
                 <div class="select">
-                    <select name="type" hx-get="/api/video/manage" hx-target="#spa-content" hx-include="[name='search']">
+                    <select name="type" hx-get="/api/video/manage" hx-target="#manage-results" hx-select="#manage-results" hx-swap="innerHTML" hx-indicator="#manage-results" hx-include="[name='search']">
                         <option value="all" {#if type == 'all' || !type}selected{/if}>All Types</option>
                         <option value="movie" {#if type == 'movie'}selected{/if}>Movies</option>
                         <option value="episode" {#if type == 'episode'}selected{/if}>TV Shows</option>
@@ -30,6 +34,7 @@
     </div>
 </div>
 
+<div id="manage-results">
 <div class="columns is-multiline mt-4">
     {#if shows}
         {#for show in shows}
@@ -121,6 +126,7 @@
     <p class="has-text-grey">No videos found matching your criteria</p>
 </div>
 {/if}
+</div>
 
 <div id="convertModal" class="modal">
     <div class="modal-background" onclick="closeConvertModal()"></div>

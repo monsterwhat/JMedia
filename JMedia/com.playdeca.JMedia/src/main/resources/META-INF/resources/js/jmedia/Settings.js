@@ -453,7 +453,7 @@
                         ]);
                     }
 
-                    if (target === 'import-installation') JMedia.Settings.loadInstallationStatus();
+                    if (target === 'import-installation') { JMedia.Settings.loadInstallationStatus(); JMedia.Settings.loadVersionInfo(); }
                     if (target === 'user-management' && window.loadUsers) window.loadUsers();
                     if (target === 'session-management') {
                         if (window.loadSessions) {
@@ -501,6 +501,7 @@
             JMedia.Settings.loadUiSettings();
             JMedia.Settings.loadAutoSkipSettings();
             JMedia.Settings.refreshSettingsUI();
+            JMedia.Settings.loadVersionInfo();
         },
 
         saveImportSettings: async function () {
@@ -969,6 +970,75 @@
 
         clearDirectoryVideos: async function(id) {
             if(window.showToast) window.showToast("Video clear not yet implemented", "info");
+        },
+
+        loadVersionInfo: async function () {
+            try {
+                const res = await fetch('/api/update/version');
+                const json = await res.json();
+                const verEl = document.getElementById('jmediaVersion');
+                if (verEl && res.ok && json && json.success && json.data) {
+                    const d = json.data;
+                    const v = typeof d === 'string' ? d : (d.version || d.currentVersion || d);
+                    if (v && typeof v === 'string') verEl.textContent = 'v' + v;
+                }
+            } catch (e) {
+                console.error('[Settings] Failed to load version:', e);
+            }
+            try {
+                const res2 = await fetch('/api/update/check');
+                const json2 = await res2.json();
+                if (res2.ok && json2 && json2.success && json2.data) {
+                    const info = json2.data;
+                    const verEl = document.getElementById('jmediaVersion');
+                    if (verEl && info.currentVersion) verEl.textContent = 'v' + info.currentVersion;
+                    const badge = document.getElementById('jmediaUpdateBadge');
+                    const msg = document.getElementById('jmediaUpdateMessage');
+                    if (info.updateAvailable && info.latestRelease) {
+                        const latest = info.latestRelease.tagName || info.latestRelease.tag_name || '';
+                        if (badge) { badge.textContent = 'Update available: ' + latest; badge.style.display = ''; badge.className = 'tag is-warning ml-2'; }
+                        if (msg) { msg.textContent = info.message || ('Update available: ' + latest); msg.style.display = ''; msg.className = 'help is-size-7 has-text-warning mb-3'; }
+                    } else if (info.message) {
+                        if (badge) { badge.textContent = 'Up to date'; badge.style.display = ''; badge.className = 'tag is-success is-light ml-2'; }
+                        if (msg) { msg.textContent = info.message; msg.style.display = ''; msg.className = 'help is-size-7 has-text-grey mb-3'; }
+                    }
+                }
+            } catch (e) {
+                console.error('[Settings] Failed to check for updates:', e);
+            }
+        },
+
+        checkForUpdates: async function () {
+            const btn = document.getElementById('checkUpdateBtn');
+            if (btn) { btn.classList.add('is-loading'); btn.disabled = true; }
+            try {
+                const res = await fetch('/api/update/check');
+                const json = await res.json();
+                if (res.ok && json && json.success && json.data) {
+                    const info = json.data;
+                    const verEl = document.getElementById('jmediaVersion');
+                    if (verEl && info.currentVersion) verEl.textContent = 'v' + info.currentVersion;
+                    const badge = document.getElementById('jmediaUpdateBadge');
+                    const msg = document.getElementById('jmediaUpdateMessage');
+                    if (info.updateAvailable && info.latestRelease) {
+                        const latest = info.latestRelease.tagName || info.latestRelease.tag_name || '';
+                        if (badge) { badge.textContent = 'Update available: ' + latest; badge.style.display = ''; badge.className = 'tag is-warning ml-2'; }
+                        if (msg) { msg.textContent = info.message || ('Update available: ' + latest); msg.style.display = ''; msg.className = 'help is-size-7 has-text-warning mb-3'; }
+                        if (window.showToast) window.showToast('Update available: ' + latest, 'info');
+                    } else {
+                        if (badge) { badge.textContent = 'Up to date'; badge.style.display = ''; badge.className = 'tag is-success is-light ml-2'; }
+                        if (msg) { msg.textContent = info.message || 'You are using the latest version'; msg.style.display = ''; msg.className = 'help is-size-7 has-text-grey mb-3'; }
+                        if (window.showToast) window.showToast(info.message || 'You are using the latest version', 'success');
+                    }
+                } else {
+                    if (window.showToast) window.showToast((json && json.error) || 'Failed to check for updates', 'error');
+                }
+            } catch (e) {
+                console.error('[Settings] checkForUpdates failed:', e);
+                if (window.showToast) window.showToast('Error checking for updates', 'error');
+            } finally {
+                if (btn) { btn.classList.remove('is-loading'); btn.disabled = false; }
+            }
         }
     };
 
@@ -1048,6 +1118,8 @@
     window.scanVideoDirectory = JMedia.Settings.scanVideoDirectory;
     window.reloadVideoDirectoryMetadata = JMedia.Settings.reloadVideoDirectoryMetadata;
     window.clearDirectoryVideos = JMedia.Settings.clearDirectoryVideos;
+    window.loadVersionInfo = JMedia.Settings.loadVersionInfo;
+    window.checkForUpdates = JMedia.Settings.checkForUpdates;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', JMedia.Settings.loadDirectories);

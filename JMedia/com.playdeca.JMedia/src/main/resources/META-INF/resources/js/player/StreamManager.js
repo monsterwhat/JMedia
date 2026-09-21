@@ -252,17 +252,26 @@
             // Skip if caller (simple-player) manages its own persistent error handler — avoids double-counting the fallback budget.
             if (!p._setupStreamErrorHandler) {
                 p._streamErrorHandler = (e) => {
+                    if (p._userPaused) {
+                        console.log('[SimplePlayer] Direct stream error suppressed — user pause active, not retrying');
+                        return;
+                    }
                     p._streamFallbackCount++;
                     console.error('[SimplePlayer] Direct stream error (fallback ' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + '):', p.video.error);
                     if (p._streamFallbackCount < p._maxStreamFallbacks) {
                         p._showLoading('Stream error, retrying...');
                         setTimeout(() => {
+                            if (p._userPaused) {
+                                console.log('[SimplePlayer] Blocked stream-error retry play — user pause active');
+                                return;
+                            }
                             const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
                             p.streamStartOffset = currentTime;
                             p.lastKnownGoodPosition = 0;
                             p.video.src = this.buildStreamUrl(currentTime);
                             p.video.load();
-                            p.video.play().catch(() => {});
+                            console.log('[SimplePlayer] Stream-error retry play()');
+                            p.video.play().catch(function(e) { console.error('[SimplePlayer] Stream-error retry play failed', e); });
                         }, 1000);
                     } else {
                         p._showLoading('Playback failed after ' + p._maxStreamFallbacks + ' attempts');
@@ -271,9 +280,12 @@
                 p.video.addEventListener('error', p._streamErrorHandler);
             }
 
-            p.video.play().catch(e => {
-                console.log('[SimplePlayer] Play requires user gesture:', e);
-            });
+            if (p._userPaused) {
+                console.log('[SimplePlayer] Initial auto-play suppressed — user pause active');
+            } else {
+                console.log('[SimplePlayer] Initial auto-play()');
+                p.video.play().catch(function(e) { console.log('[SimplePlayer] Play requires user gesture:', e); });
+            }
         }
 
         initExternalStream() {
@@ -337,21 +349,31 @@
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 if (p._destroyed || p._hlsInstance !== hls) return;
+                if (p._userPaused) {
+                    console.log('[SimplePlayer] HLS manifest parsed — user pause active, skipping auto-play');
+                    if (savedTime > 0) p.video.currentTime = savedTime;
+                    p.applyInitialState();
+                    return;
+                }
                 console.log('[SimplePlayer] HLS manifest parsed, starting playback');
                 if (savedTime > 0) p.video.currentTime = savedTime;
                 p.applyInitialState();
-                p.video.play().catch(e => {
-                    console.log('[SimplePlayer] Play requires user gesture:', e);
-                });
+                console.log('[SimplePlayer] HLS auto-play()');
+                p.video.play().catch(function(e) { console.error('[SimplePlayer] HLS play failed', e); });
             });
 
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (!data || p._destroyed || p._hlsInstance !== hls) return;
                 if (!data.fatal) return;
                 console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
+                if (p._userPaused) {
+                    console.log('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
+                    return;
+                }
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                     p._hlsNetworkRetries = (p._hlsNetworkRetries || 0) + 1;
                     if (p._hlsNetworkRetries < 3) {
+                        console.log('[SimplePlayer] HLS network retry ' + p._hlsNetworkRetries + '/3 — startLoad()');
                         hls.startLoad();
                     } else {
                         p._showLoading('Playback error');

@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video.Video;
+import Models.Video.Series;
 import Models.Video.MediaFile;
 import Models.DTOs.TvShowDTO;
 import Models.Video.Genre;
@@ -63,6 +64,9 @@ public class VideoService {
 
     @Inject
     TranscodingService transcodingService;
+
+    @Inject
+    AudioPreferenceEngine audioPreferenceEngine;
 
     // ========== CORE VIDEO OPERATIONS ==========
     
@@ -1490,6 +1494,11 @@ public class VideoService {
         Video item = find(videoId);
         if (item == null) return null;
 
+        // Audio auto-selection: when no saved per-video preference exists, apply the fallback order
+        // (preferred-language stereo -> same-language any-channels -> container default -> first audible).
+        // Saved preference (defaultAudioTrackId) keeps absolute priority.
+        ensureEffectiveAudioPreference(item);
+
         // Per-profile resume time from VideoState (single source: getResumeTime).
         double resumeTime = getResumeTime(item);
 
@@ -1837,20 +1846,43 @@ public class VideoService {
 
     @Transactional
     public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId) {
+        updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId, (Integer) null);
+    }
+
+    @Transactional
+    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId) {
         if (seriesTitle == null) return;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         for (Video v : videos) {
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
+            if (tvdbId != null) v.tvdbId = String.valueOf(tvdbId);
             v.dateModified = LocalDateTime.now();
             v.persist();
+        }
+        if (tvdbId != null) {
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null) {
+                    series.tvdbId = tvdbId;
+                    series.persist();
+                    LOGGER.info("Updated Series.tvdbId for '{}' to {}", seriesTitle, tvdbId);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to update Series.tvdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+            }
         }
         LOGGER.info("Updated series metadata for '{}' ({} videos)", seriesTitle, videos.size());
     }
 
     @Transactional
     public int updateSeriesAndRefetchMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId) {
+        return updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId, (Integer) null);
+    }
+
+    @Transactional
+    public int updateSeriesAndRefetchMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId) {
         if (seriesTitle == null) return 0;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         int queued = 0;
@@ -1858,6 +1890,7 @@ public class VideoService {
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
+            if (tvdbId != null) v.tvdbId = String.valueOf(tvdbId);
             v.dateModified = LocalDateTime.now();
             v.enrichmentStatus = Video.EnrichmentStatus.NOT_ATTEMPTED;
             v.persist();
@@ -1875,6 +1908,18 @@ public class VideoService {
             }
             videoEnrichmentWorker.queueVideo(v.id);
             queued++;
+        }
+        if (tvdbId != null) {
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null) {
+                    series.tvdbId = tvdbId;
+                    series.persist();
+                    LOGGER.info("Updated Series.tvdbId for '{}' to {} (refetch path)", seriesTitle, tvdbId);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to update Series.tvdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+            }
         }
         LOGGER.info("Updated series metadata and queued {} episodes for background enrichment for '{}'", queued, seriesTitle);
         return queued;
@@ -2191,4 +2236,33 @@ return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.ERROR, "Failed 
         // Legacy methods for Episode/Show conversion removed - using unified Video entity
 
         // Legacy converter methods removed - using unified Video entity
+
+    public Long getEffectiveDefaultAudioTrackId(Video video) {
+        if (video == null) return null;
+        if (video.defaultAudioTrackId != null) return video.defaultAudioTrackId;
+        if (video.audioTracks == null || video.audioTracks.isEmpty()) return null;
+        String preferredLang = video.preferredAudioLanguage != null && !video.preferredAudioLanguage.isBlank()
+                ? video.preferredAudioLanguage : "eng";
+        try {
+            AudioTrack best = audioPreferenceEngine.selectBestAudioTrack(video.audioTracks, preferredLang);
+            return best != null ? best.id : null;
+        } catch (Exception e) {
+            LOGGER.warn("Failed to compute effective audio track for video {}: {}", video.id, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private void ensureEffectiveAudioPreference(Video item) {
+        if (item == null || item.defaultAudioTrackId != null) return;
+        if (item.audioTracks == null || item.audioTracks.isEmpty()) return;
+        Long effectiveId = getEffectiveDefaultAudioTrackId(item);
+        if (effectiveId != null) {
+            item.defaultAudioTrackId = effectiveId;
+            AudioTrack best = item.audioTracks.stream().filter(t -> effectiveId.equals(t.id)).findFirst().orElse(null);
+            if (best != null && best.languageCode != null) {
+                item.preferredAudioLanguage = best.languageCode;
+            }
+            LOGGER.info("Applied audio auto-selection for video {} -> track {}", item.id, effectiveId);
+        }
+    }
     }

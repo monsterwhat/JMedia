@@ -218,8 +218,19 @@
 
             // iOS natively pauses on fullscreen exit; resume if it was playing
             if (p._wasPlayingBeforeFullscreen) {
-                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Resuming playback after fullscreen exit');
-                setTimeout(() => p.video.play().catch(() => {}), 300);
+                if (p._userPaused) {
+                    console.log('[SimplePlayer] Blocked fullscreen-exit auto-play — user pause active');
+                } else {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Resuming playback after fullscreen exit');
+                    console.log('[SimplePlayer] Resuming playback after fullscreen exit');
+                    setTimeout(function() {
+                        if (p._userPaused) {
+                            console.log('[SimplePlayer] Blocked deferred fullscreen-exit play — user pause active');
+                            return;
+                        }
+                        p.video.play().catch(function(e) { console.error('[SimplePlayer] Fullscreen-exit play failed', e); });
+                    }, 300);
+                }
             }
             p._wasPlayingBeforeFullscreen = false;
         }

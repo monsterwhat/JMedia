@@ -66,14 +66,28 @@
             }
         }
 
-        saveNow() {
+        saveNow(force) {
             const p = this.player;
             const now = Date.now();
-            if (p._lastProgressSave && now - p._lastProgressSave < 2000) return;
+            var isPaused = p.video ? p.video.paused : false;
+            if (!force && p._lastProgressSave && now - p._lastProgressSave < 2000) {
+                if (isPaused) {
+                    console.log('[SimplePlayer] saveNow throttled but pause report forced through (playing=false)');
+                } else {
+                    return;
+                }
+            }
+            if (force) {
+                console.log('[SimplePlayer] saveNow forced (playing=' + !isPaused + ')');
+            }
             p._lastProgressSave = now;
             if (p.video.currentTime > 0 || p.streamStartOffset > 0) {
-                const displayTime = p.video.currentTime + (p.streamStartOffset || 0);
+                var displayTime = p.video.currentTime + (p.streamStartOffset || 0);
                 this._reportProgress(displayTime, !p.video.paused);
+            } else if (isPaused) {
+                var displayTime2 = (p.video.currentTime || 0) + (p.streamStartOffset || 0);
+                this._reportProgress(displayTime2, false);
+                console.log('[SimplePlayer] Pause progress report (time=' + displayTime2 + ')');
             }
         }
 

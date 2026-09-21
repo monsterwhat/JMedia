@@ -102,7 +102,11 @@
                 console.log('[SimplePlayer] Using defaultAudioTrackId:', trackId);
             }
 
-            if (!trackId) return;
+            if (!trackId) {
+                trackId = this._selectBestAudioTrackId();
+                if (!trackId) return;
+                console.log('[SimplePlayer] Using auto-selected audio track:', trackId);
+            }
 
             // 'default' needs no track-list resolution — apply immediately.
             if (isDefault) {
@@ -155,6 +159,62 @@
             selector.currentTrackId = trackId;
             selector.updateSelection();
             selector.updateCurrentDisplay();
+        }
+
+        _selectBestAudioTrackId() {
+            const tracks = window.availableAudioTracks;
+            if (!tracks || tracks.length === 0) return null;
+            if (tracks._displayOnly) {
+                const audible = tracks.filter(t => t.channels > 0);
+                const cands = audible.length ? audible : tracks;
+                const def = cands.find(t => t.isDefault);
+                return def ? def.id : (cands[0] ? cands[0].id : null);
+            }
+            const prefLang = (this.player.preferredAudioLanguage && this.player.preferredAudioLanguage.trim()) || 'eng';
+            const candidates = (() => {
+                const audible = tracks.filter(t => t.channels != null && t.channels > 0);
+                return audible.length ? audible : tracks;
+            })();
+            const isUnknown = (c) => !c || !c.languageCode || c.languageCode.toLowerCase() === 'und' || c.languageCode.trim() === '';
+            const isDescriptive = (t) => {
+                const hay = ((t.title || '') + ' ' + (t.displayName || '')).toLowerCase();
+                return hay.includes('commentary') || hay.includes('descriptive') || hay.includes('audio description') || hay.includes('visually impaired');
+            };
+            const isPrefLang = (code) => {
+                if (!code || !prefLang) return false;
+                const tl = code.trim().toLowerCase();
+                const pl = prefLang.trim().toLowerCase();
+                if (tl === pl) return true;
+                const map = { eng: 'en', fre: 'fr', spa: 'es', deu: 'de', ita: 'it', por: 'pt', rus: 'ru', jpn: 'ja', kor: 'ko', chi: 'zh', en: 'en', fr: 'fr', es: 'es', de: 'de', it: 'it', pt: 'pt', ru: 'ru', ja: 'ja', ko: 'ko', zh: 'zh' };
+                const tl2 = map[tl];
+                const pl2 = map[pl];
+                return tl2 && pl2 && tl2 === pl2;
+            };
+            const sortTier = (a, b) => {
+                const aU = isUnknown(a.languageCode), bU = isUnknown(b.languageCode);
+                if (aU !== bU) return aU ? 1 : -1;
+                const aD = isDescriptive(a), bD = isDescriptive(b);
+                if (aD !== bD) return aD ? 1 : -1;
+                return 0;
+            };
+            const prefStereo = candidates.filter(t => isPrefLang(t.languageCode) && t.channels === 2).sort(sortTier);
+            if (prefStereo.length) {
+                const nonDesc = prefStereo.find(t => !isDescriptive(t));
+                return (nonDesc || prefStereo[0]).id;
+            }
+            const prefAny = candidates.filter(t => isPrefLang(t.languageCode)).sort(sortTier);
+            if (prefAny.length) {
+                const nonDesc = prefAny.find(t => !isDescriptive(t));
+                return (nonDesc || prefAny[0]).id;
+            }
+            const defaults = candidates.filter(t => t.isDefault).sort(sortTier);
+            if (defaults.length) {
+                const nonDesc = defaults.find(t => !isDescriptive(t));
+                return (nonDesc || defaults[0]).id;
+            }
+            const sorted = [...candidates].sort(sortTier);
+            const nonDesc = sorted.find(t => !isDescriptive(t));
+            return (nonDesc || sorted[0]).id;
         }
 
         // Mirrors AudioTrackSelector._resolveTrackIndex: the DB id is not the

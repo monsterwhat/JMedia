@@ -53,6 +53,12 @@ if (typeof window.SimplePlayer === 'undefined') {
             // advancing. The drift-seek below refuses to follow the server state
             // while this is stale (stalled/errored element — phantom clock guard).
             this._lastProgressAt = 0;
+            // User-gesture pause gate: once the user explicitly pauses, server
+            // state sync must NOT re-assert play() until the user explicitly
+            // resumes. This fixes the video analog of the earlier music-WS bug
+            // where server playing:true instantly undid a local pause.
+            this._userPaused = false;
+            this._userPausedAt = 0;
 
             this.stateMgr = new window.PlayerStateManager(this);
             this.stateMgr.initState();
@@ -385,9 +391,15 @@ if (typeof window.SimplePlayer === 'undefined') {
                             return;  // still hits the finally block
                         }
                         if (state.playing && this.video.paused) {
-                            this.video.play().catch(() => {});
+                            if (this._userPaused) {
+                                console.log('[SimplePlayer] Blocked server play — user pause active (stateSync playing=true ignored, _userPausedAt=' + this._userPausedAt + ')');
+                            } else {
+                                console.log('[SimplePlayer] Resuming playback from server state (playing=true)');
+                                this.video.play().catch(function(e) { console.error('[SimplePlayer] Server-triggered play failed', e); });
+                            }
                         } else if (!state.playing && !this.video.paused) {
-                            this.video.pause();
+                            console.log('[SimplePlayer] Pausing playback from server state (playing=false)');
+                            try { this.video.pause(); console.log('[SimplePlayer] video.pause() issued (server state)'); } catch (e) { console.error('[SimplePlayer] Server-triggered pause failed', e); }
                         }
                         // Drift protection skipped during a swap window: the new element sits at 0
                         // while the server timer broadcasts growing time, which would seek-yank it.
@@ -484,8 +496,15 @@ if (typeof window.SimplePlayer === 'undefined') {
                         trySelect();
                     } else if (ctype === 'toggle-play') {
                         if (this._destroyed) return;
-                        if (this.video.paused) this.video.play().catch(() => {});
-                        else this.video.pause();
+                        if (this.video.paused) {
+                            console.log('[SimplePlayer] Remote toggle-play -> play (clearing user-pause gate)');
+                            this._userPaused = false; this._userPausedAt = 0;
+                            this.video.play().catch(function(e) { console.error('[SimplePlayer] Remote play failed', e); });
+                        } else {
+                            console.log('[SimplePlayer] Remote toggle-play -> pause (engaging user-pause gate)');
+                            this._userPaused = true; this._userPausedAt = Date.now();
+                            try { this.video.pause(); console.log('[SimplePlayer] video.pause() issued (remote toggle)'); } catch (e) { console.error('[SimplePlayer] Remote pause failed', e); }
+                        }
                     } else if (ctype === 'seek') {
                         if (this._destroyed) return;
                         const t = cmd.payload && cmd.payload.value;

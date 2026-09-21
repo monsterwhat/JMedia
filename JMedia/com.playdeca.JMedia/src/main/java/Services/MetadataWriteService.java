@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +45,10 @@ public class MetadataWriteService {
     
     // Marker for custom app data stored in comments
     private static final String APP_MARKER = "JMedia";
-    private static final String APP_VERSION = "1.3.5";
+
+    @Inject
+    @ConfigProperty(name = "quarkus.application.version", defaultValue = "0.0.0")
+    String appVersion;
 
     @Inject
     Executor executor;
@@ -292,8 +296,7 @@ public class MetadataWriteService {
                 custom.append("mbz:").append(song.getMusicbrainzId()).append(";");
             }
             
-            // App version marker
-            custom.append("app:JMedia v").append(APP_VERSION);
+            custom.append("app:JMedia v").append(appVersion);
             
             if (custom.length() > 0) {
                 // Append to any existing comment or create new

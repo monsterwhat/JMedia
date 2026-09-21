@@ -32,6 +32,9 @@ public class MediaAnalysisService {
     @Inject
     FFprobeAudioService audioService;
 
+    @Inject
+    AudioPreferenceEngine audioPreferenceEngine;
+
     @PersistenceContext(unitName = "video")
     EntityManager entityManager;
 
@@ -296,6 +299,20 @@ public class MediaAnalysisService {
                 }
                 video.hasMultipleAudioTrack = tracks.size() > 1;
                 LOG.info("Extracted and persisted {} audio tracks for: {}", tracks.size(), video.path);
+                if (video.defaultAudioTrackId == null) {
+                    try {
+                        String prefLang = video.preferredAudioLanguage != null && !video.preferredAudioLanguage.isBlank()
+                                ? video.preferredAudioLanguage : "eng";
+                        AudioTrack best = audioPreferenceEngine.selectBestAudioTrack(tracks, prefLang);
+                        if (best != null && best.id != null) {
+                            video.defaultAudioTrackId = best.id;
+                            video.preferredAudioLanguage = best.languageCode;
+                            LOG.info("Auto-selected default audio track {} (lang={}, channels={}) for video {}", best.id, best.languageCode, best.channels, video.path);
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to auto-select default audio track for {}: {}", video.path, e.getMessage(), e);
+                    }
+                }
             }
         } catch (Exception e) {
             LOG.warn("Could not extract audio tracks for {}: {}", video.path, e.getMessage());

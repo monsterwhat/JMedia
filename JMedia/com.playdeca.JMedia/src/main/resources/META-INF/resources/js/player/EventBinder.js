@@ -33,8 +33,19 @@
             const touchToggle = (e) => {
                 e.preventDefault();
                 p._touchToggled = true;
-                if (p.video.paused) p.video.play().catch(() => {});
-                else p.video.pause();
+                if (p.video.paused) {
+                    console.log('[SimplePlayer] User play (touch) — clearing user-pause gate');
+                    p._userPaused = false; p._userPausedAt = 0;
+                    p.video.play().catch(function(err) { console.error('[SimplePlayer] User play (touch) failed', err); });
+                    try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after touch play failed', e2); }
+                    try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after touch play failed', e3); }
+                } else {
+                    console.log('[SimplePlayer] User pause (touch) — engaging user-pause gate');
+                    p._userPaused = true; p._userPausedAt = Date.now();
+                    try { p.video.pause(); console.log('[SimplePlayer] video.pause() issued (user touch gesture)'); } catch (e2) { console.error('[SimplePlayer] User pause (touch) failed', e2); }
+                    try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after touch pause failed', e2); }
+                    try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after touch pause failed', e3); }
+                }
                 p.controlsManager.showControls();
                 setTimeout(function() { p._touchToggled = false; }, 500);
             };
@@ -49,8 +60,19 @@
                     return;
                 }
                 if (e) e.stopPropagation();
-                if (p.video.paused) p.video.play().catch(() => {});
-                else p.video.pause();
+                if (p.video.paused) {
+                    console.log('[SimplePlayer] User play (click) — clearing user-pause gate');
+                    p._userPaused = false; p._userPausedAt = 0;
+                    p.video.play().catch(function(err) { console.error('[SimplePlayer] User play (click) failed', err); });
+                    try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after user play failed', e2); }
+                    try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after user play failed', e3); }
+                } else {
+                    console.log('[SimplePlayer] User pause (click) — engaging user-pause gate');
+                    p._userPaused = true; p._userPausedAt = Date.now();
+                    try { p.video.pause(); console.log('[SimplePlayer] video.pause() issued (user click gesture)'); } catch (err) { console.error('[SimplePlayer] User pause (click) failed', err); }
+                    try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after user pause failed', e2); }
+                    try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after user pause failed', e3); }
+                }
                 p.controlsManager.showControls();
             };
 
@@ -65,6 +87,10 @@
                 if (p._stallTimer) clearTimeout(p._stallTimer);
                 p._stallTimer = setTimeout(() => {
                     if (p._destroyed) return;
+                    if (p._userPaused) {
+                        console.log('[SimplePlayer] Stall timer suppressed — user pause active');
+                        return;
+                    }
                     if (p.video.currentTime === 0 && !p.video.paused && !p._hasPlayedData) {
                         if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer fired: currentTime=' + p.video.currentTime + ' paused=' + p.video.paused + ' _hasPlayedData=' + p._hasPlayedData + ' _destroyed=' + p._destroyed + ' _streamFallbackCount=' + (p._streamFallbackCount || 0) + ' _maxStreamFallbacks=' + p._maxStreamFallbacks);
                         console.warn('[SimplePlayer] Playback stalled - no data received in 20s');
@@ -80,7 +106,12 @@
                             p.video.src = p.streamMgr.buildStreamUrl(saved);
                             if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
                             p.video.load();
-                            p.video.play().catch(() => {});
+                            if (p._userPaused) {
+                                console.log('[SimplePlayer] Blocked stall-recovery play — user pause active');
+                            } else {
+                                console.log('[SimplePlayer] Stall-recovery play()');
+                                p.video.play().catch(function(e) { console.error('[SimplePlayer] Stall-recovery play failed', e); });
+                            }
                         } else {
                             if (window.Toast) window.Toast.error('Playback failed after retries - please reload');
                         }
@@ -167,6 +198,10 @@
                     p._waitingTimer = null;
                     p._waitingStart = 0;
                     if (p._destroyed) return;
+                    if (p._userPaused) {
+                        console.log('[SimplePlayer] 60s waiting stall suppressed — user pause active');
+                        return;
+                    }
                     if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && (p.video.networkState !== HTMLMediaElement.NETWORK_LOADING || !p._lastProgressAt || (Date.now() - p._lastProgressAt > 65000))) {
                         if (p.utils.isIOS()) console.debug('[iOS-DEBUG] 60s waiting stall: currentTime=' + p.video.currentTime + ' _hasPlayedData=' + p._hasPlayedData + ' lastKnownGoodPosition=' + p.lastKnownGoodPosition + ' networkState=' + p.video.networkState + ' _streamFallbackCount=' + (p._streamFallbackCount || 0));
                         console.warn('[SimplePlayer] Mid-playback stall detected (>60s), retrying at position', p.lastKnownGoodPosition);
@@ -180,7 +215,12 @@
                             p.lastKnownGoodPosition = 0;
                             p.video.src = p.streamMgr.buildStreamUrl(p.needsTranscode ? pos : null);
                             p.video.load();
-                            p.video.play().catch(() => {});
+                            if (p._userPaused) {
+                                console.log('[SimplePlayer] Blocked 60s stall-recovery play — user pause active');
+                            } else {
+                                console.log('[SimplePlayer] 60s stall-recovery play()');
+                                p.video.play().catch(function(e) { console.error('[SimplePlayer] 60s stall-recovery play failed', e); });
+                            }
                         } else {
                             if (window.Toast) window.Toast.error('Playback failed - please reload');
                         }

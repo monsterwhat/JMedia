@@ -139,6 +139,16 @@
                 <div id="import-installation" class="tab-pane">
                     <div class="glass-box p-6">
                         <h6 class="title is-6 mb-4">Installation Manager</h6>
+                        <div class="level is-mobile mb-3" id="jmediaVersionRow">
+                            <div class="level-left">
+                                <span class="is-size-7 has-text-grey">Current version: <strong id="jmediaVersion" class="has-text-white">v—</strong></span>
+                                <span id="jmediaUpdateBadge" class="tag is-warning ml-2" style="display:none"></span>
+                            </div>
+                            <div class="level-right">
+                                <button id="checkUpdateBtn" class="button is-small is-info is-outlined" onclick="JMedia.Settings.checkForUpdates()">Check for updates</button>
+                            </div>
+                        </div>
+                        <p id="jmediaUpdateMessage" class="help is-size-7 mb-3" style="display:none"></p>
                         <div class="notification is-warning is-light" id="installationRequiredDialog">
                             <p>Import features require additional tools.</p>
                             <ul id="missingComponentsList" class="mt-2 ml-4"></ul>

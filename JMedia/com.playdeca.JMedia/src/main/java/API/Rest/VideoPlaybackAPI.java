@@ -60,6 +60,9 @@ public class VideoPlaybackAPI {
     @Inject
     API.WS.VideoSocket videoSocket;
 
+    @Inject
+    Services.AudioPreferenceEngine audioPreferenceEngine;
+
     private User currentUser(HttpHeaders headers) {
         String sessionId = getSessionId(headers);
         if (sessionId == null) return null;
@@ -583,10 +586,15 @@ public class VideoPlaybackAPI {
                 return Response.ok("{\"tracks\":[],\"activeTrackId\":null}").build();
             }
             
+            if (video.defaultAudioTrackId != null) {
+                boolean exists = video.audioTracks.stream().anyMatch(t -> t.isActive && video.defaultAudioTrackId.equals(t.id));
+                if (exists) {
+                    // Saved per-video preference keeps absolute priority
+                }
+            }
             StringBuilder sb = new StringBuilder();
             sb.append("{\"tracks\":[");
             boolean first = true;
-            Long activeTrackId = null;
             for (Models.Video.AudioTrack track : video.audioTracks) {
                 if (!track.isActive) continue;
                 if (!first) sb.append(",");
@@ -599,9 +607,23 @@ public class VideoPlaybackAPI {
                   .append("\"isDefault\":").append(track.isDefault).append(",")
                   .append("\"trackIndex\":").append(track.trackIndex != null ? track.trackIndex : "null")
                   .append("}");
-                if (track.isDefault && activeTrackId == null) {
-                    activeTrackId = track.id;
+            }
+            Long activeTrackId = video.defaultAudioTrackId;
+            final Long initialActiveId = activeTrackId;
+            if (activeTrackId == null || video.audioTracks.stream().noneMatch(t -> t.isActive && initialActiveId.equals(t.id))) {
+                try {
+                    String prefLang = video.preferredAudioLanguage != null && !video.preferredAudioLanguage.isBlank()
+                            ? video.preferredAudioLanguage : "eng";
+                    java.util.List<Models.Video.AudioTrack> active = video.audioTracks.stream().filter(t -> t.isActive).collect(java.util.stream.Collectors.toList());
+                    Models.Video.AudioTrack best = audioPreferenceEngine.selectBestAudioTrack(active, prefLang);
+                    if (best != null) activeTrackId = best.id;
+                } catch (Exception ex) {
+                    org.slf4j.LoggerFactory.getLogger(VideoPlaybackAPI.class).warn("Failed to compute active audio track for video {}: {}", videoId, ex.getMessage(), ex);
                 }
+            }
+            final Long finalActiveId = activeTrackId;
+            if (finalActiveId != null && video.audioTracks.stream().noneMatch(t -> t.isActive && finalActiveId.equals(t.id))) {
+                activeTrackId = null;
             }
             sb.append("],\"activeTrackId\":").append(activeTrackId != null ? activeTrackId : "null").append("}");
             
