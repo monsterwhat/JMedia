@@ -398,10 +398,31 @@
 
         renderTrackList(container, tracks, activeIndex, commandType) {
             container.innerHTML = '';
+            const counts = {};
+            const labels = tracks.map(t => {
+                let lang = t.languageName || t.language || t.label;
+                if (lang && (lang.toLowerCase() === 'und' || lang.toLowerCase() === 'unknown')) lang = null;
+                const ch = t.channels;
+                const layout = ch === 2 ? ' Stereo' : ch === 6 ? ' 5.1' : ch === 8 ? ' 7.1' : ch === 1 ? ' Mono' : (ch ? ' ' + ch + 'ch' : '');
+                let base;
+                if (lang && layout) base = lang + layout;
+                else if (lang) base = lang;
+                else if (layout) base = layout.trim();
+                else if (t.title) base = t.title;
+                else if (t.isDefault) base = 'Default';
+                else base = t.displayName || t.label || t.language || 'Audio';
+                if (t.title && base.indexOf(t.title) === -1 && t.title !== lang) base += ' (' + t.title + ')';
+                if (base.toUpperCase() === 'UND' || base.toLowerCase() === 'unknown') base = (layout ? layout.trim() : 'Audio');
+                return base;
+            });
+            labels.forEach(l => { counts[l] = (counts[l]||0)+1; });
+            const seen = {};
             tracks.forEach((track, i) => {
+                let label = labels[i];
+                if (counts[label] > 1) { seen[label] = (seen[label]||0)+1; if (seen[label] > 1) label += ' (' + seen[label] + ')'; }
                 const item = document.createElement('div');
                 item.className = 'remote-selector-item' + (i === activeIndex ? ' active' : '');
-                item.textContent = track.label || track.language || 'Track ' + (i + 1);
+                item.textContent = label;
                 item.addEventListener('click', () => {
                     this.sendCommand(commandType, { index: i });
                     container.querySelectorAll('.remote-selector-item').forEach(el => el.classList.remove('active'));

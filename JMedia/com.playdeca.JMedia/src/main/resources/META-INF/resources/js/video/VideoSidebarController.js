@@ -287,8 +287,27 @@
                         var prevSelect = audioListEl.querySelector('.vsp-audio-select');
                         var prevVal = prevSelect ? prevSelect.value : null;
                         var html = '<select class="vsp-select vsp-audio-select">';
+                        var counts = {};
+                        var rawLabels = this.audioTracks.map(function(t) {
+                            var lang = t.languageName && t.languageName.toLowerCase() !== 'und' && t.languageName.toLowerCase() !== 'unknown' ? t.languageName : null;
+                            var layout = t.channels === 2 ? ' Stereo' : t.channels === 6 ? ' 5.1' : t.channels === 8 ? ' 7.1' : t.channels === 1 ? ' Mono' : (t.channels ? ' ' + t.channels + 'ch' : '');
+                            var base;
+                            if (lang) base = lang + (layout || '');
+                            else if (layout) base = layout.trim();
+                            else if (t.title) base = t.title;
+                            else if (t.isDefault) base = 'Default';
+                            else base = 'Audio';
+                            if (t.title && base.indexOf(t.title) === -1 && t.title !== lang) base += ' (' + t.title + ')';
+                            if (t.displayName && t.displayName.toUpperCase() !== 'UND' && t.displayName.toLowerCase() !== 'unknown' && t.displayName !== base) {
+                                if (t.displayName.toLowerCase().indexOf((lang||'').toLowerCase()) !== -1 || (layout && t.displayName.indexOf(layout.trim()) !== -1)) base = t.displayName;
+                            }
+                            return base;
+                        });
+                        rawLabels.forEach(function(l){ counts[l] = (counts[l]||0)+1; });
+                        var seen = {};
                         this.audioTracks.forEach(function(t, i) {
-                            var name = t.displayName || t.languageName || 'Track ' + (i + 1);
+                            var name = rawLabels[i];
+                            if (counts[name] > 1) { seen[name] = (seen[name]||0)+1; if (seen[name] > 1) name += ' (' + seen[name] + ')'; }
                             html += '<option value="' + i + '">' + escHtmlStatic(name) + '</option>';
                         });
                         html += '</select>';

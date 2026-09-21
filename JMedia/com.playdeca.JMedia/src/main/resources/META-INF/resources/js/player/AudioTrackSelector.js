@@ -110,11 +110,67 @@
             }
         }
 
+        _channelLayout(channels) {
+            if (channels === 2) return 'Stereo';
+            if (channels === 6) return '5.1';
+            if (channels === 8) return '7.1';
+            if (channels === 1) return 'Mono';
+            if (channels && channels > 0) return channels + 'ch';
+            return null;
+        }
+
+        _escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        _isUnknownLang(track) {
+            const code = (track.languageCode || '').trim().toLowerCase();
+            const name = (track.languageName || '').trim().toLowerCase();
+            return code === 'und' || code === '' || code === 'unknown' || name === 'und' || name === 'unknown';
+        }
+
+        _formatAudioLabel(track) {
+            let lang = track.languageName;
+            if (lang) {
+                const l = lang.trim().toLowerCase();
+                if (l === 'und' || l === 'unknown' || l === 'unknown language') lang = null;
+            }
+            if (!lang && !this._isUnknownLang(track) && track.languageName) {
+                lang = track.languageName;
+            }
+            const layout = this._channelLayout(track.channels);
+            let base;
+            if (lang && layout) base = lang + ' ' + layout;
+            else if (lang) base = lang;
+            else if (layout) base = layout;
+            else if (track.title) base = track.title;
+            else if (track.isDefault) base = 'Default';
+            else base = 'Audio';
+            if (track.title && track.title !== base && track.title !== lang) {
+                if (base.indexOf(track.title) === -1) base += ' (' + track.title + ')';
+            }
+            if (track.displayName && track.displayName !== 'Audio' && track.displayName !== 'Unknown' && track.displayName !== 'UND') {
+                const disp = track.displayName.trim();
+                const looksRawUnd = disp.toUpperCase() === 'UND' || disp.toLowerCase() === 'unknown';
+                if (!looksRawUnd && disp !== base && disp.length < 60) {
+                    const dispLayout = layout ? disp.indexOf(layout) !== -1 : false;
+                    const dispLang = lang ? disp.toLowerCase().indexOf(lang.toLowerCase()) !== -1 : false;
+                    if (dispLang || dispLayout || track.title) {
+                        base = disp;
+                        if (layout && disp.indexOf(layout) === -1 && !disp.includes(track.title || '')) {
+                            if (lang && disp.toLowerCase().indexOf(lang.toLowerCase()) !== -1) base += ' ' + layout;
+                        }
+                    }
+                }
+            }
+            return base;
+        }
+
         populateMenu() {
             const trackList = this.trackList;
             if (!trackList) return;
 
-            // Hide the entire selector when there are no additional audio tracks
             const selector = this.selector || trackList.closest('.audio-track-selector');
             if (!window.availableAudioTracks || window.availableAudioTracks.length === 0) {
                 if (selector) selector.style.display = 'none';
@@ -126,21 +182,21 @@
                 trackList.removeChild(trackList.lastChild);
             }
 
-            window.availableAudioTracks.forEach(track => {
+            const counts = {};
+            const rawLabels = window.availableAudioTracks.map(t => this._formatAudioLabel(t));
+            rawLabels.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+            const seen = {};
+            window.availableAudioTracks.forEach((track, idx) => {
+                let label = rawLabels[idx];
+                if (counts[label] > 1) {
+                    seen[label] = (seen[label] || 0) + 1;
+                    if (seen[label] > 1) label += ' (' + seen[label] + ')';
+                }
+                track._derivedLabel = label;
                 const trackItem = document.createElement('div');
                 trackItem.className = 'track-item';
-                trackItem.dataset.track = track.id;
-
-                let label = track.displayName || track.languageName || track.languageCode || 'Unknown';
-                if (track.channels) {
-                    const channelLabel = track.channels === 6 ? ' 5.1' : track.channels === 8 ? ' 7.1' : track.channels === 2 ? ' Stereo' : '';
-                    label += channelLabel;
-                }
-                if (track.title && track.title !== label) {
-                    label += ' (' + track.title + ')';
-                }
-
-                trackItem.innerHTML = '<span class="track-name">' + label + '</span>' +
+                trackItem.dataset.track = String(track.id);
+                trackItem.innerHTML = '<span class="track-name">' + this._escapeHtml(label) + '</span>' +
                     '<i class="pi pi-check track-selected" style="display: none;"></i>';
                 trackItem.onclick = () => this.selectTrack(track.id);
                 trackList.appendChild(trackItem);
@@ -297,11 +353,12 @@
         updateSelection() {
             const trackList = this.trackList;
             if (!trackList) return;
+            const currentStr = String(this.currentTrackId);
             trackList.querySelectorAll('.track-item').forEach(item => {
-                const trackId = item.dataset.track;
+                const trackId = String(item.dataset.track);
                 const checkIcon = item.querySelector('.track-selected');
-
-                if (trackId === this.currentTrackId.toString()) {
+                const isSelected = trackId === currentStr;
+                if (isSelected) {
                     if (checkIcon) checkIcon.style.display = 'inline';
                     item.classList.add('selected');
                 } else {
@@ -309,22 +366,48 @@
                     item.classList.remove('selected');
                 }
             });
+            if (currentStr !== 'default') {
+                const found = window.availableAudioTracks.find(t => String(t.id) === currentStr);
+                if (!found) {
+                    const byIndex = window.availableAudioTracks.find(t => String(t.trackIndex) === currentStr);
+                    if (byIndex) {
+                        console.warn('[AudioSelector] currentTrackId was trackIndex ' + currentStr + ', correcting to DB id ' + byIndex.id);
+                        this.currentTrackId = String(byIndex.id);
+                        trackList.querySelectorAll('.track-item').forEach(item => {
+                            const isSel = String(item.dataset.track) === String(this.currentTrackId);
+                            const ci = item.querySelector('.track-selected');
+                            if (isSel) { if (ci) ci.style.display = 'inline'; item.classList.add('selected'); }
+                            else { if (ci) ci.style.display = 'none'; item.classList.remove('selected'); }
+                        });
+                    }
+                }
+            }
         }
 
         updateCurrentDisplay() {
             const display = this.display;
             if (!display) return;
 
-            if (this.currentTrackId === 'default') {
+            if (String(this.currentTrackId) === 'default') {
                 display.textContent = 'Default';
-            } else {
-                const track = window.availableAudioTracks.find(t => t.id == this.currentTrackId);
-                if (track) {
-                    display.textContent = track.languageName || track.displayName || track.languageCode || 'Audio';
-                } else {
-                    display.textContent = 'Track ' + this.currentTrackId;
-                }
+                return;
             }
+            const currentStr = String(this.currentTrackId);
+            let track = window.availableAudioTracks.find(t => String(t.id) === currentStr);
+            if (track) {
+                display.textContent = track._derivedLabel || this._formatAudioLabel(track);
+                return;
+            }
+            const byIndex = window.availableAudioTracks.find(t => String(t.trackIndex) === currentStr);
+            if (byIndex) {
+                console.warn('[AudioSelector] Display lookup fell back from DB id to trackIndex for ' + currentStr);
+                this.currentTrackId = String(byIndex.id);
+                display.textContent = byIndex._derivedLabel || this._formatAudioLabel(byIndex);
+                this.updateSelection();
+                return;
+            }
+            console.warn('[AudioSelector] No matching audio track for id ' + currentStr + ', showing generic label');
+            display.textContent = 'Audio';
         }
 
         // Last-write-wins: rapid switching fires overlapping POSTs that can land

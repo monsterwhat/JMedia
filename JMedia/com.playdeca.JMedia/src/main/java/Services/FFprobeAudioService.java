@@ -148,25 +148,61 @@ public class FFprobeAudioService {
         track.trackIndex = index;
         track.fullPath = video.path;
         
-        // Extract language from tags
+        // Extract language from tags — handle untagged tracks gracefully (no bare "UND")
         JsonNode tags = stream.path("tags");
-        String langCode = tags.path("language").asText("und");
-        track.languageCode = langCode;
-        track.languageName = LANGUAGE_MAP.getOrDefault(langCode, langCode.toUpperCase());
-        
-        // Extract title (e.g. "Director's Commentary")
-        String title = tags.path("title").asText("");
-        track.title = title.isEmpty() ? null : title;
-        
-        // Build display name
-        if (title != null && !title.isEmpty()) {
-            track.displayName = String.format("%s - %s", track.languageName, title);
+        String rawLang = tags.path("language").asText(null);
+        String langCode;
+        if (rawLang == null || rawLang.isBlank() || "und".equalsIgnoreCase(rawLang.trim()) || "unknown".equalsIgnoreCase(rawLang.trim())) {
+            langCode = "und";
         } else {
-            track.displayName = track.languageName;
+            langCode = rawLang.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+        track.languageCode = langCode;
+        if ("und".equals(langCode)) {
+            track.languageName = null;
+        } else {
+            track.languageName = LANGUAGE_MAP.get(langCode);
+            if (track.languageName == null) {
+                // Unknown code — keep null so label falls back to layout/role instead of raw code
+                track.languageName = null;
+                LOGGER.debug("Unknown audio language code '{}' for stream index {}, will use layout/role label", rawLang, index);
+            }
         }
         
-        // Technical details
+        // Extract title (e.g. "Director's Commentary") — trim and null-out empties
+        String rawTitle = tags.path("title").asText(null);
+        String title = rawTitle != null ? rawTitle.trim() : null;
+        if (title != null && title.isEmpty()) title = null;
+        track.title = title;
+
         track.channels = stream.path("channels").asInt(0);
+        JsonNode disposition = stream.path("disposition");
+        track.isDefault = disposition.path("default").asInt() == 1;
+
+        String langPart = track.languageName;
+        String layout = channelLayout(track.channels);
+        StringBuilder display = new StringBuilder();
+        if (langPart != null) {
+            display.append(langPart);
+        }
+        if (layout != null) {
+            if (display.length() > 0) display.append(" ");
+            display.append(layout);
+        }
+        if (display.length() == 0) {
+            if (title != null) {
+                display.append(title);
+            } else if (track.isDefault) {
+                display.append("Default");
+            } else {
+                display.append("Audio");
+            }
+        } else if (title != null && !title.equalsIgnoreCase(display.toString()) && (langPart == null || !title.equalsIgnoreCase(langPart))) {
+            if (!display.toString().contains(title)) {
+                display.append(" (").append(title).append(")");
+            }
+        }
+        track.displayName = display.toString();
         
         String bitrateStr = stream.path("bit_rate").asText("");
         if (!bitrateStr.isEmpty()) {
@@ -186,12 +222,17 @@ public class FFprobeAudioService {
             }
         }
         
-        // Disposition
-        JsonNode disposition = stream.path("disposition");
-        track.isDefault = disposition.path("default").asInt() == 1;
-        
         track.filename = String.format("audio_%d.%s", index, codec);
         
         return track;
+    }
+
+    private String channelLayout(Integer channels) {
+        if (channels == null || channels == 0) return null;
+        if (channels == 1) return "Mono";
+        if (channels == 2) return "Stereo";
+        if (channels == 6) return "5.1";
+        if (channels == 8) return "7.1";
+        return channels + "ch";
     }
 }
