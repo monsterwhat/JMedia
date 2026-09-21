@@ -1851,6 +1851,11 @@ public class VideoService {
 
     @Transactional
     public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId) {
+        updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbId, null);
+    }
+
+    @Transactional
+    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId, Integer tmdbId) {
         if (seriesTitle == null) return;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         for (Video v : videos) {
@@ -1858,6 +1863,7 @@ public class VideoService {
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
             if (tvdbId != null) v.tvdbId = String.valueOf(tvdbId);
+            if (tmdbId != null) v.tmdbId = String.valueOf(tmdbId);
             v.dateModified = LocalDateTime.now();
             v.persist();
         }
@@ -1873,6 +1879,18 @@ public class VideoService {
                 LOGGER.error("Failed to update Series.tvdbId for '{}': {}", seriesTitle, e.getMessage(), e);
             }
         }
+        if (tmdbId != null) {
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null) {
+                    series.tmdbId = tmdbId;
+                    series.persist();
+                    LOGGER.info("Updated Series.tmdbId for '{}' to {}", seriesTitle, tmdbId);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to update Series.tmdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+            }
+        }
         LOGGER.info("Updated series metadata for '{}' ({} videos)", seriesTitle, videos.size());
     }
 
@@ -1883,6 +1901,11 @@ public class VideoService {
 
     @Transactional
     public int updateSeriesAndRefetchMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId) {
+        return updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbId, null);
+    }
+
+    @Transactional
+    public int updateSeriesAndRefetchMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId, Integer tvdbId, Integer tmdbId) {
         if (seriesTitle == null) return 0;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         int queued = 0;
@@ -1891,6 +1914,7 @@ public class VideoService {
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
             if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
             if (tvdbId != null) v.tvdbId = String.valueOf(tvdbId);
+            if (tmdbId != null) v.tmdbId = String.valueOf(tmdbId);
             v.dateModified = LocalDateTime.now();
             v.enrichmentStatus = Video.EnrichmentStatus.NOT_ATTEMPTED;
             v.persist();
@@ -1919,6 +1943,18 @@ public class VideoService {
                 }
             } catch (Exception e) {
                 LOGGER.error("Failed to update Series.tvdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+            }
+        }
+        if (tmdbId != null) {
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null) {
+                    series.tmdbId = tmdbId;
+                    series.persist();
+                    LOGGER.info("Updated Series.tmdbId for '{}' to {} (refetch path)", seriesTitle, tmdbId);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to update Series.tmdbId for '{}': {}", seriesTitle, e.getMessage(), e);
             }
         }
         LOGGER.info("Updated series metadata and queued {} episodes for background enrichment for '{}'", queued, seriesTitle);

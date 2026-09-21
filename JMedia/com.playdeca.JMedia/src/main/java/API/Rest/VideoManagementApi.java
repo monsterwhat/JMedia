@@ -153,6 +153,21 @@ public class VideoManagementApi {
                 }
             }
 
+            String tmdbId = null;
+            try {
+                Series series = Series.find("title", seriesTitle).firstResult();
+                if (series != null && series.tmdbId != null) {
+                    tmdbId = String.valueOf(series.tmdbId);
+                } else if (representative.tmdbId != null && !representative.tmdbId.isBlank()) {
+                    tmdbId = representative.tmdbId.trim();
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to load tmdbId for series '{}': {}", seriesTitle, e.getMessage());
+                if (representative.tmdbId != null && !representative.tmdbId.isBlank()) {
+                    tmdbId = representative.tmdbId.trim();
+                }
+            }
+
             return seriesEpisodesFragment
                     .data("seriesTitle", seriesTitle)
                     .data("episodes", episodes)
@@ -161,6 +176,7 @@ public class VideoManagementApi {
                     .data("backdropPath", representative.backdropPath)
                     .data("showImdbId", representative.showImdbId)
                     .data("tvdbId", tvdbId)
+                    .data("tmdbId", tmdbId)
                     .render();
         } catch (Exception e) {
             LOG.error("Error loading series episodes for '{}'", seriesTitle, e);
@@ -178,7 +194,8 @@ public class VideoManagementApi {
             @FormParam("posterPath") String posterPath,
             @FormParam("backdropPath") String backdropPath,
             @FormParam("showImdbId") String showImdbId,
-            @FormParam("tvdbId") String tvdbId) {
+            @FormParam("tvdbId") String tvdbId,
+            @FormParam("tmdbId") String tmdbId) {
         
         if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
             videoService.updateSeriesTitle(seriesTitle, newTitle);
@@ -186,7 +203,8 @@ public class VideoManagementApi {
         }
         
         Integer tvdbIdParsed = parseTvdbId(tvdbId, seriesTitle);
-        videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed);
+        Integer tmdbIdParsed = parseTmdbId(tmdbId, seriesTitle);
+        videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed, tmdbIdParsed);
         return Response.ok("Series updated successfully").build();
     }
 
@@ -206,6 +224,22 @@ public class VideoManagementApi {
         }
     }
 
+    private Integer parseTmdbId(String tmdbId, String seriesTitle) {
+        if (tmdbId == null) return null;
+        String trimmed = tmdbId.trim();
+        if (trimmed.isEmpty()) return null;
+        if (!trimmed.matches("\\d+")) {
+            LOG.warn("Invalid tmdbId '{}' for series '{}': expected digits", trimmed, seriesTitle);
+            return null;
+        }
+        try {
+            return Integer.valueOf(trimmed);
+        } catch (NumberFormatException e) {
+            LOG.warn("Failed to parse tmdbId '{}' for series '{}': {}", trimmed, seriesTitle, e.getMessage());
+            return null;
+        }
+    }
+
     @POST
     @Path("/series/update-and-refetch")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -216,7 +250,8 @@ public class VideoManagementApi {
             @FormParam("posterPath") String posterPath,
             @FormParam("backdropPath") String backdropPath,
             @FormParam("showImdbId") String showImdbId,
-            @FormParam("tvdbId") String tvdbId) {
+            @FormParam("tvdbId") String tvdbId,
+            @FormParam("tmdbId") String tmdbId) {
 
         if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
             videoService.updateSeriesTitle(seriesTitle, newTitle);
@@ -224,7 +259,8 @@ public class VideoManagementApi {
         }
 
         Integer tvdbIdParsed = parseTvdbId(tvdbId, seriesTitle);
-        int queued = videoService.updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed);
+        Integer tmdbIdParsed = parseTmdbId(tmdbId, seriesTitle);
+        int queued = videoService.updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed, tmdbIdParsed);
         return Response.ok("Queued " + queued + " episodes for background enrichment").build();
     }
 
@@ -412,6 +448,20 @@ public class VideoManagementApi {
                 tvdbIdPrefill = representative.tvdbId.trim();
             }
         }
+        String tmdbIdPrefill = "";
+        try {
+            Series series = Series.find("title", seriesTitle).firstResult();
+            if (series != null && series.tmdbId != null) {
+                tmdbIdPrefill = String.valueOf(series.tmdbId);
+            } else if (representative.tmdbId != null && !representative.tmdbId.isBlank()) {
+                tmdbIdPrefill = representative.tmdbId.trim();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to load tmdbId for series '{}': {}", seriesTitle, e.getMessage());
+            if (representative.tmdbId != null && !representative.tmdbId.isBlank()) {
+                tmdbIdPrefill = representative.tmdbId.trim();
+            }
+        }
         
          return " <form hx-post='/api/video/manage/series/update' hx-swap='none' class='p-2'>" +
                 " <input type='hidden' name='seriesTitle' value='" + seriesTitle + "'>" +
@@ -433,6 +483,10 @@ public class VideoManagementApi {
                 " <div class='control'><input class='input is-dark' type='text' name='tvdbId' value='" + tvdbIdPrefill + "' " +
                 " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;' placeholder='e.g. 76773'></div>" +
                 " <p class='help has-text-grey'>The TVDB ID of this TV series (e.g. 76773 for The Simpsons)</p></div>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>TMDB ID</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='tmdbId' value='" + tmdbIdPrefill + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;' placeholder='e.g. 456'></div>" +
+                " <p class='help has-text-grey'>The TMDB ID of this TV series (e.g. 456 for The Simpsons)</p></div>" +
                 " <div class='field mt-5'><div class='control'><button class='button is-info is-fullwidth' type='submit'>" +
                 " <i class='pi pi-save mr-2'></i> Save Series Changes</button></div></div>" +
                 " </form>";
