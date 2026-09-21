@@ -62,9 +62,6 @@ public class VideoUiApi {
     ExternalVideoService externalVideoService;
 
     @Inject
-    Services.ThumbnailService thumbnailService;
-
-    @Inject
     Services.VideoMetadataService videoMetadataService;
 
     @Inject
@@ -383,10 +380,10 @@ public class VideoUiApi {
         if (isEpisode) {
             Long seriesId = series != null ? series.id : null;
             imgSrc = seriesId != null
-                ? versionedSeriesImage(seriesId, "poster")
-                : versionedThumbnail(item.id);
+                ? "/api/series/" + seriesId + "/poster"
+                : "/api/video/thumbnail/" + item.id;
         } else {
-            imgSrc = versionedThumbnail(item.id);
+            imgSrc = "/api/video/thumbnail/" + item.id;
         }
 
         return "<div class=\"cinema-card\" data-video-id=\"" + item.id 
@@ -445,7 +442,7 @@ public class VideoUiApi {
             + "\" data-cw-series=\"" + encodedSeries
             + "\" data-click=\"playContinueWatchingFromCard\">"
             + "<div class=\"cw-card-img-wrap\">"
-            + "<img src=\"" + versionedBackdrop(item.id) + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\">"
+            + "<img src=\"/api/video/backdrop/" + item.id + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\">"
             + "<div class=\"cw-play-overlay\">"
             + "<button class=\"cw-play-btn\" data-click=\"playContinueWatchingFromCard\" data-cw-id=\"" + item.id 
             + "\" data-cw-type=\"" + cwType 
@@ -1490,7 +1487,7 @@ public class VideoUiApi {
             progressBar = "<div class='card-progress-container'><div class='card-progress-bar' style='width: " + progressPercent + "%%'></div></div>";
         }
 
-        String vThumb = versionedThumbnail(item.id);
+        String vThumb = "/api/video/thumbnail/" + item.id;
         return String.format(
             "<div class='streaming-card' %s onclick=\"window.selectItem(%d, 'details')\">" +
             "<div class='card-image-container'><img class='card-image' src='%s' loading='lazy'>" +
@@ -1517,7 +1514,7 @@ public class VideoUiApi {
         if (thumbnailId != null) {
             return "<div class='streaming-card' onclick=\"playExternalEntry(" + ev.id + ")\">" +
                    "<div class='card-image-container'>" +
-                   "<img class='card-image' src='" + versionedThumbnail(thumbnailId) + "' loading='lazy'>" +
+                   "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' loading='lazy'>" +
                    "<div class='card-play-overlay'><div class='card-play-btn' onclick=\"event.stopPropagation(); playExternalEntry(" + ev.id + ")\"><i class='pi pi-play'></i></div></div>" +
                    "<div style='position:absolute;top:8px;right:8px;z-index:2;'><span class='tag is-warning is-light is-small' style='font-size:0.6rem;'>Ext</span></div>" +
                    "</div>" +
@@ -1591,7 +1588,7 @@ public class VideoUiApi {
                 if (sample != null && sample.video != null) thumbnailId = sample.video.id;
             }
             String imgTag = thumbnailId != null
-                ? "<img class='card-image' src='" + versionedThumbnail(thumbnailId) + "' loading='lazy'>"
+                ? "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' loading='lazy'>"
                 : "<div class='carousel-empty-state' style='height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.04);'><i class='pi pi-th-large' style='font-size:2rem;opacity:0.3;color:#00b894;'></i></div>";
             html.append("<div class='streaming-card' onclick=\"window.playCollection(")
                 .append(p.collection.id).append(", ").append(p.lastEntryIndex).append(")\">")
@@ -1913,78 +1910,4 @@ public class VideoUiApi {
         return dt.format(formatter);
     }
 
-    private String versionedThumbnail(Long videoId) {
-        if (videoId == null) return "/logo.png";
-        String base = "/api/video/thumbnail/" + videoId;
-        try {
-            long lm = 0;
-            Models.Video.Video v = Models.Video.Video.findById(videoId);
-            if (v != null && v.thumbnailPath != null && !v.thumbnailPath.isBlank()) {
-                lm = Utils.ArtworkUrlHelper.lastModifiedForPath(v.thumbnailPath);
-            }
-            if (lm == 0) {
-                String name = v != null ? Utils.MediaPathResolver.resolveThumbnailName(v) : null;
-                if (name != null) {
-                    java.nio.file.Path p = thumbnailService.getThumbnailDirectory().resolve(name);
-                    lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(p);
-                }
-            }
-            if (lm == 0) {
-                java.nio.file.Path legacy = thumbnailService.getThumbnailDirectory().resolve(Utils.MediaPathResolver.legacyThumbnailName(videoId));
-                lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(legacy);
-            }
-            return Utils.ArtworkUrlHelper.withVersion(base, lm);
-        } catch (Exception e) {
-            LOG.debug("versionedThumbnail failed for {}: {}", videoId, e.getMessage());
-            return base;
-        }
-    }
-
-    private String versionedBackdrop(Long videoId) {
-        if (videoId == null) return "/logo.png";
-        String base = "/api/video/backdrop/" + videoId;
-        try {
-            java.nio.file.Path dir = thumbnailService.getThumbnailDirectory();
-            long lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(dir.resolve(videoId + "_backdrop.webp"));
-            if (lm == 0) lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(dir.resolve(videoId + "_backdrop.png"));
-            if (lm == 0) lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(dir.resolve(videoId + "_backdrop.jpg"));
-            if (lm == 0) {
-                Models.Video.Video v = Models.Video.Video.findById(videoId);
-                if (v != null && v.backdropPath != null) lm = Utils.ArtworkUrlHelper.lastModifiedForPath(v.backdropPath);
-            }
-            return Utils.ArtworkUrlHelper.withVersion(base, lm);
-        } catch (Exception e) {
-            LOG.debug("versionedBackdrop failed for {}: {}", videoId, e.getMessage());
-            return base;
-        }
-    }
-
-    private String versionedSeriesImage(Long seriesId, String type) {
-        if (seriesId == null) return "/logo.png";
-        String base = "/api/series/" + seriesId + "/" + type;
-        try {
-            Models.Video.Series s = Models.Video.Series.findById(seriesId);
-            if (s == null) return base;
-            String dbPath = switch (type) {
-                case "poster" -> s.posterPath;
-                case "backdrop" -> s.backdropPath;
-                case "logo" -> s.logoPath;
-                case "hero" -> s.heroPath;
-                default -> null;
-            };
-            long lm = Utils.ArtworkUrlHelper.lastModifiedForPath(dbPath);
-            if (lm == 0) {
-                java.nio.file.Path p = thumbnailService.getThumbnailDirectory().resolve("series_" + seriesId + "_" + type + ".webp");
-                lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(p);
-            }
-            if (lm == 0) {
-                java.nio.file.Path p2 = thumbnailService.getThumbnailDirectory().resolve("series_" + seriesId + "_" + type + ".png");
-                lm = Utils.ArtworkUrlHelper.lastModifiedForNioPath(p2);
-            }
-            return Utils.ArtworkUrlHelper.withVersion(base, lm);
-        } catch (Exception e) {
-            LOG.debug("versionedSeriesImage failed for {} {}: {}", seriesId, type, e.getMessage());
-            return base;
-        }
-    }
 }
