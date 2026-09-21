@@ -161,6 +161,11 @@ public class SegmentCacheService {
         try {
             List<SegmentEntry> chain = scanChain(absHash);
             for (SegmentEntry entry : chain) {
+                if (entry.sidecar != null && !videoId.equals(entry.sidecar.videoId)) {
+                    LOG.warn("Segment chain {} contains sidecar for video {} but requested {}; purging cross-video chain", absHash, entry.sidecar.videoId, videoId);
+                    purgeChainByHash(absHash);
+                    return null;
+                }
                 if (isStale(entry.sidecar, sourcePath)) {
                     LOG.info("Segment chain {} is stale (source changed), purging", absHash);
                     purgeChainByHash(absHash);
@@ -170,6 +175,9 @@ public class SegmentCacheService {
 
             SegmentEntry best = null;
             for (SegmentEntry entry : chain) {
+                if (entry.sidecar == null || !videoId.equals(entry.sidecar.videoId)) {
+                    continue;
+                }
                 if (entry.sidecar.startSeconds > targetSeconds + TIME_EPSILON) {
                     continue;
                 }
@@ -219,8 +227,15 @@ public class SegmentCacheService {
         ReentrantLock lock = chainLock(absHash);
         lock.lock();
         try {
+            List<SegmentEntry> chainOnStart = scanChain(absHash);
+            boolean crossVideo = chainOnStart.stream().anyMatch(e -> e.sidecar != null && !videoId.equals(e.sidecar.videoId));
+            if (crossVideo) {
+                LOG.warn("Segment chain {} has cross-video entry; purging before start for video {}", absHash, videoId);
+                purgeChainByHash(absHash);
+                chainOnStart = List.of();
+            }
             if (sourcePath != null) {
-                boolean stale = scanChain(absHash).stream().anyMatch(e -> isStale(e.sidecar, sourcePath));
+                boolean stale = chainOnStart.stream().anyMatch(e -> isStale(e.sidecar, sourcePath));
                 if (stale) {
                     LOG.info("Segment chain {} is stale on start, purging before creating new segment", absHash);
                     purgeChainByHash(absHash);

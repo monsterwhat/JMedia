@@ -1087,7 +1087,11 @@ public class VideoMetadataService {
             return;
         }
         String showTmdbId = null;
-        if (video.seriesTitle != null) {
+        boolean hasManualTmdbId = video.tmdbId != null && !video.tmdbId.isBlank();
+        if (hasManualTmdbId) {
+            showTmdbId = video.tmdbId;
+            LOG.info("[EnrichEpisode] Using manual tmdbId={} for '{}' S{}E{}, skipping TMDb search", showTmdbId, video.seriesTitle, video.seasonNumber, video.episodeNumber);
+        } else if (video.seriesTitle != null) {
             Map<String, String> authHeaders = null;
             String searchUrl;
             String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
@@ -1106,7 +1110,11 @@ public class VideoMetadataService {
         }
 
         if (showTmdbId != null) {
-            video.tmdbId = showTmdbId;
+            if (video.tmdbId == null || video.tmdbId.isBlank()) {
+                video.tmdbId = showTmdbId;
+            } else {
+                LOG.debug("[EnrichEpisode] Skipping tmdbId overwrite for '{}' — manual value {} retained, using it for detail fetch", video.seriesTitle, video.tmdbId);
+            }
             Map<String, String> authHeaders = isBearerToken(apiKey) ? Map.of("Authorization", "Bearer " + apiKey) : null;
             String url;
             if (isBearerToken(apiKey)) {
@@ -1239,7 +1247,11 @@ public class VideoMetadataService {
 
     private void enrichSeriesFromShowRoot(Series series, JsonNode showRoot, String showTmdbId) {
         if (series.tmdbId == null) {
-            try { series.tmdbId = Integer.parseInt(showTmdbId); } catch (NumberFormatException ignored) {}
+            try { series.tmdbId = Integer.parseInt(showTmdbId); } catch (NumberFormatException e) {
+                LOG.warn("[EnrichSeriesFromShowRoot] Failed to parse showTmdbId '{}': {}", showTmdbId, e.getMessage());
+            }
+        } else {
+            LOG.debug("[EnrichSeriesFromShowRoot] Skipping tmdbId overwrite for series '{}' — manual value {} retained", series.title, series.tmdbId);
         }
         if (series.overview == null || series.overview.isBlank()) {
             if (showRoot.has("overview") && !showRoot.get("overview").isNull()) {
@@ -1914,7 +1926,11 @@ public class VideoMetadataService {
                         LOG.info("[EnsureTextMetadata] TMDB returned null showId for video {}", videoId);
                         return;
                     }
-                    video.tmdbId = showId;
+                    if (video.tmdbId == null || video.tmdbId.isBlank()) {
+                        video.tmdbId = showId;
+                    } else {
+                        LOG.debug("[EnsureTextMetadata] Skipping tmdbId overwrite for '{}' — manual value {} retained, using it for detail fetch", video.seriesTitle, video.tmdbId);
+                    }
                 } else {
                     LOG.debug("[EnsureTextMetadata] Episode '{}' using stored tmdbId={}", video.seriesTitle, showId);
                 }
@@ -2054,11 +2070,13 @@ public class VideoMetadataService {
                     return SeriesEnrichmentResult.NO_MATCH;
                 }
                 showId = searchRoot.path("results").get(0).path("id").asText();
-                // Save the tmdbId for future use
+                // Save the tmdbId for future use — fill-if-blank only (series.tmdbId was null here)
                 try {
                     series.tmdbId = Integer.parseInt(showId);
                     updated = true;
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException e) {
+                    LOG.warn("[EnsureSeriesTextMetadata] Failed to parse showId '{}' for series '{}': {}", showId, series.title, e.getMessage());
+                }
             }
 
             // Fetch full show details with credits
@@ -2346,17 +2364,29 @@ public class VideoMetadataService {
         Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
 
         if ("movie".equalsIgnoreCase(video.type)) {
-            String query = video.title != null ? URLEncoder.encode(video.title, StandardCharsets.UTF_8) : null;
-            if (query == null) return null;
-            String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
-            String searchUrl = isBearerToken(tmdbKey)
-                    ? String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", query, yearSuffix)
-                    : String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, query, yearSuffix);
-            JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
-            if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
-            String tmdbId = searchRoot.path("results").get(0).path("id").asText(null);
-            if (tmdbId == null) return null;
-            video.tmdbId = tmdbId;
+            String tmdbId = null;
+            boolean hasManualTmdbId = video.tmdbId != null && !video.tmdbId.isBlank();
+            if (hasManualTmdbId) {
+                tmdbId = video.tmdbId;
+                LOG.debug("[EnrichGenresOnly] Using manual tmdbId={} for movie '{}', skipping TMDb search", tmdbId, video.title);
+            } else {
+                String query = video.title != null ? URLEncoder.encode(video.title, StandardCharsets.UTF_8) : null;
+                if (query == null) return null;
+                String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
+                String searchUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", query, yearSuffix)
+                        : String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, query, yearSuffix);
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
+                tmdbId = searchRoot.path("results").get(0).path("id").asText(null);
+                if (tmdbId == null) return null;
+                if (video.tmdbId == null || video.tmdbId.isBlank()) {
+                    video.tmdbId = tmdbId;
+                } else {
+                    LOG.debug("[EnrichGenresOnly] Skipping tmdbId overwrite for movie '{}' — manual value {} retained", video.title, video.tmdbId);
+                    tmdbId = video.tmdbId;
+                }
+            }
 
             String detailUrl = isBearerToken(tmdbKey)
                     ? String.format("https://api.themoviedb.org/3/movie/%s", tmdbId)
@@ -2366,17 +2396,29 @@ public class VideoMetadataService {
         }
 
         if ("episode".equalsIgnoreCase(video.type)) {
-            String seriesQuery = video.seriesTitle != null ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
-            if (seriesQuery == null) return null;
-            String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
-            String searchUrl = isBearerToken(tmdbKey)
-                    ? String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", seriesQuery, yearSuffix)
-                    : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, seriesQuery, yearSuffix);
-            JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
-            if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
-            String showId = searchRoot.path("results").get(0).path("id").asText(null);
-            if (showId == null) return null;
-            video.tmdbId = showId;
+            String showId = null;
+            boolean hasManualTmdbId = video.tmdbId != null && !video.tmdbId.isBlank();
+            if (hasManualTmdbId) {
+                showId = video.tmdbId;
+                LOG.debug("[EnrichGenresOnly] Using manual tmdbId={} for episode '{}', skipping TMDb search", showId, video.seriesTitle);
+            } else {
+                String seriesQuery = video.seriesTitle != null ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
+                if (seriesQuery == null) return null;
+                String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
+                String searchUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", seriesQuery, yearSuffix)
+                        : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, seriesQuery, yearSuffix);
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                if (searchRoot == null || searchRoot.path("results").isEmpty()) return null;
+                showId = searchRoot.path("results").get(0).path("id").asText(null);
+                if (showId == null) return null;
+                if (video.tmdbId == null || video.tmdbId.isBlank()) {
+                    video.tmdbId = showId;
+                } else {
+                    LOG.debug("[EnrichGenresOnly] Skipping tmdbId overwrite for episode '{}' — manual value {} retained", video.seriesTitle, video.tmdbId);
+                    showId = video.tmdbId;
+                }
+            }
 
             String showUrl = isBearerToken(tmdbKey)
                     ? String.format("https://api.themoviedb.org/3/tv/%s", showId)

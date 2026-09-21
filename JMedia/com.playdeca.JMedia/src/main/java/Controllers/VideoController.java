@@ -261,18 +261,19 @@ public class VideoController {
                 // Record history when a new video is selected
                 videoHistoryService.addFromVideoId(id, st.profileId != null ? st.profileId : profileId);
 
-                // Resume (at start) from the per-profile saved position unless an
-                // explicit start time was provided. the WS phantom re-seek that
-                // motivated "always start at 0:00" (312d035) is prevented by the
-                // player-side drift-yank guard, so every playback path — initial
-                // fragment, local select, WS/remote swap — agrees on the position.
-                st.currentTime = (startTime != null && startTime > 0) ? startTime : videoService.getResumeTime(newVideo);
+                // Resume from the per-profile saved position unless an explicit start
+                // time was provided. An explicit 0 must be honored (fresh play from
+                // the episode list) — treating 0 as "no start" made selectVideo
+                // ignore playVideo's ?startTime=0 and resume the previous episode's
+                // saved position instead of the clicked one. The WS phantom re-seek
+                // is prevented by the player-side drift-yank guard.
+                st.currentTime = (startTime != null) ? startTime : videoService.getResumeTime(newVideo);
                 
                 // Include audio preferences for frontend to restore
                 st.preferredAudioLanguage = newVideo.preferredAudioLanguage;
                 st.defaultAudioTrackId = newVideo.defaultAudioTrackId;
             } else {
-                st.currentTime = (startTime != null && startTime > 0) ? startTime : 0;
+                st.currentTime = (startTime != null) ? startTime : 0;
             }
             st.playing = true;
             addVideoToCueIfNotPresent(st, id);

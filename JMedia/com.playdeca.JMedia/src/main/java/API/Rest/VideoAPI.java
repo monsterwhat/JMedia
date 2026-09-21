@@ -1194,7 +1194,7 @@ public class VideoAPI {
     public Response getEpisodesForSeason(
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
-        List<Models.Video.Video> episodes = Models.Video.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
+        List<Models.Video.Video> episodes = Models.Video.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 order by episodeNumber asc", "episode", seriesTitle, seasonNumber);
         List<Models.Video.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(seriesTitle, seasonNumber);
         com.fasterxml.jackson.databind.node.ArrayNode epArr = mapper.createArrayNode();
         for (Models.Video.Video v : episodes) {

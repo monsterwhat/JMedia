@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Settings.Settings;
+import Models.Video.AudioTrack;
 import Models.Video.Video;
 import Utils.FragmentedMp4Seeker;
 import jakarta.annotation.PostConstruct;
@@ -461,6 +462,112 @@ public class TranscodingService {
         return true;
     }
 
+    /**
+     * Resolves a raw audioTrack query value (which may be a DATABASE AudioTrack.id such as
+     * 829068 from saved preferences / localStorage / AudioPreferenceEngine) to the correct
+     * ffmpeg audio selector index (0:a:N). AudioTrack rows carry the real ffprobe stream
+     * position in {@link AudioTrack#trackIndex} (populated by {@link FFprobeAudioService}).
+     *
+     * <p>Resolution: query the video's AudioTracks by DB id; if found use its stream index
+     * mapped to an audio-relative index (0:a:N). If the row or its trackIndex is missing
+     * / unparseable, WARN and fall back to the default audio (return -1, caller emits
+     * 0:a:0?). Never emits -map 0:&lt;dbId&gt;.</p>
+     */
+    private int resolveAudioTrackSelector(Video video, int rawAudioTrackParam) {
+        if (rawAudioTrackParam < 0) {
+            return -1;
+        }
+        List<AudioTrack> tracks = null;
+        try {
+            if (video.audioTracks != null && !video.audioTracks.isEmpty()) {
+                tracks = video.audioTracks;
+            } else {
+                // Fall back to a direct DB query when the lazy collection is not initialized.
+                tracks = AudioTrack.list("video.id", video.id);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to load audio tracks for video {} while resolving audioTrack {}: {}", video.id, rawAudioTrackParam, e.getMessage(), e);
+            return -1;
+        }
+        if (tracks == null || tracks.isEmpty()) {
+            LOG.warn("No audio tracks found for video {} while resolving audioTrack {}; falling back to default audio", video.id, rawAudioTrackParam);
+            return -1;
+        }
+
+        // 1) Treat raw param as DATABASE id: search by AudioTrack.id
+        for (AudioTrack t : tracks) {
+            if (t.id != null && t.id.longValue() == rawAudioTrackParam) {
+                if (t.trackIndex == null) {
+                    LOG.warn("AudioTrack {} for video {} has null trackIndex (unparseable); falling back to default audio for audioTrack {}", t.id, video.id, rawAudioTrackParam);
+                    return -1;
+                }
+                int ordinal = toAudioOrdinal(tracks, t);
+                if (ordinal >= 0) {
+                    LOG.info("Resolved audioTrack DB id {} to ffmpeg audio selector 0:a:{} (global stream index {}) for video {}", rawAudioTrackParam, ordinal, t.trackIndex, video.id);
+                    return ordinal;
+                }
+                // Fallback: use global index as ordinal if ordinal could not be computed (should not happen)
+                LOG.warn("Failed to compute audio ordinal for AudioTrack {} (trackIndex {}); using global index as fallback for video {}", t.id, t.trackIndex, video.id);
+                return t.trackIndex;
+            }
+        }
+
+        // 2) No DB match — raw param may already be an ffmpeg index sent by an already-fixed client.
+        //    If it matches a known global trackIndex, treat it as the correct index and convert to ordinal.
+        for (AudioTrack t : tracks) {
+            if (t.trackIndex != null && t.trackIndex == rawAudioTrackParam) {
+                int ordinal = toAudioOrdinal(tracks, t);
+                if (ordinal >= 0) {
+                    LOG.warn("audioTrack param {} did not match any DB id for video {} but matches known stream index {} (audio ordinal {}); using resolved ordinal", rawAudioTrackParam, video.id, t.trackIndex, ordinal);
+                    return ordinal;
+                }
+                LOG.warn("audioTrack param {} matches known stream index {} for video {} but ordinal unresolved; using stream index directly", rawAudioTrackParam, t.trackIndex, video.id);
+                return rawAudioTrackParam;
+            }
+        }
+
+        // 3) Check if raw param is already a plausible audio-ordinal (0..numAudio-1) — accept with WARN for backwards compat
+        List<AudioTrack> sorted = tracks.stream()
+                .filter(at -> at.trackIndex != null)
+                .sorted(Comparator.comparingInt(at -> at.trackIndex))
+                .collect(Collectors.toList());
+        if (rawAudioTrackParam >= 0 && rawAudioTrackParam < sorted.size()) {
+            LOG.warn("audioTrack param {} did not match any DB id or global index for video {}; treating as audio ordinal {} (backwards-compat)", rawAudioTrackParam, video.id, rawAudioTrackParam);
+            return rawAudioTrackParam;
+        }
+
+        LOG.warn("Failed to resolve audioTrack {} for video {}: no AudioTrack with that DB id and no matching stream index ({} audio tracks); falling back to default audio", rawAudioTrackParam, video.id, tracks.size());
+        return -1;
+    }
+
+    private int toAudioOrdinal(List<AudioTrack> tracks, AudioTrack target) {
+        List<AudioTrack> sorted = tracks.stream()
+                .filter(at -> at.trackIndex != null)
+                .sorted(Comparator.comparingInt(at -> at.trackIndex))
+                .collect(Collectors.toList());
+        for (int i = 0; i < sorted.size(); i++) {
+            AudioTrack at = sorted.get(i);
+            if (at.id != null && at.id.equals(target.id)) {
+                return i;
+            }
+            if (at.trackIndex != null && at.trackIndex.equals(target.trackIndex) && at.id == null) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isStreamMappingError(String errors, int exitCode) {
+        if (errors != null && errors.contains("matches no streams")) {
+            return true;
+        }
+        // FFmpeg maps the error to exit 1 in most builds, but the incident log reports 234
+        if (exitCode == 234 && errors != null && errors.contains("Stream map")) {
+            return true;
+        }
+        return false;
+    }
+
     private String getScaleFilter(boolean isNvidia, int qualityHeight, String resolution) {
         if (qualityHeight <= 0) return null;
         int w = 1920, h = 1080;
@@ -874,6 +981,11 @@ public class TranscodingService {
                 break;
             }
 
+            if (isStreamMappingError(errors, exitCode)) {
+                LOG.warn("FFmpeg stream mapping failed for {} (exit {}): {}; mapping error is not a hardware/codec failure — not retrying hardware fallback", videoFile.getName(), exitCode, errors.split("\n")[0].trim());
+                break;
+            }
+
             if (exitCode == 137) {
                 transcodeOomCount.incrementAndGet();
                 LOG.error("FFmpeg was killed (exit code 137 = SIGKILL) for {}. This is likely an Out Of Memory condition. Consider reducing concurrent transcodes or adding swap.", videoFile.getName());
@@ -1199,12 +1311,14 @@ public class TranscodingService {
         command.add("-i"); command.add(videoFile.getAbsolutePath());
 
         command.add("-map"); command.add("0:v:0");
-        if (audioTrackIndex >= 0) {
-            // audioTrackIndex is the absolute stream index from FFprobe
-            // Use -map 0:N to map the exact stream by its index
-            command.add("-map"); command.add("0:" + audioTrackIndex);
-            LOG.info("Mapping specific audio track by index: 0:{}", audioTrackIndex);
+        int effectiveAudioSelector = resolveAudioTrackSelector(video, audioTrackIndex);
+        if (effectiveAudioSelector >= 0) {
+            command.add("-map"); command.add("0:a:" + effectiveAudioSelector);
+            LOG.info("Mapping specific audio track by index: 0:a:{} (raw param {} resolved for video {})", effectiveAudioSelector, audioTrackIndex, video.id);
         } else {
+            if (audioTrackIndex >= 0) {
+                LOG.warn("Falling back to default audio mapping 0:a:0? for video {} (raw audioTrack {} unresolvable)", video.id, audioTrackIndex);
+            }
             command.add("-map"); command.add("0:a:0?");
         }
 
@@ -1291,7 +1405,7 @@ public class TranscodingService {
 
         // When a specific audio track is selected, transcode to AAC for web compatibility
         // (the selected track may have a different codec than the default track)
-        if (needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio) {
+        if (needsVideoTranscode || effectiveAudioSelector >= 0 || !canCopyAudio) {
             LOG.info("Transcoding audio for {} (selected track, ensuring AAC)", videoFile.getName());
             // Intentional stereo downmix for universal web playback: <video> elements
             // across all browsers expect stereo; multi-channel AAC would play silence
@@ -1343,7 +1457,7 @@ public class TranscodingService {
 
         command.add("-max_muxing_queue_size"); command.add("1024");
 
-        String ffmpegAudioMode = (needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio) ? "aac" : "copy";
+        String ffmpegAudioMode = (needsVideoTranscode || effectiveAudioSelector >= 0 || !canCopyAudio) ? "aac" : "copy";
         LOG.info("[FFMPEG] videoId={} hw={} decoder={} encoder={} audio={} scale={}",
             video.id, useHardware, hardwareDecoder, videoEncoder, ffmpegAudioMode,
             qualityHeight > 0 ? String.valueOf(qualityHeight) : "none");
@@ -2363,9 +2477,14 @@ public class TranscodingService {
         command.add("-i"); command.add(videoFile.getAbsolutePath());
 
         command.add("-map"); command.add("0:v:0");
-        if (audioTrackIndex >= 0) {
-            command.add("-map"); command.add("0:" + audioTrackIndex);
+        int gapEffectiveAudio = resolveAudioTrackSelector(video, audioTrackIndex);
+        if (gapEffectiveAudio >= 0) {
+            command.add("-map"); command.add("0:a:" + gapEffectiveAudio);
+            LOG.info("Gap mapping specific audio track by index: 0:a:{} (raw {} for video {})", gapEffectiveAudio, audioTrackIndex, video.id);
         } else {
+            if (audioTrackIndex >= 0) {
+                LOG.warn("Gap falling back to default audio 0:a:0? for video {} (raw audioTrack {} unresolvable)", video.id, audioTrackIndex);
+            }
             command.add("-map"); command.add("0:a:0?");
         }
 
@@ -2425,7 +2544,7 @@ public class TranscodingService {
             command.add("-c:v"); command.add("copy");
         }
 
-        boolean transcodeAudio = needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio;
+        boolean transcodeAudio = needsVideoTranscode || gapEffectiveAudio >= 0 || !canCopyAudio;
         if (transcodeAudio) {
             // Intentional stereo downmix — matches the streaming pipeline for
             // universal web <video> playback (see streamViaFFmpeg -ac 2 comment).
