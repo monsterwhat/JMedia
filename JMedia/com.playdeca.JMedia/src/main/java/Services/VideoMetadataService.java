@@ -1691,8 +1691,9 @@ public class VideoMetadataService {
     /**
      * Fetch episode-specific image URL from TMDB
      */
-    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber, Integer year) {
+    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, Integer seasonNumber, Integer episodeNumber, Integer year) {
         if (seriesTitle == null || seriesTitle.isBlank()) return Optional.empty();
+        if (seasonNumber == null || episodeNumber == null) return Optional.empty();
         
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
@@ -1748,7 +1749,8 @@ public class VideoMetadataService {
      *
      * @param tmdbId pre-resolved TMDB TV show ID — when non-blank, skips search and uses it directly
      */
-    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber, String tmdbId, Integer year) {
+    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, Integer seasonNumber, Integer episodeNumber, String tmdbId, Integer year) {
+        if (seasonNumber == null || episodeNumber == null) return Optional.empty();
         if (tmdbId == null || tmdbId.isBlank() || tmdbId.equals("null")) {
             return fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, year);
         }

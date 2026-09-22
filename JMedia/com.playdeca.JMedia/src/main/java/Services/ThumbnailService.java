@@ -358,7 +358,10 @@ public class ThumbnailService {
                 }
             }
             
-            if (!isBatchMode && "episode".equalsIgnoreCase(video.type)) {
+            // Episode stills need a season/episode number for the TMDB lookup (and the
+            // int-parameter helpers below would NPE on auto-unboxing). Fall through to
+            // plain frame extraction when either is missing.
+            if (!isBatchMode && "episode".equalsIgnoreCase(video.type) && video.seasonNumber != null && video.episodeNumber != null) {
                 String episodeKey = getEpisodeCacheKey(video, video.seriesTitle, video.seasonNumber, video.episodeNumber);
                 String cachedEpisode = episodeImageCache.get(episodeKey);
                 if (cachedEpisode != null) {
