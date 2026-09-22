@@ -727,6 +727,10 @@ public class XtreamCodesAPI {
         }
 
         java.util.Map<String, String> genreIds = genreIdByName();
+        // Collection memberships for client-side grouping: IPTV apps group the full
+        // list by category_ids, and collection ids never appear there unless added.
+        java.util.Map<Long, java.util.List<Integer>> collIdsByVideo =
+                collectionId != null ? null : vodCollectionIdsByVideo();
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
@@ -748,9 +752,12 @@ public class XtreamCodesAPI {
             if (collectionId != null) {
                 s.categoryId = catId;
                 s.categoryIds.add((int) (COLLECTION_CATEGORY_BASE + collectionId));
+                for (Integer gid : allIds) if (!s.categoryIds.contains(gid)) s.categoryIds.add(gid);
             } else {
                 s.categoryId = gids.get(0);
                 s.categoryIds.addAll(allIds);
+                java.util.List<Integer> extra = collIdsByVideo != null ? collIdsByVideo.get(v.id) : null;
+                if (extra != null) for (Integer cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
             }
             streams.add(s);
         }
@@ -849,6 +856,36 @@ public class XtreamCodesAPI {
             log.debugf("collectionHasSeriesMembers query failed for collection=%d: %s", c.id, e.getMessage());
             return true; // include on failure to avoid hiding
         }
+    }
+
+    /**
+     * Video/series id to collection category ids, built from the same per-collection
+     * queries the category endpoints use, so client-side grouping agrees with them.
+     */
+    private java.util.Map<Long, java.util.List<Integer>> vodCollectionIdsByVideo() {
+        java.util.Map<Long, java.util.List<Integer>> map = new java.util.HashMap<>();
+        for (MediaCollection c : listCollectionsForXtream()) {
+            int catId = (int) (COLLECTION_CATEGORY_BASE + c.id);
+            for (Video v : findVideosForCollection(c.id)) {
+                if (v == null || v.id == null) continue;
+                java.util.List<Integer> ids = map.computeIfAbsent(v.id, k -> new java.util.ArrayList<>());
+                if (!ids.contains(catId)) ids.add(catId);
+            }
+        }
+        return map;
+    }
+
+    private java.util.Map<Long, java.util.List<Integer>> seriesCollectionIdsBySeries() {
+        java.util.Map<Long, java.util.List<Integer>> map = new java.util.HashMap<>();
+        for (MediaCollection c : listCollectionsForXtream()) {
+            int catId = (int) (COLLECTION_CATEGORY_BASE + c.id);
+            for (Models.Video.Series s : findSeriesForCollection(c.id)) {
+                if (s == null || s.id == null) continue;
+                java.util.List<Integer> ids = map.computeIfAbsent(s.id, k -> new java.util.ArrayList<>());
+                if (!ids.contains(catId)) ids.add(catId);
+            }
+        }
+        return map;
     }
 
     private List<Video> findVideosForCollection(Long collectionId) {
@@ -1170,6 +1207,8 @@ public class XtreamCodesAPI {
 
         log.infof("getSeries: found %d series from Series entity", allSeries.size());
         java.util.Map<String, String> genreIds = genreIdByName();
+        java.util.Map<Long, java.util.List<Integer>> collIdsBySeries =
+                collectionId != null ? null : seriesCollectionIdsBySeries();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
         for (Models.Video.Series ser : allSeries) {
@@ -1219,9 +1258,12 @@ public class XtreamCodesAPI {
             if (collectionId != null) {
                 xs.categoryId = catId;
                 xs.categoryIds = new ArrayList<>(List.of((int) (COLLECTION_CATEGORY_BASE + collectionId)));
+                for (Integer gid : seriesAllIds) if (!xs.categoryIds.contains(gid)) xs.categoryIds.add(gid);
             } else {
                 xs.categoryId = seriesGenreIds.get(0);
                 xs.categoryIds = new ArrayList<>(seriesAllIds);
+                java.util.List<Integer> extra = collIdsBySeries != null ? collIdsBySeries.get(ser.id) : null;
+                if (extra != null) for (Integer cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
             }
             seriesList.add(xs);
         }
