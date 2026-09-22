@@ -14,6 +14,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -47,6 +48,11 @@ public class ThumbnailService {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(ThumbnailService.class);
     private static final String THUMBNAIL_DIR = "thumbnails";
+
+    /** Classpath location of the bundled "No Image" placeholder JPEG (300x450). */
+    private static final String PLACEHOLDER_IMAGE_RESOURCE = "/META-INF/resources/images/placeholders/thumbnail.jpg";
+    private static final int PLACEHOLDER_WIDTH = 300;
+    private static final int PLACEHOLDER_HEIGHT = 450;
 
     @Inject
     @PersistenceUnit("video")
@@ -82,6 +88,27 @@ public class ThumbnailService {
     
     private final ConcurrentHashMap<String, ShowMetadata> showMetadataCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> episodeImageCache = new ConcurrentHashMap<>();
+    private volatile byte[] placeholderImageBytes;
+
+    /**
+     * Bundled "No Image" placeholder JPEG bytes for artwork endpoints. Served with
+     * HTTP 200 so IPTV image loaders that cannot follow redirects still render it.
+     */
+    public synchronized byte[] getPlaceholderImageBytes() {
+        if (placeholderImageBytes == null) {
+            try (java.io.InputStream in = getClass().getResourceAsStream(PLACEHOLDER_IMAGE_RESOURCE)) {
+                if (in == null) {
+                    LOGGER.warn("Bundled placeholder image missing: {}", PLACEHOLDER_IMAGE_RESOURCE);
+                    return null;
+                }
+                placeholderImageBytes = in.readAllBytes();
+            } catch (Exception e) {
+                LOGGER.warn("Failed to load bundled placeholder image: {}", e.getMessage());
+                return null;
+            }
+        }
+        return placeholderImageBytes;
+    }
 
     public void clearThumbnailCache() {
         thumbnailCache.clear();
@@ -989,11 +1016,25 @@ public class ThumbnailService {
         String backdropPath = findExistingPath(thumbnailsDir, prefix, "backdrop");
         String heroPath     = findExistingPath(thumbnailsDir, prefix, "hero");
 
-        if (!Objects.equals(series.posterPath, posterPath))     { series.posterPath   = posterPath;   dbUpdated = true; }
-        if (!Objects.equals(series.logoPath, logoPath))         { series.logoPath     = logoPath;     dbUpdated = true; }
-        if (!Objects.equals(series.backdropPath, backdropPath)) { series.backdropPath = backdropPath; dbUpdated = true; }
-        if (!Objects.equals(series.heroPath, heroPath))         { series.heroPath     = heroPath;     dbUpdated = true; }
+        // Never clobber a remote (TMDB) cover URL with null when no local file
+        // exists — the remote URL keeps the cover working for IPTV clients.
+        if (!Objects.equals(series.posterPath, posterPath) && (posterPath != null || !isRemoteUrl(series.posterPath))) {
+            series.posterPath = posterPath; dbUpdated = true;
+        }
+        if (!Objects.equals(series.logoPath, logoPath) && (logoPath != null || !isRemoteUrl(series.logoPath))) {
+            series.logoPath = logoPath; dbUpdated = true;
+        }
+        if (!Objects.equals(series.backdropPath, backdropPath) && (backdropPath != null || !isRemoteUrl(series.backdropPath))) {
+            series.backdropPath = backdropPath; dbUpdated = true;
+        }
+        if (!Objects.equals(series.heroPath, heroPath) && (heroPath != null || !isRemoteUrl(series.heroPath))) {
+            series.heroPath = heroPath; dbUpdated = true;
+        }
         return dbUpdated;
+    }
+
+    private static boolean isRemoteUrl(String path) {
+        return path != null && path.startsWith("http");
     }
 
     /**
@@ -1105,6 +1146,16 @@ public class ThumbnailService {
             }
         }
         return null;
+    }
+
+    /**
+     * Resolves the local image file for a Series image type (poster/logo/backdrop/hero)
+     * by the {@code series_<id>} file prefix. Returns null when no local file exists —
+     * callers should fall back to the remote TMDB URL stored on the Series.
+     */
+    public String findSeriesImageFile(Long seriesId, String type) {
+        if (seriesId == null || type == null) return null;
+        return findExistingPath(getThumbnailDirectory(), "series_" + seriesId, type);
     }
     
     public ThumbnailProcessingStatus getProcessingStatus() {

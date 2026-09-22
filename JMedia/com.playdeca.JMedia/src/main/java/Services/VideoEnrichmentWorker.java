@@ -33,6 +33,9 @@ public class VideoEnrichmentWorker {
     SettingsService settingsService;
 
     @Inject
+    ThumbnailService thumbnailService;
+
+    @Inject
     RequestContextController requestContextController;
 
     private final LinkedBlockingQueue<Long> queue = new LinkedBlockingQueue<>();
@@ -57,6 +60,14 @@ public class VideoEnrichmentWorker {
     private final AtomicInteger categoryPending = new AtomicInteger(0);
     private final AtomicInteger categoryProcessed = new AtomicInteger(0);
 
+    // Release-date backfill queue — reuses the same virtual-thread pool as the main
+    // enrichment queue. needsEnrichment() skips ENRICHED-status videos, so enriched movies
+    // with a tmdbId but empty releaseDate need this dedicated queue (Xtream get_vod_info
+    // exposes releasedate, which was left empty for movies before the TMDB wiring).
+    private final LinkedBlockingQueue<Long> releaseDateQueue = new LinkedBlockingQueue<>();
+    private final AtomicInteger releaseDatePending = new AtomicInteger(0);
+    private final AtomicInteger releaseDateProcessed = new AtomicInteger(0);
+
     @PostConstruct
     void init() {
         start();
@@ -69,6 +80,13 @@ public class VideoEnrichmentWorker {
             // Auto-run the genre/category backfill on startup so Xtream categories fill
             // in without a manual scan trigger (covers ENRICHED videos with empty genres).
             queueAllMissingGenres();
+            // Auto-run the release-date backfill on startup so enriched movies missing a
+            // release date get one without a manual re-enrich (Xtream get_vod_info exposes it).
+            queueAllMissingReleaseDates();
+            // Fetch TMDB posters for series that have neither a remote cover URL nor a
+            // local poster file (their Xtream covers would otherwise fall back to
+            // episode art). Runs inline on this background thread; per-series guarded.
+            backfillSeriesPosters();
         }, "VideoEnrichmentWorker-startup");
         startupThread.setDaemon(true);
         startupThread.start();
@@ -149,6 +167,12 @@ public class VideoEnrichmentWorker {
                 if (categorySeriesId != null) {
                     categoryPending.decrementAndGet();
                     processCategorySeries(categorySeriesId);
+                    continue;
+                }
+                Long releaseDateVideoId = releaseDateQueue.poll(1, TimeUnit.SECONDS);
+                if (releaseDateVideoId != null) {
+                    releaseDatePending.decrementAndGet();
+                    processReleaseDateVideo(releaseDateVideoId);
                 }
             } catch (InterruptedException e) {
                 LOG.info("VideoEnrichmentWorker worker interrupted");
@@ -269,6 +293,33 @@ public class VideoEnrichmentWorker {
         }
     }
 
+    private void processReleaseDateVideo(Long videoId) {
+        requestContextController.activate();
+        try {
+            Video video = Video.findById(videoId);
+            if (video == null || !video.isActive) {
+                LOG.debug("VideoEnrichmentWorker: release-date video {} not found or inactive, skipping", videoId);
+                return;
+            }
+            if (!needsReleaseDateEnrichment(video)) {
+                LOG.debug("VideoEnrichmentWorker: video {} ({}) already has a release date, skipping", videoId, video.title);
+                return;
+            }
+            LOG.info("VideoEnrichmentWorker: enriching release date for '{}' (id={}, type={})", video.title, videoId, video.type);
+            videoMetadataService.enrichReleaseDateOnly(videoId);
+            releaseDateProcessed.incrementAndGet();
+            LOG.info("VideoEnrichmentWorker: release-date enrichment done for '{}' (release-date processed: {})", video.title, releaseDateProcessed.get());
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed release-date enrichment for video id={}: {}", videoId, e.getMessage(), e);
+        } finally {
+            requestContextController.deactivate();
+        }
+    }
+
+    private boolean needsReleaseDateEnrichment(Video video) {
+        return videoMetadataService.needsReleaseDateEnrichment(video);
+    }
+
     public void queueVideo(Long videoId) {
         if (videoId == null || workerPoolSize == 0) return;
         queue.offer(videoId);
@@ -345,6 +396,71 @@ public class VideoEnrichmentWorker {
             LOG.error("VideoEnrichmentWorker: failed to scan library for videos missing genres", e);
         }
         return queued + seriesQueued;
+    }
+
+    /**
+     * Fetch TMDB posters for series missing both a remote cover URL and a local
+     * poster file (their Xtream covers would otherwise fall back to episode art).
+     * Runs inline on the startup background thread; each series is individually
+     * guarded so one failure never aborts the sweep.
+     */
+    @jakarta.enterprise.context.control.ActivateRequestContext
+    public void backfillSeriesPosters() {
+        LOG.info("VideoEnrichmentWorker: scanning library for series missing posters...");
+        int fixed = 0;
+        int scanned = 0;
+        try {
+            List<Models.Video.Series> all = Models.Video.Series.listAll();
+            for (Models.Video.Series s : all) {
+                try {
+                    if (s == null || s.id == null) continue;
+                    scanned++;
+                    if (s.posterPath != null && s.posterPath.startsWith("http")) continue;
+                    if (thumbnailService.findSeriesImageFile(s.id, "poster") != null) continue;
+                    if (thumbnailService.ensureSeriesMediaImages(s.id)) fixed++;
+                } catch (Exception e) {
+                    LOG.warn("VideoEnrichmentWorker: series poster backfill skipped for series id={}: {}",
+                            s != null ? s.id : null, e.getMessage());
+                }
+            }
+            LOG.info("VideoEnrichmentWorker: series poster backfill scanned {} series, fetched images for {}", scanned, fixed);
+        } catch (Exception e) {
+            LOG.warn("VideoEnrichmentWorker: series poster backfill failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Queue all active enriched movies that have a tmdbId but no release date into the
+     * dedicated release-date queue. This is the release-date backfill that makes Xtream
+     * get_vod_info return a non-empty releasedate for already-enriched movies without
+     * requiring a full re-enrichment.
+     *
+     * @return the number of movies queued for release-date backfill
+     */
+    @jakarta.enterprise.context.control.ActivateRequestContext
+    public int queueAllMissingReleaseDates() {
+        if (workerPoolSize == 0) {
+            LOG.info("VideoEnrichmentWorker: enrichment disabled in system settings, skipping release-date backfill");
+            return 0;
+        }
+        LOG.info("VideoEnrichmentWorker: scanning library for enriched movies missing release dates...");
+        int queued = 0;
+        try {
+            List<Video> movies = Video.list(
+                    "isActive = ?1 AND type = 'movie' AND tmdbId IS NOT NULL AND tmdbId != '' AND (releaseDate IS NULL OR releaseDate = '')",
+                    true);
+            for (Video video : movies) {
+                if (video != null && video.id != null && needsReleaseDateEnrichment(video)) {
+                    releaseDateQueue.offer(video.id);
+                    queued++;
+                    releaseDatePending.incrementAndGet();
+                }
+            }
+            LOG.info("VideoEnrichmentWorker: queued {} movies for release-date backfill", queued);
+        } catch (Exception e) {
+            LOG.error("VideoEnrichmentWorker: failed to scan library for movies missing release dates", e);
+        }
+        return queued;
     }
 
     /**

@@ -12,7 +12,8 @@ import org.jboss.logging.Logger;
  * key off the URL path ending (e.g. Smarters on Apple TV ignores
  * query-string artwork URLs like player_api.php?action=get_thumbnail&...).
  * Serves the same JPEG bytes as the player_api.php actions: direct 200 when
- * artwork exists, placeholder redirect when it does not. Query-string Xtream
+ * artwork exists, bundled placeholder bytes when it does not (never redirects,
+ * since some IPTV image loaders cannot follow them). Query-string Xtream
  * credentials required (no session cookie).
  */
 @Path("/art")
@@ -59,9 +60,12 @@ public class ArtworkAPI {
                 log.warnf("art/movie: poster fallback %s unreadable for videoId=%d: %s", posterName, videoId, e.getMessage());
             }
         }
-        log.warnf("art/movie: no artwork for videoId=%d, serving fallback", videoId);
-        return Response.temporaryRedirect(java.net.URI.create("https://placehold.co/300x450/1a1a2e/eaeaea?text=No+Image"))
-                .build();
+        log.warnf("art/movie: no artwork for videoId=%d, serving bundled placeholder", videoId);
+        byte[] placeholder = thumbnailService.getPlaceholderImageBytes();
+        if (placeholder != null && placeholder.length > 0) {
+            return serveJpeg(placeholder);
+        }
+        return Response.status(Response.Status.NOT_FOUND).build();
     }
 
     @GET
@@ -92,26 +96,38 @@ public class ArtworkAPI {
             log.warnf("art/series: no series match for seriesId=%s", seriesId);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        if (matched.backdropPath == null || matched.backdropPath.isBlank()) {
-            log.warnf("art/series: seriesId=%s has no backdrop path", seriesId);
-            return Response.status(Response.Status.NOT_FOUND).build();
-        }
+        byte[] raw = null;
         try {
-            java.nio.file.Path p = java.nio.file.Path.of(matched.backdropPath);
-            if (!java.nio.file.Files.isRegularFile(p)) {
-                log.warnf("art/series: backdrop file missing for seriesId=%s at %s", seriesId, matched.backdropPath);
-                return Response.status(Response.Status.NOT_FOUND).build();
+            if (matched.backdropPath != null && !matched.backdropPath.isBlank()) {
+                java.nio.file.Path p = java.nio.file.Path.of(matched.backdropPath);
+                if (java.nio.file.Files.isRegularFile(p)) {
+                    raw = java.nio.file.Files.readAllBytes(p);
+                } else {
+                    log.warnf("art/series: backdrop file missing for seriesId=%s at %s", seriesId, matched.backdropPath);
+                }
             }
-            byte[] raw = java.nio.file.Files.readAllBytes(p);
-            if (raw.length == 0) {
-                log.warnf("art/series: empty backdrop file for seriesId=%s", seriesId);
-                return Response.status(Response.Status.NOT_FOUND).build();
+            if ((raw == null || raw.length == 0) && matched.id != null) {
+                String posterFile = thumbnailService.findSeriesImageFile(matched.id, "poster");
+                if (posterFile != null) {
+                    try {
+                        raw = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(posterFile));
+                    } catch (Exception e) {
+                        log.warnf("art/series: poster file unreadable for seriesId=%s at %s: %s", seriesId, posterFile, e.getMessage());
+                    }
+                }
             }
-            return serveJpeg(raw);
+            if (raw != null && raw.length > 0) {
+                return serveJpeg(raw);
+            }
         } catch (Exception e) {
-            log.errorf("art/series: failure for seriesId=%s at %s: %s", seriesId, matched.backdropPath, e.getMessage());
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+            log.errorf("art/series: failure for seriesId=%s: %s", seriesId, e.getMessage());
         }
+        log.warnf("art/series: no artwork for seriesId=%s, serving bundled placeholder", seriesId);
+        byte[] placeholder = thumbnailService.getPlaceholderImageBytes();
+        if (placeholder != null && placeholder.length > 0) {
+            return serveJpeg(placeholder);
+        }
+        return Response.status(Response.Status.NOT_FOUND).build();
     }
 
     private Response serveJpeg(byte[] img) {

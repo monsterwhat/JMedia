@@ -144,6 +144,15 @@ public class XtreamCodesAPI {
     @QueryParam("stream_id")
     Long liveStreamId;
 
+    /**
+     * Effective movie rating for Xtream output: prefers IMDb, falls back to TMDb when IMDb
+     * is absent/zero (no OMDb key server-wide leaves imdbRating at 0.0 for most movies).
+     */
+    private static Double effectiveMovieRating(Video v) {
+        if (v.imdbRating != null && v.imdbRating != 0.0) return v.imdbRating;
+        return v.tmdbRating;
+    }
+
     private Response getVodInfo(Long vodId) {
         if (vodId == null) return Response.status(Response.Status.BAD_REQUEST).build();
         Video v = Video.findById(vodId);
@@ -161,8 +170,9 @@ public class XtreamCodesAPI {
         info.put("releasedate", v.releaseDate != null ? v.releaseDate : "");
         info.put("plot", v.overview != null ? v.overview : "");
         info.put("description", v.overview != null ? v.overview : "");
-        info.put("rating", v.imdbRating != null ? v.imdbRating.toString() : "0");
-        info.put("rating_5based", v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0.0);
+        Double rating = effectiveMovieRating(v);
+        info.put("rating", rating != null ? rating.toString() : "0");
+        info.put("rating_5based", rating != null ? Math.ceil(rating / 2.0) : 0.0);
         info.put("director", v.directors != null ? String.join(", ", v.directors) : "");
         info.put("actors", v.cast != null ? String.join(", ", v.cast) : "");
         info.put("cast", v.cast != null ? String.join(", ", v.cast) : "");
@@ -474,6 +484,10 @@ public class XtreamCodesAPI {
         if (seriesCover != null) {
             info.put("cover", seriesCover);
             info.put("cover_big", seriesCoverBig);
+        } else if (s.id != null && thumbnailService.findSeriesImageFile(s.id, "poster") != null) {
+            String posterUrl = getExternalBaseUri() + "art/series/" + s.id + ".jpg?username=" + username + "&password=" + password;
+            info.put("cover", posterUrl);
+            info.put("cover_big", posterUrl);
         } else if (!seriesEpisodes.isEmpty()) {
             Video first = seriesEpisodes.get(0);
             info.put("cover", getImageUrl(first));
@@ -742,8 +756,9 @@ public class XtreamCodesAPI {
             s.streamId = v.id;
             s.streamIcon = getImageUrl(v);
             s.movieImage = getImageUrl(v);
-            s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
-            s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
+            Double rating = effectiveMovieRating(v);
+            s.rating = rating != null ? rating.toString() : "0";
+            s.rating5based = rating != null ? Math.ceil(rating / 2.0) : 0;
             s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
             String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
             s.containerExtension = vodExt;
@@ -1222,6 +1237,11 @@ public class XtreamCodesAPI {
 
             String cover = seriesCover(ser.posterPath, "w500");
             String coverBig = seriesCover(ser.posterPath, "w1280");
+            if (cover == null && ser.id != null && thumbnailService.findSeriesImageFile(ser.id, "poster") != null) {
+                String posterUrl = getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password;
+                cover = posterUrl;
+                coverBig = posterUrl;
+            }
             if (cover == null) {
                 Video firstEp = eps.stream().findFirst().orElse(null);
                 cover = firstEp != null ? getImageUrl(firstEp) : "";
@@ -1399,9 +1419,12 @@ public class XtreamCodesAPI {
                 log.warnf("getThumbnail: poster fallback %s unreadable for videoId=%d: %s", posterName, videoId, e.getMessage());
             }
         }
-        log.warnf("getThumbnail: no thumbnail for videoId=%d, serving fallback", videoId);
-        return Response.temporaryRedirect(java.net.URI.create("https://placehold.co/300x450/1a1a2e/eaeaea?text=No+Image"))
-                .build();
+        log.warnf("getThumbnail: no thumbnail for videoId=%d, serving bundled placeholder", videoId);
+        byte[] placeholder = thumbnailService.getPlaceholderImageBytes();
+        if (placeholder != null && placeholder.length > 0) {
+            return serveThumbnailImage(placeholder, videoId);
+        }
+        return Response.status(Response.Status.NOT_FOUND).build();
     }
 
     private Response getSeriesBackdrop(String seriesId) {

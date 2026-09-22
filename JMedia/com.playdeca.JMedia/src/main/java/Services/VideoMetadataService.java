@@ -991,6 +991,12 @@ public class VideoMetadataService {
                 if (root.has("imdb_id")) {
                     video.imdbId = root.get("imdb_id").asText();
                 }
+                if (video.releaseDate == null || video.releaseDate.isBlank()) {
+                    if (root.has("release_date") && !root.get("release_date").isNull()) {
+                        String date = root.get("release_date").asText();
+                        if (!date.isBlank()) video.releaseDate = date;
+                    }
+                }
                 if (video.releaseYear == null && root.has("release_date")) {
                     String date = root.get("release_date").asText();
                     if (date.length() >= 4) video.releaseYear = Integer.parseInt(date.substring(0, 4));
@@ -2358,6 +2364,84 @@ public class VideoMetadataService {
             LOG.warn("[EnrichGenresOnly] No genres found for video {} ('{}') from any provider", video.id, video.title);
         } catch (Exception e) {
             LOG.warn("[EnrichGenresOnly] Failed for video {} ('{}'): {}", video.id, video.title, e.getMessage());
+        }
+    }
+
+    // =====================================================================================
+    // Release-date-only enrichment.
+    //
+    // Lightweight path for the release-date backfill: fills ONLY Video.releaseDate (and
+    // releaseYear when still missing) for enriched movies from TMDB. No images, no genres,
+    // no ffprobe, no subtitles, no IntroDB. Never overwrites an existing release date.
+    // =====================================================================================
+
+    /**
+     * Whether a movie still needs a release date. True for active movies with a tmdbId whose
+     * releaseDate is null/blank (releaseYear may already be present — the year is parsed from
+     * the same TMDB release_date, but the full date was never stored).
+     */
+    public boolean needsReleaseDateEnrichment(Video video) {
+        if (video == null || !video.isActive) return false;
+        if (!"movie".equalsIgnoreCase(video.type)) return false;
+        if (video.tmdbId == null || video.tmdbId.isBlank()) return false;
+        return video.releaseDate == null || video.releaseDate.isBlank();
+    }
+
+    /**
+     * Release-date-only enrichment by video id. Loads a detached snapshot (same contract as
+     * {@link #loadVideoForEnrichment(Long)}) and fills ONLY releaseDate (and releaseYear when
+     * still missing) from the TMDB movie details. Never touches images, genres, audio tracks,
+     * subtitles or IntroDB, and never overwrites an existing release date. Persists through
+     * {@link #persistEnrichedVideo(Video)}.
+     */
+    public void enrichReleaseDateOnly(Long videoId) {
+        if (videoId == null) return;
+        Video video = self.loadVideoForEnrichment(videoId);
+        if (video == null) {
+            LOG.warn("[EnrichReleaseDate] Video {} not found", videoId);
+            return;
+        }
+        if (!needsReleaseDateEnrichment(video)) {
+            LOG.debug("[EnrichReleaseDate] Video {} ('{}') already has a release date, skipping", video.id, video.title);
+            return;
+        }
+
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            LOG.info("[EnrichReleaseDate] TMDB disabled in settings, skipping release-date enrichment for video {}", video.id);
+            return;
+        }
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            LOG.warn("[EnrichReleaseDate] No TMDB API key available, skipping video {}", video.id);
+            return;
+        }
+
+        try {
+            Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+            String url = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/movie/%s", video.tmdbId)
+                    : String.format("https://api.themoviedb.org/3/movie/%s?api_key=%s", video.tmdbId, tmdbKey);
+            JsonNode root = fetchJson(url, authHeaders);
+            if (root == null) {
+                LOG.warn("[EnrichReleaseDate] Failed to fetch movie details for tmdbId={}", video.tmdbId);
+                return;
+            }
+            if (root.has("release_date") && !root.get("release_date").isNull()) {
+                String date = root.get("release_date").asText();
+                if (!date.isBlank()) {
+                    video.releaseDate = date;
+                    if (video.releaseYear == null && date.length() >= 4) {
+                        video.releaseYear = Integer.parseInt(date.substring(0, 4));
+                    }
+                    LOG.info("[EnrichReleaseDate] Set releaseDate={} for video {} ('{}')", date, video.id, video.title);
+                    self.persistEnrichedVideo(video);
+                    return;
+                }
+            }
+            LOG.warn("[EnrichReleaseDate] No release_date in TMDB response for video {} ('{}')", video.id, video.title);
+        } catch (Exception e) {
+            LOG.warn("[EnrichReleaseDate] Failed for video {} ('{}'): {}", video.id, video.title, e.getMessage());
         }
     }
 
