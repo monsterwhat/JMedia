@@ -656,7 +656,8 @@ public class VideoUiApi {
         List<Models.Video.Video> allEpisodes = videoService.findEpisodes();
         if (allEpisodes.isEmpty()) {
             allEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
-                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode")
+                            && (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
         }
 
@@ -755,7 +756,8 @@ public class VideoUiApi {
         List<Models.Video.Video> allEpisodes = videoService.findEpisodes();
         if (allEpisodes.isEmpty()) {
             allEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
-                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode")
+                            && (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
         }
 
@@ -837,6 +839,7 @@ public class VideoUiApi {
             if (seriesEpisodes.isEmpty()) {
                 seriesEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
+                            (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)) &&
                             decodedTitle.equalsIgnoreCase(v.seriesTitle))
                     .collect(Collectors.toList());
             }
@@ -1608,7 +1611,7 @@ public class VideoUiApi {
     private Map<String, Object> getCarouselData() {
         List<Models.Video.Video> movies = Models.Video.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
             .range(0, 99).list();
-        List<Models.Video.Video> episodes = Models.Video.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+        List<Models.Video.Video> episodes = Models.Video.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null and (contentType is null or contentType = 'episode') order by dateAdded desc", true, "episode")
             .list();
         Map<String, Object> data = new HashMap<>();
         
@@ -1824,6 +1827,7 @@ public class VideoUiApi {
             if (episodes.isEmpty()) {
                 episodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode")
+                            && (v.contentType == null || "episode".equalsIgnoreCase(v.contentType))
                             && decodedTitle.equalsIgnoreCase(v.seriesTitle))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(java.util.stream.Collectors.toList());

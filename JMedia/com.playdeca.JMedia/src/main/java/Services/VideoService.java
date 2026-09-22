@@ -68,6 +68,9 @@ public class VideoService {
     @Inject
     AudioPreferenceEngine audioPreferenceEngine;
 
+    @Inject
+    SmartNamingService smartNamingService;
+
     // ========== CORE VIDEO OPERATIONS ==========
     
     @Transactional
@@ -83,7 +86,7 @@ public class VideoService {
     @Transactional
     public List<TvShowDTO> findTvShowsForManage(String search) {
         List<Video> episodes = em.createQuery(
-                "SELECT v FROM Video v LEFT JOIN FETCH v.series WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL",
+                "SELECT v FROM Video v LEFT JOIN FETCH v.series WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL AND (v.contentType IS NULL OR v.contentType = 'episode')",
                 Video.class).getResultList();
 
         if (search != null && !search.isEmpty()) {
@@ -121,17 +124,17 @@ public class VideoService {
 
     @Transactional
     public List<Video> findBySeries(String seriesTitle) {
-        return Video.list("seriesTitle = ?1 and type = ?2", seriesTitle, "episode");
+        return Video.list("seriesTitle = ?1 and type = ?2 and (contentType is null or contentType = 'episode')", seriesTitle, "episode");
     }
 
     @Transactional
     public List<Video> findBySeriesAndSeason(String seriesTitle, Integer seasonNumber) {
-        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and type = ?3", seriesTitle, seasonNumber, "episode");
+        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and type = ?3 and (contentType is null or contentType = 'episode')", seriesTitle, seasonNumber, "episode");
     }
 
     @Transactional
     public List<Video> findBySeriesAndSeasonAndEpisode(String seriesTitle, Integer seasonNumber, Integer episodeNumber) {
-        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber = ?3 and type = ?4", 
+        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber = ?3 and type = ?4 and (contentType is null or contentType = 'episode')", 
             seriesTitle, seasonNumber, episodeNumber, "episode");
     }
 
@@ -264,7 +267,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodesForShow(String seriesTitle, int page, int limit, String search, String filter) {
-        StringBuilder query = new StringBuilder("SELECT v FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle");
+        StringBuilder query = new StringBuilder("SELECT v FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle AND (v.contentType IS NULL OR v.contentType = 'episode')");
         java.util.Map<String, Object> params = new java.util.HashMap<>();
         params.put("seriesTitle", seriesTitle);
 
@@ -292,7 +295,7 @@ public class VideoService {
 
     @Transactional
     public long countEpisodesForShow(String seriesTitle, String search, String filter) {
-        StringBuilder query = new StringBuilder("SELECT COUNT(v) FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle");
+        StringBuilder query = new StringBuilder("SELECT COUNT(v) FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle AND (v.contentType IS NULL OR v.contentType = 'episode')");
 
         if (search != null && !search.trim().isEmpty()) {
             query.append(" AND (LOWER(v.title) LIKE :search OR LOWER(v.episodeTitle) LIKE :search OR LOWER(v.filename) LIKE :search)");
@@ -410,7 +413,41 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodes() {
-        return findByType("episode");
+        return Video.list("type = ?1 and isActive = ?2 and (contentType is null or contentType = 'episode')",
+                         Sort.by("releaseYear", Sort.Direction.Descending), "episode", true);
+    }
+
+    /**
+     * Startup backfill: reclassifies already-imported extras (PV/trailer/menu/
+     * textless OP-ED/music-video/LOOKBACK/recap/encyclopedia/bonus files that were
+     * parsed as real episodes) as contentType="extra" with episodeNumber=0.
+     *
+     * Self-terminating: only scans rows still marked as regular episodes
+     * (contentType IS NULL OR 'episode'), so once extras are reclassified the query
+     * returns nothing on subsequent boots. Idempotent and reversible — no rows or
+     * files are deleted; a full library rescan re-runs the same detection.
+     */
+    @Transactional
+    public int reclassifyExtras() {
+        List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
+        int reclassified = 0;
+        for (Video v : candidates) {
+            try {
+                if (smartNamingService.isExtrasFile(v.filename)) {
+                    v.contentType = "extra";
+                    v.episodeNumber = 0;
+                    v.persist();
+                    reclassified++;
+                    LOGGER.info("Reclassified as extra: {} (id={})", v.filename, v.id);
+                }
+            } catch (Exception e) {
+                LOGGER.warn("Extras reclassification skipped for {} (id={}): {}", v.filename, v.id, e.getMessage());
+            }
+        }
+        if (reclassified > 0) {
+            LOGGER.info("Extras backfill: reclassified {} of {} episode rows", reclassified, candidates.size());
+        }
+        return reclassified;
     }
 
     @Transactional
@@ -431,7 +468,7 @@ public class VideoService {
 
     @Transactional
     public List<String> findAllSeriesTitles() {
-        return em.createQuery("SELECT DISTINCT v.seriesTitle FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL", String.class)
+        return em.createQuery("SELECT DISTINCT v.seriesTitle FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL AND (v.contentType IS NULL OR v.contentType = 'episode')", String.class)
                 .getResultList()
                 .stream()
                 .sorted()
@@ -440,7 +477,7 @@ public class VideoService {
 
     @Transactional
     public List<Integer> findSeasonNumbersForSeries(String seriesTitle) {
-        List<Integer> seasons = Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true)
+        List<Integer> seasons = Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3 and (contentType is null or contentType = 'episode')", "episode", seriesTitle, true)
                 .stream()
                 .map(v -> v.seasonNumber != null ? v.seasonNumber : 1)
                 .distinct()
@@ -449,7 +486,7 @@ public class VideoService {
                 
         if (seasons.isEmpty()) {
             // Check if there are any episodes at all for this series
-            long count = Video.count("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true);
+            long count = Video.count("type = ?1 and seriesTitle = ?2 and isActive = ?3 and (contentType is null or contentType = 'episode')", "episode", seriesTitle, true);
             if (count > 0) {
                 return Collections.singletonList(1);
             }
@@ -471,7 +508,7 @@ public class VideoService {
 
     @Transactional
     public List<String> findSubFoldersForSeason(String seriesTitle, Integer seasonNumber) {
-        String query = "SELECT DISTINCT v.folder FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = ?1 AND v.seasonNumber = ?2 AND v.folder is not null AND v.folder <> '' AND v.isActive = ?3 ORDER BY v.folder";
+        String query = "SELECT DISTINCT v.folder FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = ?1 AND v.seasonNumber = ?2 AND v.folder is not null AND v.folder <> '' AND v.isActive = ?3 AND (v.contentType IS NULL OR v.contentType = 'episode') ORDER BY v.folder";
         return em.createQuery(query, String.class)
                 .setParameter(1, seriesTitle)
                 .setParameter(2, seasonNumber)
@@ -498,10 +535,10 @@ public class VideoService {
     public long countEpisodesInFolder(String seriesTitle, Integer seasonNumber, String folder) {
         if (folder == null || folder.isEmpty()) return 0;
         if (seasonNumber == null) {
-            return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4",
+            return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4 and (contentType is null or contentType = 'episode')",
                               "episode", seriesTitle, folder, true);
         }
-        return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
+        return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5 and (contentType is null or contentType = 'episode')",
                           "episode", seriesTitle, seasonNumber, folder, true);
     }
 
@@ -519,7 +556,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodesForSeries(String seriesTitle) {
-        return Video.list("type = ?1 and seriesTitle = ?2 and isActive = ?3",
+        return Video.list("type = ?1 and seriesTitle = ?2 and isActive = ?3 and (contentType is null or contentType = 'episode')",
                          Sort.by("seasonNumber", Sort.Direction.Ascending)
                          .and("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, true);
@@ -752,14 +789,14 @@ public class VideoService {
         }
 
         // Try to find next episode in same season
-        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND (folder is null or folder = '') AND isActive = true",
+        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND (folder is null or folder = '') AND isActive = true AND (contentType is null or contentType = 'episode')",
                 Sort.by("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
 
         if (next != null) return next;
 
         // If no more episodes in current season, try first episode of next season
-        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND (folder is null or folder = '') AND isActive = true",
+        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND (folder is null or folder = '') AND isActive = true AND (contentType is null or contentType = 'episode')",
                 Sort.by("seasonNumber", Sort.Direction.Ascending).and("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber).firstResult();
 
@@ -773,14 +810,14 @@ public class VideoService {
         }
 
         // Try to find previous episode in same season
-        Video prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber < ?3 AND (folder is null or folder = '') AND isActive = true",
+        Video prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber < ?3 AND (folder is null or folder = '') AND isActive = true AND (contentType is null or contentType = 'episode')",
                 Sort.by("episodeNumber", Sort.Direction.Descending),
                 current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
 
         if (prev != null) return prev;
 
         // If no more episodes in current season, try last episode of previous season
-        prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber < ?2 AND (folder is null or folder = '') AND isActive = true",
+        prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber < ?2 AND (folder is null or folder = '') AND isActive = true AND (contentType is null or contentType = 'episode')",
                 Sort.by("seasonNumber", Sort.Direction.Descending).and("episodeNumber", Sort.Direction.Descending),
                 current.seriesTitle, current.seasonNumber).firstResult();
 
@@ -1061,7 +1098,7 @@ public class VideoService {
         // Targeted paginated queries
         List<Video> movies = Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
             .range(0, 99).list();
-        List<Video> episodes = Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+        List<Video> episodes = Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null and (contentType is null or contentType = 'episode') order by dateAdded desc", true, "episode")
             .list();
 
         // --- Continue Watching ---

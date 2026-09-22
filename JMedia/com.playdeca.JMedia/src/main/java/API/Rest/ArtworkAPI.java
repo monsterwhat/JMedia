@@ -11,8 +11,9 @@ import org.jboss.logging.Logger;
  * Extension-style artwork URLs for IPTV clients whose native image loaders
  * key off the URL path ending (e.g. Smarters on Apple TV ignores
  * query-string artwork URLs like player_api.php?action=get_thumbnail&...).
- * Serves the same JPEG bytes as the player_api.php actions: direct 200,
- * never redirects. Query-string Xtream credentials required (no session cookie).
+ * Serves the same JPEG bytes as the player_api.php actions: direct 200 when
+ * artwork exists, placeholder redirect when it does not. Query-string Xtream
+ * credentials required (no session cookie).
  */
 @Path("/art")
 public class ArtworkAPI {
@@ -58,8 +59,9 @@ public class ArtworkAPI {
                 log.warnf("art/movie: poster fallback %s unreadable for videoId=%d: %s", posterName, videoId, e.getMessage());
             }
         }
-        log.warnf("art/movie: no artwork for videoId=%d", videoId);
-        return Response.status(Response.Status.NOT_FOUND).build();
+        log.warnf("art/movie: no artwork for videoId=%d, serving fallback", videoId);
+        return Response.temporaryRedirect(java.net.URI.create("https://placehold.co/300x450/1a1a2e/eaeaea?text=No+Image"))
+                .build();
     }
 
     @GET

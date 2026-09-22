@@ -158,7 +158,7 @@ public class XtreamCodesAPI {
         info.put("o_name", v.title);
         info.put("movie_image", getImageUrl(v));
         info.put("cover_big", getImageUrl(v));
-        info.put("releasedate", v.releaseDate);
+        info.put("releasedate", v.releaseDate != null ? v.releaseDate : "");
         info.put("plot", v.overview != null ? v.overview : "");
         info.put("description", v.overview != null ? v.overview : "");
         info.put("rating", v.imdbRating != null ? v.imdbRating.toString() : "0");
@@ -171,7 +171,21 @@ public class XtreamCodesAPI {
         info.put("duration", formatDuration(v.getDurationSeconds()));
         info.put("bitrate", v.bitrate != null ? v.bitrate : 0);
         info.put("youtube_trailer", v.trailerUrl != null ? v.trailerUrl : "");
-        info.put("backdrop_path", new ArrayList<>());
+        String movieBackdrop = v.backdropPath != null && !v.backdropPath.isBlank() ? v.backdropPath : v.fanartPath;
+        if (movieBackdrop != null && !movieBackdrop.isBlank()) {
+            try {
+                if (java.nio.file.Files.isRegularFile(java.nio.file.Path.of(movieBackdrop))) {
+                    info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password)));
+                } else {
+                    info.put("backdrop_path", new ArrayList<>());
+                }
+            } catch (Exception e) {
+                log.warnf("getVodInfo: backdrop path unreadable for vodId=%d at %s: %s", vodId, movieBackdrop, e.getMessage());
+                info.put("backdrop_path", new ArrayList<>());
+            }
+        } else {
+            info.put("backdrop_path", new ArrayList<>());
+        }
         info.put("tmdb_id", v.tmdbId != null ? v.tmdbId : "");
         
         java.util.Map<String, Object> videoInfo = new java.util.HashMap<>();
@@ -1252,10 +1266,10 @@ public class XtreamCodesAPI {
     }
 
     private List<Video> findEpisodesForSeries(Models.Video.Series ser) {
-        List<Video> eps = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", ser).list();
+        List<Video> eps = Video.<Video>find("series = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser).list();
         if (!eps.isEmpty()) return eps;
         if (ser.title != null && !ser.title.isBlank()) {
-            eps = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", ser.title).list();
+            eps = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser.title).list();
         }
         return eps;
     }

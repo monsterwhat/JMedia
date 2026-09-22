@@ -31,6 +31,83 @@ public class HlsService {
     private static final int MAX_ACTIVE_SESSIONS = 8;
     private static final int HW_ENCODER_MAX_RETRIES = 3;
 
+    /**
+     * ISO 639-2 (bibliographic) → ISO 639-1 (2-letter) for the SUBTITLES LANGUAGE attribute.
+     */
+    private static final Map<String, String> ISO_639_2_TO_1 = Map.ofEntries(
+        Map.entry("aar", "aa"), Map.entry("abk", "ab"), Map.entry("afr", "af"),
+        Map.entry("amh", "am"), Map.entry("ara", "ar"), Map.entry("arg", "an"),
+        Map.entry("asm", "as"), Map.entry("ava", "av"), Map.entry("ave", "ae"),
+        Map.entry("aym", "ay"), Map.entry("aze", "az"), Map.entry("bak", "ba"),
+        Map.entry("bam", "bm"), Map.entry("bel", "be"), Map.entry("ben", "bn"),
+        Map.entry("bis", "bi"), Map.entry("bod", "bo"), Map.entry("bos", "bs"),
+        Map.entry("bre", "br"), Map.entry("bul", "bg"), Map.entry("cat", "ca"),
+        Map.entry("ces", "cs"), Map.entry("cha", "ch"), Map.entry("che", "ce"),
+        Map.entry("chu", "cu"), Map.entry("chv", "cv"), Map.entry("cor", "kw"),
+        Map.entry("cos", "co"), Map.entry("cre", "cr"), Map.entry("cym", "cy"),
+        Map.entry("dan", "da"), Map.entry("deu", "de"), Map.entry("div", "dv"),
+        Map.entry("dzo", "dz"), Map.entry("ell", "el"), Map.entry("eng", "en"),
+        Map.entry("epo", "eo"), Map.entry("est", "et"), Map.entry("eus", "eu"),
+        Map.entry("ewe", "ee"), Map.entry("fao", "fo"), Map.entry("fas", "fa"),
+        Map.entry("fij", "fj"), Map.entry("fin", "fi"), Map.entry("fra", "fr"),
+        Map.entry("fry", "fy"), Map.entry("ful", "ff"), Map.entry("gla", "gd"),
+        Map.entry("gle", "ga"), Map.entry("glg", "gl"), Map.entry("glv", "gv"),
+        Map.entry("grn", "gn"), Map.entry("guj", "gu"), Map.entry("hat", "ht"),
+        Map.entry("hau", "ha"), Map.entry("heb", "he"), Map.entry("her", "hz"),
+        Map.entry("hin", "hi"), Map.entry("hmo", "ho"), Map.entry("hrv", "hr"),
+        Map.entry("hun", "hu"), Map.entry("hye", "hy"), Map.entry("ibo", "ig"),
+        Map.entry("ido", "io"), Map.entry("iii", "ii"), Map.entry("iku", "iu"),
+        Map.entry("ile", "ie"), Map.entry("ina", "ia"), Map.entry("ind", "id"),
+        Map.entry("ipk", "ik"), Map.entry("isl", "is"), Map.entry("ita", "it"),
+        Map.entry("jav", "jv"), Map.entry("jpn", "ja"), Map.entry("kal", "kl"),
+        Map.entry("kan", "kn"), Map.entry("kas", "ks"), Map.entry("kat", "ka"),
+        Map.entry("kau", "kr"), Map.entry("kaz", "kk"), Map.entry("khm", "km"),
+        Map.entry("kik", "ki"), Map.entry("kin", "rw"), Map.entry("kir", "ky"),
+        Map.entry("kom", "kv"), Map.entry("kon", "kg"), Map.entry("kor", "ko"),
+        Map.entry("kua", "kj"), Map.entry("kur", "ku"), Map.entry("lao", "lo"),
+        Map.entry("lat", "la"), Map.entry("lav", "lv"), Map.entry("lim", "li"),
+        Map.entry("lin", "ln"), Map.entry("lit", "lt"), Map.entry("ltz", "lb"),
+        Map.entry("lub", "lu"), Map.entry("lug", "lg"), Map.entry("mah", "mh"),
+        Map.entry("mal", "ml"), Map.entry("mar", "mr"), Map.entry("mkd", "mk"),
+        Map.entry("mlg", "mg"), Map.entry("mlt", "mt"), Map.entry("mon", "mn"),
+        Map.entry("mri", "mi"), Map.entry("msa", "ms"), Map.entry("mya", "my"),
+        Map.entry("nau", "na"), Map.entry("nav", "nv"), Map.entry("nbl", "nr"),
+        Map.entry("nde", "nd"), Map.entry("ndo", "ng"), Map.entry("nep", "ne"),
+        Map.entry("nld", "nl"), Map.entry("nno", "nn"), Map.entry("nob", "nb"),
+        Map.entry("nor", "no"), Map.entry("nya", "ny"), Map.entry("oci", "oc"),
+        Map.entry("oji", "oj"), Map.entry("ori", "or"), Map.entry("orm", "om"),
+        Map.entry("oss", "os"), Map.entry("pan", "pa"), Map.entry("pli", "pi"),
+        Map.entry("pol", "pl"), Map.entry("por", "pt"), Map.entry("pus", "ps"),
+        Map.entry("que", "qu"), Map.entry("roh", "rm"), Map.entry("ron", "ro"),
+        Map.entry("run", "rn"), Map.entry("rus", "ru"), Map.entry("sag", "sg"),
+        Map.entry("san", "sa"), Map.entry("sin", "si"), Map.entry("slk", "sk"),
+        Map.entry("slv", "sl"), Map.entry("sme", "se"), Map.entry("smo", "sm"),
+        Map.entry("sna", "sn"), Map.entry("snd", "sd"), Map.entry("som", "so"),
+        Map.entry("sot", "st"), Map.entry("spa", "es"), Map.entry("sqi", "sq"),
+        Map.entry("srd", "sc"), Map.entry("srp", "sr"), Map.entry("ssw", "ss"),
+        Map.entry("sun", "su"), Map.entry("swa", "sw"), Map.entry("swe", "sv"),
+        Map.entry("tah", "ty"), Map.entry("tam", "ta"), Map.entry("tat", "tt"),
+        Map.entry("tel", "te"), Map.entry("tgk", "tg"), Map.entry("tgl", "tl"),
+        Map.entry("tha", "th"), Map.entry("tir", "ti"), Map.entry("ton", "to"),
+        Map.entry("tsn", "tn"), Map.entry("tso", "ts"), Map.entry("tuk", "tk"),
+        Map.entry("tur", "tr"), Map.entry("twi", "tw"), Map.entry("uig", "ug"),
+        Map.entry("ukr", "uk"), Map.entry("urd", "ur"), Map.entry("uzb", "uz"),
+        Map.entry("ven", "ve"), Map.entry("vie", "vi"), Map.entry("vol", "vo"),
+        Map.entry("wln", "wa"), Map.entry("wol", "wo"), Map.entry("xho", "xh"),
+        Map.entry("yid", "yi"), Map.entry("yor", "yo"), Map.entry("zha", "za"),
+        Map.entry("zul", "zu"),
+        // Legacy / alternate bibliographic codes still seen in ffprobe tags
+        Map.entry("alb", "sq"), Map.entry("arm", "hy"), Map.entry("baq", "eu"),
+        Map.entry("bur", "my"), Map.entry("chi", "zh"), Map.entry("cze", "cs"),
+        Map.entry("dut", "nl"), Map.entry("fre", "fr"), Map.entry("geo", "ka"),
+        Map.entry("ger", "de"), Map.entry("gre", "el"), Map.entry("ice", "is"),
+        Map.entry("mac", "mk"), Map.entry("mao", "mi"), Map.entry("may", "ms"),
+        Map.entry("per", "fa"), Map.entry("rum", "ro"), Map.entry("slo", "sk"),
+        Map.entry("tib", "bo"), Map.entry("wel", "cy"),
+        // JMedia-specific codes
+        Map.entry("spl", "es")
+    );
+
     private static class VariantConfig {
         final String name;
         final int height;
@@ -71,6 +148,7 @@ public class HlsService {
     @Inject GpuScheduler gpuScheduler;
     @Inject XtreamSessionService xtreamSessionService;
     @Inject SubtitleTrackService subtitleTrackService;
+    @Inject PgsOcrService pgsOcrService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
@@ -465,6 +543,8 @@ public class HlsService {
             ProcessBuilder pb = new ProcessBuilder(copyCommand);
             pb.directory(session.sessionDir.toFile());
             pb.redirectErrorStream(true);
+            // Copy mode still needs the per-track WebVTT segmenters for the SUBTITLES renditions.
+            createSubtitleStreams(session);
             return pb.start();
         }
 
@@ -920,6 +1000,20 @@ public class HlsService {
                 inputPath = track.fullPath;
                 mapSpec = "0:0";
             }
+            // PGS bitmap tracks cannot be converted to WebVTT by ffmpeg directly: resolve the
+            // OCR'd WebVTT (PgsOcrService, cached per track) and segment that file instead.
+            if (isPgsTrack(track)) {
+                try {
+                    String vtt = pgsOcrService.getOrCreateWebVTT(track);
+                    Path vttSource = session.sessionDir.resolve("pgs_src_" + subName + ".vtt");
+                    Files.writeString(vttSource, vtt);
+                    inputPath = vttSource.toString();
+                    mapSpec = "0:0";
+                } catch (Exception e) {
+                    LOG.error("PGS OCR failed for track {} in session {}: {}", track.trackIndex, session.sessionId, e.getMessage());
+                    continue;
+                }
+            }
             try {
                 List<String> command = new ArrayList<>();
                 command.add(ffmpegDiscoveryService.findFFmpegExecutable());
@@ -993,9 +1087,18 @@ public class HlsService {
                 LOG.warn("Skipping subtitle track with no stream index or file for session {}", session.sessionId);
                 continue;
             }
-            if (!isTextSubtitleCodec(track.codec)) {
-                LOG.warn("Skipping non-text subtitle track {} (codec={}) for session {}: bitmap subs cannot convert to WebVTT",
-                        track.trackIndex, track.codec, session.sessionId);
+            // PGS bitmap tracks are servable: PgsOcrService converts them to WebVTT and
+            // createSubtitleStreams segments that VTT. Nothing is burned into the video.
+            if (isPgsTrack(track)) {
+                result.add(track);
+                continue;
+            }
+            // External sidecar / AI-generated / NLLB tracks carry a text format but no codec
+            // (ffprobe only reports codecs for embedded streams); embedded text tracks carry a
+            // codec. Accept either so every text track is exposed to IPTV clients.
+            if (!isTextSubtitleCodec(track.codec) && !isTextSubtitleFormat(track.format)) {
+                LOG.warn("Skipping non-text subtitle track {} (codec={}, format={}) for session {}: bitmap subs cannot convert to WebVTT",
+                        track.trackIndex, track.codec, track.format, session.sessionId);
                 continue;
             }
             result.add(track);
@@ -1012,6 +1115,35 @@ public class HlsService {
         String c = codec.toLowerCase(java.util.Locale.ROOT);
         return c.contains("subrip") || c.contains("srt") || c.contains("ass") || c.contains("ssa")
                 || c.contains("mov_text") || c.contains("webvtt") || c.equals("vtt") || c.contains("ttml");
+    }
+
+    private boolean isTextSubtitleFormat(String format) {
+        if (format == null) return false;
+        String f = format.toLowerCase(java.util.Locale.ROOT);
+        return f.equals("srt") || f.equals("vtt") || f.equals("ass") || f.equals("ssa") || f.equals("subrip");
+    }
+
+    private boolean isPgsTrack(SubtitleTrack track) {
+        return PgsOcrService.isPgsCodec(track.codec) || "pgs".equals(track.format);
+    }
+
+    private static String normalizeLanguageCode(String languageCode) {
+        if (languageCode == null || languageCode.isBlank()) {
+            return "und";
+        }
+        String code = languageCode.trim().toLowerCase(java.util.Locale.ROOT);
+        int dash = code.indexOf('-');
+        if (dash > 0) {
+            code = code.substring(0, dash);
+        }
+        if (code.length() == 2) {
+            return code;
+        }
+        if (code.length() == 3) {
+            String mapped = ISO_639_2_TO_1.get(code);
+            return mapped != null ? mapped : "und";
+        }
+        return "und";
     }
 
     private boolean isCopyableCodec(String codec) {
@@ -1268,7 +1400,7 @@ public class HlsService {
             int subIndex = 0;
             for (SubtitleTrack track : servableSubs) {
                 String subName = subtitlePlaylistName(subIndex++);
-                String lang = (track.languageCode != null && !track.languageCode.isBlank()) ? track.languageCode : "und";
+                String lang = normalizeLanguageCode(track.languageCode);
                 String name = (track.displayName != null && !track.displayName.isBlank()) ? track.displayName
                         : ((track.languageName != null && !track.languageName.isBlank()) ? track.languageName : "Subtitle " + subIndex);
                 name = name.replace("\"", "'");

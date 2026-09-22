@@ -1,8 +1,10 @@
 package Migrations;
 
+import Services.VideoService;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
@@ -11,16 +13,43 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class DatabaseMigration {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseMigration.class);
+
     @PersistenceContext(unitName = "video")
     EntityManager em;
+
+    @Inject
+    VideoService videoService;
 
     void onStart(@Observes StartupEvent event) {
         runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
         runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
+        reclassifyImportedExtras();
+    }
+
+    /**
+     * One-time data backfill for Blu-ray extras (PVs, trailers, menus, textless/
+     * creditless OP/ED, music videos, LOOKBACKs, recaps, encyclopedias, bonus
+     * features) that were imported before the extras-keyword detection existed and
+     * therefore got parsed as real episodes. Self-terminating and idempotent — see
+     * VideoService.reclassifyExtras(). Runs after the SQL migrations so the schema
+     * is current.
+     */
+    private void reclassifyImportedExtras() {
+        try {
+            int reclassified = videoService.reclassifyExtras();
+            if (reclassified > 0) {
+                LOGGER.info("Extras backfill: reclassified {} episode row(s) as extras", reclassified);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Extras backfill failed: {}", e.getMessage(), e);
+        }
     }
 
     @Transactional

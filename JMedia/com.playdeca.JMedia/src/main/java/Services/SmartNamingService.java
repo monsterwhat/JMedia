@@ -56,6 +56,14 @@ public class SmartNamingService {
     private static final Pattern SPECIALS_PATTERN = Pattern.compile("(?i)(specials?)");
     // Folders that should NOT be treated as episode folders (extras, behind the scenes, etc.)
     private static final Pattern EXTRAS_FOLDER_PATTERN = Pattern.compile("(?i)(extras?|xtras?|behind the scenes|deleted scenes|outtakes|bloopers|interviews|bonus|featurette|shorts|pilot|sneak peek)");
+    // Filename keywords that mark a file as an extra (PV/trailer/menu/etc.) rather
+    // than a real episode. Checked AFTER strong episode patterns (SxxExx, XxY, ...)
+    // and the Dash/BareNumber formats but BEFORE EPISODE_SIMPLE, so "Bleach TYBW PV 01.mkv"
+    // never parses as episode 1 while real episodes keep their numbers. The keyword must
+    // be preceded by a separator (never at the very start) so show names like
+    // "Trailer Park Boys" are not mistaken for extras.
+    private static final Pattern EXTRAS_KEYWORD_PATTERN = Pattern.compile(
+        "(?i)[\\s\\._\\[\\]\\(\\)\\-]+(?:pv|trailer|teaser|preview|promo|menu|textless|creditless|ncop|nced|music video|mv|lookback|recap|encyclopedia|bonus|making of|behind the scenes|deleted scenes|outtakes|bloopers|interview|digest|tv spot|cm|special preview)(?:[\\s\\._\\[\\]\\(\\)\\-]+|\\d+|$)");
     // WWW release-group wrapper folders like "www.rtkorm.com" that wrap show folders
     private static final Pattern WWW_FOLDER_PATTERN = Pattern.compile("(?i)^www\\..+\\..+$");
     
@@ -770,6 +778,20 @@ public class SmartNamingService {
             }
         }
         
+        // Extras keyword check (PV, trailer, menu, textless/creditless OP/ED, music
+        // video, LOOKBACK, recap, encyclopedia, bonus, making-of, ...). Runs after
+        // the strong episode patterns and Dash/BareNumber formats so real episodes
+        // keep their numbers, but BEFORE EPISODE_SIMPLE so "Bleach TYBW PV 01.mkv"
+        // never parses as episode 1.
+        if (!detection.hasEpisodePattern && EXTRAS_KEYWORD_PATTERN.matcher(filename).find()) {
+            detection.episode = 0;
+            detection.contentType = "extra";
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "ExtrasKeyword";
+            detection.confidence = 0.9;
+            return detection;
+        }
+        
         // EPISODE_SIMPLE pattern - check AFTER EPISODE_DASH to avoid extracting wrong number
         // from filenames like "3 - Guerra Civil, Parte 1.mp4" (would extract 1 instead of 3)
         Matcher m4 = EPISODE_SIMPLE.matcher(filename);
@@ -889,6 +911,39 @@ public class SmartNamingService {
         }
 
         return detection;
+    }
+
+    /**
+     * Reports whether a stored file should be reclassified as an extra
+     * (contentType="extra" via the ExtrasKeyword check). Used by the startup
+     * backfill to fix already-imported rows without a full rescan.
+     *
+     * Mirrors the exact ordering of detectEpisodeInfo: strong episode patterns
+     * (SxxExx, XxY, TemporadaCap, ...) and the Dash/BareNumber formats win over
+     * extras keywords, so real episodes (e.g. "S01E01 - The Interview") are never
+     * reclassified. No path analysis is needed because the ExtrasKeyword check
+     * returns before any path-based logic runs.
+     */
+    public boolean isExtrasFile(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return false;
+        }
+        if (EPISODE_SXXEXX.matcher(filename).matches()) return false;
+        if (EPISODE_TEMPORADA_CAP.matcher(filename).matches()) return false;
+        if (EPISODE_SEASON_CAP_DASH.matcher(filename).matches()) return false;
+        if (CONTENT_TYPE_SXXMXX.matcher(filename).find()) return false;
+        if (CONTENT_TYPE_SXXXN.matcher(filename).find()) return false;
+        if (CONTENT_TYPE_SXXXEP.matcher(filename).find()) return false;
+        if (EPISODE_XXY.matcher(filename).matches()) return false;
+        if (EPISODE_ONLY.matcher(filename).matches()) return false;
+        if (EPISODE_E_ONLY.matcher(filename).matches()) return false;
+        if (EPISODE_CAP_ONLY.matcher(filename).matches()) return false;
+        if (EPISODE_SP.matcher(filename).matches()) return false;
+        if (SEASON_FRACTIONAL.matcher(filename).find()) return false;
+        if (EPISODE_ONE_PACE.matcher(filename).find()) return false;
+        if (EPISODE_DASH.matcher(filename).matches()) return false;
+        if (EPISODE_BARE_NUMBER.matcher(filename).matches()) return false;
+        return EXTRAS_KEYWORD_PATTERN.matcher(filename).find();
     }
 
     private MediaTypeDecision determineMediaType(String rawMediaType, EpisodeDetection episodeDetection,
