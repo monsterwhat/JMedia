@@ -185,6 +185,36 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(profile.sidebarPosition)).build();
     }
 
+    @POST
+    @Path("/{profileId}/hls-streaming")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response updateHlsStreaming(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!checkProfileOwnerOrAdmin(headers, profileId)) return Response.status(Response.Status.FORBIDDEN).build();
+        Object enabledVal = data != null ? data.get("enabled") : null;
+        if (!(enabledVal instanceof Boolean)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity(ApiResponse.error("'enabled' field must be a boolean")).build();
+        }
+        Models.Settings.Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();
+        }
+        profileService.updateHlsStreaming(profileId, (Boolean) enabledVal);
+        LOGGER.info("HLS streaming {} for profile {}", (Boolean) enabledVal ? "enabled" : "disabled", profileId);
+        return Response.ok(ApiResponse.success("HLS streaming updated")).build();
+    }
+
+    @GET
+    @Path("/{profileId}/hls-streaming")
+    public Response getHlsStreaming(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkProfileOwnerOrAdmin(headers, profileId)) return Response.status(Response.Status.FORBIDDEN).build();
+        Models.Settings.Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();
+        }
+        return Response.ok(ApiResponse.success(profile.hlsStreaming)).build();
+    }
+
     @GET
     @Path("/{profileId}/install-status")
     public Response getInstallationStatus(@PathParam("profileId") Long profileId) {

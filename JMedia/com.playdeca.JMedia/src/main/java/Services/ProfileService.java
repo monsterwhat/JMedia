@@ -61,4 +61,13 @@ public class ProfileService {
             profile.persist();
         }
     }
+
+    @Transactional
+    public void updateHlsStreaming(Long profileId, boolean enabled) {
+        Profile profile = Profile.findById(profileId);
+        if (profile != null) {
+            profile.hlsStreaming = enabled;
+            profile.persist();
+        }
+    }
 }

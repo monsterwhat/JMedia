@@ -17,6 +17,7 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             this.needsTranscode = this.container.dataset.needsTranscode === 'true';
             this.needsConversion = this.container.dataset.needsConversion === 'true';
+            this.dataHlsEnabled = this.container.dataset.hlsEnabled === 'true';
             this._canNativeHevc = false;
             // Browser-native HEVC override: if the server flagged transcode but the
             // browser can play HEVC natively (e.g. Chrome with HEVC Video Extensions),
@@ -87,6 +88,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                     this._hlsInstance.destroy();
                     this._hlsInstance = null;
                 }
+                this.streamMgr.destroyLocalHlsSession();
                 this.video.pause();
                 this.video.src = "";
                 this.progressReporter.setMusicSuspended(false);
@@ -144,7 +146,15 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            if (this.needsTranscode) {
+            if (this.dataHlsEnabled && (this.needsTranscode || this.container.dataset.hlsForced === 'true') && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                // Local HLS session: the server transcodes to HLS segments; the element
+                // stays 0-based (streamStartOffset 0) so subtitle ?start= and the absolute
+                // clock both match the master playlist. Resume is a client-side seek after
+                // MANIFEST_PARSED (initialResumeTime is set from dataset.startTime).
+                this.streamStartOffset = 0;
+                this.streamMgr.initLocalHlsStream(savedTime);
+                this.subtitleController.loadSubtitles();
+            } else if (this.needsTranscode) {
                 const setupStream = () => {
                     if (savedTime > 0) {
                         this.streamStartOffset = savedTime;
@@ -589,6 +599,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this._hlsInstance.destroy();
                 this._hlsInstance = null;
             }
+            this.streamMgr.destroyLocalHlsSession();
             this.progressReporter.stop();
             this.progressReporter.setMusicSuspended(false);
             this.video.pause();

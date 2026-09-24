@@ -23,6 +23,8 @@ public class Profile extends PanacheEntity {
     public boolean isMainProfile;
     
     public String sidebarPosition = "left"; // "left" or "right"
+
+    public boolean hlsStreaming = false; // opt-in: play via HLS instead of direct MP4
     
     public Long userId;
     

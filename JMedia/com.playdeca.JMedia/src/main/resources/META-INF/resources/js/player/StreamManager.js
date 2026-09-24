@@ -222,6 +222,9 @@
 
         initDirectStream(savedTime) {
             const p = this.player;
+            // Defensive: a WS source-reload or fallback into the direct path must
+            // never leave a server-side HLS session running (encoder leak).
+            this.destroyLocalHlsSession();
             /* Clear any previously painted frame (e.g. the previous video's last
              * frame) so a frozen frame from an old movie cannot linger while the
              * new source loads. No-op on initial load (fresh element, no src). */
@@ -325,9 +328,81 @@
             p.startProgressReporting();
         }
 
-        // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
-        _initHlsExternalStream(url, savedTime) {
+        /**
+         * Start a server-side HLS session for a local library video (profile
+         * hlsStreaming enabled). POSTs /api/hls/session/{videoId} to create the
+         * session, then hands the returned master playlist to hls.js. A
+         * generation counter serializes concurrent creations (initial load
+         * racing the audio-preference switch): only the newest call may attach
+         * its session; older in-flight responses are discarded.
+         *
+         * @param {number} savedTime  absolute resume position (server ?start=)
+         */
+        async initLocalHlsStream(savedTime) {
             const p = this.player;
+            if (p._destroyed || !document.body.contains(p.container)) return;
+
+            // A new session supersedes any previous one — tear the old one down
+            // first (also invalidates any in-flight creation via the gen bump).
+            this.destroyLocalHlsSession();
+
+            const gen = (p._hlsSessionGen = (p._hlsSessionGen || 0) + 1);
+            p._hlsSessionPending = true;
+
+            const params = [];
+            if (savedTime > 0) params.push(`start=${savedTime}`);
+            if (p.profileId) params.push(`profileId=${encodeURIComponent(p.profileId)}`);
+            if (p.currentAudioTrackIndex !== null && p.currentAudioTrackIndex >= 0) {
+                params.push(`audioTrack=${p.currentAudioTrackIndex}`);
+            }
+            if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+            params.push(`device=web-${p.videoId}-${p.profileId || 'default'}`);
+
+            try {
+                const resp = await fetch(`/api/hls/session/${p.videoId}${params.length ? '?' + params.join('&') : ''}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                if (p._destroyed || gen !== p._hlsSessionGen) return;
+                if (!resp.ok) {
+                    console.error('[SimplePlayer] HLS session creation failed:', resp.status);
+                    p._hlsSessionPending = false;
+                    this.fallbackToDirectStream(savedTime);
+                    return;
+                }
+                const data = await resp.json();
+                if (p._destroyed || gen !== p._hlsSessionGen) return;
+                if (!data || !data.sessionId || !data.playlistUrl) {
+                    console.error('[SimplePlayer] HLS session response missing sessionId/playlistUrl:', data);
+                    p._hlsSessionPending = false;
+                    this.fallbackToDirectStream(savedTime);
+                    return;
+                }
+                p._hlsSessionId = data.sessionId;
+                p._hlsSessionPending = false;
+                // Seed the fallback position: fallbackToDirectStream ignores its
+                // savedTime param and derives absTime from lastKnownGoodPosition.
+                if (p.lastKnownGoodPosition <= 0) p.lastKnownGoodPosition = savedTime;
+                this._initHlsExternalStream(data.playlistUrl, savedTime, {
+                    fallbackToDirect: true,
+                    loadingMessage: 'Loading HLS stream...'
+                });
+            } catch (err) {
+                console.error('[SimplePlayer] HLS session creation failed:', err);
+                if (p._destroyed || gen !== p._hlsSessionGen) return;
+                p._hlsSessionPending = false;
+                this.fallbackToDirectStream(savedTime);
+            }
+        }
+
+        // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
+        // opts.fallbackToDirect: fall back to the direct stream on fatal error
+        // (local HLS sessions) instead of the external-stream 'Playback error'
+        // dead-end. opts.loadingMessage overrides the toast text.
+        _initHlsExternalStream(url, savedTime, opts) {
+            const p = this.player;
+            const fallbackToDirect = !!(opts && opts.fallbackToDirect);
+            const loadingMessage = (opts && opts.loadingMessage) || 'Loading live stream...';
 
             if (p._hlsInstance) {
                 p._hlsInstance.destroy();
@@ -343,7 +418,7 @@
             p._hlsInstance = hls;
             p._hlsNetworkRetries = 0;
 
-            p._showLoading('Loading live stream...');
+            p._showLoading(loadingMessage);
             hls.loadSource(url);
             hls.attachMedia(p.video);
 
@@ -376,12 +451,22 @@
                         console.log('[SimplePlayer] HLS network retry ' + p._hlsNetworkRetries + '/3 — startLoad()');
                         hls.startLoad();
                     } else {
-                        p._showLoading('Playback error');
                         hls.destroy();
                         p._hlsInstance = null;
+                        if (fallbackToDirect) {
+                            this.fallbackToDirectStream(savedTime);
+                        } else {
+                            p._showLoading('Playback error');
+                        }
                     }
                 } else {
-                    p._showLoading('Playback error');
+                    if (fallbackToDirect) {
+                        hls.destroy();
+                        p._hlsInstance = null;
+                        this.fallbackToDirectStream(savedTime);
+                    } else {
+                        p._showLoading('Playback error');
+                    }
                 }
             });
 
@@ -487,6 +572,16 @@
             p.currentAudioTrackIndex = trackIndex;
 
             const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
+
+            // HLS local session: recreate the session at the current position so the
+            // server transcodes the newly selected audio track. During the initial
+            // audio-preference switch the stream hasn't started yet (currentTime 0),
+            // so fall back to the resume time.
+            if (p._hlsSessionId || p._hlsSessionPending) {
+                const hlsSavedTime = savedTime > 0 ? savedTime : (p.initialResumeTime || 0);
+                this.recreateLocalHlsSession(hlsSavedTime);
+                return;
+            }
 
             // Transcode: reload with a server-side seek (?start=) so the new audio track's
             // fresh transcode starts AT the current position. The old approach loaded without
@@ -597,12 +692,85 @@
             p._seekErrorHandler = p._setupStreamErrorHandler = p._streamErrorHandler = null;
         }
 
+        /**
+         * Destroy the active server-side HLS session (DELETE /api/hls/session/{id}).
+         * No-op when no session is active. keepalive:true lets the request survive
+         * page teardown so the encoder is released even on unload.
+         */
+        destroyLocalHlsSession() {
+            const p = this.player;
+            // Invalidate any in-flight session creation (generation bump) so a
+            // stale response can never attach after teardown.
+            p._hlsSessionGen = (p._hlsSessionGen || 0) + 1;
+            p._hlsSessionPending = false;
+            const sessionId = p._hlsSessionId;
+            if (!sessionId) return;
+            p._hlsSessionId = null;
+            console.log('[SimplePlayer] Destroying HLS session:', sessionId);
+            fetch(`/api/hls/session/${sessionId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                keepalive: true
+            }).catch(err => {
+                console.warn('[SimplePlayer] Failed to destroy HLS session:', err);
+            });
+        }
+
+        /**
+         * Recreate the server-side HLS session at an absolute position (audio
+         * track switch, quality switch, or past-buffer seek). Mirrors the
+         * _doServerSeek swap-guard: suppress broadcasts while the new session
+         * loads, then clear on playing/loadeddata/error.
+         *
+         * @param {number} time  absolute position for the new session
+         */
+        recreateLocalHlsSession(time) {
+            const p = this.player;
+            if (p._destroyed || !document.body.contains(p.container)) return;
+
+            p._swapInProgress = true;
+            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
+            p._swapSafetyTimer = setTimeout(() => {
+                p._swapInProgress = false;
+                p._swapSafetyTimer = null;
+            }, 10000);
+
+            p.video.pause();
+            p.video.src = "";
+            p.video.load();
+
+            // HLS keeps a 0-based element timeline (streamStartOffset stays 0 so
+            // subtitle ?start= and the absolute clock both match the master
+            // playlist); reset the stall/fallback bookkeeping like _doServerSeek.
+            p.streamStartOffset = 0;
+            p._hasPlayedData = false;
+            p.lastKnownGoodPosition = 0;
+            if (p._stallTimer) {
+                clearTimeout(p._stallTimer);
+                p._stallTimer = null;
+            }
+
+            this.initLocalHlsStream(Math.max(0, time));
+
+            // On playing, clear the swap guard and send ONE confirmation broadcast
+            // so the server's phantom clock snaps to the new absolute position.
+            const onSeekPlaying = () => {
+                p._clearSwapInProgress();
+                if (!p._destroyed) p._broadcastState();
+            };
+            const onSeekReady = () => p._clearSwapInProgress();
+            p.video.addEventListener('playing', onSeekPlaying, { once: true });
+            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
+            p.video.addEventListener('error', onSeekReady, { once: true });
+        }
+
         cleanupHls() {
             const p = this.player;
             if (p._hlsInstance) {
                 p._hlsInstance.destroy();
                 p._hlsInstance = null;
             }
+            this.destroyLocalHlsSession();
             p.video.src = "";
             p.video.load();
         }
@@ -610,6 +778,14 @@
         performServerSeek(time) {
             const p = this.player;
             console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
+
+            // Local HLS session: recreate the session at the target position (the
+            // server encoder starts at 0; resume is a client-side seek after
+            // MANIFEST_PARSED, so a fresh session at ?start=time is the seek).
+            if (p._hlsSessionId || p._hlsSessionPending) {
+                this.recreateLocalHlsSession(time);
+                return;
+            }
 
             // F5: External/HLS streams — client-side seek only, never replace src with local transcode
             if (p.externalUrl || p._hlsInstance) {
@@ -680,6 +856,12 @@
         _doServerSeek(time) {
             const p = this.player;
             console.log(`[SimplePlayer] Server-side seek to ${time}s starting new transcode`);
+
+            // Local HLS session: recreate the session at the target position.
+            if (p._hlsSessionId || p._hlsSessionPending) {
+                this.recreateLocalHlsSession(time);
+                return;
+            }
 
             if (p.buffering) p.buffering.style.display = 'block';
 

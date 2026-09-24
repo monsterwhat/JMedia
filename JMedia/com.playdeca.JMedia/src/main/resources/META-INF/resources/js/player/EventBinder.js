@@ -381,6 +381,12 @@
                             if (window.Toast) window.Toast.info('Quality: ' + label);
 
                             const absTime = p.video.currentTime + (p.streamStartOffset || 0);
+                            // Local HLS session: recreate the session at the new quality
+                            // (the server transcodes the new quality) instead of a transcode seek.
+                            if (p._hlsSessionId || p._hlsSessionPending) {
+                                p.streamMgr.recreateLocalHlsSession(absTime);
+                                return;
+                            }
                             p.streamMgr.performServerSeek(absTime);
                         } catch (err) {
                             console.error('[SimplePlayer] Quality switch failed:', err);

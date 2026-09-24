@@ -1400,8 +1400,9 @@ public class VideoUiApi {
             @QueryParam("videoId") Long videoId,
             @QueryParam("collectionId") Long collectionId,
             @QueryParam("cinema") Boolean cinema,
+            @QueryParam("profileId") Long profileId,
             @HeaderParam("User-Agent") String userAgent) {
-        VideoService.PlaybackData data = videoService.getPlaybackData(videoId, collectionId, userAgent);
+        VideoService.PlaybackData data = videoService.getPlaybackData(videoId, collectionId, userAgent, profileId);
         if (data == null) return "<div class='notification is-warning'>No video available for playback</div>";
 
         Models.Video.Video item = data.item;
@@ -1441,6 +1442,7 @@ public class VideoUiApi {
                 .data("autoSkipRecap", data.autoSkipRecap)
                 .data("autoSkipOutro", data.autoSkipOutro)
                 .data("defaultPlayer", data.defaultPlayer)
+                .data("hlsStreaming", data.hlsStreaming)
                 .data("carouselItems", data.carouselItems)
                 .data("currentCarouselIndex", data.currentCarouselIndex)
                 .data("carouselTitle", data.carouselTitle)

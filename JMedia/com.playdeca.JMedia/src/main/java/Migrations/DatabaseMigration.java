@@ -24,12 +24,19 @@ public class DatabaseMigration {
     @PersistenceContext(unitName = "video")
     EntityManager em;
 
+    // Default persistence unit = settings DB (Profile and friends live here,
+    // NOT in the video DB above — running Profile DDL on the wrong unit silently
+    // does nothing while every Profile query fails).
+    @PersistenceContext
+    EntityManager settingsEm;
+
     @Inject
     VideoService videoService;
 
     void onStart(@Observes StartupEvent event) {
         runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
         runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
+        runScript(settingsEm, "/db/migrate-profile-hls-streaming.sql", "Profile hlsStreaming migration applied");
         reclassifyImportedExtras();
     }
 
@@ -54,6 +61,11 @@ public class DatabaseMigration {
 
     @Transactional
     void runScript(String resource, String okMessage) {
+        runScript(em, resource, okMessage);
+    }
+
+    @Transactional
+    void runScript(EntityManager em, String resource, String okMessage) {
         try (
             InputStream is = getClass().getResourceAsStream(resource);
             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))

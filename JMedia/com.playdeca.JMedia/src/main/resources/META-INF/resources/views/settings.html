@@ -130,6 +130,14 @@
                                     </div>
                                 </div>
                                 <button id="saveAutoSkipBtn" class="button is-success is-small" onclick="window.saveAutoSkipSettings()">Save Auto-Skip</button>
+                                <hr class="my-3">
+                                <h6 class="title is-6 mb-3">HLS Streaming</h6>
+                                <div class="field">
+                                    <label class="checkbox">
+                                        <input type="checkbox" id="hlsStreamingToggle"> HLS Streaming (adaptive, per-profile) — falls back to direct MP4 on failure
+                                    </label>
+                                </div>
+                                <button id="saveHlsStreamingBtn" class="button is-success is-small" onclick="window.saveHlsStreaming()">Save HLS Streaming</button>
                             </div>
                         </div>
                     </div>

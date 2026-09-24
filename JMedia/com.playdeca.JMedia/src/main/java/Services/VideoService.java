@@ -1528,8 +1528,19 @@ public class VideoService {
      */
     @Transactional
     public PlaybackData getPlaybackData(Long videoId, Long collectionId, String userAgent) {
+        return getPlaybackData(videoId, collectionId, userAgent, null);
+    }
+
+    @Transactional
+    public PlaybackData getPlaybackData(Long videoId, Long collectionId, String userAgent, Long profileId) {
         Video item = find(videoId);
         if (item == null) return null;
+
+        boolean hlsStreaming = false;
+        if (profileId != null) {
+            Models.Settings.Profile profile = Models.Settings.Profile.findById(profileId);
+            if (profile != null) hlsStreaming = profile.hlsStreaming;
+        }
 
         // Audio auto-selection: when no saved per-video preference exists, apply the fallback order
         // (preferred-language stereo -> same-language any-channels -> container default -> first audible).
@@ -1664,7 +1675,8 @@ public class VideoService {
             nextEpisode != null ? nextEpisode.id : null,
             prevEpisode != null ? prevEpisode.id : null,
             autoSkipIntro, autoSkipRecap, autoSkipOutro, defaultPlayer,
-            carouselItems, currentCarouselIndex, carouselTitle, hasCarousel, collectionId, collectionName, infoSection);
+            carouselItems, currentCarouselIndex, carouselTitle, hasCarousel, collectionId, collectionName, infoSection,
+            hlsStreaming);
     }
 
     /**
@@ -1746,13 +1758,14 @@ public class VideoService {
         public final Long collectionId;
         public final String collectionName;
         public final Map<String, Object> infoSection;
+        public final boolean hlsStreaming;
 
         public PlaybackData(Video item, double resumeTime, boolean needsTranscoding, boolean needsConversion,
                             String conversionJobId, String conversionStatus, Long nextEpisodeId, Long prevEpisodeId,
                             boolean autoSkipIntro, boolean autoSkipRecap, boolean autoSkipOutro, String defaultPlayer,
                             List<Map<String, Object>> carouselItems, int currentCarouselIndex, String carouselTitle,
                             boolean hasCarousel, Long collectionId, String collectionName,
-                            Map<String, Object> infoSection) {
+                            Map<String, Object> infoSection, boolean hlsStreaming) {
             this.item = item;
             this.resumeTime = resumeTime;
             this.needsTranscoding = needsTranscoding;
@@ -1772,6 +1785,7 @@ public class VideoService {
             this.collectionId = collectionId;
             this.collectionName = collectionName;
             this.infoSection = infoSection;
+            this.hlsStreaming = hlsStreaming;
         }
     }
 

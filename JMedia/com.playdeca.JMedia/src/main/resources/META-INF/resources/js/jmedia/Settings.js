@@ -387,6 +387,7 @@
             setupClick("deleteDuplicates", window.deleteDuplicates, "Delete duplicates?");
             setupClick("saveImportSettingsBtn", window.saveImportSettings);
             setupClick("savePlaybackSettingsBtn", window.savePlaybackSettings);
+            setupClick("saveHlsStreamingBtn", window.saveHlsStreaming);
             setupClick("saveUiSettingsBtn", window.saveUiSettings);
             setupClick("createProfileBtn", window.createProfile);
 
@@ -500,6 +501,7 @@
             JMedia.Settings.loadPlaybackSettings();
             JMedia.Settings.loadUiSettings();
             JMedia.Settings.loadAutoSkipSettings();
+            JMedia.Settings.loadHlsStreaming();
             JMedia.Settings.refreshSettingsUI();
             JMedia.Settings.loadVersionInfo();
         },
@@ -587,6 +589,38 @@
                 }
             } catch (e) {
                 if (window.showToast) window.showToast('Failed to save auto-skip settings', 'error');
+            }
+        },
+
+        loadHlsStreaming: async function () {
+            const profileId = getProfileId();
+            try {
+                const res = await fetch(`/api/settings/${profileId}/hls-streaming`);
+                const json = await res.json();
+                if (res.ok && json.data !== undefined) {
+                    const el = document.getElementById('hlsStreamingToggle');
+                    if (el) el.checked = json.data === true;
+                }
+            } catch (e) {
+                console.error('[Settings] Failed to load HLS streaming:', e);
+            }
+        },
+
+        saveHlsStreaming: async function () {
+            const profileId = getProfileId();
+            try {
+                const res = await fetch(`/api/settings/${profileId}/hls-streaming`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: document.getElementById('hlsStreamingToggle').checked })
+                });
+                if (res.ok && window.showToast) {
+                    window.showToast('HLS streaming updated', 'success');
+                } else if (window.showToast) {
+                    window.showToast('Failed to save HLS streaming', 'error');
+                }
+            } catch (e) {
+                console.error('[Settings] Failed to save HLS streaming:', e);
             }
         },
 
@@ -1095,6 +1129,8 @@
     window.savePlaybackSettings = JMedia.Settings.savePlaybackSettings;
     window.loadAutoSkipSettings = JMedia.Settings.loadAutoSkipSettings;
     window.saveAutoSkipSettings = JMedia.Settings.saveAutoSkipSettings;
+    window.loadHlsStreaming = JMedia.Settings.loadHlsStreaming;
+    window.saveHlsStreaming = JMedia.Settings.saveHlsStreaming;
     window.saveMaxConcurrentTranscodes = JMedia.Settings.saveMaxConcurrentTranscodes;
     window.saveMaxCompleteCacheFiles = JMedia.Settings.saveMaxCompleteCacheFiles;
     window.saveHardwareAcceleration = JMedia.Settings.saveHardwareAcceleration;
