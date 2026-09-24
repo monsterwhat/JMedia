@@ -524,13 +524,15 @@ public class HlsService {
             copyCommand.add("-hls_time"); copyCommand.add("6");
             copyCommand.add("-hls_list_size"); copyCommand.add("0");
             if (USE_FMP4_HLS) {
-                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist+split_by_time");
+                // No split_by_time: with -c:v copy, time splits cut mid-GOP and serve
+                // dependent segments (the master declares INDEPENDENT-SEGMENTS).
+                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist");
                 copyCommand.add("-hls_segment_type"); copyCommand.add("fmp4");
                 copyCommand.add("-hls_fmp4_init_filename"); copyCommand.add(variant.name + "_init.mp4");
                 copyCommand.add("-hls_segment_filename");
                 copyCommand.add(variant.name + "_%04d.m4s");
             } else {
-                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist+split_by_time");
+                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist");
                 copyCommand.add("-hls_segment_filename");
                 copyCommand.add(variant.name + "_%05d.ts");
             }
@@ -743,6 +745,10 @@ public class HlsService {
                 }
             }
         }
+
+        // Force an IDR every segment duration so time-based splits land on keyframes
+        // and every segment is independently decodable (see copy path note above).
+        command.add("-force_key_frames"); command.add("expr:gte(t,n_forced*6)");
 
         // HLS output args
         command.add("-f"); command.add("hls");
