@@ -3,7 +3,20 @@
 Date: 2026-10-01
 Module: `JMedia/com.playdeca.JMedia` (com.playdeca.jmedia:JMedia 1.16.1, Quarkus 3.34.1, Java release 25)
 
-## Result: BUILD SUCCESS (uber-jar produced) + verified smoke run
+## Result: BUILD SUCCESS (uber-jar produced) + tests executable + VTT payload proven
+
+Latest work (2026-10-01, after `415cbe5`):
+
+1. `mvn test` was silently running **0 tests** (`surefire:2.17` from Maven's default lifecycle
+   bindings cannot drive the JUnit Platform). Now pinned to 3.5.4; **50 tests execute,
+   3 known pre-existing failures**.
+2. The 1.16.1 subtitle fix was only verified to playlist level because ffmpeg was missing.
+   With ffmpeg 8.0.1 present, the WebVTT payload is **proven end-to-end**: `get_series_info`
+   → m3u8 → master `SUBTITLES` group → non-empty `sub_0.m3u8` → real `.vtt` segments served
+   with correct cue timings.
+3. Two pre-existing `HlsService` bugs surfaced while proving #2 (intermittent JTA commit
+   failure, and cleanup destroying sessions whose ffmpeg already exited). Documented, **not
+   fixed** — see "Two pre-existing bugs found" below.
 
 `mvn -DskipTests package -B` succeeded in 4m22s after dependency download (and in ~11s on
 warm runs).
@@ -113,39 +126,169 @@ TV episodes reached Xtream IPTV clients with no subtitles at all. Two causes sta
 uber-jar at `target/JMedia-runner.jar`. New test `API.Rest.XtreamStreamHlsPreferenceTest`
 (5 tests) covers the series/movie routing decision and the sidecar servability gates.
 
-Note: the project's pinned `maven-surefire-plugin:2.17` (inherited from the Quarkus BOM)
-cannot discover JUnit 5 tests — it silently runs 0 of them. Running the JUnit Platform
-provider directly is what actually executes them:
+**`mvn test` now works natively — no CLI workaround needed.** Previously it reported
+`Tests run: 0` and still exited BUILD SUCCESS. The `2.17` surefire pin was *not* in this
+repo and *not* inherited from the Quarkus BOM (the BOM does not manage surefire). It comes
+from `maven-core`'s `META-INF/plexus/default-bindings.xml`, the default lifecycle binding for
+`jar` packaging in this Maven 3.9.12 build. Surefire 2.17 predates the JUnit Platform and
+only ships the JUnit 3/4 provider, so it loaded the test classes but executed none of the
+`@Test` methods. `pom.xml` now pins `maven-surefire-plugin` 3.5.4 — the first line shipping
+the `surefire-junit-platform` provider that is compatible with the JUnit 6 platform
+(`junit-jupiter` 6.0.3) that `quarkus-bom` 3.34.1 manages — plus `failIfNoTests=true` so any
+future silent 0-test regression fails the build instead of passing green.
 
-```bash
-JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 mvn -B org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test
+Results: **50 tests, 3 failures**, all three in `SmartNamingServiceTest`
+(`testVolExtrasNotMistakenForSeason`, `testFamilyGuyCollectionVolExtras`,
+`testTPBSxxXepSpinoff`).
+
+| Test class | run | fail |
+|---|---|---|
+| `API.Rest.XtreamStreamHlsPreferenceTest` | 5 | 0 |
+| `Services.IntroDbServiceTest` | 10 | 0 |
+| `Services.PlaybackDataHlsFlagTest` | 3 | 0 |
+| `Services.SmartNamingServiceTest` | 25 | 3 |
+| `Utils.FragmentedMp4SeekerTest` | 7 | 0 |
+
+(An earlier revision of this file claimed 43 tests via
+`mvn org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test`. Re-measured, 3.2.5 also
+reports 50 — the 43 figure was simply wrong.)
+
+The 3 `SmartNamingServiceTest` failures are **pre-existing** and unrelated: the surefire
+commit touches no Java source. Confirmed identical on pristine `415cbe5` sources (same three
+tests, same lines 209/358/382, same expected/actual):
+
+```
+testTPBSxxXepSpinoff:209                expected 'extra'  but was 'special'
+testVolExtrasNotMistakenForSeason:358   expected null      but was 2
+testFamilyGuyCollectionVolExtras:382    expected null      but was 1
 ```
 
-Results: 43 tests, 3 failures, all three in `SmartNamingServiceTest`
-(`testVolExtrasNotMistakenForSeason`, `testFamilyGuyCollectionVolExtras`,
-`testTPBSxxXepSpinoff`). These are **pre-existing** — confirmed by re-running that class
-against a stashed working tree (same 3 failures on `f825468` before any of these changes).
-Every subtitle/Xtream/HLS-related test passes.
+They are now visible for the first time; left as-is per scope. Every
+subtitle/Xtream/HLS-related test passes.
 
-Runtime smoke run (uber-jar, port 8191, throwaway `user.home`) against a synthetic library
-holding one series episode plus an `.en.srt` sidecar:
+### VTT payload now proven end-to-end (ffmpeg 8.0.1 present)
 
-- `get_series_info` → `container_extension: m3u8`, `direct_source: .../series/admin/.../1.m3u8`
-- `GET /series/admin/.../1.m3u8` → `307` to `/api/hls/master/vid-1-...m3u8`
-- `GET /series/admin/.../1.mkv` (native ext) → `307` to the same HLS master path
-- master playlist contained:
-  `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",AUTOSELECT=YES,DEFAULT=YES,FORCED=NO,URI="/api/hls/playlist/.../sub_0.m3u8"`
-  and `#EXT-X-STREAM-INF:...,SUBTITLES="subs"`
-- progressive path still intact: `GET /movie/.../2.mkv` → `200`, `1500000` bytes,
-  `video/x-matroska`; with `Range: bytes=0-99` → `206`, `100` bytes
-- `GET /api/video/subtitles/1/local-files` returned the resolved absolute sidecar path
+The previous caveat is **closed**. ffmpeg/ffprobe 8.0.1 are now installed
+(`/usr/bin/ffmpeg`, `ffprobe`), `FFmpegDiscoveryService` no longer logs "FFmpeg not found",
+and the WebVTT segmenter runs for real. Re-ran the synthetic-library smoke
+(uber-jar, port 8192, throwaway `user.home`):
 
-Caveat on the smoke run: **ffmpeg/ffprobe are not installed on this machine**, so
-`FFmpegDiscoveryService` logged "FFmpeg not found" and the encoder plus the WebVTT
-segmenter processes never started. The master playlist and the `SUBTITLES` group were still
-generated correctly (that logic runs in Java, not ffmpeg) and `sub_0.m3u8` existed, but the
-`.vtt` segments inside it were empty. Subtitle payload generation is therefore **not**
-end-to-end proven here and needs a re-check on a host with ffmpeg.
+- Library: `Smoke Show/Season 01/Smoke Show - S01E01.mkv` (12.0 s, `testsrc2` + sine,
+  x264 `-g 50 -keyint_min 50 -sc_threshold 0`) plus `Smoke Show - S01E01.en.srt`
+  with three cues carrying the marker text `VTTPROOF cue one|two|three`.
+- `POST /api/settings/1/video-library-path` → `POST /api/video/scan?mode=full` →
+  1 video created (`seriesTitle: Smoke Show`, `seasonNumber: 1`, `episodeNumber: 1`).
+- `POST /api/video/subtitles/1/add-local` → track id 1, `languageName: English`, `format: srt`.
+- `get_series_info` → `container_extension: m3u8`,
+  `direct_source: http://localhost:8192/series/admin/<pw>/1.m3u8`. Confirmed.
+
+Full chain over HTTP (session from `POST /api/hls/session/1`):
+
+| Request | Status | Type | Bytes |
+|---|---|---|---|
+| `GET /api/hls/master/{sid}.m3u8` | 200 | `application/vnd.apple.mpegurl` | 409 |
+| `GET` master `URI="...sub_0.m3u8"` | 200 | `application/vnd.apple.mpegurl` | 274 |
+| `GET .../sub_0/sub_0_0000.vtt` | 200 | `text/vtt` | 91 |
+| `GET .../sub_0/sub_0_0001.vtt` | 200 | `text/vtt` | 51 |
+| `GET /api/hls/playlist/{sid}/video_stream.m3u8` | 200 | `application/vnd.apple.mpegurl` | 395 |
+| `GET .../video_stream/video_stream_0000.m4s` | 200 | `video/iso.segment` | 641051 |
+| `GET .../video_stream/init.mp4` | 200 | `video/mp4` | 1334 |
+
+`sub_0.m3u8` is **not** an empty playlist — it lists two real segments:
+
+```
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXTINF:7.900000,
+/api/hls/media/{sid}/sub_0/sub_0_0000.vtt
+#EXTINF:3.600000,
+/api/hls/media/{sid}/sub_0/sub_0_0001.vtt
+#EXT-X-ENDLIST
+```
+
+and the served payloads are genuine WebVTT — SRT comma timings converted to WebVTT dot
+timings, all three cues and their exact timings preserved:
+
+```
+WEBVTT
+
+00:00.500 --> 00:03.800
+VTTPROOF cue one
+
+00:04.200 --> 00:07.900
+VTTPROOF cue two
+```
+```
+WEBVTT
+
+00:08.300 --> 00:11.900
+VTTPROOF cue three
+```
+
+Served bytes are identical (sha256) to what ffmpeg wrote into
+`<videoLibraryPath>/hls/<sessionId>/`. Across every session produced during the smoke run:
+**37 `sub_0.m3u8` files, 74 `.vtt` files, 0 empty, 0 missing the `WEBVTT` header**, and only
+two distinct sha256 values (one per segment index) — deterministic on every run.
+
+The video variant uses fMP4 with `#EXT-X-MAP` + `#EXT-X-DISCONTINUITY` and a 6 s target
+duration; subtitles use a 4 s `-segment_time` from a 12 s source, hence 2 segments each.
+
+Progressive fallback still intact: `GET /series/admin/<pw>/1.mkv` → `200`,
+`1288928` bytes, `video/x-matroska`; with `Range: bytes=0-99` → `206`, `100` bytes.
+
+## Two pre-existing bugs found while proving the above (NOT fixed — out of scope)
+
+Both are in `Services/HlsService` and predate `415cbe5` (which changed no transaction or
+cleanup code). They do not affect subtitle *generation* — every subtitle segmenter that
+started produced correct output — but they degrade the Xtream *entry point*.
+
+### 1. `createSession` fails its JTA commit intermittently → HLS silently degrades to progressive
+
+`HlsService.createSession` is `@Transactional`, but `launchAndMonitorVariantEncoder` does
+`Thread.sleep(2000)` inside it (`HlsService.java:284`) while holding the enlisted JDBC
+connection, after `subtitleTrackService.refreshSubtitleTracks` has already run in the same
+transaction. At commit/rollback Narayana/Agroal then fails:
+
+```
+ARJUNA016045: attempted rollback of < ... io.agroal.narayana.LocalXAResource ... >
+failed with exception code XAException.XAER_RMERR:
+Error trying to transactionRollback local transaction: Enlisted connection used without active transaction
+```
+
+which surfaces through `XtreamStreamAPI.streamVideoWithHls` as
+`HLS session failed for videoId=1, falling back to progressive stream: Unable to acquire
+JDBC Connection`, so `GET /series/admin/<pw>/1.m3u8` returns `200` raw video bytes instead of
+the `307` to the master playlist — **losing subtitles exactly like the original bug**.
+Measured 8 of 9 attempts failing, on both the series and the movie path (so it is not
+series-specific). `POST /api/hls/session/1`, which calls the same `createSession` without the
+preceding `XtreamSessionService.startSession` transaction, succeeded every time.
+
+Fix direction: do not hold a transaction across the 2 s encoder warm-up — resolve the
+session's DB state in a short transaction, then start ffmpeg outside it.
+
+### 2. Session cleanup destroys a session as soon as its ffmpeg processes exit
+
+`cleanupAbandonedSessions` (`HlsService.java:1731`) removes any session where
+`session.processes.values().stream().noneMatch(Process::isAlive)`. Copy-mode HLS and the
+WebVTT segmenter on a short clip both exit in well under a second — long before the Java
+monitor thread's 2 s sleep returns — so the very next sweep destroys a session whose
+playlist and segments are already complete and valid:
+
+```
+Xtream session ended: sessionId=ffe21e96... duration=0s reason=timeout
+Destroyed HLS session vid-1-xtream:ffe21e96...-anon-2e035574
+Cleaned up 1 abandoned HLS sessions
+```
+
+The master then returns `404` even though the redirect was correctly issued. Reproduced by
+capturing a real `307 Location:` and fetching it ~1 s later. The existing 120 s
+`recentlyRestarted` grace does not cover first playback.
+
+Fix direction: treat "all processes exited but the playlist has `#EXT-X-ENDLIST`" as
+finished-but-servable (keep it until the idle TTL), rather than as abandoned.
+
+Both were left untouched to keep this change set scoped to the two requested tasks.
 
 ## Notes / observations
 
@@ -168,4 +311,9 @@ end-to-end proven here and needs a re-check on a host with ffmpeg.
      "Use --enable-native-access=ALL-UNNAMED" — cosmetic on Java 25.
 4. Runtime log shows `Error fetching releases: HTTP 301 Moved Permanently` (GitHub update
    check) — cosmetic, does not affect startup.
-5. Tests were skipped by design (`-DskipTests`); no test run was performed.
+5. The packaging build skips tests by design (`-DskipTests`). Tests *were* run separately and
+   are now green-executable via plain `mvn test` (50 tests, 3 known pre-existing failures) —
+   see the verification section above. Previously they could not run at all.
+6. `ffmpeg`/`ffprobe` 8.0.1 are installed on this host at `/usr/bin/ffmpeg`. The earlier
+   "FFmpeg not found" caveat recorded in the 1.16.1 notes no longer applies, and the
+   WebVTT payload is now verified end-to-end.
