@@ -205,7 +205,7 @@ public class ParakeetService {
                 if (video.path == null || video.path.isBlank()) {
                     throw new RuntimeException("Video path is null or empty for: " + video.filename);
                 }
-                Path videoPath = Paths.get(video.path);
+                Path videoPath = resolveVideoAbsolutePath(video.path);
                 if (!Files.exists(videoPath)) {
                     throw new RuntimeException("Video file not found: " + video.path);
                 }

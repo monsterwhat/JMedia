@@ -1003,7 +1003,9 @@ public class HlsService {
             String inputPath = resolvedPath;
             String mapSpec = "0:" + track.trackIndex;
             if (track.trackIndex == null) {
-                inputPath = track.fullPath;
+                // Sidecar / Parakeet AI tracks store fullPath; older rows may hold it relative
+                // to the library root, so resolve before handing it to ffmpeg.
+                inputPath = resolveVideoPath(track.fullPath);
                 mapSpec = "0:0";
             }
             // PGS bitmap tracks cannot be converted to WebVTT by ffmpeg directly: resolve the

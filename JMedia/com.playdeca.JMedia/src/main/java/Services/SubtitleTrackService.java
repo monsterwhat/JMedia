@@ -113,7 +113,11 @@ public class SubtitleTrackService {
         String langCode = (language != null && !language.isBlank()) ? mapToThreeLetterLanguage(language) : "und";
 
         String saveFilename = videoBasename + ".upload." + langCode + "." + ext;
-        java.nio.file.Path videoDir = java.nio.file.Paths.get(video.path).getParent();
+        java.nio.file.Path resolvedVideoPath = resolveVideoAbsolutePath(video.path);
+        if (resolvedVideoPath == null) {
+            return UploadResult.videoDirError();
+        }
+        java.nio.file.Path videoDir = resolvedVideoPath.getParent();
         if (videoDir == null) {
             return UploadResult.videoDirError();
         }
@@ -197,7 +201,37 @@ public class SubtitleTrackService {
     }
 
     public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Video video) {
-        return subtitleMatcher.scanAllSubtitleFiles(Paths.get(video.path), video);
+        Path resolved = resolveVideoAbsolutePath(video.path);
+        if (resolved == null) {
+            LOG.warn("Video path is null or empty for video {}; returning no local subtitle files", video.id);
+            return new ArrayList<>();
+        }
+        return subtitleMatcher.scanAllSubtitleFiles(resolved, video);
+    }
+
+    /**
+     * Video paths are stored relative to the configured library root, so a bare
+     * {@code Paths.get(video.path)} misses the file whenever the path is not absolute.
+     * Discovery (sidecars, Parakeet output) and any derived parent directory must go
+     * through this so the library prefix is applied exactly once.
+     */
+    private Path resolveVideoAbsolutePath(String videoPath) {
+        if (videoPath == null || videoPath.isBlank()) {
+            return null;
+        }
+        Path vPath = Paths.get(videoPath);
+        if (vPath.isAbsolute()) {
+            return vPath;
+        }
+        try {
+            String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            if (libraryPath != null && !libraryPath.isBlank()) {
+                return Paths.get(libraryPath, videoPath);
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not resolve video library path for {}: {}", videoPath, e.getMessage());
+        }
+        return vPath;
     }
 
     @Transactional
@@ -283,7 +317,12 @@ public class SubtitleTrackService {
         Video managedVideo = Video.findById(video.id);
         if (managedVideo == null) return;
         
-        List<SubtitleTrack> tracks = subtitleMatcher.discoverSubtitleTracks(Paths.get(managedVideo.path), managedVideo);
+        Path resolvedVideoPath = resolveVideoAbsolutePath(managedVideo.path);
+        if (resolvedVideoPath == null) {
+            LOG.warn("Video path is null or empty for video {}; skipping subtitle refresh", managedVideo.id);
+            return;
+        }
+        List<SubtitleTrack> tracks = subtitleMatcher.discoverSubtitleTracks(resolvedVideoPath, managedVideo);
         videoService.mergeSubtitleTracks(managedVideo.id, tracks);
         LOG.info("Refreshed subtitle tracks for video: " + managedVideo.title);
     }
