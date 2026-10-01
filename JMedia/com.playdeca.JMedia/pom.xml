@@ -177,6 +177,24 @@
                     <proc>full</proc>
                 </configuration>
             </plugin>
+            <!--
+                Maven's default lifecycle binding for `jar` packaging pins surefire to
+                2.17 (from maven-core's default-bindings.xml on some distributions).
+                2.17 predates the JUnit Platform and only speaks the JUnit 3/4 provider,
+                so it reported "Tests run: 0" while still exiting BUILD SUCCESS.
+                Pin 3.5.4 explicitly: it ships the surefire-junit-platform provider and
+                is the first line compatible with the JUnit 6 platform that
+                quarkus-bom 3.34.1 manages (junit-jupiter 6.0.3).
+                failIfNoTests guards against the silent 0-test regression recurring.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+                <configuration>
+                    <failIfNoTests>true</failIfNoTests>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
