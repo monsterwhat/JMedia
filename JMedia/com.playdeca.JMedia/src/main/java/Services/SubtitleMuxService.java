@@ -39,21 +39,89 @@ public class SubtitleMuxService {
     @Inject SubtitleTrackService subtitleTrackService;
 
     private final ConcurrentHashMap<Long, Object> muxLocks = new ConcurrentHashMap<>();
+    private final java.util.concurrent.ExecutorService muxExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "subtitle-mux");
+                t.setDaemon(true);
+                return t;
+            });
+
+    @jakarta.annotation.PreDestroy
+    void shutdown() {
+        muxExecutor.shutdownNow();
+    }
 
     public boolean ensureEmbeddedSubtitles(Video video) {
         if (video == null || video.id == null || video.path == null || video.path.isBlank()) return false;
+        // Fast synchronous check (ffprobe + directory scan, ~100-300ms); the actual
+        // remux runs in the background so playback starts immediately. Next play
+        // (or a later range request) finds the tracks embedded.
+        List<Models.Video.SubtitleTrack> missing;
+        try {
+            missing = findMissingSubtitles(video);
+        } catch (Exception e) {
+            LOG.warn("Subtitle mux check failed for video {} ({}); serving original file", video.id, video.filename, e);
+            return false;
+        }
+        if (missing.isEmpty()) return false;
         Object lock = muxLocks.computeIfAbsent(video.id, k -> new Object());
         synchronized (lock) {
-            try {
-                return muxMissingSubtitles(video);
-            } catch (Exception e) {
-                LOG.warn("On-demand subtitle mux failed for video {} ({}); serving original file", video.id, video.filename, e);
-                return false;
-            }
+            muxExecutor.submit(() -> {
+                try {
+                    muxMissingSubtitles(video, missing);
+                } catch (Exception e) {
+                    LOG.warn("Background subtitle mux failed for video {} ({}); serving original file", video.id, video.filename, e);
+                }
+            });
         }
+        return false;
     }
 
-    private boolean muxMissingSubtitles(Video video) throws Exception {
+    private List<Models.Video.SubtitleTrack> findMissingSubtitles(Video video) throws Exception {
+        Path videoPath = resolveAbsolute(video.path);
+        if (videoPath == null || !Files.isRegularFile(videoPath)) return new ArrayList<>();
+        String lowerName = videoPath.getFileName().toString().toLowerCase();
+        if (!lowerName.endsWith(".mp4") && !lowerName.endsWith(".m4v") && !lowerName.endsWith(".mkv")) {
+            return new ArrayList<>();
+        }
+        String ffprobe = ffmpegDiscoveryService.findFFprobeExecutable();
+        if (ffprobe == null) return new ArrayList<>();
+
+        java.util.Map<String, Integer> embeddedCounts = new java.util.HashMap<>();
+        for (String l : embeddedSubtitleLanguages(ffprobe, videoPath)) {
+            String key = (l == null || l.isBlank()) ? "und" : l.toLowerCase();
+            embeddedCounts.merge(key, 1, Integer::sum);
+        }
+        // Recursive discovery (covers Subs/ subfolders); the flat scan only sees
+        // the video's own folder and would miss nested sidecars entirely.
+        List<Models.Video.SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
+        List<Models.Video.SubtitleTrack> missing = new ArrayList<>();
+        List<String> seen = new ArrayList<>();
+        for (Models.Video.SubtitleTrack t : discovered) {
+            if (t == null || t.isEmbedded || t.fullPath == null || t.fullPath.isBlank()) continue;
+            String fmt = t.format != null ? t.format.toLowerCase() : "";
+            if (!fmt.equals("srt") && !fmt.equals("vtt") && !fmt.equals("ass") && !fmt.equals("ssa") && !fmt.equals("subrip")) continue;
+            if (!Files.isRegularFile(Paths.get(t.fullPath))) continue;
+            String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
+                    : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
+            if (lang == null || lang.isBlank()) lang = "und";
+            lang = lang.toLowerCase();
+            seen.add(t.filename + "->" + lang);
+            // Multiset match: one embedded track covers one sidecar of the same
+            // language. "und" matches "und" — without this, untagged tracks would
+            // remux on every play and duplicate forever.
+            int have = embeddedCounts.getOrDefault(lang, 0);
+            if (have > 0) {
+                embeddedCounts.put(lang, have - 1);
+                continue;
+            }
+            missing.add(t);
+        }
+        LOG.info("Subtitle mux check for video {}: embedded={} discovered={} missing={}", video.id, embeddedCounts, seen, missing.size());
+        return missing;
+    }
+
+    private boolean muxMissingSubtitles(Video video, List<Models.Video.SubtitleTrack> missing) throws Exception {
         Path videoPath = resolveAbsolute(video.path);
         if (videoPath == null || !Files.isRegularFile(videoPath)) return false;
         String lowerName = videoPath.getFileName().toString().toLowerCase();
@@ -66,34 +134,6 @@ public class SubtitleMuxService {
         String ffprobe = ffmpegDiscoveryService.findFFprobeExecutable();
         if (ffmpeg == null || ffprobe == null) return false;
 
-        java.util.Map<String, Integer> embeddedCounts = new java.util.HashMap<>();
-        for (String l : embeddedSubtitleLanguages(ffprobe, videoPath)) {
-            String key = (l == null || l.isBlank()) ? "und" : l.toLowerCase();
-            embeddedCounts.merge(key, 1, Integer::sum);
-        }
-        // Recursive discovery (covers Subs/ subfolders); the flat scan only sees
-        // the video's own folder and would miss nested sidecars entirely.
-        List<Models.Video.SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
-        List<Models.Video.SubtitleTrack> missing = new ArrayList<>();
-        for (Models.Video.SubtitleTrack t : discovered) {
-            if (t == null || t.isEmbedded || t.fullPath == null || t.fullPath.isBlank()) continue;
-            String fmt = t.format != null ? t.format.toLowerCase() : "";
-            if (!fmt.equals("srt") && !fmt.equals("vtt") && !fmt.equals("ass") && !fmt.equals("ssa") && !fmt.equals("subrip")) continue;
-            if (!Files.isRegularFile(Paths.get(t.fullPath))) continue;
-            String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
-                    : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
-            if (lang == null || lang.isBlank()) lang = "und";
-            lang = lang.toLowerCase();
-            // Multiset match: one embedded track covers one sidecar of the same
-            // language. "und" matches "und" — without this, untagged tracks would
-            // remux on every play and duplicate forever.
-            int have = embeddedCounts.getOrDefault(lang, 0);
-            if (have > 0) {
-                embeddedCounts.put(lang, have - 1);
-                continue;
-            }
-            missing.add(t);
-        }
         if (missing.isEmpty()) {
             LOG.debug("No missing sidecar subtitles to mux for video {}", video.id);
             return false;
