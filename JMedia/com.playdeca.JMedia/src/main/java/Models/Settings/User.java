@@ -16,6 +16,7 @@ public class User extends PanacheEntity {
     private String username;
     private String passwordHash;
     private String groupName;
+    private java.time.LocalDateTime lastLoginAt;
     
     // Getter for username
     public String getUsername() {

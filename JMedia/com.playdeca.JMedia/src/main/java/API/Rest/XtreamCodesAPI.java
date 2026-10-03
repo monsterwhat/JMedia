@@ -47,6 +47,9 @@ public class XtreamCodesAPI {
     @Inject
     Services.XtreamSessionService xtreamSessionService;
 
+    @Inject
+    Services.AnnouncementService announcementService;
+
     @QueryParam("username")
     String username;
 
@@ -601,7 +604,9 @@ public class XtreamCodesAPI {
         response.userInfo = new XtreamLoginResponse.UserInfo();
         response.userInfo.username = user.getUsername();
         response.userInfo.password = password;
-        response.userInfo.message = "Welcome to JMedia";
+        // New uploads since this user's last login; empty when there is nothing
+        // new, so players show no notification instead of a stale greeting.
+        response.userInfo.message = announcementService.loginAnnouncement(user);
         response.userInfo.auth = 1;
         response.userInfo.status = "Active";
         response.userInfo.expDate = String.valueOf(4102444800L);
