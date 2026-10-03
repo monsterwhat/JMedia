@@ -32,7 +32,10 @@ public class AnnouncementService {
         LocalDateTime since = user.getLastLoginAt();
         user.setLastLoginAt(now);
         try {
-            user.persist();
+            // The user instance comes from the auth query (detached here), so
+            // merge rather than persist — persist throws on detached entities
+            // and would silently disable announcements forever.
+            Models.Settings.User.getEntityManager().merge(user);
         } catch (Exception e) {
             LOG.warn("Could not persist lastLoginAt for user {}: {}", user.getUsername(), e.getMessage());
             if (since == null) return "";
