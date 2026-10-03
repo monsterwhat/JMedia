@@ -1682,6 +1682,33 @@ public class HlsService {
         return session.sessionDir.resolve(segmentName);
     }
 
+    // Apple players require X-TIMESTAMP-MAP in HLS WebVTT to sync cues to the
+    // media timeline, but ffmpeg never emits it — without the header, enabling
+    // subtitles stalls playback. Cues use absolute media timestamps from 0 and
+    // the variant starts at 0, so LOCAL 00:00 maps to MPEGTS 0.
+    private static final String VTT_TIMESTAMP_MAP = "X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0";
+
+    public java.io.File getVttSegmentFile(String sessionId, String variantName, String segmentName) {
+        Path p = getSegmentPath(sessionId, variantName, segmentName);
+        if (p == null || !Files.exists(p)) return null;
+        ensureTimestampMap(p);
+        return p.toFile();
+    }
+
+    private void ensureTimestampMap(Path vtt) {
+        try {
+            String content = Files.readString(vtt);
+            if (!content.startsWith("WEBVTT") || content.contains("X-TIMESTAMP-MAP")) return;
+            int nl = content.indexOf('\n');
+            String fixed = content.substring(0, nl + 1) + VTT_TIMESTAMP_MAP + "\n" + content.substring(nl + 1);
+            Path tmp = vtt.resolveSibling(vtt.getFileName() + ".tmp");
+            Files.writeString(tmp, fixed);
+            Files.move(tmp, vtt, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            LOG.debug("Could not inject X-TIMESTAMP-MAP into {}: {}", vtt.getFileName(), e.getMessage());
+        }
+    }
+
     public Path getInitSegmentPath(String sessionId, String variantName) {
         HlsSession session = activeSessions.get(sessionId);
         if (session == null) return null;

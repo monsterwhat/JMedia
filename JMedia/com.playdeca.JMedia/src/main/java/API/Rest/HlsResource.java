@@ -78,7 +78,13 @@ public class HlsResource {
         
         while (System.currentTimeMillis() < deadline) {
             if (segmentPath != null && Files.exists(segmentPath)) {
-                return Response.ok(segmentPath.toFile()).type(contentType).build();
+                // WebVTT needs X-TIMESTAMP-MAP for Apple players; ensured on serve.
+                if (segment.endsWith(".vtt")) {
+                    java.io.File vtt = hlsService.getVttSegmentFile(sessionId, variant, segment);
+                    if (vtt != null) return Response.ok(vtt).type(contentType).build();
+                } else {
+                    return Response.ok(segmentPath.toFile()).type(contentType).build();
+                }
             }
             try {
                 Thread.sleep(100);
