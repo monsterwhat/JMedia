@@ -135,11 +135,36 @@ public class HlsService {
             return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, h, 3000000, true));
         }
 
-        // Default: cap at 720p, or use native resolution if lower.
-        // Higher qualities (1080p, 4K) are only used when the user
-        // explicitly selects them from the quality menu.
+        // Default: remux natively when every stream is directly compatible
+        // (H.264/HEVC video + copyable audio) so Apple TV-class clients get
+        // progressive-like start times with subtitles; otherwise cap at 720p
+        // and transcode. Higher qualities are only used when explicitly selected.
+        if (isCopyEligibleVideo(video)) {
+            return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, sourceHeight, 8000000, true));
+        }
         int defaultHeight = Math.min(720, sourceHeight);
         return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, defaultHeight, 1000000, true));
+    }
+
+    /**
+     * Copy eligibility on the {@code Video} entity, mirroring
+     * {@link #isEligibleForCopyMode(HlsSession, VariantConfig)} minus the variant-height
+     * check (the caller sets the variant to the source height when this returns true).
+     * Incompatible codecs (AV1/VP9 video, PCM/FLAC/TrueHD audio, …) return false and
+     * keep the 720p transcode path.
+     */
+    private boolean isCopyEligibleVideo(Video video) {
+        if (video == null || video.videoCodec == null) return false;
+        String lower = video.videoCodec.toLowerCase();
+        boolean isH264 = lower.contains("h264") || lower.contains("avc");
+        boolean isHevc = lower.contains("hevc") || lower.contains("h265");
+        if (!isH264 && !isHevc) return false;
+        if (video.audioTracks != null) {
+            for (AudioTrack track : video.audioTracks) {
+                if (!isCopyableCodec(track.codec)) return false;
+            }
+        }
+        return true;
     }
 
     @Inject VideoService videoService;
@@ -511,6 +536,15 @@ public class HlsService {
             copyCommand.add("-i"); copyCommand.add(resolvedPath);
             copyCommand.add("-map"); copyCommand.add("0:v:0");
             copyCommand.add("-c:v"); copyCommand.add("copy");
+            // Apple players require the hvc1 sample entry for HEVC in fMP4
+            // (many library files are hev1-tagged); never tag H.264 as hvc1.
+            String copyVideoCodec = session.video != null ? session.video.videoCodec : null;
+            if (copyVideoCodec != null) {
+                String copyLower = copyVideoCodec.toLowerCase();
+                if (copyLower.contains("hevc") || copyLower.contains("h265")) {
+                    copyCommand.add("-tag:v"); copyCommand.add("hvc1");
+                }
+            }
             if (session.audioTracks.isEmpty()) {
                 copyCommand.add("-map"); copyCommand.add("0:a?");
             } else if (session.audioTracks.size() == 1) {
