@@ -7,18 +7,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Series episodes must be served through HLS so the master playlist can carry a
- * SUBTITLES group; progressive byte-serving cannot advertise subtitles at all.
+ * Only explicit m3u8 requests are served through HLS (the only path that can
+ * carry a SUBTITLES group); native-container requests stream progressively so
+ * capable players keep instant seeking via Range requests.
  * These tests pin the routing decision in {@link XtreamStreamAPI#prefersHls} and the
  * sidecar-track eligibility rules used by HlsService when building that group.
  */
 public class XtreamStreamHlsPreferenceTest {
 
     @Test
-    void seriesEpisodesAlwaysPreferHls() {
-        // Native containers previously skipped HLS entirely -> no SUBTITLES group.
-        assertTrue(XtreamStreamAPI.prefersHls("series", "mkv"));
-        assertTrue(XtreamStreamAPI.prefersHls("series", "mp4"));
+    void seriesEpisodesHonourNativeContainerProgressiveRequests() {
+        // Native containers stream progressively (instant seek, no SUBTITLES group).
+        assertFalse(XtreamStreamAPI.prefersHls("series", "mkv"));
+        assertFalse(XtreamStreamAPI.prefersHls("series", "mp4"));
         assertTrue(XtreamStreamAPI.prefersHls("series", "m3u8"));
     }
 

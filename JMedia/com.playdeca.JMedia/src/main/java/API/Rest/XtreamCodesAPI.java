@@ -560,11 +560,10 @@ public class XtreamCodesAPI {
             ep.put("id", e.id);
             ep.put("episode_num", e.episodeNumber);
             ep.put("title", e.title != null ? e.title : "Episode " + e.episodeNumber);
-            // Episodes must advertise m3u8 (never the native mkv/mp4 container): XtreamStreamAPI
-            // only builds an HlsService session for "m3u8", and progressive byte-serving cannot
-            // carry a SUBTITLES group, so embedded/Parakeet sidecar tracks would never reach the
-            // client. Mirrors the movie behaviour in getVodInfo (m3u8 hardcoded there too).
-            String epExt = "m3u8";
+            // Advertise the native container so capable players (Apple TV, etc.)
+            // progressive-stream with instant seeking via Range requests. Clients
+            // that need subtitles request m3u8 explicitly and get HLS + SUBTITLES.
+            String epExt = e.container != null && !e.container.isBlank() ? e.container.strip().toLowerCase() : "m3u8";
             ep.put("container_extension", epExt);
             ep.put("season", e.seasonNumber != null ? e.seasonNumber : 1);
             ep.put("custom_sid", "");

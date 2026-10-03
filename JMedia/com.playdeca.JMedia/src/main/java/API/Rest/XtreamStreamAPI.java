@@ -67,17 +67,12 @@ public class XtreamStreamAPI {
     }
 
     /**
-     * TS/HLS-only IPTV apps request .m3u8; serve a transcoded HLS session for
-     * those and keep progressive byte-serving for direct-source extensions.
-     *
-     * Series episodes always go through HLS, even when the client asks for the native
-     * container (mkv/mp4): progressive byte-serving cannot advertise a SUBTITLES group,
-     * so embedded tracks and Parakeet AI sidecars were invisible to Xtream clients.
-     * Progressive byte-serving is still used as the fallback whenever session creation
-     * fails, so direct-source players keep working.
+     * TS/HLS-only IPTV apps request .m3u8; serve an HLS session for those and
+     * keep progressive byte-serving (instant seeking via Range requests) for
+     * direct-source extensions. Only m3u8 carries a SUBTITLES group.
      */
     static boolean prefersHls(String type, String ext) {
-        return "m3u8".equalsIgnoreCase(ext) || "series".equals(type);
+        return "m3u8".equalsIgnoreCase(ext);
     }
 
     private Response streamVideoWithHls(Video video, Long videoId, String type, String ext, String rangeHeader, User user, String ip) {
