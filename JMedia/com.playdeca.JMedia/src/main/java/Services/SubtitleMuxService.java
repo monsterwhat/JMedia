@@ -94,7 +94,7 @@ public class SubtitleMuxService {
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
         command.add("-i"); command.add(videoPath.toString());
-        for (LocalSubtitleFile s : missing) {
+        for (Models.Video.SubtitleTrack s : missing) {
             command.add("-i"); command.add(s.fullPath);
         }
         command.add("-map"); command.add("0");
