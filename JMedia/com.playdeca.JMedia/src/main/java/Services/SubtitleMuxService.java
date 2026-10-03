@@ -1,6 +1,5 @@
 package Services;
 
-import Models.DTOs.LocalSubtitleFile;
 import Models.Video.Video;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -68,21 +67,27 @@ public class SubtitleMuxService {
         if (ffmpeg == null || ffprobe == null) return false;
 
         Set<String> embeddedLangs = embeddedSubtitleLanguages(ffprobe, videoPath);
-        List<LocalSubtitleFile> sidecars = subtitleMatcher.scanAllSubtitleFiles(videoPath, video);
-        List<LocalSubtitleFile> missing = new ArrayList<>();
-        for (LocalSubtitleFile s : sidecars) {
-            if (s == null || s.fullPath == null || s.fullPath.isBlank()) continue;
-            String fmt = s.format != null ? s.format.toLowerCase() : "";
+        // Recursive discovery (covers Subs/ subfolders); the flat scan only sees
+        // the video's own folder and would miss nested sidecars entirely.
+        List<Models.Video.SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
+        List<Models.Video.SubtitleTrack> missing = new ArrayList<>();
+        for (Models.Video.SubtitleTrack t : discovered) {
+            if (t == null || t.isEmbedded || t.fullPath == null || t.fullPath.isBlank()) continue;
+            String fmt = t.format != null ? t.format.toLowerCase() : "";
             if (!fmt.equals("srt") && !fmt.equals("vtt") && !fmt.equals("ass") && !fmt.equals("ssa") && !fmt.equals("subrip")) continue;
-            if (!Files.isRegularFile(Paths.get(s.fullPath))) continue;
-            String lang = subtitleTrackService.mapToThreeLetterLanguage(s.languageName != null ? s.languageName : "");
+            if (!Files.isRegularFile(Paths.get(t.fullPath))) continue;
+            String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
+                    : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
             if (lang == null || lang.isBlank() || lang.equals("und")) {
-                missing.add(s);
+                missing.add(t);
                 continue;
             }
-            if (!embeddedLangs.contains(lang.toLowerCase())) missing.add(s);
+            if (!embeddedLangs.contains(lang.toLowerCase())) missing.add(t);
         }
-        if (missing.isEmpty()) return false;
+        if (missing.isEmpty()) {
+            LOG.debug("No missing sidecar subtitles to mux for video {}", video.id);
+            return false;
+        }
 
         List<String> command = new ArrayList<>();
         command.add(ffmpeg);
@@ -99,7 +104,9 @@ public class SubtitleMuxService {
         command.add("-c"); command.add("copy");
         command.add("-c:s"); command.add(subCodec);
         for (int i = 0; i < missing.size(); i++) {
-            String lang = subtitleTrackService.mapToThreeLetterLanguage(missing.get(i).languageName != null ? missing.get(i).languageName : "");
+            Models.Video.SubtitleTrack t = missing.get(i);
+            String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
+                    : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
             if (lang != null && !lang.isBlank()) {
                 command.add("-metadata:s:s:" + (embeddedSubtitleCount(ffprobe, videoPath) + i));
                 command.add("language=" + lang.toLowerCase());
