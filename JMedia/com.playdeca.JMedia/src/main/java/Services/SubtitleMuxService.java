@@ -66,7 +66,11 @@ public class SubtitleMuxService {
         String ffprobe = ffmpegDiscoveryService.findFFprobeExecutable();
         if (ffmpeg == null || ffprobe == null) return false;
 
-        Set<String> embeddedLangs = embeddedSubtitleLanguages(ffprobe, videoPath);
+        java.util.Map<String, Integer> embeddedCounts = new java.util.HashMap<>();
+        for (String l : embeddedSubtitleLanguages(ffprobe, videoPath)) {
+            String key = (l == null || l.isBlank()) ? "und" : l.toLowerCase();
+            embeddedCounts.merge(key, 1, Integer::sum);
+        }
         // Recursive discovery (covers Subs/ subfolders); the flat scan only sees
         // the video's own folder and would miss nested sidecars entirely.
         List<Models.Video.SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
@@ -78,11 +82,17 @@ public class SubtitleMuxService {
             if (!Files.isRegularFile(Paths.get(t.fullPath))) continue;
             String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
                     : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
-            if (lang == null || lang.isBlank() || lang.equals("und")) {
-                missing.add(t);
+            if (lang == null || lang.isBlank()) lang = "und";
+            lang = lang.toLowerCase();
+            // Multiset match: one embedded track covers one sidecar of the same
+            // language. "und" matches "und" — without this, untagged tracks would
+            // remux on every play and duplicate forever.
+            int have = embeddedCounts.getOrDefault(lang, 0);
+            if (have > 0) {
+                embeddedCounts.put(lang, have - 1);
                 continue;
             }
-            if (!embeddedLangs.contains(lang.toLowerCase())) missing.add(t);
+            missing.add(t);
         }
         if (missing.isEmpty()) {
             LOG.debug("No missing sidecar subtitles to mux for video {}", video.id);
@@ -107,7 +117,7 @@ public class SubtitleMuxService {
             Models.Video.SubtitleTrack t = missing.get(i);
             String lang = t.languageCode != null && !t.languageCode.isBlank() ? t.languageCode
                     : subtitleTrackService.mapToThreeLetterLanguage(t.languageName != null ? t.languageName : "");
-            if (lang != null && !lang.isBlank()) {
+            if (lang != null && !lang.isBlank() && !lang.equalsIgnoreCase("und")) {
                 command.add("-metadata:s:s:" + (embeddedSubtitleCount(ffprobe, videoPath) + i));
                 command.add("language=" + lang.toLowerCase());
             }
