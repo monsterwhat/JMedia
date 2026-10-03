@@ -12,7 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -221,11 +220,17 @@ public class SubtitleMuxService {
         return p;
     }
 
-    private Set<String> embeddedSubtitleLanguages(String ffprobe, Path videoPath) throws Exception {
-        Set<String> langs = new HashSet<>();
+    // Returns one entry PER subtitle stream (duplicates kept): the caller
+    // multiset-matches these against sidecars, so collapsing to a Set would
+    // undercount and duplicate one track per play.
+    private List<String> embeddedSubtitleLanguages(String ffprobe, Path videoPath) throws Exception {
+        List<String> langs = new ArrayList<>();
         for (String line : probeSubtitleLines(ffprobe, videoPath)) {
+            // Untagged streams come back as a bare codec ("mov_text") with no comma:
+            // count those as und, or muxed-in tracks stay invisible and duplicate.
             String[] parts = line.split(",", -1);
             if (parts.length >= 2 && !parts[1].isBlank()) langs.add(parts[1].trim().toLowerCase());
+            else langs.add("und");
         }
         return langs;
     }
