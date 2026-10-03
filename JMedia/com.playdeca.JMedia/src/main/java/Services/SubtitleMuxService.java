@@ -112,7 +112,11 @@ public class SubtitleMuxService {
                 command.add("language=" + lang.toLowerCase());
             }
         }
-        Path tmp = videoPath.resolveSibling(videoPath.getFileName() + ".mux.tmp");
+        // Temp file must keep a real container extension (ffmpeg infers the
+        // muxer from it); the trailing .tmp alone leaves format undecided.
+        String baseName = videoPath.getFileName().toString();
+        String containerExt = baseName.contains(".") ? baseName.substring(baseName.lastIndexOf('.')) : ".mp4";
+        Path tmp = videoPath.resolveSibling(baseName + ".mux" + containerExt);
         Files.deleteIfExists(tmp);
         command.add(tmp.toString());
 
