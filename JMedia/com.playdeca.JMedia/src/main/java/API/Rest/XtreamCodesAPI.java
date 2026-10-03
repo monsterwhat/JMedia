@@ -869,10 +869,11 @@ public class XtreamCodesAPI {
 
     private boolean collectionHasSeriesMembers(MediaCollection c) {
         try {
-            for (CollectionEntry e : CollectionEntry.<CollectionEntry>find(
-                    "SELECT e FROM CollectionEntry e LEFT JOIN FETCH e.video LEFT JOIN FETCH e.series WHERE e.collection = ?1 ORDER BY e.orderIndex ASC", c).list()) {
-                if (e.series != null) return true;
-                if (e.video != null && "episode".equals(e.video.type)) return true;
+            // Gate on what getSeries will actually serve (series with resolvable
+            // episodes), not just entry rows — otherwise clients list categories
+            // that always come back empty.
+            for (Models.Video.Series s : findSeriesForCollection(c.id)) {
+                if (s != null && !findEpisodesForSeries(s).isEmpty()) return true;
             }
             return false;
         } catch (Exception e) {
@@ -1237,6 +1238,7 @@ public class XtreamCodesAPI {
         for (Models.Video.Series ser : allSeries) {
             List<Video> eps = findEpisodesForSeries(ser);
             if (eps.isEmpty()) {
+                log.infof("getSeries: skipping series '%s' (id=%s): no resolvable episodes", ser.title, ser.id);
                 continue;
             }
             XtreamSeries xs = new XtreamSeries();
@@ -1340,6 +1342,21 @@ public class XtreamCodesAPI {
         if (!eps.isEmpty()) return eps;
         if (ser.title != null && !ser.title.isBlank()) {
             eps = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser.title).list();
+            if (!eps.isEmpty()) return eps;
+        }
+        // Fallback: specials/extras-only series (stand-up, collections) would vanish
+        // entirely behind the contentType filter — include any episode-typed video.
+        List<Video> fallback = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser).list();
+        if (!fallback.isEmpty()) {
+            log.infof("findEpisodesForSeries: series '%s' resolved %d episodes only via contentType fallback", ser.title, fallback.size());
+            return fallback;
+        }
+        if (ser.title != null && !ser.title.isBlank()) {
+            fallback = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser.title).list();
+            if (!fallback.isEmpty()) {
+                log.infof("findEpisodesForSeries: series '%s' resolved %d episodes via title+contentType fallback", ser.title, fallback.size());
+            }
+            return fallback;
         }
         return eps;
     }
