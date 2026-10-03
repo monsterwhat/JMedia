@@ -714,6 +714,48 @@ public class XtreamCodesAPI {
         return map;
     }
 
+    private static Models.Xtream.XtreamVodStream copyVodStream(Models.Xtream.XtreamVodStream s) {
+        Models.Xtream.XtreamVodStream c = new Models.Xtream.XtreamVodStream();
+        c.num = s.num;
+        c.name = s.name;
+        c.streamId = s.streamId;
+        c.streamIcon = s.streamIcon;
+        c.movieImage = s.movieImage;
+        c.rating = s.rating;
+        c.rating5based = s.rating5based;
+        c.added = s.added;
+        c.categoryId = s.categoryId;
+        c.containerExtension = s.containerExtension;
+        c.customSid = s.customSid;
+        c.directSource = s.directSource;
+        c.streamType = s.streamType;
+        c.categoryIds = new ArrayList<>(s.categoryIds);
+        return c;
+    }
+
+    private static Models.Xtream.XtreamSeries copySeries(Models.Xtream.XtreamSeries s) {
+        Models.Xtream.XtreamSeries c = new Models.Xtream.XtreamSeries();
+        c.num = s.num;
+        c.name = s.name;
+        c.seriesId = s.seriesId;
+        c.cover = s.cover;
+        c.coverBig = s.coverBig;
+        c.plot = s.plot;
+        c.cast = s.cast;
+        c.director = s.director;
+        c.genre = s.genre;
+        c.releaseDate = s.releaseDate;
+        c.lastModified = s.lastModified;
+        c.rating = s.rating;
+        c.rating5based = s.rating5based;
+        c.categoryId = s.categoryId;
+        c.categoryIds = new ArrayList<>(s.categoryIds);
+        c.year = s.year;
+        c.backdropPath = new ArrayList<>(s.backdropPath);
+        c.youtubeTrailer = s.youtubeTrailer;
+        return c;
+    }
+
     private Response getVodStreams(String catId) {
         List<Video> videos;
         Long collectionId = parseCollectionCategoryId(catId);
@@ -783,6 +825,21 @@ public class XtreamCodesAPI {
                 if (extra != null) for (String cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
             }
             streams.add(s);
+            // Players that group the unfiltered list by singular category_id only
+            // (never send per-category queries) would leave every collection row
+            // empty. Emit one extra entry per collection with the collection id as
+            // its singular category so those rows populate too.
+            if (collectionId == null && collIdsByVideo != null) {
+                java.util.List<String> extra = collIdsByVideo.get(v.id);
+                if (extra != null) {
+                    for (String cid : extra) {
+                        XtreamVodStream copy = copyVodStream(s);
+                        copy.num = num++;
+                        copy.categoryId = cid;
+                        streams.add(copy);
+                    }
+                }
+            }
         }
         log.infof("getVodStreams returning %d streams, sample: %s", streams.size(), streams.isEmpty() ? "empty" : toJson(streams.subList(0, Math.min(3, streams.size()))));
         return Response.ok(streams).build();
@@ -1295,6 +1352,17 @@ public class XtreamCodesAPI {
                 if (extra != null) for (String cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
             }
             seriesList.add(xs);
+            if (collectionId == null && collIdsBySeries != null) {
+                java.util.List<String> extra = collIdsBySeries.get(ser.id);
+                if (extra != null) {
+                    for (String cid : extra) {
+                        XtreamSeries copy = copySeries(xs);
+                        copy.num = num++;
+                        copy.categoryId = cid;
+                        seriesList.add(copy);
+                    }
+                }
+            }
         }
         log.infof("getSeries: returning %d series", seriesList.size());
         return Response.ok(seriesList).build();
