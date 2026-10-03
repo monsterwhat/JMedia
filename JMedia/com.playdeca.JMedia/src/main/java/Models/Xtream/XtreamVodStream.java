@@ -45,5 +45,5 @@ public class XtreamVodStream {
     public String streamType;
 
     @JsonProperty("category_ids")
-    public List<Integer> categoryIds = new ArrayList<>();
+    public List<String> categoryIds = new ArrayList<>();
 }

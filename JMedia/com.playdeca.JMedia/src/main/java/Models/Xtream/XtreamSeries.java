@@ -48,7 +48,7 @@ public class XtreamSeries {
     public String categoryId;
 
     @JsonProperty("category_ids")
-    public List<Integer> categoryIds = new ArrayList<>();
+    public List<String> categoryIds = new ArrayList<>();
 
     @JsonProperty("year")
     public String year;

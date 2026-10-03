@@ -751,13 +751,13 @@ public class XtreamCodesAPI {
         java.util.Map<String, String> genreIds = genreIdByName();
         // Collection memberships for client-side grouping: IPTV apps group the full
         // list by category_ids, and collection ids never appear there unless added.
-        java.util.Map<Long, java.util.List<Integer>> collIdsByVideo =
+        java.util.Map<Long, java.util.List<String>> collIdsByVideo =
                 collectionId != null ? null : vodCollectionIdsByVideo();
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
             List<String> gids = genreIdList(v.genres, genreIds);
-            List<Integer> allIds = genreIntIds(gids);
+            List<String> allIds = new ArrayList<>(gids);
             XtreamVodStream s = new XtreamVodStream();
             s.num = num++;
             s.name = v.title;
@@ -774,13 +774,13 @@ public class XtreamCodesAPI {
             s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
             if (collectionId != null) {
                 s.categoryId = catId;
-                s.categoryIds.add((int) (COLLECTION_CATEGORY_BASE + collectionId));
-                for (Integer gid : allIds) if (!s.categoryIds.contains(gid)) s.categoryIds.add(gid);
+                s.categoryIds.add(String.valueOf(COLLECTION_CATEGORY_BASE + collectionId));
+                for (String gid : allIds) if (!s.categoryIds.contains(gid)) s.categoryIds.add(gid);
             } else {
                 s.categoryId = gids.get(0);
                 s.categoryIds.addAll(allIds);
-                java.util.List<Integer> extra = collIdsByVideo != null ? collIdsByVideo.get(v.id) : null;
-                if (extra != null) for (Integer cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
+                java.util.List<String> extra = collIdsByVideo != null ? collIdsByVideo.get(v.id) : null;
+                if (extra != null) for (String cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
             }
             streams.add(s);
         }
@@ -886,26 +886,26 @@ public class XtreamCodesAPI {
      * Video/series id to collection category ids, built from the same per-collection
      * queries the category endpoints use, so client-side grouping agrees with them.
      */
-    private java.util.Map<Long, java.util.List<Integer>> vodCollectionIdsByVideo() {
-        java.util.Map<Long, java.util.List<Integer>> map = new java.util.HashMap<>();
+    private java.util.Map<Long, java.util.List<String>> vodCollectionIdsByVideo() {
+        java.util.Map<Long, java.util.List<String>> map = new java.util.HashMap<>();
         for (MediaCollection c : listCollectionsForXtream()) {
-            int catId = (int) (COLLECTION_CATEGORY_BASE + c.id);
+            String catId = String.valueOf(COLLECTION_CATEGORY_BASE + c.id);
             for (Video v : findVideosForCollection(c.id)) {
                 if (v == null || v.id == null) continue;
-                java.util.List<Integer> ids = map.computeIfAbsent(v.id, k -> new java.util.ArrayList<>());
+                java.util.List<String> ids = map.computeIfAbsent(v.id, k -> new java.util.ArrayList<>());
                 if (!ids.contains(catId)) ids.add(catId);
             }
         }
         return map;
     }
 
-    private java.util.Map<Long, java.util.List<Integer>> seriesCollectionIdsBySeries() {
-        java.util.Map<Long, java.util.List<Integer>> map = new java.util.HashMap<>();
+    private java.util.Map<Long, java.util.List<String>> seriesCollectionIdsBySeries() {
+        java.util.Map<Long, java.util.List<String>> map = new java.util.HashMap<>();
         for (MediaCollection c : listCollectionsForXtream()) {
-            int catId = (int) (COLLECTION_CATEGORY_BASE + c.id);
+            String catId = String.valueOf(COLLECTION_CATEGORY_BASE + c.id);
             for (Models.Video.Series s : findSeriesForCollection(c.id)) {
                 if (s == null || s.id == null) continue;
-                java.util.List<Integer> ids = map.computeIfAbsent(s.id, k -> new java.util.ArrayList<>());
+                java.util.List<String> ids = map.computeIfAbsent(s.id, k -> new java.util.ArrayList<>());
                 if (!ids.contains(catId)) ids.add(catId);
             }
         }
@@ -1231,7 +1231,7 @@ public class XtreamCodesAPI {
 
         log.infof("getSeries: found %d series from Series entity", allSeries.size());
         java.util.Map<String, String> genreIds = genreIdByName();
-        java.util.Map<Long, java.util.List<Integer>> collIdsBySeries =
+        java.util.Map<Long, java.util.List<String>> collIdsBySeries =
                 collectionId != null ? null : seriesCollectionIdsBySeries();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
@@ -1268,7 +1268,6 @@ public class XtreamCodesAPI {
             xs.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
             List<String> seriesGenres = ser.genres;
             List<String> seriesGenreIds = genreIdList(seriesGenres, genreIds);
-            List<Integer> seriesAllIds = genreIntIds(seriesGenreIds);
             xs.year = ser.releaseDate != null ? ser.releaseDate : "";
             xs.cast = (ser.cast != null && !ser.cast.isEmpty())
                 ? String.join(", ", ser.cast) : "";
@@ -1287,13 +1286,13 @@ public class XtreamCodesAPI {
             xs.num = num++;
             if (collectionId != null) {
                 xs.categoryId = catId;
-                xs.categoryIds = new ArrayList<>(List.of((int) (COLLECTION_CATEGORY_BASE + collectionId)));
-                for (Integer gid : seriesAllIds) if (!xs.categoryIds.contains(gid)) xs.categoryIds.add(gid);
+                xs.categoryIds = new ArrayList<>(List.of(String.valueOf(COLLECTION_CATEGORY_BASE + collectionId)));
+                for (String gid : seriesGenreIds) if (!xs.categoryIds.contains(gid)) xs.categoryIds.add(gid);
             } else {
                 xs.categoryId = seriesGenreIds.get(0);
-                xs.categoryIds = new ArrayList<>(seriesAllIds);
-                java.util.List<Integer> extra = collIdsBySeries != null ? collIdsBySeries.get(ser.id) : null;
-                if (extra != null) for (Integer cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
+                xs.categoryIds = new ArrayList<>(seriesGenreIds);
+                java.util.List<String> extra = collIdsBySeries != null ? collIdsBySeries.get(ser.id) : null;
+                if (extra != null) for (String cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
             }
             seriesList.add(xs);
         }
@@ -1312,14 +1311,6 @@ public class XtreamCodesAPI {
         }
         if (ids.isEmpty()) ids.add("0");
         return ids;
-    }
-
-    private static List<Integer> genreIntIds(List<String> ids) {
-        List<Integer> out = new ArrayList<>();
-        for (String gid : ids) {
-            if (!"0".equals(gid)) out.add(Integer.parseInt(gid));
-        }
-        return out;
     }
 
     private List<Video> findMoviesByGenreName(String genreName) {
