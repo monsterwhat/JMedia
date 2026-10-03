@@ -681,7 +681,19 @@ public class HlsService {
         command.add("0:v:0");
         command.add("-c:v");
 
-        if (useHardware && !"libx264".equals(hwEncoder)) {
+        // VAAPI/QSV encoders cannot consume software-decoded frames: they need an
+        // initialized hardware device plus an explicit hwupload filter chain, which this
+        // command builder does not construct for the SW-decode path (software scale +
+        // -pix_fmt fails with "Impossible to convert ...", exit 218, 3x10s retries, then
+        // SW fallback anyway). Skip the doomed HW attempt and go straight to software.
+        boolean hwEncoderNeedsDeviceFrames = hwEncoder.contains("vaapi") || hwEncoder.contains("qsv");
+        boolean hwPipelineViable = !"libx264".equals(hwEncoder)
+                && (!hwEncoderNeedsDeviceFrames || hwDecoder != null);
+        if (useHardware && hwEncoderNeedsDeviceFrames && hwDecoder == null) {
+            LOG.info("Skipping HW encoder {} for session {}: SW decode cannot feed {} without hwupload, using software encoding directly",
+                hwEncoder, session.sessionId, hwEncoder);
+        }
+        if (useHardware && hwPipelineViable) {
             LOG.info("Using hardware encoder for HLS: {}", hwEncoder);
             command.add(hwEncoder);
             if (hwEncoder.contains("amf")) {
