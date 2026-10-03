@@ -34,6 +34,8 @@ public class XtreamStreamAPI {
 
     @Inject Services.XtreamSessionService xtreamSessionService;
 
+    @Inject Services.SubtitleMuxService subtitleMuxService;
+
     @Context
     ContainerRequestContext requestContext;
 
@@ -91,7 +93,23 @@ public class XtreamStreamAPI {
             }
         }
         Models.Settings.XtreamSession rec = xtreamSessionService.startSession(type, user.getUsername(), String.valueOf(user.id), videoId, ext, ip);
+        // Native-container plays stream the file itself: mux any missing sidecar
+        // subtitles in first (1-3s, once per file) so the player offers subtitle
+        // tracks with instant seeking. Never blocks playback on failure.
+        if (isNativeMediaContainer(ext)) {
+            try {
+                subtitleMuxService.ensureEmbeddedSubtitles(video);
+            } catch (Exception e) {
+                log.warnf("On-demand subtitle mux failed for videoId=%d: %s", videoId, e.getMessage());
+            }
+        }
         return proxyLocalVideo(video, ext, rangeHeader, rec);
+    }
+
+    private static boolean isNativeMediaContainer(String ext) {
+        if (ext == null) return false;
+        String e = ext.toLowerCase();
+        return e.equals("mp4") || e.equals("m4v") || e.equals("mkv") || e.equals("avi");
     }
 
     @GET
