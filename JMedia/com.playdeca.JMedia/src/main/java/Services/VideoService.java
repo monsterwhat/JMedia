@@ -766,6 +766,14 @@ public class VideoService {
     }
 
     @Transactional
+    public List<Video> findAddedSince(LocalDateTime since, int limit) {
+        return Video.<Video>list("dateAdded > ?1 AND isActive = ?2", Sort.by("dateAdded", Sort.Direction.Descending), since, true)
+                .stream()
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
     public List<Video> findNewlyAdded(int days, int limit) {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(days);
         return Video.<Video>list("dateAdded >= ?1 AND isActive = ?2", Sort.by("dateAdded", Sort.Direction.Descending), cutoff, true)

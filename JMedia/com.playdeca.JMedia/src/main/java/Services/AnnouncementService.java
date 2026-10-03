@@ -26,25 +26,23 @@ public class AnnouncementService {
     private static final int MAX_ITEMS = 6;
     private static final int MAX_MESSAGE_CHARS = 220;
 
-    @Transactional
+    @jakarta.inject.Inject
+    VideoService videoService;
+
+    // Login touches the settings DB (lastLoginAt) while the new-uploads query
+    // reads the video DB. Two non-XA datasources cannot share one JTA
+    // transaction ("Exception in association of connection"), so the two steps
+    // run in separate transactions: this orchestrator is intentionally NOT
+    // @Transactional; each step below opens and commits its own.
     public String loginAnnouncement(User user) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime since = user.getLastLoginAt();
-        user.setLastLoginAt(now);
-        try {
-            // The user instance comes from the auth query (detached here), so
-            // merge rather than persist — persist throws on detached entities
-            // and would silently disable announcements forever.
-            Models.Settings.User.getEntityManager().merge(user);
-        } catch (Exception e) {
-            LOG.warn("Could not persist lastLoginAt for user {}: {}", user.getUsername(), e.getMessage());
-            if (since == null) return "";
-        }
+        touchLogin(user, now);
         if (since == null) return "";
 
         List<Video> fresh;
         try {
-            fresh = Video.find("dateAdded > ?1 order by dateAdded desc", since).page(0, MAX_ITEMS + 1).list();
+            fresh = videoService.findAddedSince(since, MAX_ITEMS + 1);
         } catch (Exception e) {
             LOG.warn("New-uploads query failed for user {}: {}", user.getUsername(), e.getMessage());
             return "";
@@ -74,6 +72,13 @@ public class AnnouncementService {
             message.append(" (+").append(remaining).append(" more)");
         }
         return message.toString();
+    }
+
+    @Transactional
+    void touchLogin(User user, LocalDateTime at) {
+        // Merge: the instance comes from the auth query (detached here).
+        user.setLastLoginAt(at);
+        Models.Settings.User.getEntityManager().merge(user);
     }
 
     private String labelFor(Video v) {
