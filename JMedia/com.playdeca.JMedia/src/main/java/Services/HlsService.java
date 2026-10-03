@@ -412,6 +412,10 @@ public class HlsService {
 
     /** Appends #EXT-X-ENDLIST so HLS clients stop at the end of a completed stream. */
     private void finalizePlaylist(HlsSession session, String variantName) {
+        // Encoder exited 0: the variant is a complete, valid VOD — all segments
+        // on disk, playlist ended. Mark it so cleanup keeps serving files while
+        // the client is still reading instead of deleting them as "abandoned".
+        session.completedNormally = true;
         try {
             Path playlistFile = session.sessionDir.resolve(variantName + ".m3u8");
             if (!Files.exists(playlistFile)) {
@@ -1775,8 +1779,15 @@ public class HlsService {
             if (recentlyRestarted) {
                 LOG.debug("HLS session {} recently restarted, skipping cleanup for now.", session.sessionId);
             } else if (session.processes.values().stream().noneMatch(Process::isAlive)) {
-                LOG.debug("HLS session {} has no alive processes, marking for cleanup", session.sessionId);
-                shouldRemove = true;
+                // No running ffmpeg: for a normally-completed VOD the files are valid
+                // and the client may still be reading them (each segment request refreshes
+                // lastAccessed) — only reap once truly idle past the TTL.
+                if (session.completedNormally && (now - session.lastAccessed) <= SESSION_IDLE_TTL_MS) {
+                    LOG.debug("HLS session {} finished but client still reading, keeping files", session.sessionId);
+                } else {
+                    LOG.debug("HLS session {} has no alive processes, marking for cleanup", session.sessionId);
+                    shouldRemove = true;
+                }
             } else if ((now - session.lastAccessed) > SESSION_IDLE_TTL_MS) {
                 LOG.info("HLS session {} idle for {} minutes, marking for cleanup", 
                     session.sessionId, (now - session.lastAccessed) / 60000);
@@ -1816,6 +1827,7 @@ public class HlsService {
         private Integer preferredAudioTrackIndex = null;
 
         public volatile boolean stopped = false;
+        public volatile boolean completedNormally = false;
 
         public volatile String deviceToken;
 
