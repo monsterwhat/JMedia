@@ -16,8 +16,8 @@ import java.util.List;
  * the user's previous login via user_info.message. No uploads since last login
  * means an empty message — never a greeting, never stale news.
  *
- * First login ever only sets the baseline (announcing the whole library would
- * spam thousands of entries).
+ * First tracked login catches up on the last 14 days once, so recently added
+ * content is never silently skipped; anything older predates announcements.
  */
 @ApplicationScoped
 public class AnnouncementService {
@@ -38,11 +38,11 @@ public class AnnouncementService {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime since = user.getLastLoginAt();
         touchLogin(user, now);
-        if (since == null) return "";
+        LocalDateTime effectiveSince = (since != null) ? since : now.minusDays(FIRST_LOGIN_CATCHUP_DAYS);
 
         List<Video> fresh;
         try {
-            fresh = videoService.findAddedSince(since, MAX_ITEMS + 1);
+            fresh = videoService.findAddedSince(effectiveSince, MAX_ITEMS + 1);
         } catch (Exception e) {
             LOG.warn("New-uploads query failed for user {}: {}", user.getUsername(), e.getMessage());
             return "";
@@ -80,6 +80,11 @@ public class AnnouncementService {
         user.setLastLoginAt(at);
         Models.Settings.User.getEntityManager().merge(user);
     }
+
+    // First tracked login has no baseline: catch up on the last 14 days once
+    // instead of staying silent forever about recently added content.
+    // Anything older predates announcements and is never reported.
+    private static final int FIRST_LOGIN_CATCHUP_DAYS = 14;
 
     private String labelFor(Video v) {
         boolean isEpisode = "episode".equalsIgnoreCase(v.type) || "episode".equalsIgnoreCase(v.contentType);

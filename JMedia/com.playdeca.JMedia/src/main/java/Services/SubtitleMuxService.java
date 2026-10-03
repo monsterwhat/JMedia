@@ -55,19 +55,25 @@ public class SubtitleMuxService {
         // Fast synchronous check (ffprobe + directory scan, ~100-300ms); the actual
         // remux runs in the background so playback starts immediately. Next play
         // (or a later range request) finds the tracks embedded.
-        List<Models.Video.SubtitleTrack> missing;
-        try {
-            missing = findMissingSubtitles(video);
-        } catch (Exception e) {
-            LOG.warn("Subtitle mux check failed for video {} ({}); serving original file", video.id, video.filename, e);
-            return false;
-        }
-        if (missing.isEmpty()) return false;
+        // Check-and-queue holds the per-video lock so two simultaneous first plays
+        // cannot queue duplicate muxes for the same missing tracks.
         Object lock = muxLocks.computeIfAbsent(video.id, k -> new Object());
         synchronized (lock) {
+            List<Models.Video.SubtitleTrack> missing;
+            try {
+                missing = findMissingSubtitles(video);
+            } catch (Exception e) {
+                LOG.warn("Subtitle mux check failed for video {} ({}); serving original file", video.id, video.filename, e);
+                return false;
+            }
+            if (missing.isEmpty()) return false;
             muxExecutor.submit(() -> {
                 try {
-                    muxMissingSubtitles(video, missing);
+                    // Re-check under no assumptions: a concurrent first play may have
+                    // muxed while this task waited in the single-thread queue.
+                    List<Models.Video.SubtitleTrack> stillMissing = findMissingSubtitles(video);
+                    if (stillMissing.isEmpty()) return;
+                    muxMissingSubtitles(video, stillMissing);
                 } catch (Exception e) {
                     LOG.warn("Background subtitle mux failed for video {} ({}); serving original file", video.id, video.filename, e);
                 }
