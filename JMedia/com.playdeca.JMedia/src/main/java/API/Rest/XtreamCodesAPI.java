@@ -798,6 +798,8 @@ public class XtreamCodesAPI {
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
+            // Collections take precedence: members don't appear under genres.
+            if (collectionId == null && catId != null && collIdsByVideo != null && collIdsByVideo.containsKey(v.id)) continue;
             List<String> gids = genreIdList(v.genres, genreIds);
             List<String> allIds = new ArrayList<>(gids);
             XtreamVodStream s = new XtreamVodStream();
@@ -825,17 +827,20 @@ public class XtreamCodesAPI {
                 if (extra != null) for (String cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
             }
             streams.add(s);
-            // Players that group the unfiltered list by singular category_id only
-            // (never send per-category queries) would leave every collection row
-            // empty. Emit one extra entry per collection with the collection id as
-            // its singular category so those rows populate too.
+            // Collections take precedence over genres: a member's primary row is
+            // its first collection, so players grouping by singular category_id
+            // show it under the collection instead of the genre. Further
+            // collections get one duplicate entry each with the collection id
+            // as singular category (players that never send per-category queries
+            // would otherwise leave every collection row empty).
             if (collectionId == null && collIdsByVideo != null) {
                 java.util.List<String> extra = collIdsByVideo.get(v.id);
-                if (extra != null) {
-                    for (String cid : extra) {
+                if (extra != null && !extra.isEmpty()) {
+                    s.categoryId = extra.get(0);
+                    for (int ci = 1; ci < extra.size(); ci++) {
                         XtreamVodStream copy = copyVodStream(s);
                         copy.num = num++;
-                        copy.categoryId = cid;
+                        copy.categoryId = extra.get(ci);
                         streams.add(copy);
                     }
                 }
@@ -1293,6 +1298,8 @@ public class XtreamCodesAPI {
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
         for (Models.Video.Series ser : allSeries) {
+            // Collections take precedence: members don't appear under genres.
+            if (collectionId == null && catId != null && collIdsBySeries != null && ser.id != null && collIdsBySeries.containsKey(ser.id)) continue;
             List<Video> eps = findEpisodesForSeries(ser);
             if (eps.isEmpty()) {
                 log.infof("getSeries: skipping series '%s' (id=%s): no resolvable episodes", ser.title, ser.id);
@@ -1354,11 +1361,12 @@ public class XtreamCodesAPI {
             seriesList.add(xs);
             if (collectionId == null && collIdsBySeries != null) {
                 java.util.List<String> extra = collIdsBySeries.get(ser.id);
-                if (extra != null) {
-                    for (String cid : extra) {
+                if (extra != null && !extra.isEmpty()) {
+                    xs.categoryId = extra.get(0);
+                    for (int ci = 1; ci < extra.size(); ci++) {
                         XtreamSeries copy = copySeries(xs);
                         copy.num = num++;
-                        copy.categoryId = cid;
+                        copy.categoryId = extra.get(ci);
                         seriesList.add(copy);
                     }
                 }
