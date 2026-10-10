@@ -802,6 +802,14 @@ public class XtreamCodesAPI {
             videos = Video.<Video>find("type = 'movie'").list();
         }
 
+        // Newest additions first — IPTV clients render the list in the order
+        // received, and dateAdded ascending made the oldest movies appear first.
+        videos.sort((a, b) -> {
+            int c = Long.compare(b.dateAdded != null ? b.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC) : 0,
+                                 a.dateAdded != null ? a.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC) : 0);
+            return c != 0 ? c : Long.compare(b.id != null ? b.id : 0, a.id != null ? a.id : 0);
+        });
+
         java.util.Map<String, String> genreIds = genreIdByName();
         // Collection memberships for client-side grouping: IPTV apps group the full
         // list by category_ids, and collection ids never appear there unless added.
@@ -1311,6 +1319,9 @@ public class XtreamCodesAPI {
         }
 
         log.infof("getSeries: found %d series rows from Series entity", allSeries.size());
+        // Newest series first: the DB returns rows in insertion (oldest-first)
+        // order and IPTV clients render the list as received.
+        allSeries.sort((a, b) -> Long.compare(b.id != null ? b.id : 0, a.id != null ? a.id : 0));
         // Repeated scans leave multiple Series rows for the same show: orphan rows
         // whose episodes only resolve through the seriesTitle fallback, plus
         // language variants ("Attack On Titan" / "Ataque A Los Titanes") that share
@@ -1445,8 +1456,56 @@ public class XtreamCodesAPI {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Unions episodes FK-linked to every Series row that resolves to the same show
+     * (same tmdbId, else same title) as {@code ser}. Duplicate rows from repeated
+     * scans each own part of a show's episodes; without this the deduped list
+     * entry shows only the representative row's slice.
+     */
+    private List<Video> unionSiblingEpisodes(Models.Video.Series ser, List<Video> eps) {
+        List<Models.Video.Series> siblings;
+        try {
+            if (ser.tmdbId != null) {
+                siblings = Models.Video.Series.<Models.Video.Series>list("tmdbId = ?1", ser.tmdbId);
+            } else if (ser.title != null && !ser.title.isBlank()) {
+                siblings = Models.Video.Series.<Models.Video.Series>list("title = ?1", ser.title);
+            } else {
+                return eps;
+            }
+        } catch (Exception e) {
+            log.debugf("unionSiblingEpisodes lookup failed for '%s': %s", ser.title, e.getMessage());
+            return eps;
+        }
+        if (siblings == null || siblings.size() <= 1) return eps;
+
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        List<Video> merged = new ArrayList<>();
+        for (Video v : eps) {
+            if (v.id != null && seen.add(v.id)) merged.add(v);
+        }
+        for (Models.Video.Series sib : siblings) {
+            if (sib == null || sib.id == null || sib.id.equals(ser.id)) continue;
+            for (Video v : Video.<Video>find("series = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode')", sib).list()) {
+                if (v.id != null && seen.add(v.id)) merged.add(v);
+            }
+        }
+        if (merged.size() <= eps.size()) return eps;
+
+        merged.sort((a, b) -> {
+            int c = Integer.compare(a.seasonNumber != null ? a.seasonNumber : 1, b.seasonNumber != null ? b.seasonNumber : 1);
+            return c != 0 ? c : Integer.compare(a.episodeNumber != null ? a.episodeNumber : 0, b.episodeNumber != null ? b.episodeNumber : 0);
+        });
+        log.infof("findEpisodesForSeries: unioned %d sibling series rows for '%s' -> %d episodes", siblings.size(), ser.title, merged.size());
+        return merged;
+    }
+
     private List<Video> findEpisodesForSeries(Models.Video.Series ser) {
         List<Video> eps = Video.<Video>find("series = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser).list();
+        // Repeated scans leave several Series rows for one show (e.g. three
+        // "Avatar Seven Havens" rows sharing a tmdbId). The list is deduped to one
+        // entry, so the episode query must union episodes linked to every sibling
+        // row — otherwise only the representative row's episodes show up.
+        eps = unionSiblingEpisodes(ser, eps);
         if (!eps.isEmpty()) return eps;
         if (ser.title != null && !ser.title.isBlank()) {
             eps = Video.<Video>find("seriesTitle = ?1 AND type = 'episode' AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber NULLS LAST, episodeNumber NULLS LAST", ser.title).list();
