@@ -74,6 +74,25 @@ public class ArtworkAPI {
     public Response seriesArtwork(@PathParam("seriesId") String seriesId,
                                   @QueryParam("username") String username,
                                   @QueryParam("password") String password) {
+        return serveSeriesImage(seriesId, username, password, true);
+    }
+
+    @GET
+    @Path("/seriesbackdrop/{seriesId}.jpg")
+    @Produces("image/jpeg")
+    public Response seriesBackdropArtwork(@PathParam("seriesId") String seriesId,
+                                         @QueryParam("username") String username,
+                                         @QueryParam("password") String password) {
+        return serveSeriesImage(seriesId, username, password, false);
+    }
+
+    /**
+     * Series artwork with an explicit preference order. posterFirst=true serves the
+     * portrait poster (what a cover slot needs), false serves the landscape backdrop.
+     * Both orders fall back to the other image, then the bundled placeholder, so a
+     * show with only one of the two still renders something instead of a 404.
+     */
+    private Response serveSeriesImage(String seriesId, String username, String password, boolean posterFirst) {
         if (!isValidArtCredentials(username, password)) {
             return Response.status(Response.Status.UNAUTHORIZED).build();
         }
@@ -96,23 +115,36 @@ public class ArtworkAPI {
             log.warnf("art/series: no series match for seriesId=%s", seriesId);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
+        // Resolve exactly like SeriesAPI's /api/series/{id}/poster: refresh the
+        // TMDB images, then read the poster path from the DB row. Smarters must
+        // show the same bytes as the web video page, which uses that endpoint.
+        try {
+            thumbnailService.ensureSeriesMediaImages(matched.id);
+            Models.Video.Series refreshed = Models.Video.Series.findById(matched.id);
+            if (refreshed != null) matched = refreshed;
+        } catch (Exception e) {
+            log.warnf("art/series: ensureSeriesMediaImages failed for seriesId=%s: %s", seriesId, e.getMessage());
+        }
         byte[] raw = null;
         try {
-            if (matched.backdropPath != null && !matched.backdropPath.isBlank()) {
-                java.nio.file.Path p = java.nio.file.Path.of(matched.backdropPath);
-                if (java.nio.file.Files.isRegularFile(p)) {
-                    raw = java.nio.file.Files.readAllBytes(p);
-                } else {
-                    log.warnf("art/series: backdrop file missing for seriesId=%s at %s", seriesId, matched.backdropPath);
+            for (String type : new String[]{posterFirst ? "poster" : "backdrop", posterFirst ? "backdrop" : "poster"}) {
+                String dbPath = "backdrop".equals(type) ? matched.backdropPath : matched.posterPath;
+                if (dbPath != null && !dbPath.isBlank()) {
+                    java.nio.file.Path p = java.nio.file.Path.of(dbPath);
+                    if (java.nio.file.Files.isRegularFile(p)) {
+                        raw = java.nio.file.Files.readAllBytes(p);
+                        if (raw.length > 0) break;
+                    }
+                    log.warnf("art/series: %s file missing for seriesId=%s at %s", type, seriesId, dbPath);
                 }
-            }
-            if ((raw == null || raw.length == 0) && matched.id != null) {
-                String posterFile = thumbnailService.findSeriesImageFile(matched.id, "poster");
-                if (posterFile != null) {
-                    try {
-                        raw = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(posterFile));
-                    } catch (Exception e) {
-                        log.warnf("art/series: poster file unreadable for seriesId=%s at %s: %s", seriesId, posterFile, e.getMessage());
+                if (matched.id != null) {
+                    String file = thumbnailService.findSeriesImageFile(matched.id, type);
+                    if (file != null) {
+                        byte[] b = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(file));
+                        if (b.length > 0) {
+                            raw = b;
+                            break;
+                        }
                     }
                 }
             }

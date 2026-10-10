@@ -205,9 +205,11 @@ public class SmartNamingServiceTest {
                 "showName should be 'Trailer Park Boys'");
         assertEquals(10, result.season, "season should be 10 from S10X01");
         // CONTENT_TYPE_SXXXN matches "S10X01" before CONTENT_TYPE_SXXXEP because
-        // \d{1,2} captures "01" from "X01". This sets contentType="extra" and episode=null.
-        assertEquals("extra", result.contentType,
-                "contentType should be 'extra' (SXXXN matches before SXXXEP for S10X01)");
+        // \d{1,2} captures "01" from "X01". Since 8e59600 (separate specials from
+        // episodes via contentType), SxxXyy maps to episode 0 + contentType "special"
+        // so season specials never collide with the real SxxE01.
+        assertEquals("special", result.contentType,
+                "contentType should be 'special' (SXXXN matches before SXXXEP for S10X01)");
     }
 
     /**

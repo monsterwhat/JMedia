@@ -482,12 +482,15 @@ public class XtreamCodesAPI {
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         Models.Video.Series s = matchedSeries;
         info.put("name", s.title);
+        // Same image the web video page shows for this show: the series poster
+        // served by /api/series/{id}/poster. art/series/{id}.jpg reads the same
+        // poster file, but authenticates with query-string Xtream credentials.
         String seriesCover = seriesCover(s.posterPath, "w500");
         String seriesCoverBig = seriesCover(s.posterPath, "w1280");
         if (seriesCover != null) {
             info.put("cover", seriesCover);
             info.put("cover_big", seriesCoverBig);
-        } else if (s.id != null && thumbnailService.findSeriesImageFile(s.id, "poster") != null) {
+        } else if (s.id != null) {
             String posterUrl = getExternalBaseUri() + "art/series/" + s.id + ".jpg?username=" + username + "&password=" + password;
             info.put("cover", posterUrl);
             info.put("cover_big", posterUrl);
@@ -514,7 +517,7 @@ public class XtreamCodesAPI {
             if (bd != null) {
                 info.put("backdrop_path", new ArrayList<>(List.of(bd)));
             } else if (matchedSeries.id != null) {
-                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/series/" + matchedSeries.id + ".jpg?username=" + username + "&password=" + password)));
+                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + matchedSeries.id + ".jpg?username=" + username + "&password=" + password)));
             } else {
                 info.put("backdrop_path", new ArrayList<>());
             }
@@ -1291,15 +1294,25 @@ public class XtreamCodesAPI {
             allSeries = Models.Video.Series.<Models.Video.Series>listAll();
         }
 
-        log.infof("getSeries: found %d series from Series entity", allSeries.size());
+        log.infof("getSeries: found %d series rows from Series entity", allSeries.size());
+        // Repeated scans leave multiple Series rows for the same show: orphan rows
+        // whose episodes only resolve through the seriesTitle fallback, plus
+        // language variants ("Attack On Titan" / "Ataque A Los Titanes") that share
+        // a TMDB id. Group by TMDB id when present, else normalized title, and emit
+        // one entry per group so IPTV clients never see the same show twice.
+        java.util.Map<String, java.util.List<Models.Video.Series>> grouped = new java.util.LinkedHashMap<>();
+        for (Models.Video.Series ser : allSeries) {
+            grouped.computeIfAbsent(seriesDedupeKey(ser), k -> new ArrayList<>()).add(ser);
+        }
         java.util.Map<String, String> genreIds = genreIdByName();
         java.util.Map<Long, java.util.List<String>> collIdsBySeries =
                 collectionId != null ? null : seriesCollectionIdsBySeries();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
-        for (Models.Video.Series ser : allSeries) {
+        for (java.util.List<Models.Video.Series> group : grouped.values()) {
+            Models.Video.Series ser = pickSeriesRepresentative(group);
             // Collections take precedence: members don't appear under genres.
-            if (collectionId == null && catId != null && collIdsBySeries != null && ser.id != null && collIdsBySeries.containsKey(ser.id)) continue;
+            if (collectionId == null && catId != null && collIdsBySeries != null && isCollectionMember(group, collIdsBySeries)) continue;
             List<Video> eps = findEpisodesForSeries(ser);
             if (eps.isEmpty()) {
                 log.infof("getSeries: skipping series '%s' (id=%s): no resolvable episodes", ser.title, ser.id);
@@ -1309,9 +1322,12 @@ public class XtreamCodesAPI {
             xs.name = ser.title;
             xs.seriesId = ser.id != null ? String.valueOf(ser.id) : hashId(ser.title);
 
+            // Same image the web video page shows for this show: the series poster
+            // behind /api/series/{id}/poster. art/series/{id}.jpg serves that same
+            // poster file, authenticated with query-string Xtream credentials.
             String cover = seriesCover(ser.posterPath, "w500");
             String coverBig = seriesCover(ser.posterPath, "w1280");
-            if (cover == null && ser.id != null && thumbnailService.findSeriesImageFile(ser.id, "poster") != null) {
+            if (cover == null && ser.id != null) {
                 String posterUrl = getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password;
                 cover = posterUrl;
                 coverBig = posterUrl;
@@ -1330,7 +1346,8 @@ public class XtreamCodesAPI {
             xs.rating5based = seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0;
             xs.releaseDate = ser.releaseDate;
             xs.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
-            List<String> seriesGenres = ser.genres;
+            // Merge genres across the duplicate rows so no category id is lost.
+            List<String> seriesGenres = mergedSeriesGenres(group);
             List<String> seriesGenreIds = genreIdList(seriesGenres, genreIds);
             xs.year = ser.releaseDate != null ? ser.releaseDate : "";
             xs.cast = (ser.cast != null && !ser.cast.isEmpty())
@@ -1344,7 +1361,7 @@ public class XtreamCodesAPI {
                 if (bd != null) {
                     xs.backdropPath = new ArrayList<>(List.of(bd));
                 } else if (ser.id != null) {
-                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password));
+                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + ser.id + ".jpg?username=" + username + "&password=" + password));
                 }
             }
             xs.num = num++;
@@ -1355,13 +1372,21 @@ public class XtreamCodesAPI {
             } else {
                 xs.categoryId = seriesGenreIds.get(0);
                 xs.categoryIds = new ArrayList<>(seriesGenreIds);
-                java.util.List<String> extra = collIdsBySeries != null ? collIdsBySeries.get(ser.id) : null;
-                if (extra != null) for (String cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
+                for (Models.Video.Series row : group) {
+                    if (row.id == null) continue;
+                    java.util.List<String> extra = collIdsBySeries != null ? collIdsBySeries.get(row.id) : null;
+                    if (extra != null) for (String cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
+                }
             }
             seriesList.add(xs);
             if (collectionId == null && collIdsBySeries != null) {
-                java.util.List<String> extra = collIdsBySeries.get(ser.id);
-                if (extra != null && !extra.isEmpty()) {
+                java.util.List<String> extra = new ArrayList<>();
+                for (Models.Video.Series row : group) {
+                    if (row.id == null) continue;
+                    java.util.List<String> rowExtra = collIdsBySeries.get(row.id);
+                    if (rowExtra != null) for (String cid : rowExtra) if (!extra.contains(cid)) extra.add(cid);
+                }
+                if (!extra.isEmpty()) {
                     xs.categoryId = extra.get(0);
                     for (int ci = 1; ci < extra.size(); ci++) {
                         XtreamSeries copy = copySeries(xs);
@@ -1433,6 +1458,54 @@ public class XtreamCodesAPI {
         if (posterPath.startsWith("http")) return posterPath;
         if (posterPath.matches("^/[^/]+$")) return "https://image.tmdb.org/t/p/" + size + posterPath;
         return null;
+    }
+
+    /**
+     * Dedupe key for Series rows describing the same show: the TMDB id when set
+     * (that merges differently-named language variants), else the normalized title.
+     */
+    private static String seriesDedupeKey(Models.Video.Series ser) {
+        if (ser.tmdbId != null) return "tmdb:" + ser.tmdbId;
+        String t = ser.title != null ? ser.title : "";
+        return "title:" + t.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").strip();
+    }
+
+    /** Row that best represents a duplicate group: tmdb id, then a poster, then the lowest id. */
+    private static Models.Video.Series pickSeriesRepresentative(List<Models.Video.Series> group) {
+        Models.Video.Series best = group.get(0);
+        for (Models.Video.Series c : group) {
+            if (betterSeriesRepresentative(c, best)) best = c;
+        }
+        return best;
+    }
+
+    private static boolean betterSeriesRepresentative(Models.Video.Series c, Models.Video.Series best) {
+        boolean cTmdb = c.tmdbId != null;
+        boolean bTmdb = best.tmdbId != null;
+        if (cTmdb != bTmdb) return cTmdb;
+        boolean cPoster = c.posterPath != null && !c.posterPath.isBlank();
+        boolean bPoster = best.posterPath != null && !best.posterPath.isBlank();
+        if (cPoster != bPoster) return cPoster;
+        if (c.id != null && best.id != null) return c.id < best.id;
+        return false;
+    }
+
+    private static List<String> mergedSeriesGenres(List<Models.Video.Series> group) {
+        List<String> merged = new ArrayList<>();
+        for (Models.Video.Series row : group) {
+            if (row.genres == null) continue;
+            for (String g : row.genres) {
+                if (g != null && !g.isBlank() && !merged.contains(g)) merged.add(g);
+            }
+        }
+        return merged.isEmpty() ? (group.get(0).genres != null ? group.get(0).genres : merged) : merged;
+    }
+
+    private static boolean isCollectionMember(List<Models.Video.Series> group, java.util.Map<Long, java.util.List<String>> collIdsBySeries) {
+        for (Models.Video.Series row : group) {
+            if (row.id != null && collIdsBySeries.containsKey(row.id)) return true;
+        }
+        return false;
     }
 
     /**

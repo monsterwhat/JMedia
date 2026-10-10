@@ -960,15 +960,34 @@ public class ThumbnailService {
             Path thumbnailsDir = getThumbnailDirectory();
             String prefix = "series_" + seriesId;
 
-            // Fast path: all images already on disk — skip the TMDB round-trip.
+            // The TMDB id the current images were fetched for. A series' row can
+            // gain/correct its tmdbId after the first download (enrichment runs
+            // later than image backfill), and reusing the old files then pins a
+            // wrong poster forever — the images must be re-fetched when the id
+            // the row resolves to changes.
+            Path tmdbMarker = thumbnailsDir.resolve(prefix + "_tmdb.txt");
+            String currentTmdbId = series.tmdbId != null ? String.valueOf(series.tmdbId).strip() : "";
+            String markerTmdbId = "";
+            try {
+                if (Files.exists(tmdbMarker)) markerTmdbId = Files.readString(tmdbMarker).strip();
+            } catch (IOException e) {
+                LOGGER.warn("Could not read TMDB marker for series {}: {}", seriesId, e.getMessage());
+            }
+
+            // Fast path: all images already on disk AND fetched for the id the row
+            // resolves to now — skip the TMDB round-trip.
             boolean hasPoster   = Files.exists(thumbnailsDir.resolve(prefix + "_poster.webp"))   || Files.exists(thumbnailsDir.resolve(prefix + "_poster.jpg"))   || Files.exists(thumbnailsDir.resolve(prefix + "_poster.png"));
             boolean hasLogo     = Files.exists(thumbnailsDir.resolve(prefix + "_logo.webp"))     || Files.exists(thumbnailsDir.resolve(prefix + "_logo.png"));
             boolean hasBackdrop = Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.webp")) || Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.jpg")) || Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.png"));
             boolean hasHero     = Files.exists(thumbnailsDir.resolve(prefix + "_hero.webp"))     || Files.exists(thumbnailsDir.resolve(prefix + "_hero.jpg"))     || Files.exists(thumbnailsDir.resolve(prefix + "_hero.png"));
 
             if (hasPoster && hasLogo && hasBackdrop && hasHero) {
-                if (syncSeriesImagePaths(series, thumbnailsDir, prefix)) entityManager.persist(series);
-                return false;
+                if (markerTmdbId.equals(currentTmdbId)) {
+                    if (syncSeriesImagePaths(series, thumbnailsDir, prefix)) entityManager.persist(series);
+                    return false;
+                }
+                LOGGER.info("Series {} images were fetched for tmdbId '{}' but the row now resolves to '{}' — re-fetching",
+                        seriesId, markerTmdbId, currentTmdbId);
             }
 
             // Prefer the stored TMDB show ID over title search, which can yield no match.
@@ -991,6 +1010,17 @@ public class ThumbnailService {
                 || paths.backdropPath() != null || paths.heroPath() != null;
 
             if (syncSeriesImagePaths(series, thumbnailsDir, prefix)) entityManager.persist(series);
+
+            // Record the id these images belong to. Only on success: a failed fetch
+            // must leave the marker stale so the next request retries instead of
+            // pinning mismatched art behind the fast path.
+            if (downloaded) {
+                try {
+                    Files.writeString(tmdbMarker, currentTmdbId);
+                } catch (IOException e) {
+                    LOGGER.warn("Could not write TMDB marker for series {}: {}", seriesId, e.getMessage());
+                }
+            }
 
             try {
                 metadataService.enrichSeriesTextMetadataAsync(seriesId);

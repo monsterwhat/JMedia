@@ -403,10 +403,9 @@ public class SmartNamingService {
                     boolean isExtrasFolder = EXTRAS_FOLDER_PATTERN.matcher(folder).find();
                     if (isExtrasFolder) {
                         analysis.hasExtrasFolder = true;
-                        // Extract season number from named extras folders like "Vol. 1 Extras" -> season 1
-                        if (analysis.extrasSeason == null) {
-                            analysis.extrasSeason = extractSeasonFromFolder(folder);
-                        }
+                        // Extras folders contribute no season: "Vol. 2 Extras" is volume
+                        // numbering for bonus content, not Season 2 — otherwise extras
+                        // merge into a real season's episode list.
                         continue;
                     }
                     
@@ -891,12 +890,7 @@ public class SmartNamingService {
                 detection.detectionMethod = "ExtrasContent";
                 detection.confidence = 0.6;
                 detection.hasEpisodePattern = true;
-                // Apply season from extras folder if available (e.g., "Vol. 1 Extras" → season 1)
-                if (pathAnalysis.extrasSeason != null) {
-                    detection.season = pathAnalysis.extrasSeason;
-                }
-                // If extrasSeason is null (e.g., just "Xtras" folder), season stays null
-                // The applyContentType fallback will set it to 0
+                // Season stays null: extras folders never define a season (see analyzePath).
             } else {
                 detection.season = 1;
                 detection.detectionMethod = "PathStructureDefault";
@@ -1651,7 +1645,6 @@ public class SmartNamingService {
         public int seasonFolderIndex = -1;
         public boolean isFlatStructure;
         public boolean hasExtrasFolder;
-        public Integer extrasSeason; // For volume-based extras (e.g., "Vol. 1 Extras" -> season=1)
         public String mediaTypeHint; // For folder-name-based media type hints ("movie", "episode")
         public List<String> intermediateFolders = new ArrayList<>();
     }
