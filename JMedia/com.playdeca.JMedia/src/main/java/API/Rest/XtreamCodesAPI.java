@@ -563,7 +563,12 @@ public class XtreamCodesAPI {
         // Episodes grouped by season number as STRING key (required by IPTV players)
         java.util.Map<String, List<java.util.Map<String, Object>>> episodesBySeason = new java.util.LinkedHashMap<>();
         for (Video e : seriesEpisodes) {
-            String seasonNum = String.valueOf(e.seasonNumber != null ? e.seasonNumber : 1);
+            // Zero-padded season keys: IPTV clients (Smarters) build the season list
+            // by sorting these keys AS TEXT, so unpadded "1".."22" sorts as
+            // 1,10,11,...,19,2,20,21,22,3,... and season 15 opens season 22.
+            // "01".."22" sorts correctly as text; the numeric season_number in the
+            // seasons array stays authoritative for clients that map by number.
+            String seasonNum = String.format("%02d", e.seasonNumber != null ? e.seasonNumber : 1);
             episodesBySeason.computeIfAbsent(seasonNum, k -> new ArrayList<>());
             
             java.util.Map<String, Object> ep = new java.util.HashMap<>();
