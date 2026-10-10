@@ -536,7 +536,11 @@ public class XtreamCodesAPI {
         for (Integer sn : seasonNumbers) {
             java.util.Map<String, Object> seasonObj = new java.util.HashMap<>();
             seasonObj.put("season_number", sn);
-            seasonObj.put("name", "Season " + sn);
+            // Zero-padded label: some IPTV clients (Smarters) sort the season list
+            // alphabetically as TEXT, which puts "Season 10" right after "Season 1"
+            // and shifts every selection. "Season 01".."Season 22" sorts correctly
+            // as text; the numeric season_number and episode keys are untouched.
+            seasonObj.put("name", String.format("Season %02d", sn));
             seasonObj.put("episode_count", episodeCountsBySeason.getOrDefault(sn, 0L).intValue());
             Video firstEp = seriesEpisodes.stream()
                     .filter(e -> (e.seasonNumber != null ? e.seasonNumber : 1) == sn)
