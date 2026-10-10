@@ -1124,8 +1124,14 @@ public class XtreamCodesAPI {
 
         List<java.util.Map<String, Object>> streams = new ArrayList<>();
         int num = 1;
+        int hidden = 0;
         for (LiveChannel ch : channels) {
-            if ("dead".equals(ch.streamStatus)) continue;
+            // Only expose channels the stream checker has verified as working.
+            // Never-checked channels (fresh imports, lastChecked null) stay visible
+            // until their first check so a new playlist isn't blank; anything probed
+            // and not working is hidden — that's what keeps dead channels out of the
+            // IPTV client instead of leaving ~31k unplayable entries in the list.
+            if (ch.lastChecked != null && !"working".equals(ch.streamStatus)) { hidden++; continue; }
             java.util.Map<String, Object> s = new java.util.LinkedHashMap<>();
             s.put("num", num++);
             s.put("name", ch.name);
@@ -1159,6 +1165,7 @@ public class XtreamCodesAPI {
             s.put("tv_archive_duration", 0);
             streams.add(s);
         }
+        log.infof("getLiveStreams: returning %d working channels (hid %d not verified as working)", streams.size(), hidden);
         return Response.ok(streams).build();
     }
 
