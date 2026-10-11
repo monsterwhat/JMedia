@@ -188,7 +188,7 @@ public class XtreamCodesAPI {
         if (movieBackdrop != null && !movieBackdrop.isBlank()) {
             try {
                 if (java.nio.file.Files.isRegularFile(java.nio.file.Path.of(movieBackdrop))) {
-                    info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password)));
+                    info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password + artCacheBust())));
                 } else {
                     info.put("backdrop_path", new ArrayList<>());
                 }
@@ -491,7 +491,7 @@ public class XtreamCodesAPI {
             info.put("cover", seriesCover);
             info.put("cover_big", seriesCoverBig);
         } else if (s.id != null) {
-            String posterUrl = getExternalBaseUri() + "art/series/" + s.id + ".jpg?username=" + username + "&password=" + password;
+            String posterUrl = getExternalBaseUri() + "art/series/" + s.id + ".jpg?username=" + username + "&password=" + password + artCacheBust();
             info.put("cover", posterUrl);
             info.put("cover_big", posterUrl);
         } else if (!seriesEpisodes.isEmpty()) {
@@ -517,7 +517,7 @@ public class XtreamCodesAPI {
             if (bd != null) {
                 info.put("backdrop_path", new ArrayList<>(List.of(bd)));
             } else if (matchedSeries.id != null) {
-                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + matchedSeries.id + ".jpg?username=" + username + "&password=" + password)));
+                info.put("backdrop_path", new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + matchedSeries.id + ".jpg?username=" + username + "&password=" + password + artCacheBust())));
             } else {
                 info.put("backdrop_path", new ArrayList<>());
             }
@@ -1355,7 +1355,7 @@ public class XtreamCodesAPI {
             String cover = seriesCover(ser.posterPath, "w500");
             String coverBig = seriesCover(ser.posterPath, "w1280");
             if (cover == null && ser.id != null) {
-                String posterUrl = getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password;
+                String posterUrl = getExternalBaseUri() + "art/series/" + ser.id + ".jpg?username=" + username + "&password=" + password + artCacheBust();
                 cover = posterUrl;
                 coverBig = posterUrl;
             }
@@ -1388,7 +1388,7 @@ public class XtreamCodesAPI {
                 if (bd != null) {
                     xs.backdropPath = new ArrayList<>(List.of(bd));
                 } else if (ser.id != null) {
-                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + ser.id + ".jpg?username=" + username + "&password=" + password));
+                    xs.backdropPath = new ArrayList<>(List.of(getExternalBaseUri() + "art/seriesbackdrop/" + ser.id + ".jpg?username=" + username + "&password=" + password + artCacheBust()));
                 }
             }
             xs.num = num++;
@@ -1591,7 +1591,17 @@ public class XtreamCodesAPI {
      * and forces clients to refetch the new JPEG bytes. Bump on any future
      * artwork change.
      */
-    private static final String ARTWORK_CACHE_BUST = "2";
+    private static final String ARTWORK_CACHE_BUST = "3";
+
+    /**
+     * Cache-bust token appended to every self-served artwork URL. IPTV clients
+     * (Smarters on Apple TV) cache images by URL, so artwork that only appeared
+     * later (a poster fetched after the app cached the blank response) stays
+     * invisible until the URL changes. Bump on any artwork change.
+     */
+    private static String artCacheBust() {
+        return "&v=" + ARTWORK_CACHE_BUST;
+    }
 
     private String getImageUrl(Video v) {
         // Enrichment stores absolute TMDB URLs (VideoMetadataService) while the
@@ -1605,7 +1615,7 @@ public class XtreamCodesAPI {
             log.debugf("getImageUrl: video=%d, using TMDB poster: %s", v.id, url);
             return url;
         }
-        String url = getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password;
+        String url = getExternalBaseUri() + "art/movie/" + v.id + ".jpg?username=" + username + "&password=" + password + artCacheBust();
         log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, redactQuery(url));
         return url;
     }
