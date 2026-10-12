@@ -71,6 +71,33 @@ public class RateLimitService {
         failedAttempts.remove(getRateLimitKey(ip, null));
     }
 
+    // ---- QR pairing guards (separate counters; login behavior untouched) ----
+
+    private static final int MAX_PAIRING_STARTS = 10;
+    private static final int PAIRING_START_WINDOW_MINUTES = 60;
+
+    private final ConcurrentHashMap<String, PairingStartRecord> pairingStarts = new ConcurrentHashMap<>();
+
+    /** True when this IP has started too many pairings in the last hour. */
+    public boolean isPairingLimited(String ip) {
+        String key = ip != null ? ip : "unknown";
+        PairingStartRecord record = pairingStarts.get(key);
+        if (record == null) return false;
+        Instant cutoff = Instant.now().minus(PAIRING_START_WINDOW_MINUTES, ChronoUnit.MINUTES);
+        record.attempts.removeIf(t -> t.isBefore(cutoff));
+        return record.attempts.size() >= MAX_PAIRING_STARTS;
+    }
+
+    public void recordPairingStart(String ip) {
+        String key = ip != null ? ip : "unknown";
+        PairingStartRecord record = pairingStarts.computeIfAbsent(key, k -> new PairingStartRecord());
+        record.attempts.add(Instant.now());
+    }
+
+    private static class PairingStartRecord {
+        public final List<Instant> attempts = new CopyOnWriteArrayList<>();
+    }
+
     private String getRateLimitKey(String ip, String username) {
         return (ip != null ? ip : "unknown") + ":" + (username != null ? username : "anonymous");
     }

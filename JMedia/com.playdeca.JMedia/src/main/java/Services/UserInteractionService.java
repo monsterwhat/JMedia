@@ -60,26 +60,68 @@ public class UserInteractionService {
         pref.persist();
     }
 
+    /**
+     * Per-profile watchlist add. The {@code profileId} parameter is load-bearing:
+     * the flag lives on the caller's VideoState row, not on the shared Video
+     * entity. The legacy global Video.favorite column is maintained as an
+     * OR-aggregate ("favorited by at least one profile") so cross-server sync,
+     * which exchanges that column, keeps working during the transition.
+     */
     @Transactional
-    public void markAsFavorite(Long videoId, Long userId) {
+    public void markAsFavorite(Long videoId, Long profileId) {
         Video video = Video.findById(videoId);
-        if (video != null) {
-            video.favorite = true;
-            video.favoritedAt = LocalDateTime.now();
-            video.dateModified = LocalDateTime.now();
-            video.persist();
+        if (video == null || profileId == null) return;
+        Models.Video.VideoState state = Models.Video.VideoState.find(
+                "profileId = ?1 AND video = ?2", profileId, video).firstResult();
+        if (state == null) {
+            state = new Models.Video.VideoState();
+            state.profileId = profileId;
+            state.video = video;
         }
+        state.favorite = true;
+        if (state.favoritedAt == null) state.favoritedAt = LocalDateTime.now();
+        state.persist();
+        refreshAggregateFavorite(video);
     }
-    
+
+    /** Per-profile watchlist remove. See {@link #markAsFavorite} for the model. */
     @Transactional
-    public void removeFavorite(Long videoId, Long userId) {
+    public void removeFavorite(Long videoId, Long profileId) {
         Video video = Video.findById(videoId);
-        if (video != null) {
-            video.favorite = false;
-            video.favoritedAt = null;
-            video.dateModified = LocalDateTime.now();
-            video.persist();
+        if (video == null || profileId == null) return;
+        Models.Video.VideoState state = Models.Video.VideoState.find(
+                "profileId = ?1 AND video = ?2", profileId, video).firstResult();
+        if (state != null) {
+            state.favorite = false;
+            state.favoritedAt = null;
+            state.persist();
         }
+        refreshAggregateFavorite(video);
+    }
+
+    /**
+     * Recomputes the legacy global Video.favorite flag as "favorited by at
+     * least one profile", preserving the newest favoritedAt. Keeps consumers
+     * of the shared column (sync exchange, older clients) working while
+     * per-profile VideoState rows are the source of truth.
+     */
+    private void refreshAggregateFavorite(Video video) {
+        boolean anyFavorite = Models.Video.VideoState.count(
+                "video = ?1 AND favorite = true", video) > 0;
+        video.favorite = anyFavorite;
+        if (anyFavorite) {
+            Models.Video.VideoState newest = Models.Video.VideoState.find(
+                    "video = ?1 AND favorite = true ORDER BY favoritedAt DESC", video).firstResult();
+            if (newest != null && newest.favoritedAt != null) {
+                video.favoritedAt = newest.favoritedAt;
+            } else if (video.favoritedAt == null) {
+                video.favoritedAt = LocalDateTime.now();
+            }
+        } else {
+            video.favoritedAt = null;
+        }
+        video.dateModified = LocalDateTime.now();
+        video.persist();
     }
     
     @Transactional

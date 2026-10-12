@@ -240,6 +240,28 @@ public class HlsService {
         if (preferredAudioTrackIndex != null && preferredAudioTrackIndex >= 0) {
             session.setPreferredAudioTrackIndex(preferredAudioTrackIndex);
             LOG.info("HLS session created with preferred audio track index: {}", preferredAudioTrackIndex);
+        } else {
+            // No explicit track requested: fall back to the stored preference
+            // (defaultAudioTrackId, else best match for the preferred language)
+            // so clients that persist a choice via /audio-preference get it
+            // without rebuilding the session. Explicit param always wins.
+            try {
+                Long effectiveId = videoService.getEffectiveDefaultAudioTrackId(video);
+                if (effectiveId != null) {
+                    for (Models.Video.AudioTrack track : audioTracks) {
+                        if (track != null && effectiveId.equals(track.id)
+                                && track.trackIndex != null && track.trackIndex >= 0) {
+                            session.setPreferredAudioTrackIndex(track.trackIndex);
+                            LOG.info("HLS session using stored audio preference: track id {} (index {})",
+                                    effectiveId, track.trackIndex);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Stored audio preference lookup failed for video {}: {}; continuing with default",
+                        videoId, e.getMessage());
+            }
         }
         
         // Evict oldest session if at capacity so a new request is never rejected

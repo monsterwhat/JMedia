@@ -29,6 +29,12 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
             "/api/auth/login",
             "/api/auth/logout",
+            // QR pairing: starting, polling and redeeming need no session.
+            // POST /api/pairing/claim is intentionally NOT here — the phone
+            // must be signed in to hand over its account.
+            "/api/pairing/start",
+            "/api/pairing/land/",
+            "/api/pairing/redeem",
             "/player_api.php",
             "/xmltv.php",
             "/get.php",

@@ -68,6 +68,9 @@ public class VideoAPI {
     Services.UserInteractionService userInteractionService;
 
     @Inject
+    Services.VideoQueryService videoQueryService;
+
+    @Inject
     Services.VideoStateService videoStateService;
 
     @Inject
@@ -126,6 +129,9 @@ public class VideoAPI {
         }
         // Populate per-profile resume time from VideoState (single source: VideoService.getResumeTime)
         dto.resumeTime = videoService.getResumeTime(video);
+        // Watchlist state is per-profile (VideoState.favorite); the legacy
+        // global Video.favorite column is only an OR-aggregate for sync.
+        dto.favorite = videoStateService.isFavorite(video);
         return Response.ok(API.ApiResponse.success(dto)).build();
     }
 
@@ -447,11 +453,38 @@ public class VideoAPI {
         return serveImageFromThumbnails(videoId, "hero", "backdrop");
     }
 
+    /**
+     * Per-profile watchlist as JSON (the HTML fragment variants live in
+     * VideoUiApi). Scoped to the active profile's VideoState rows — see
+     * {@link #toggleWatchlist}.
+     */
+    @GET
+    @Path("/watchlist")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getWatchlist(@QueryParam("search") String search,
+                                 @QueryParam("page") @DefaultValue("1") int page,
+                                 @QueryParam("limit") @DefaultValue("50") int limit) {
+        try {
+            Services.VideoQueryService.PaginatedVideos paginated =
+                    videoQueryService.findWatchlistPaginated(search, page, limit);
+            java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("videos", paginated.videos);
+            result.put("page", page);
+            result.put("limit", limit);
+            result.put("totalItems", paginated.totalCount);
+            result.put("totalPages", (int) Math.ceil((double) paginated.totalCount / Math.max(1, limit)));
+            return Response.ok(API.ApiResponse.success(result)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting watchlist", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get watchlist")).build();
+        }
+    }
+
     @POST
     @Path("/watchlist/toggle/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response toggleWatchlist(@PathParam("videoId") Long videoId) {
-        try {
+    public Response toggleWatchlist(@PathParam("videoId") Long videoId) {        try {
             Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND)
@@ -459,11 +492,21 @@ public class VideoAPI {
                         .build();
             }
 
-            if (video.favorite) {
-                userInteractionService.removeFavorite(videoId, 1L);
+            // The watchlist is per-profile: resolve the caller from the session
+            // rather than guessing. An unauthenticated toggle must not mutate
+            // shared state, so it is a 401 instead of a silent global write.
+            Models.Settings.Profile activeProfile = settingsService.getActiveProfile();
+            if (activeProfile == null) {
+                return Response.status(Response.Status.UNAUTHORIZED)
+                        .entity(ApiResponse.error("Authentication required"))
+                        .build();
+            }
+
+            if (videoStateService.isFavorite(video)) {
+                userInteractionService.removeFavorite(videoId, activeProfile.id);
                 return Response.ok(ApiResponse.success(false)).build();
             } else {
-                userInteractionService.markAsFavorite(videoId, 1L);
+                userInteractionService.markAsFavorite(videoId, activeProfile.id);
                 return Response.ok(ApiResponse.success(true)).build();
             }
         } catch (Exception e) {
@@ -1228,13 +1271,24 @@ public class VideoAPI {
     public Response getAllMovies(
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("50") int limit) {
-        List<Models.Video.Video> movies = Models.Video.Video.<Models.Video.Video>list("type = ?1", "movie");
+        if (page < 1) page = 1;
+        if (limit < 1) limit = 50;
+        if (limit > 500) limit = 500;
+        // Same filter as before, but actually paged: ORDER BY id DESC keeps
+        // page boundaries stable (newest first), and Panache applies the
+        // offset/limit in the database instead of loading the whole library.
+        long movieTotal = Models.Video.Video.count("type = ?1", "movie");
+        List<Models.Video.Video> movies = Models.Video.Video.<Models.Video.Video>find("type = ?1 ORDER BY id DESC", "movie")
+                .page(io.quarkus.panache.common.Page.of(page - 1, limit))
+                .list();
         List<Models.Video.ExternalVideo> externalMovies = externalVideoService.findAllMovies();
-        long totalItems = movies.size() + externalMovies.size();
+        long totalItems = movieTotal + externalMovies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) movies, page, limit, totalItems, totalPages);
         com.fasterxml.jackson.databind.node.ObjectNode root = mapper.valueToTree(response).deepCopy();
-        root.set("externalMovies", mapper.valueToTree(externalMovies));
+        // External movies are a handful of user-managed links, not a library:
+        // attach them to the first page only so later pages never repeat them.
+        root.set("externalMovies", mapper.valueToTree(page == 1 ? externalMovies : List.of()));
         return Response.ok(root).build();
     }
 

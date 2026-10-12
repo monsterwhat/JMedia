@@ -175,6 +175,78 @@ public class VideoStateService {
         return Boolean.TRUE.equals(state.watched);
     }
 
+    /**
+     * Per-profile watchlist flag. Unlike progress, toggling favorite has no
+     * side effects on watch state — a favorited-but-unwatched row keeps
+     * watchProgress 0 and stays out of Continue Watching (which requires
+     * watchProgress &gt; 0).
+     *
+     * @return the new favorite state, or null when the video is missing or no
+     *         profile is active
+     */
+    @Transactional
+    public Boolean toggleFavorite(Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) return null;
+        VideoState state = getOrCreate(video);
+        if (state == null) return null;
+        state.favorite = !Boolean.TRUE.equals(state.favorite);
+        state.favoritedAt = Boolean.TRUE.equals(state.favorite) ? LocalDateTime.now() : null;
+        state.persist();
+        return Boolean.TRUE.equals(state.favorite);
+    }
+
+    /**
+     * Read-only favorite check for the active profile. Does NOT create a
+     * VideoState row (unlike getOrCreate) so mere reads never materialize
+     * state.
+     */
+    @Transactional
+    public boolean isFavorite(Video video) {
+        if (video == null) return false;
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return false;
+        VideoState state = VideoState.find("profileId = ?1 AND video = ?2",
+                activeProfile.id, video).firstResult();
+        return state != null && Boolean.TRUE.equals(state.favorite);
+    }
+
+    /**
+     * One-time backfill from the legacy global Video.favorite column into
+     * per-profile VideoState rows. Idempotent: only fills rows that are not
+     * already favorited, and preserves the original favoritedAt timestamp for
+     * watchlist ordering. Every profile receives the current globals, which
+     * preserves exactly what everyone sees today.
+     *
+     * @return number of VideoState rows newly marked favorite
+     */
+    @Transactional
+    public int backfillFavoritesFromLegacyColumn() {
+        List<Video> favorited = Video.list("favorite = true");
+        if (favorited.isEmpty()) return 0;
+        List<Profile> profiles = Profile.listAll();
+        if (profiles.isEmpty()) return 0;
+        int filled = 0;
+        for (Video video : favorited) {
+            for (Profile profile : profiles) {
+                VideoState state = VideoState.find("profileId = ?1 AND video = ?2",
+                        profile.id, video).firstResult();
+                if (state != null && Boolean.TRUE.equals(state.favorite)) continue;
+                if (state == null) {
+                    state = new VideoState();
+                    state.profileId = profile.id;
+                    state.video = video;
+                }
+                state.favorite = true;
+                if (state.favoritedAt == null) state.favoritedAt = video.favoritedAt;
+                if (state.favoritedAt == null) state.favoritedAt = LocalDateTime.now();
+                state.persist();
+                filled++;
+            }
+        }
+        return filled;
+    }
+
     @Transactional
     public Boolean removeFromContinueWatching(Long videoId) {
         Video video = Video.findById(videoId);

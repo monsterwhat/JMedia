@@ -1894,7 +1894,9 @@ public class VideoUiApi {
                 item.put("duration", v.duration);
                 item.put("runtimeMins", v.runtimeMins);
                 item.put("dateAdded", v.dateAdded != null ? v.dateAdded.toString() : null);
-                item.put("favorite", v.favorite);
+                Models.Video.VideoState favoriteState = epStates.get(v.id);
+                item.put("favorite", favoriteState != null
+                        && Boolean.TRUE.equals(favoriteState.favorite));
                 item.put("thumbnailPath", v.thumbnailPath);
                 item.put("backdropPath", v.backdropPath);
                 item.put("posterPath", v.posterPath);

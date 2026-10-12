@@ -179,16 +179,27 @@ public class VideoQueryService {
         return videos;
     }
 
+    /**
+     * Per-profile watchlist. Favorites live on the caller's VideoState rows;
+     * the legacy global Video.favorite column is not consulted here.
+     */
     @Transactional
     public List<Video> findWatchlist(String search) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return List.of();
+        String base = "SELECT v FROM Video v JOIN Models.Video.VideoState vs ON vs.video = v "
+                + "WHERE vs.profileId = :profileId AND vs.favorite = true AND v.isActive = true";
         if (search == null || search.trim().isEmpty()) {
-            return Video.list("favorite = true AND isActive = true");
+            return em.createQuery(base + " ORDER BY vs.favoritedAt DESC", Video.class)
+                    .setParameter("profileId", activeProfile.id)
+                    .getResultList();
         } else {
             String s = "%" + search.toLowerCase() + "%";
-            String hql = "FROM Video v WHERE v.favorite = true AND v.isActive = true AND (" +
+            String hql = base + " AND (" +
                          "LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR " +
                          "LOWER(v.description) LIKE :s OR LOWER(v.overview) LIKE :s OR LOWER(v.filename) LIKE :s)";
-            return em.createQuery("SELECT v " + hql + " ORDER BY v.favoritedAt DESC", Video.class)
+            return em.createQuery(hql + " ORDER BY vs.favoritedAt DESC", Video.class)
+                    .setParameter("profileId", activeProfile.id)
                     .setParameter("s", s)
                     .getResultList();
         }
@@ -261,15 +272,22 @@ public class VideoQueryService {
 
     @Transactional
     public PaginatedVideos findWatchlistPaginated(String search, int page, int limit) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return new PaginatedVideos(List.of(), 0);
+        String base = "SELECT v FROM Video v JOIN Models.Video.VideoState vs ON vs.video = v "
+                + "WHERE vs.profileId = :profileId AND vs.favorite = true AND v.isActive = true";
         List<Video> all;
         if (search == null || search.trim().isEmpty()) {
-            all = Video.list("favorite = true AND isActive = true");
+            all = em.createQuery(base + " ORDER BY vs.favoritedAt DESC", Video.class)
+                    .setParameter("profileId", activeProfile.id)
+                    .getResultList();
         } else {
             String s = "%" + search.toLowerCase() + "%";
-            String hql = "FROM Video v WHERE v.favorite = true AND v.isActive = true AND (" +
+            String hql = base + " AND (" +
                          "LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR " +
                          "LOWER(v.description) LIKE :s OR LOWER(v.overview) LIKE :s OR LOWER(v.filename) LIKE :s)";
-            all = em.createQuery("SELECT v " + hql + " ORDER BY v.favoritedAt DESC", Video.class)
+            all = em.createQuery(hql + " ORDER BY vs.favoritedAt DESC", Video.class)
+                    .setParameter("profileId", activeProfile.id)
                     .setParameter("s", s)
                     .getResultList();
         }
