@@ -159,6 +159,7 @@ public class SeriesService {
             return result;
         }
 
+        initializeCollections(result.series);
         result.episodes = Video.find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", result.series)
                 .list();
         return result;
