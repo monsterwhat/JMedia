@@ -124,9 +124,16 @@ public class PgsOcrService {
         }
         List<SubtitleTrack> tracks = SubtitleTrack.list("video.id", videoId);
         for (SubtitleTrack track : tracks) {
-            if (isPgsCodec(track.codec) || "pgs".equals(track.format)) {
-                preload(track);
+            if (!(isPgsCodec(track.codec) || "pgs".equals(track.format))) {
+                continue;
             }
+            // Skip tracks that can never be OCR'd (missing stream index or video
+            // path) so they don't spam the log with ERRORs on every preload pass.
+            if (track.trackIndex == null || track.fullPath == null || track.fullPath.isBlank()) {
+                LOG.debug("Skipping PGS track {} (id={}): missing stream index or video path", track.trackIndex, track.id);
+                continue;
+            }
+            preload(track);
         }
     }
 
@@ -138,7 +145,12 @@ public class PgsOcrService {
                 persistToDisk(k, vtt);
                 return vtt;
             } catch (Exception e) {
-                LOG.error("PGS OCR failed for track {} ({}): {}", track.id, track.fullPath, e.getMessage(), e);
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                if (msg.contains("missing stream index or video path")) {
+                    LOG.warn("PGS OCR skipped for track {} ({}): {}", track.id, track.fullPath, msg);
+                } else {
+                    LOG.error("PGS OCR failed for track {} ({}): {}", track.id, track.fullPath, msg, e);
+                }
                 throw new CompletionException(e);
             } finally {
                 pending.remove(k);
