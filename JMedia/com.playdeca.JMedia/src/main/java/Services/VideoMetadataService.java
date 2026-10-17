@@ -186,9 +186,18 @@ public class VideoMetadataService {
 
     public boolean needsEnrichment(Video video) {
         if (video == null || !video.isActive) return false;
-        if (video.enrichmentStatus == Video.EnrichmentStatus.ENRICHED) return false;
-        if (video.enrichmentStatus == Video.EnrichmentStatus.NOT_FOUND) return false;
         if (video.titleManuallyEdited) return false;
+        if (video.enrichmentStatus == Video.EnrichmentStatus.NOT_FOUND) return false;
+        if (video.enrichmentStatus == Video.EnrichmentStatus.ENRICHED) {
+            // Re-enrich if a critical ID is still missing (e.g. showImdbId for
+            // episodes, needed by IntroDB). The status was gated on tmdbId only,
+            // which left these locked out of further enrichment attempts.
+            if ("episode".equalsIgnoreCase(video.type)
+                    && (video.showImdbId == null || video.showImdbId.isBlank())) return true;
+            if ("movie".equalsIgnoreCase(video.type)
+                    && (video.imdbId == null || video.imdbId.isBlank())) return true;
+            return false;
+        }
         return true;
     }
 
@@ -294,7 +303,43 @@ public class VideoMetadataService {
             seriesImdbIdCache.put(searchTitle, fallbackId.get());
             return fallbackId.get();
         }
-        
+
+        // Final fallback: resolve via TMDB external_ids (TMDB often has IMDb IDs
+        // for shows the IMDb Dev API misses).
+        try {
+            String tmdbKey = getApiKey();
+            if (tmdbKey != null && !tmdbKey.isBlank()) {
+                String showTmdbId = null;
+                try {
+                    Models.Video.Series series = Models.Video.Series.find("lower(title) = lower(?1)", searchTitle).firstResult();
+                    if (series != null && series.tmdbId != null) {
+                        showTmdbId = String.valueOf(series.tmdbId);
+                    }
+                } catch (Exception ignored) { }
+                if (showTmdbId == null || showTmdbId.isBlank()) {
+                    String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(searchTitle, StandardCharsets.UTF_8));
+                    JsonNode searchRoot = fetchJson(searchUrl);
+                    if (searchRoot != null && searchRoot.path("results").isArray() && searchRoot.path("results").size() > 0) {
+                        showTmdbId = searchRoot.path("results").get(0).path("id").asText();
+                    }
+                }
+                if (showTmdbId != null && !showTmdbId.isBlank()) {
+                    String extUrl = String.format("https://api.themoviedb.org/3/tv/%s?api_key=%s&append_to_response=external_ids", showTmdbId, tmdbKey);
+                    JsonNode extRoot = fetchJson(extUrl);
+                    String imdbId = (extRoot != null) ? extRoot.path("external_ids").path("imdb_id").asText(null) : null;
+                    if (imdbId != null && !imdbId.isBlank() && !"null".equalsIgnoreCase(imdbId)) {
+                        seriesImdbIdCache.put(searchTitle, imdbId);
+                        if ("episode".equalsIgnoreCase(video.type)) {
+                            videoService.updateSeriesMetadata(video.seriesTitle, null, null, imdbId);
+                        }
+                        return imdbId;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("TMDB external-ids fallback failed for '{}': {}", searchTitle, e.getMessage());
+        }
+
         return null;
     }
 
