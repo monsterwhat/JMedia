@@ -220,12 +220,28 @@ public class VideoStateService {
      *
      * @return number of VideoState rows newly marked favorite
      */
-    @Transactional
+    /**
+     * Orchestrator: fetches profiles in the settings persistence unit (separate
+     * transaction) and then runs the video-side backfill in its own transaction.
+     * Mixing both persistence units inside one transaction fails with
+     * "Unable to acquire JDBC Connection [association of connection to existing
+     * transaction]".
+     */
     public int backfillFavoritesFromLegacyColumn() {
+        List<Profile> profiles = fetchAllProfiles();
+        if (profiles.isEmpty()) return 0;
+        return backfillFavoritesForProfiles(profiles);
+    }
+
+    @Transactional
+    public List<Profile> fetchAllProfiles() {
+        return Profile.listAll();
+    }
+
+    @Transactional
+    public int backfillFavoritesForProfiles(List<Profile> profiles) {
         List<Video> favorited = Video.list("favorite = true");
         if (favorited.isEmpty()) return 0;
-        List<Profile> profiles = Profile.listAll();
-        if (profiles.isEmpty()) return 0;
         int filled = 0;
         for (Video video : favorited) {
             for (Profile profile : profiles) {
