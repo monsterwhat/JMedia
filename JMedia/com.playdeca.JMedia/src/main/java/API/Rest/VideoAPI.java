@@ -47,7 +47,7 @@ import jakarta.ws.rs.core.Context;
 public class VideoAPI {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoAPI.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
 
     @Inject
     VideoService videoService;

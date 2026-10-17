@@ -48,6 +48,13 @@ public class VideoMetadataService {
     private static final Map<Long, Long> INTRODB_NO_DATA_CACHE = new ConcurrentHashMap<>();
     private static final long INTRODB_NO_DATA_TTL_MS = 24 * 60 * 60 * 1000L; // 24 hours
 
+    /** Returns true when IntroDB has no data for this episode and the no-data cache is still valid. */
+    public boolean isIntroDataNoDataCached(Long videoId) {
+        if (videoId == null) return false;
+        Long expiry = INTRODB_NO_DATA_CACHE.get(videoId);
+        return expiry != null && System.currentTimeMillis() < expiry;
+    }
+
     public static void evictNoDataCache(Long videoId) {
         if (videoId == null) return;
         INTRODB_NO_DATA_CACHE.remove(videoId);

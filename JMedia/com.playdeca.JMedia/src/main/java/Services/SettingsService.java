@@ -242,7 +242,9 @@ return getActiveProfile(userId);
 
         Settings settings = getOrCreateSettings();
         setActiveProfileIdForUser(settings, userId, profile.id);
-        settings.persist();
+        // settings may be detached (getOrCreateSettings() uses REQUIRES_NEW);
+        // persist() would throw "Detached entity passed to persist".
+        save(settings);
     }
 
     private void setActiveProfileIdForUser(Settings settings, Long userId, Long profileId) {

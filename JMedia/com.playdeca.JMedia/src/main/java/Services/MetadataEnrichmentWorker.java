@@ -146,6 +146,11 @@ public class MetadataEnrichmentWorker {
             ).page(0, batchSize).list();
 
             for (Video video : candidates) {
+                // Skip episodes IntroDB has no data for (cached for 24h) to avoid
+                // re-querying and re-logging them every tick.
+                if (videoMetadataService.isIntroDataNoDataCached(video.id)) {
+                    continue;
+                }
                 try {
                     LOG.info("Fetching intro/outro for '{}' S{}E{} (id={})",
                             video.seriesTitle, video.seasonNumber, video.episodeNumber, video.id);
