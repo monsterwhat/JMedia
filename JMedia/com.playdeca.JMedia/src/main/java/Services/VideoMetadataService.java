@@ -1275,14 +1275,14 @@ public class VideoMetadataService {
                     video.runtimeMins = root.get("runtime").asInt();
                 }
             }
-            if (video.releaseYear == null && showRoot.has("first_air_date") && !showRoot.get("first_air_date").isNull()) {
+            if (showRoot != null && video.releaseYear == null && showRoot.has("first_air_date") && !showRoot.get("first_air_date").isNull()) {
                 String d = showRoot.get("first_air_date").asText();
                 if (d != null && d.length() >= 4) {
                     try { video.releaseYear = Integer.parseInt(d.substring(0, 4)); } catch (NumberFormatException ignored) {}
                 }
             }
             if (video.genres == null || video.genres.isEmpty()) {
-                if (showRoot.has("genres") && showRoot.get("genres").isArray()) {
+                if (showRoot != null && showRoot.has("genres") && showRoot.get("genres").isArray()) {
                     List<String> genres = new ArrayList<>();
                     for (JsonNode g : showRoot.path("genres")) {
                         if (g.has("name")) genres.add(g.get("name").asText());
@@ -1290,11 +1290,11 @@ public class VideoMetadataService {
                     if (!genres.isEmpty()) video.genres = genres;
                 }
             }
-            if (video.originalLanguage == null && showRoot.has("original_language") && !showRoot.get("original_language").isNull()) {
+            if (showRoot != null && video.originalLanguage == null && showRoot.has("original_language") && !showRoot.get("original_language").isNull()) {
                 video.originalLanguage = showRoot.get("original_language").asText();
             }
             if (video.productionCountries == null) {
-                if (showRoot.has("production_countries") && showRoot.get("production_countries").isArray()) {
+                if (showRoot != null && showRoot.has("production_countries") && showRoot.get("production_countries").isArray()) {
                     StringBuilder sb = new StringBuilder();
                     for (JsonNode pc : showRoot.path("production_countries")) {
                         if (pc.has("iso_3166_1")) {
