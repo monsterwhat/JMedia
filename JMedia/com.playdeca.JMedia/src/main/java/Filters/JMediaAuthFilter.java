@@ -143,13 +143,26 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     }
 
     private String getSessionCookie(ContainerRequestContext requestContext) {
+        // Parse via JAX-RS standard cookie handling rather than splitting the raw
+        // Cookie header on ';': browsers may send multiple cookies with the same
+        // name comma-separated (RFC 2109), which the manual split mishandled and
+        // produced a session id like "abc,JMEDIA_SESSION=abc" -> "not found".
+        if (requestContext.getCookies() != null && requestContext.getCookies().containsKey("JMEDIA_SESSION")) {
+            jakarta.ws.rs.core.Cookie c = requestContext.getCookies().get("JMEDIA_SESSION");
+            if (c != null && c.getValue() != null && !c.getValue().isBlank()) {
+                return c.getValue();
+            }
+        }
+        // Fallback to manual header parsing for environments where cookies aren't populated.
         String cookieHeader = requestContext.getHeaderString("Cookie");
         if (cookieHeader != null) {
-            String[] cookies = cookieHeader.split(";");
-            for (String cookie : cookies) {
-                cookie = cookie.trim();
+            for (String part : cookieHeader.split("[;,]")) {
+                String cookie = part.trim();
                 if (cookie.startsWith("JMEDIA_SESSION=")) {
-                    return cookie.substring("JMEDIA_SESSION=".length());
+                    String val = cookie.substring("JMEDIA_SESSION=".length()).trim();
+                    if (!val.isEmpty()) {
+                        return val;
+                    }
                 }
             }
         }
