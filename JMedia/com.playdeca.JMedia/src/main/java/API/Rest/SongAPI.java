@@ -39,6 +39,9 @@ public class SongAPI {
     SongService songService;
 
     @Inject
+    Services.AudioAnalysisService audioAnalysisService;
+
+    @Inject
     MetadataWriteService metadataWriteService;
 
     @Inject
@@ -301,6 +304,28 @@ public class SongAPI {
         String message = String.format("Written metadata to %d songs. %d failed.", successCount, failCount);
         System.out.println(message);
         return Response.ok(java.util.Map.of("success", true, "message", message, "successCount", successCount, "failCount", failCount)).build();
+    }
+
+    /**
+     * Fire-and-forget beat analysis for one song (DJ lookahead): the mobile
+     * client calls this when the DJ plan names a next song whose analysis is
+     * missing, instead of waiting for the background FIFO worker to reach
+     * it. Returns 202 immediately; the async pool fills the SongAnalysis
+     * row and the next planNextDjTransition picks it up.
+     */
+    @POST
+    @Path("/{id}/analyze-audio")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response analyzeAudio(@PathParam("id") Long id) {
+        Song song = songService.find(id);
+        if (song == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(java.util.Map.of("success", false, "error", "Song not found")).build();
+        }
+        if (audioAnalysisService.isAnalyzed(id)) {
+            return Response.ok(java.util.Map.of("success", true, "alreadyAnalyzed", true)).build();
+        }
+        audioAnalysisService.analyzeSongAsync(song);
+        return Response.accepted().entity(java.util.Map.of("success", true, "queued", true)).build();
     }
 
 }

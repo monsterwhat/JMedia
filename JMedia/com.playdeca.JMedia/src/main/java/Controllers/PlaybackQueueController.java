@@ -1025,16 +1025,47 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         if (isDjGenrePoolUnrestricted(state)) {
             return true;
         }
-        String normalizedGenre = SongService.normalizeGenre(genre);
-        if (normalizedGenre.isEmpty()) {
+        java.util.Set<String> songTokens = genreTokens(genre);
+        if (songTokens.isEmpty()) {
             return false;
         }
-        for (String allowed : state.getDjGenrePool()) {
-            if (allowed != null && SongService.normalizeGenre(allowed).equals(normalizedGenre)) {
-                return true;
+        java.util.List<String> pool = state.getDjGenrePool();
+        if (pool == null) {
+            return false;
+        }
+        // Token overlap (not whole-string equality): a pool entry like
+        // "Hip-Hop" must match compound server values like "Hip-Hop/Rap".
+        // Every old exact match still matches (identical strings share all
+        // tokens), so this only widens matching to genre families.
+        for (String allowed : pool) {
+            if (allowed == null) {
+                continue;
+            }
+            for (String token : genreTokens(allowed)) {
+                if (songTokens.contains(token)) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    /**
+     * Splits a genre label into matchable tokens ("Hip-Hop/Rap" becomes
+     * {hip, hop, rap}) after the standard normalization. Empty for
+     * null/blank input.
+     */
+    private static java.util.Set<String> genreTokens(String genre) {
+        java.util.Set<String> tokens = new java.util.HashSet<>();
+        String normalized = SongService.normalizeGenre(genre);
+        if (!normalized.isEmpty()) {
+            for (String part : normalized.split(" ")) {
+                if (!part.isEmpty()) {
+                    tokens.add(part);
+                }
+            }
+        }
+        return tokens;
     }
 
     private boolean isYearAllowed(PlaybackState state, String releaseDate) {
