@@ -71,12 +71,9 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return null;
         }
 
-        // Degenerate-pool guard: size==1 with DJ restriction previously returned
-        // the same song forever (stuck loop). Widen to the full library when
-        // DJ filters have narrowed the pool to a single track. Widening is gated
-        // on RepeatMode.ALL: with Repeat OFF a single-track queue must play that
-        // one song and then stop (the next advance hits the empty-cue stop logic),
-        // never widen and loop.
+        // Degenerate-pool guard: size==1 must respect RepeatMode.
+        // Repeat OFF consumes the last song and stops (see handleSingleSongCue).
+        // DJ widening below is gated on RepeatMode.ALL only.
         if (state.getCue().size() == 1) {
             if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)
                     && state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
@@ -105,12 +102,37 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                     }
                 }
             }
-            state.setCueIndex(0);
-            state.setCurrentSongId(state.getCue().get(0));
-            return state.getCue().get(0);
+            return handleSingleSongCue(state, forward, skippedEarly, manualAdvance, profileId);
         }
 
         return advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
+    }
+
+    private Long handleSingleSongCue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
+        // Single-song cue with Repeat OFF must NOT loop forever.
+        // Natural end consumes the last song and stops; manual next
+        // consumes it and refills via the empty-cue path above.
+        if (!forward) {
+            if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
+                state.setCueIndex(0);
+                state.setCurrentSongId(state.getCue().get(0));
+                return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
+            }
+            return null;
+        }
+        if (state.getRepeatMode() == PlaybackState.RepeatMode.ONE
+                || state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
+            state.setCueIndex(0);
+            state.setCurrentSongId(state.getCue().get(0));
+            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
+        }
+        state.getCue().remove(0);
+        state.setCueIndex(-1);
+        if (manualAdvance) {
+            return advance(state, true, skippedEarly, true, profileId);
+        }
+        state.setPlaying(false);
+        return null;
     }
 
     private Long advanceInQueue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
