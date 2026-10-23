@@ -2094,6 +2094,10 @@ public class VideoService {
                 v.overview = null;
                 if (!v.titleManuallyEdited) v.title = null;
                 VideoMetadataService.evictNoDataCache(v.id);
+                EnrichmentNegativeCache.evictContaining(oldTmdb);
+                EnrichmentNegativeCache.evictContaining(newTmdb);
+                EnrichmentNegativeCache.evictContaining(oldShow);
+                EnrichmentNegativeCache.evictContaining(newShow);
             }
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
@@ -2176,6 +2180,10 @@ public class VideoService {
                 v.recapStart = null;
                 v.recapEnd = null;
                 VideoMetadataService.evictNoDataCache(v.id);
+                EnrichmentNegativeCache.evictContaining(oldTmdb);
+                EnrichmentNegativeCache.evictContaining(newTmdb);
+                EnrichmentNegativeCache.evictContaining(oldShow);
+                EnrichmentNegativeCache.evictContaining(newShow);
             }
             LOGGER.info("Clearing API-derived text for video {} (series='{}' S{}E{}) for full refresh: episodeTitle, overview{}", v.id, seriesTitle, v.seasonNumber, v.episodeNumber, v.titleManuallyEdited ? "" : ", title");
             v.episodeTitle = null;
@@ -2265,6 +2273,17 @@ public class VideoService {
     @Transactional
     public void forceReload(String seriesTitle) {
         if (seriesTitle == null || seriesTitle.isBlank()) return;
+        // Fresh import must not inherit stale miss-blocks (e.g. from a previously wrong ID):
+        // lift blocks matching this show's current IDs so enrichment retries immediately.
+        try {
+            Series series = Series.find("title", seriesTitle).firstResult();
+            if (series != null) {
+                if (series.tmdbId != null) EnrichmentNegativeCache.evictContaining(String.valueOf(series.tmdbId));
+                EnrichmentNegativeCache.evictContaining(series.imdbId);
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Force reload: could not lift enrichment blocks for '{}': {}", seriesTitle, e.getMessage());
+        }
         List<Video> episodes = findEpisodesForSeries(seriesTitle);
         for (Video v : episodes) {
             // Delete dependent records before deleting video to avoid FK violations
@@ -2351,6 +2370,7 @@ public class VideoService {
             Video video = find(id);
             if (video != null) {
                 if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
+                EnrichmentNegativeCache.evictContaining(tmdbId);
                 if (introStart != null) video.introStart = introStart;
                 if (introEnd != null) video.introEnd = introEnd;
                 if (outroStart != null) video.outroStart = outroStart;

@@ -1320,7 +1320,7 @@ public class VideoMetadataService {
                 showUrl = String.format(TMDB_TV_DETAILS, showTmdbId, apiKey);
             }
             JsonNode showRoot = fetchJson(showUrl, authHeaders);
-            if (showRoot == null) {
+            if (showRoot == null && !EnrichmentNegativeCache.isBlocked(EnrichmentNegativeCache.keyForUrl(showUrl))) {
                 LOG.warn("[EnrichEpisode] Failed to fetch show details for showTmdbId={}", showTmdbId);
             }
             if (showRoot != null) {
@@ -1355,7 +1355,7 @@ public class VideoMetadataService {
                     imagesUrl = String.format(TMDB_TV_IMAGES, showTmdbId, apiKey);
                 }
                 JsonNode imagesRoot = fetchJson(imagesUrl, authHeaders);
-                if (imagesRoot == null) {
+                if (imagesRoot == null && !EnrichmentNegativeCache.isBlocked(EnrichmentNegativeCache.keyForUrl(imagesUrl))) {
                     LOG.warn("[EnrichEpisode] Failed to fetch show images for showTmdbId={}", showTmdbId);
                 }
                 if (imagesRoot != null && imagesRoot.has("logos")) {
@@ -1504,6 +1504,11 @@ public class VideoMetadataService {
     }
 
     private JsonNode fetchJson(String url, Map<String, String> headers) throws IOException, InterruptedException {
+        String cacheKey = EnrichmentNegativeCache.keyForUrl(url);
+        if (EnrichmentNegativeCache.isBlocked(cacheKey)) {
+            LOG.debug("Skipping recently-failed enrichment fetch (known miss): {}", cacheKey);
+            return null;
+        }
         var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET().timeout(Duration.ofSeconds(30));
         if (headers != null) {
             headers.forEach(builder::header);
@@ -1524,6 +1529,10 @@ public class VideoMetadataService {
         if (response.statusCode() == 200) return objectMapper.readTree(response.body());
         if (response.statusCode() == 404) {
             LOG.debug("Resource not found (404): {}", url);
+            String missKey = EnrichmentNegativeCache.keyForUrl(url);
+            if (EnrichmentNegativeCache.rememberNotFound(missKey)) {
+                LOG.warn("Enrichment URL 404s, pausing retries for 30d: {}", missKey);
+            }
         } else {
             LOG.warn("Request failed: {} - {}", response.statusCode(), url);
         }
@@ -2030,8 +2039,17 @@ public class VideoMetadataService {
                         ? String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", searchQuery, yearSuffix)
                         : String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, searchQuery, yearSuffix);
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
-                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
-                    LOG.info("[EnsureTextMetadata] No TMDB movie results for '{}'", video.title);
+                if (searchRoot == null) {
+                    LOG.info("[EnsureTextMetadata] No TMDB movie results for '{}' (request failed)", video.title);
+                    return;
+                }
+                if (searchRoot.path("results").isEmpty()) {
+                    String missKey = EnrichmentNegativeCache.keyForUrl(searchUrl);
+                    if (EnrichmentNegativeCache.rememberEmpty(missKey)) {
+                        LOG.info("[EnsureTextMetadata] No TMDB movie results for '{}' — pausing retries", video.title);
+                    } else {
+                        LOG.debug("[EnsureTextMetadata] Still no TMDB movie results for '{}' (blocked)", video.title);
+                    }
                     return;
                 }
 
@@ -2045,8 +2063,11 @@ public class VideoMetadataService {
                         ? String.format("https://api.themoviedb.org/3/movie/%s?append_to_response=credits", tmdbId)
                         : String.format(TMDB_MOVIE_DETAILS, tmdbId, tmdbKey);
                 JsonNode root = fetchJson(detailUrl, authHeaders);
-                if (root == null) {
+                if (root == null && !EnrichmentNegativeCache.isBlocked(EnrichmentNegativeCache.keyForUrl(detailUrl))) {
                     LOG.warn("[EnsureTextMetadata] Failed to fetch movie details for tmdbId={}", tmdbId);
+                    return;
+                }
+                if (root == null) {
                     return;
                 }
 
@@ -2245,6 +2266,12 @@ public class VideoMetadataService {
                     return SeriesEnrichmentResult.FAILED;
                 }
                 if (searchRoot.path("results").isEmpty()) {
+                    String missKey = EnrichmentNegativeCache.keyForUrl(searchUrl);
+                    if (EnrichmentNegativeCache.rememberEmpty(missKey)) {
+                        LOG.info("[EnsureSeriesTextMetadata] No TMDB results for series '{}' — pausing retries", series.title);
+                    } else {
+                        LOG.debug("[EnsureSeriesTextMetadata] Still no TMDB results for series '{}' (blocked)", series.title);
+                    }
                     return SeriesEnrichmentResult.NO_MATCH;
                 }
                 showId = searchRoot.path("results").get(0).path("id").asText();
@@ -2262,8 +2289,11 @@ public class VideoMetadataService {
                     ? String.format("https://api.themoviedb.org/3/tv/%s?append_to_response=credits", showId)
                     : String.format(TMDB_TV_DETAILS, showId, tmdbKey);
             JsonNode root = fetchJson(detailUrl, authHeaders);
-            if (root == null) {
+            if (root == null && !EnrichmentNegativeCache.isBlocked(EnrichmentNegativeCache.keyForUrl(detailUrl))) {
                 LOG.info("[EnsureSeriesTextMetadata] Failed to fetch TMDB details for series {}", seriesId);
+                return SeriesEnrichmentResult.FAILED;
+            }
+            if (root == null) {
                 return SeriesEnrichmentResult.FAILED;
             }
 

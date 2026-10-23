@@ -22,6 +22,9 @@ public class IntroDbService {
     
     @Inject
     SettingsService settingsService;
+
+    @Inject
+    EnrichmentNegativeCache negativeCache;
     
     // Source 1: Newest segments endpoint
     private static final String API_URL_SEGMENTS = "https://api.introdb.app/segments";
@@ -66,12 +69,12 @@ public class IntroDbService {
         }
 
         // 1. Try Source 1 (/segments)
-        LOG.info("IntroDB: Attempting fetch from /segments for {} S{}E{}", imdbId, season, episode);
+        LOG.debug("IntroDB: Attempting fetch from /segments for {} S{}E{}", imdbId, season, episode);
         Optional<MediaMetadata> result = executeFetch(API_URL_SEGMENTS, imdbId, season, episode);
         
         // 2. Fallback to Source 2 (/media) if Source 1 found nothing
         if (result.isEmpty()) {
-            LOG.info("IntroDB: No data in /segments, falling back to /media for {} S{}E{}", imdbId, season, episode);
+            LOG.debug("IntroDB: No data in /segments, falling back to /media for {} S{}E{}", imdbId, season, episode);
             result = executeFetch(API_URL_MEDIA, imdbId, season, episode);
         }
 
@@ -80,8 +83,13 @@ public class IntroDbService {
 
     private Optional<MediaMetadata> executeFetch(String baseUrl, String imdbId, int season, int episode) {
         try {
-            String url = String.format("%s?imdb_id=%s&season=%d&episode=%d", 
+            String url = String.format("%s?imdb_id=%s&season=%d&episode=%d",
                     baseUrl, imdbId, season, episode);
+            String cacheKey = EnrichmentNegativeCache.keyForUrl(url);
+            if (negativeCache.isBlocked(cacheKey)) {
+                LOG.debug("IntroDB: skipping recently-failed fetch {}", url);
+                return Optional.empty();
+            }
             
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
             HttpResponse<String> response;
@@ -98,7 +106,14 @@ public class IntroDbService {
                 }
                 response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             }
-            
+
+            if (response.statusCode() == 404) {
+                if (negativeCache.rememberNotFound(cacheKey)) {
+                    LOG.warn("IntroDB: {} 404s, pausing retries for 30d", baseUrl);
+                }
+                return Optional.empty();
+            }
+
             if (response.statusCode() == 200) {
                 JsonNode root = objectMapper.readTree(response.body());
                 MediaMetadata metadata = new MediaMetadata();
@@ -114,6 +129,9 @@ public class IntroDbService {
                 if (metadata.intro.isPresent() || metadata.recap.isPresent() || metadata.outro.isPresent()) {
                     LOG.info("IntroDB: Successfully retrieved data from {}", baseUrl);
                     return Optional.of(metadata);
+                }
+                if (negativeCache.rememberEmpty(cacheKey)) {
+                    LOG.debug("IntroDB: no data at {} for {} S{}E{}, pausing retries", baseUrl, imdbId, season, episode);
                 }
             }
         } catch (Exception e) {
