@@ -450,6 +450,152 @@ public class VideoService {
         return reclassified;
     }
 
+    /**
+     * Phase 3 startup backfill for absolute episode numbering: rows imported
+     * before per-season lengths existed still carry legacy absolute
+     * (series-wide) episode numbers. Re-runs the current naming detection
+     * (now provider-backed via SeasonLengthProvider beans) against each
+     * eligible row and writes ONLY seasonNumber/episodeNumber when the
+     * recomputed values differ.
+     *
+     * <p>Self-terminating and idempotent: once a row is remapped, a second
+     * pass recomputes the same season-relative values, so
+     * {@link #absoluteBackfillTarget} returns null and nothing is written.
+     * Rows with manual season/episode flags are never touched, rows whose
+     * recomputed values are null are skipped, and per-row failures never
+     * abort the pass.
+     *
+     * @return number of rows whose season/episode were rewritten
+     */
+    @Transactional
+    public int backfillAbsoluteNumbering() {
+        List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
+        int scanned = 0;
+        int changed = 0;
+        int skippedManual = 0;
+        Path rootPath = null;
+        try {
+            String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            if (libPathStr != null && !libPathStr.isBlank()) {
+                rootPath = Paths.get(libPathStr);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Absolute backfill: could not load library root, using filename fallback: {}", e.getMessage());
+        }
+        for (Video v : candidates) {
+            try {
+                if (v.seasonNumber == null || v.episodeNumber == null) {
+                    continue;
+                }
+                scanned++;
+                if (v.seasonManuallyEdited || v.episodeManuallyEdited) {
+                    skippedManual++;
+                    continue;
+                }
+                MediaFile mf = MediaFile.find("path", v.path).firstResult();
+                if (mf == null || v.path == null) {
+                    continue;
+                }
+                Path path;
+                try {
+                    path = Paths.get(v.path);
+                } catch (Exception e) {
+                    LOGGER.warn("Absolute backfill skipped for row id={}: unparseable path: {}", v.id, e.getMessage());
+                    continue;
+                }
+                String filename = path.getFileName() != null ? path.getFileName().toString() : v.filename;
+                if (filename == null) {
+                    continue;
+                }
+                // Library-relative path (same relativization the scan path uses)
+                // so folder context is preserved; filename-only fallback otherwise.
+                String relativePath = filename;
+                try {
+                    if (rootPath != null && path.startsWith(rootPath)) {
+                        relativePath = rootPath.relativize(path).toString();
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Absolute backfill: could not relativize {} against library root: {}", v.path, e.getMessage());
+                }
+                SmartNamingService.NamingResult res =
+                        smartNamingService.detectSmartNames(mf, filename, relativePath, null, null, null, null, null, null);
+                if (res == null || res.season == null || res.episode == null) {
+                    continue;
+                }
+                int[] target = absoluteBackfillTarget(v.seasonNumber, v.episodeNumber,
+                        res.season, res.episode, v.seasonManuallyEdited, v.episodeManuallyEdited);
+                if (target == null) {
+                    continue;
+                }
+                v.seasonNumber = target[0];
+                v.episodeNumber = target[1];
+                v.persist();
+                changed++;
+                LOGGER.info("Absolute backfill: remapped {} (id={}) to S{}E{}", v.filename, v.id, target[0], target[1]);
+            } catch (Exception e) {
+                LOGGER.warn("Absolute backfill skipped for row id={}: {}", v.id, e.getMessage());
+            }
+        }
+        LOGGER.info("Absolute backfill: scanned {} episode row(s), changed {}, skipped-manual {}",
+                scanned, changed, skippedManual);
+        return changed;
+    }
+
+    /**
+     * Phase 3 pure decision for one backfill row: returns the
+     * {season, episode} to write, or null when the row must be left alone
+     * (manual flags set, any value null, or recomputed values identical to
+     * the stored ones — the latter is what makes re-runs no-ops).
+     * Offline-testable: no DB access, never throws.
+     */
+    static int[] absoluteBackfillTarget(Integer oldSeason, Integer oldEpisode,
+            Integer newSeason, Integer newEpisode,
+            boolean seasonManuallyEdited, boolean episodeManuallyEdited) {
+        if (seasonManuallyEdited || episodeManuallyEdited) {
+            return null;
+        }
+        if (oldSeason == null || oldEpisode == null || newSeason == null || newEpisode == null) {
+            return null;
+        }
+        if (oldSeason.equals(newSeason) && oldEpisode.equals(newEpisode)) {
+            return null;
+        }
+        return new int[]{newSeason, newEpisode};
+    }
+
+    /**
+     * Phase 4b: validates and persists the per-show absolute-numbering
+     * override on the Series entity. Blank JSON clears the override.
+     *
+     * @throws IllegalArgumentException with a user-facing message when the
+     *         JSON is invalid or the series row is missing (and there is
+     *         something to store)
+     */
+    @Transactional
+    public void updateSeriesAbsoluteOverride(String seriesTitle, String absoluteSeasonLengths, Boolean forceAbsoluteNumbering) {
+        if (seriesTitle == null || seriesTitle.isBlank()) {
+            throw new IllegalArgumentException("Series title is required");
+        }
+        String normalized = (absoluteSeasonLengths == null || absoluteSeasonLengths.isBlank())
+                ? null : absoluteSeasonLengths.trim();
+        if (normalized != null && MetadataSeasonLengthProvider.parseAndValidateOverride(normalized) == null) {
+            throw new IllegalArgumentException(
+                    "Invalid absoluteSeasonLengths: expected JSON like {\"1\":25,\"2\":25} "
+                    + "with seasons contiguous from 1 and positive episode counts");
+        }
+        Series series = Series.find("title", seriesTitle).firstResult();
+        if (series == null) {
+            if (normalized == null && forceAbsoluteNumbering == null) {
+                return;
+            }
+            throw new IllegalArgumentException("Series not found: " + seriesTitle);
+        }
+        series.absoluteSeasonLengths = normalized;
+        series.forceAbsoluteNumbering = forceAbsoluteNumbering;
+        series.persist();
+        LOGGER.info("Updated absolute-numbering override for series '{}': force={}", seriesTitle, forceAbsoluteNumbering);
+    }
+
     @Transactional
     public List<Video> findDocumentaries() {
         return findByType("documentary");
@@ -1863,7 +2009,13 @@ public class VideoService {
             }
             video.episodeTitle = episodeTitle;
             video.seasonNumber = seasonNumber;
+            if (seasonNumber != null) {
+                video.seasonManuallyEdited = true;
+            }
             video.episodeNumber = episodeNumber;
+            if (episodeNumber != null) {
+                video.episodeManuallyEdited = true;
+            }
             video.type = type;
             if (showImdbId != null && !showImdbId.isBlank()) {
                 video.showImdbId = showImdbId;

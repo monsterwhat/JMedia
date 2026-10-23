@@ -2,6 +2,7 @@ package Controllers;
 
 import Models.Video.Video;
 import Services.SmartNamingService;
+import Services.SettingsService;
 import Services.UnifiedVideoEntityCreationService;
 import Services.VideoService;
 import Services.VideoImportService;
@@ -31,6 +32,9 @@ public class NamingController {
     @Inject
     UnifiedVideoEntityCreationService entityCreationService;
 
+    @Inject
+    SettingsService settingsService;
+
     /**
      * Reprocesses a video with fresh smart naming detection
      */
@@ -49,8 +53,9 @@ public class NamingController {
 
         Path path = Paths.get(video.path);
         String filename = path.getFileName().toString();
-        // Fallback relative path
-        String relativePath = filename; 
+        // Library-relative path (same relativization the scan path uses) so folder context is preserved;
+        // falls back to filename-only when the file is outside any known library root
+        String relativePath = toLibraryRelativePath(path, filename);
 
         SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(
             mediaFile, filename, relativePath, null, null, null, null, null, null);
@@ -83,8 +88,14 @@ public class NamingController {
             video.title = correctedTitle;
             video.titleManuallyEdited = true;
         }
-        if (correctedSeason != null) video.seasonNumber = correctedSeason;
-        if (correctedEpisode != null) video.episodeNumber = correctedEpisode;
+        if (correctedSeason != null) {
+            video.seasonNumber = correctedSeason;
+            video.seasonManuallyEdited = true;
+        }
+        if (correctedEpisode != null) {
+            video.episodeNumber = correctedEpisode;
+            video.episodeManuallyEdited = true;
+        }
         if (correctedYear != null) video.releaseYear = correctedYear;
         if (correctedMediaType != null) video.type = correctedMediaType;
         
@@ -100,6 +111,13 @@ public class NamingController {
      * Clears manual override flags, allowing future scans to update the fields again
      */
     public boolean clearOverrideFlags(Long videoId, boolean clearSeriesTitle, boolean clearTitle) {
+        return clearOverrideFlags(videoId, clearSeriesTitle, clearTitle, false, false);
+    }
+
+    /**
+     * Clears manual override flags including season/episode, allowing future scans to update the fields again
+     */
+    public boolean clearOverrideFlags(Long videoId, boolean clearSeriesTitle, boolean clearTitle, boolean clearSeason, boolean clearEpisode) {
         Video video = Video.findById(videoId);
         if (video == null) {
             LOGGER.warn("Video not found with ID: {}", videoId);
@@ -112,10 +130,36 @@ public class NamingController {
         if (clearTitle) {
             video.titleManuallyEdited = false;
         }
+        if (clearSeason) {
+            video.seasonManuallyEdited = false;
+        }
+        if (clearEpisode) {
+            video.episodeManuallyEdited = false;
+        }
         
         video.persist();
-        LOGGER.info("Cleared override flags for video {}: seriesTitle={}, title={}", 
-                   videoId, clearSeriesTitle, clearTitle);
+        LOGGER.info("Cleared override flags for video {}: seriesTitle={}, title={}, season={}, episode={}", 
+                   videoId, clearSeriesTitle, clearTitle, clearSeason, clearEpisode);
         return true;
+    }
+
+    /**
+     * Relativizes an absolute file path against the configured video library root,
+     * mirroring the scan path. Falls back to filename-only when the file is outside
+     * any known library root.
+     */
+    private String toLibraryRelativePath(Path path, String filename) {
+        try {
+            String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            if (libPathStr != null && !libPathStr.isBlank()) {
+                Path rootPath = Paths.get(libPathStr);
+                if (path.startsWith(rootPath)) {
+                    return rootPath.relativize(path).toString();
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not relativize path {} against library root, using filename fallback: {}", path, e.getMessage());
+        }
+        return filename;
     }
 }

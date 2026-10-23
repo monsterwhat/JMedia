@@ -3,21 +3,42 @@ package Services;
 import Models.Video.MediaFile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Instance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Set;
 
 @ApplicationScoped
 public class SmartNamingService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SmartNamingService.class);
+
+    /**
+     * Optional metadata-backed season-length sources (Phase 2 provides the
+     * implementation). Absent in plain unit tests, where the field stays
+     * null and absolute-number resolution is skipped.
+     */
+    @Inject
+    Instance<SeasonLengthProvider> seasonLengthProviders;
+
+    /**
+     * Filename patterns whose episode number is a bare number with the season
+     * supplied by the folder (never an explicit season in the name). Only
+     * these are eligible for absolute-number remapping.
+     */
+    private static final Set<String> ABSOLUTE_BARE_METHODS = Set.of(
+            "ShowNumberDash", "DashNumber", "BareNumber", "SimpleNumber",
+            "EpisodeOnly", "EOnly", "CapOnly");
     
     // --- COMPILED PATTERNS FOR PERFORMANCE ---
     
@@ -164,6 +185,13 @@ public class SmartNamingService {
         public final String reasoning;
         public String contentType;
         public String seasonSuffix;
+        /**
+         * Phase 4a: raw episode-detection method (e.g. "DashNumber",
+         * "ShowNumberDash+Absolute", "PathStructure"). Exposed so the scan
+         * layer can decide sibling-inference eligibility without disk access
+         * in the parser itself. Null for results built outside detectSmartNames.
+         */
+        public String detectionMethod;
 
         public NamingResult(String mediaType, String showName, String title, 
                           Integer season, Integer episode, String seasonName, String folder,
@@ -207,6 +235,39 @@ public class SmartNamingService {
                 episodeDetection.season = pathSeason;
                 episodeDetection.detectionMethod = episodeDetection.detectionMethod + "+PathSeason";
                 episodeDetection.confidence = Math.max(episodeDetection.confidence, 0.7);
+            }
+        }
+
+        // Absolute numbering: bare-number patterns read the file number as-is,
+        // so a series-absolute file (e.g. "Show - 026 - Title" in Season 2)
+        // would surface as S02E26. When a SeasonLengthProvider knows this
+        // show's per-season counts, remap into the folder's season.
+        // Skipped entirely when no provider is wired (plain unit tests) or
+        // when the show's lengths are unknown: current behavior is preserved.
+        if (episodeDetection.season != null && episodeDetection.episode != null
+                && isBareNumberMethod(episodeDetection.detectionMethod)
+                && seasonLengthProviders != null) {
+            String showKey = episodeDetection.showNameHint != null
+                    ? episodeDetection.showNameHint
+                    : pathAnalysis.showFolder;
+            if (showKey != null) {
+                for (SeasonLengthProvider provider : seasonLengthProviders) {
+                    Map<Integer, Integer> lengths = null;
+                    try {
+                        lengths = provider.getSeasonLengths(showKey);
+                    } catch (Exception e) {
+                        LOGGER.warn("SeasonLengthProvider failed for '{}': {}", showKey, e.getMessage());
+                    }
+                    int[] remapped = resolveAbsoluteNumber(
+                            episodeDetection.season, episodeDetection.episode, lengths);
+                    if (remapped != null) {
+                        episodeDetection.season = remapped[0];
+                        episodeDetection.episode = remapped[1];
+                        episodeDetection.detectionMethod = episodeDetection.detectionMethod + "+Absolute";
+                        episodeDetection.confidence = Math.max(episodeDetection.confidence, 0.85);
+                        break;
+                    }
+                }
             }
         }
 
@@ -279,6 +340,10 @@ public class SmartNamingService {
             reasoning
         );
         result.contentType = episodeDetection.contentType;
+        // Phase 4a: carry the raw detection method so the scan layer can
+        // decide sibling-inference eligibility (bare-numbered methods only,
+        // provider-remapped "+Absolute" results excluded).
+        result.detectionMethod = episodeDetection.detectionMethod;
         // Override: files in extras folders get contentType="extra" regardless of filename pattern match
         // Catches early returns from filename patterns (EPISODE_SIMPLE, etc.) that skip path-based extras detection
         boolean isExtrasSubfolder = pathAnalysis.subFolder != null && EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.subFolder).find();
@@ -552,6 +617,86 @@ public class SmartNamingService {
     /**
      * Enhanced episode detection using regex patterns
      */
+    /**
+     * Whether a detection method carries a bare episode number whose season
+     * came from the folder (as opposed to an explicit season in the name).
+     * "PathStructure" qualifies: at that point a non-null episode can only
+     * have been set by the non-returning DashNumber/BareNumber patterns.
+     */
+    private static boolean isBareNumberMethod(String method) {
+        if (method == null) {
+            return false;
+        }
+        if ("PathStructure".equals(method)) {
+            return true;
+        }
+        int plus = method.indexOf('+');
+        String core = plus >= 0 ? method.substring(0, plus) : method;
+        return ABSOLUTE_BARE_METHODS.contains(core);
+    }
+
+    /**
+     * Phase 4a scan-level sibling-inference eligibility: the same bare-number
+     * rule the provider hook uses, minus anything the provider already
+     * remapped ("+Absolute" suffix). Package-visible so VideoImportService
+     * (same package) can gate disk inference without duplicating the set.
+     */
+    static boolean isSiblingInferenceEligible(String detectionMethod) {
+        if (detectionMethod == null || detectionMethod.contains("+Absolute")) {
+            return false;
+        }
+        return isBareNumberMethod(detectionMethod);
+    }
+
+    /**
+     * Translates a series-absolute episode number into a season-relative one
+     * using cumulative per-season counts.
+     *
+     * @param folderSeason season taken from the folder (1-based)
+     * @param number       episode number parsed from the filename
+     * @param seasonLengths 1-based season -&gt; episode count; must be contiguous
+     *                      from 1, otherwise mapping is refused
+     * @return {season, relativeEpisode}, or null when no remapping applies:
+     *         unknown/incomplete lengths, number outside all known ranges,
+     *         number already relative, or the absolute number belongs to a
+     *         different season than the folder (the folder wins: files are
+     *         never moved across seasons by guessing)
+     */
+    static int[] resolveAbsoluteNumber(int folderSeason, int number,
+            Map<Integer, Integer> seasonLengths) {
+        if (folderSeason <= 0 || number <= 0
+                || seasonLengths == null || seasonLengths.isEmpty()) {
+            return null;
+        }
+        List<Integer> seasons = new ArrayList<>(seasonLengths.keySet());
+        Collections.sort(seasons);
+        int expected = 1;
+        int start = 1;
+        for (int s : seasons) {
+            if (s != expected) {
+                return null; // gap in data: refuse to guess
+            }
+            Integer count = seasonLengths.get(s);
+            if (count == null || count <= 0) {
+                return null;
+            }
+            int end = start + count - 1;
+            if (number >= start && number <= end) {
+                if (s != folderSeason) {
+                    return null; // absolute number points elsewhere: trust the folder
+                }
+                int relative = number - start + 1;
+                if (relative == number) {
+                    return null; // already relative: no-op
+                }
+                return new int[]{s, relative};
+            }
+            start = end + 1;
+            expected++;
+        }
+        return null; // beyond all known ranges
+    }
+
     private EpisodeDetection detectEpisodeInfo(String filename, PathAnalysis pathAnalysis) {
         EpisodeDetection detection = new EpisodeDetection();
 

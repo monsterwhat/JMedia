@@ -36,8 +36,11 @@ public class DatabaseMigration {
     void onStart(@Observes StartupEvent event) {
         runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
         runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
+        runScript("/db/migrate-series-season-episode-counts.sql", "Series seasonEpisodeCounts migration applied");
+        runScript("/db/migrate-series-absolute-override.sql", "Series absoluteSeasonLengths override migration applied");
         runScript(settingsEm, "/db/migrate-profile-hls-streaming.sql", "Profile hlsStreaming migration applied");
         reclassifyImportedExtras();
+        backfillAbsoluteNumbering();
     }
 
     /**
@@ -56,6 +59,24 @@ public class DatabaseMigration {
             }
         } catch (Exception e) {
             LOGGER.error("Extras backfill failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Phase 3 one-time data backfill for absolute episode numbering: rows
+     * imported before per-season lengths existed keep their legacy
+     * absolute (series-wide) episode numbers. Re-runs the current naming
+     * detection (now provider-backed) and writes the remapped season/episode.
+     * Self-terminating and idempotent — see VideoService.backfillAbsoluteNumbering().
+     */
+    private void backfillAbsoluteNumbering() {
+        try {
+            int remapped = videoService.backfillAbsoluteNumbering();
+            if (remapped > 0) {
+                LOGGER.info("Absolute backfill: remapped {} episode row(s) to season-relative numbers", remapped);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Absolute backfill failed: {}", e.getMessage(), e);
         }
     }
 

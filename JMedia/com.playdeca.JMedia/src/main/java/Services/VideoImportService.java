@@ -23,8 +23,11 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.TreeMap;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorCompletionService;
@@ -361,7 +364,21 @@ public class VideoImportService {
             return;
         }
         
+        // Library-relative path (same relativization the scan path uses) so folder context is preserved;
+        // falls back to filename-only when the file is outside any known library root
         String relativePath = path.getFileName().toString();
+        try {
+            String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            if (libPathStr != null && !libPathStr.isBlank()) {
+                Path rootPath = Paths.get(libPathStr);
+                if (path.startsWith(rootPath)) {
+                    relativePath = rootPath.relativize(path).toString();
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not relativize path {} against library root, using filename fallback: {}", path, e.getMessage());
+            relativePath = path.getFileName().toString();
+        }
         SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, path.getFileName().toString(), relativePath, null, null, null, null, null, null);
         Video updatedVideo = entityCreationService.createVideoFromNamingResult(mediaFile, res);
         applyContentType(updatedVideo);
@@ -564,6 +581,164 @@ public class VideoImportService {
         }
     }
 
+    /**
+     * Phase 4a sibling inference (scan level only — the parser has no disk
+     * access). For bare-numbered detections the provider did not remap
+     * (method eligible, no "+Absolute" suffix), looks at the show directory
+     * on disk: when seasons 1..N all exist on disk with >0 video files each, the
+     * on-disk counts form a contiguous lengths map and
+     * {@link SmartNamingService#resolveAbsoluteNumber} translates a
+     * series-absolute file number into the folder's season.
+     *
+     * <p>Conservative by construction: any ambiguity (unparseable parent
+     * folder, missing/empty/duplicate season folders, unreadable directory,
+     * resolver refusal) skips silently with a debug log. Manually-edited
+     * season/episode fields are never overwritten (skipped here, and enforced
+     * again downstream by the entity-creation manual flags). Returns the
+     * original result when inference does not apply, or a corrected copy
+     * (NamingResult season/episode are final) when it does; never throws.
+     */
+    SmartNamingService.NamingResult maybeApplySiblingInference(Path filePath, SmartNamingService.NamingResult res, Video existingVideo) {
+        try {
+            if (res == null || res.season == null || res.episode == null) {
+                return res;
+            }
+            if (!SmartNamingService.isSiblingInferenceEligible(res.detectionMethod)) {
+                LOGGER.debug("Sibling inference not eligible for {} (method={})",
+                        filePath.getFileName(), res.detectionMethod);
+                return res;
+            }
+            if (existingVideo != null && (existingVideo.seasonManuallyEdited || existingVideo.episodeManuallyEdited)) {
+                LOGGER.debug("Sibling inference skipped for {}: season/episode manually edited",
+                        filePath.getFileName());
+                return res;
+            }
+            Path parent = filePath.getParent();
+            if (parent == null || parent.getFileName() == null) {
+                return res;
+            }
+            Integer folderSeason = parseSeasonFolderName(parent.getFileName().toString());
+            if (folderSeason == null || folderSeason <= 1 || !folderSeason.equals(res.season)) {
+                LOGGER.debug("Sibling inference skipped for {}: parent folder is not a confirming season folder",
+                        filePath.getFileName());
+                return res;
+            }
+            Path showDir = parent.getParent();
+            if (showDir == null || !Files.isDirectory(showDir)) {
+                LOGGER.debug("Sibling inference skipped for {}: no show directory on disk", filePath.getFileName());
+                return res;
+            }
+            LOGGER.debug("Sibling inference attempted for {} (S{}E{}, method={})",
+                    filePath.getFileName(), res.season, res.episode, res.detectionMethod);
+            Map<Integer, Integer> diskLengths = buildSiblingLengths(showDir, folderSeason);
+            if (diskLengths == null) {
+                return res;
+            }
+            int[] remapped = SmartNamingService.resolveAbsoluteNumber(folderSeason, res.episode, diskLengths);
+            if (remapped == null) {
+                LOGGER.debug("Sibling inference: resolver refused for {} (lengths={})", filePath.getFileName(), diskLengths);
+                return res;
+            }
+            LOGGER.debug("Sibling inference applied for {}: S{}E{} -> S{}E{}",
+                    filePath.getFileName(), res.season, res.episode, remapped[0], remapped[1]);
+            SmartNamingService.NamingResult corrected = new SmartNamingService.NamingResult(
+                    res.mediaType, res.showName, res.title, remapped[0], remapped[1],
+                    res.seasonName, res.folder, res.year, res.confidence, res.reasoning);
+            corrected.contentType = res.contentType;
+            corrected.seasonSuffix = res.seasonSuffix;
+            corrected.detectionMethod = res.detectionMethod;
+            return corrected;
+        } catch (Exception e) {
+            LOGGER.debug("Sibling inference skipped for {}: {}", filePath, e.getMessage());
+            return res;
+        }
+    }
+
+    /**
+     * Counts video files (same {@link #isVideoFile} check the scan uses) in
+     * each season folder 1..folderSeason under the show directory. Returns a
+     * contiguous-from-1 lengths map, or null on any ambiguity: a season
+     * folder missing, empty, or duplicated (e.g. both "Season 1" and "S01"),
+     * or any I/O failure. Package-visible for offline tests.
+     *
+     * <p>Note: season N's own on-disk count is included so the map covers
+     * 1..N contiguously — without it the resolver could never fire for a
+     * file in season N (the number would always read "beyond known ranges").
+     * The count only sets the season's upper bound; range starts come from
+     * earlier seasons, and the folder still wins on conflicts.
+     */
+    Map<Integer, Integer> buildSiblingLengths(Path showDir, int folderSeason) {
+        try (Stream<Path> children = Files.list(showDir)) {
+            Map<Integer, java.util.List<Path>> bySeason = new HashMap<>();
+            for (Path child : children.filter(Files::isDirectory).toList()) {
+                if (child.getFileName() == null) {
+                    continue;
+                }
+                Integer season = parseSeasonFolderName(child.getFileName().toString());
+                if (season != null && season >= 1 && season <= folderSeason) {
+                    bySeason.computeIfAbsent(season, k -> new ArrayList<>()).add(child);
+                }
+            }
+            Map<Integer, Integer> lengths = new TreeMap<>();
+            for (int season = 1; season <= folderSeason; season++) {
+                java.util.List<Path> dirs = bySeason.get(season);
+                if (dirs == null || dirs.size() != 1) {
+                    LOGGER.debug("Sibling inference skipped: season {} folder missing or ambiguous under {}",
+                            season, showDir.getFileName());
+                    return null;
+                }
+                int count = countVideoFiles(dirs.get(0));
+                if (count <= 0) {
+                    LOGGER.debug("Sibling inference skipped: season {} folder empty under {}", season, showDir.getFileName());
+                    return null;
+                }
+                lengths.put(season, count);
+            }
+            return lengths;
+        } catch (Exception e) {
+            LOGGER.debug("Sibling inference skipped: could not list {}: {}", showDir, e.getMessage());
+            return null;
+        }
+    }
+
+    private int countVideoFiles(Path dir) {
+        try (Stream<Path> files = Files.list(dir)) {
+            return (int) files.filter(Files::isRegularFile).filter(this::isVideoFile).count();
+        } catch (Exception e) {
+            LOGGER.debug("Sibling inference: could not count files in {}: {}", dir, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Parses only unambiguous season folder names: "Season N", "S N"/"SN",
+     * "T N"/"TN" (temporada shorthand), "Temporada N", "Temp N", "Series N",
+     * or a bare number. Anything else (arc names, "Season 2.5 OVA",
+     * "Vol. 2 Extras", quality tags) returns null so inference skips.
+     * Package-visible for offline tests. Never throws.
+     */
+    static Integer parseSeasonFolderName(String folderName) {
+        if (folderName == null) {
+            return null;
+        }
+        try {
+            String name = folderName.trim();
+            Matcher prefixed = Pattern.compile("(?i)^(season|temporada|temp|series|s|t)\\s*[-_. ]?(\\d{1,3})$")
+                    .matcher(name);
+            if (prefixed.matches()) {
+                int value = Integer.parseInt(prefixed.group(2));
+                return value >= 1 ? value : null;
+            }
+            if (name.matches("^\\d{1,3}$")) {
+                int value = Integer.parseInt(name);
+                return (value >= 1 && value <= 999) ? value : null;
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
     protected Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
@@ -606,6 +781,7 @@ public class VideoImportService {
                 
                 String relativePath = rootPath.relativize(filePath).toString();
                 SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(existingFile, filename, relativePath, null, null, null, null, null, null);
+                res = maybeApplySiblingInference(filePath, res, existingVideo);
                 Video updated = entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
                 applyContentType(updated);
                 return updated;
@@ -654,6 +830,7 @@ public class VideoImportService {
                 
                 String relativePath = rootPath.relativize(filePath).toString();
                 SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, filename, relativePath, null, null, null, null, null, null);
+                res = maybeApplySiblingInference(filePath, res, null);
                 Video created = entityCreationService.createVideoFromNamingResult(mediaFile, res);
                 applyContentType(created);
                 return created;

@@ -23,10 +23,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import Models.DTOs.VerificationField;
 import Models.DTOs.VerificationPreview;
 import jakarta.annotation.PreDestroy;
@@ -752,7 +754,29 @@ public class VideoMetadataService {
                         }
                     }
                 }
-                
+
+                // Phase 2 absolute-numbering: derive per-season episode counts
+                // (max episodeNumber per season) from the same episode array and
+                // stash them on the linked Series snapshot. The caller's
+                // persistEnrichedVideo(video) merges video.series in the same
+                // short transaction, so no extra write path is needed here.
+                // The title/ID matching loop above is intentionally untouched.
+                try {
+                    Map<Integer, Integer> seasonCounts =
+                            accumulateSeasonEpisodeCounts(episodesRoot.path("episodes"));
+                    if (!seasonCounts.isEmpty()) {
+                        if (video.series != null) {
+                            video.series.seasonEpisodeCounts = toSeasonEpisodeCountsJson(seasonCounts);
+                        } else {
+                            LOG.debug("[SeasonLengths] No linked Series for '{}', skipping season-count persist",
+                                    video.seriesTitle);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("[SeasonLengths] Failed to derive season counts for '{}': {}",
+                            video.seriesTitle, e.getMessage());
+                }
+
                 // FALLBACK: If IMDb didn't have the title, check if TMDB enrichment (which ran earlier) found it
                 if ((video.episodeTitle == null || video.episodeTitle.isBlank()) && video.tmdbId != null) {
                     LOG.info("IMDb title missing, checking TMDB fallback...");
@@ -778,6 +802,95 @@ public class VideoMetadataService {
             }
         } catch (Exception e) {
             LOG.error("DEBUG: IMDb Dev enrichment failed: {}", e.getMessage(), e);
+        }
+    }
+
+    private static final ObjectMapper SEASON_COUNTS_MAPPER = new ObjectMapper();
+
+    /**
+     * Phase 2 absolute-numbering: derives per-season episode counts from an IMDb Dev
+     * {@code /episodes} array as max {@code episodeNumber} per {@code season}.
+     * Pure, null-safe and offline-testable; never throws.
+     *
+     * <p>Entries with a missing/non-positive season or episodeNumber are skipped.
+     * Season 0 (specials) is skipped deliberately: consumers require seasons
+     * contiguous from 1 and refuse to guess on anything else.
+     *
+     * @param episodesArray the {@code episodes} JsonNode (array), or null/missing
+     * @return season (1-based) -&gt; max episodeNumber; empty when unknown
+     */
+    public static Map<Integer, Integer> accumulateSeasonEpisodeCounts(JsonNode episodesArray) {
+        Map<Integer, Integer> counts = new TreeMap<>();
+        try {
+            if (episodesArray == null || !episodesArray.isArray()) {
+                return counts;
+            }
+            for (JsonNode ep : episodesArray) {
+                if (ep == null || !ep.isObject()) {
+                    continue;
+                }
+                int season = ep.path("season").asInt(-1);
+                int epNum = ep.path("episodeNumber").asInt(-1);
+                if (season <= 0 || epNum <= 0) {
+                    continue;
+                }
+                counts.merge(season, epNum, Math::max);
+            }
+        } catch (Exception e) {
+            LOG.warn("[SeasonLengths] Failed to accumulate season counts: {}", e.getMessage());
+        }
+        return counts;
+    }
+
+    /**
+     * Serializes per-season episode counts for the {@code Series.seasonEpisodeCounts}
+     * column. Returns null for null/empty input so callers never persist empties.
+     */
+    public static String toSeasonEpisodeCountsJson(Map<Integer, Integer> counts) {
+        if (counts == null || counts.isEmpty()) {
+            return null;
+        }
+        try {
+            return SEASON_COUNTS_MAPPER.writeValueAsString(counts);
+        } catch (Exception e) {
+            LOG.warn("[SeasonLengths] Failed to serialize season counts: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Parses a {@code Series.seasonEpisodeCounts} JSON blob back into a
+     * season -&gt; episode count map. Returns null when unknown or invalid —
+     * callers treat null as "lengths unknown, keep current behavior".
+     */
+    public static Map<Integer, Integer> parseSeasonEpisodeCountsJson(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = SEASON_COUNTS_MAPPER.readTree(json);
+            if (root == null || !root.isObject() || root.isEmpty()) {
+                return null;
+            }
+            Map<Integer, Integer> counts = new TreeMap<>();
+            Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                int season;
+                try {
+                    season = Integer.parseInt(field.getKey().trim());
+                } catch (NumberFormatException nfe) {
+                    continue;
+                }
+                int count = field.getValue().asInt(-1);
+                if (season > 0 && count > 0) {
+                    counts.put(season, count);
+                }
+            }
+            return counts.isEmpty() ? null : counts;
+        } catch (Exception e) {
+            LOG.warn("[SeasonLengths] Failed to parse season counts JSON: {}", e.getMessage());
+            return null;
         }
     }
 

@@ -488,4 +488,95 @@ public class SmartNamingServiceTest {
         assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
         assertEquals("extra", result.contentType, "contentType should be 'extra' for file in Behind the Scenes folder");
     }
+
+    // ── Absolute numbering (resolveAbsoluteNumber) ───────────────────────
+
+    private static java.util.Map<Integer, Integer> lengths(Integer... counts) {
+        java.util.Map<Integer, Integer> map = new java.util.HashMap<>();
+        for (int i = 0; i < counts.length; i++) {
+            map.put(i + 1, counts[i]);
+        }
+        return map;
+    }
+
+    @Test
+    void testAbsoluteBasicRemap() {
+        // Shangri-La Frontier: S1 = 25 eps, absolute 026 in Season 2 folder -> S02E01.
+        int[] r = SmartNamingService.resolveAbsoluteNumber(2, 26, lengths(25, 25));
+        assertNotNull(r, "026 with S1=25 should remap");
+        assertEquals(2, r[0]);
+        assertEquals(1, r[1]);
+    }
+
+    @Test
+    void testAbsoluteEndOfSeason() {
+        int[] r = SmartNamingService.resolveAbsoluteNumber(2, 50, lengths(25, 25));
+        assertNotNull(r);
+        assertEquals(2, r[0]);
+        assertEquals(25, r[1]);
+    }
+
+    @Test
+    void testAbsoluteAlreadyRelativeIsNoOp() {
+        // Numbers already inside their own season range stay untouched.
+        assertNull(SmartNamingService.resolveAbsoluteNumber(1, 1, lengths(25, 25)));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(1, 25, lengths(25, 25)));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 5, lengths(25, 25)),
+                "per-season 5 in Season 2 folder must not move");
+    }
+
+    @Test
+    void testAbsolutePointingElsewhereKeepsFolder() {
+        // Absolute 25 lives in S1 but the file sits in the Season 2 folder:
+        // trust the folder, do not scatter seasons.
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 25, lengths(25, 25)));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(1, 26, lengths(25, 25)));
+    }
+
+    @Test
+    void testAbsoluteBeyondKnownRanges() {
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 51, lengths(25, 25)));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(3, 60, lengths(25, 25)));
+    }
+
+    @Test
+    void testAbsoluteIncompleteDataRefuses() {
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 26, null));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 26, new java.util.HashMap<>()));
+        // Gap in seasons (S2 count unknown): refuse to guess.
+        java.util.Map<Integer, Integer> gapped = new java.util.HashMap<>();
+        gapped.put(1, 25);
+        gapped.put(3, 10);
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 26, gapped));
+        // Non-positive count: refuse.
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 26, lengths(25, 0)));
+        // Invalid inputs.
+        assertNull(SmartNamingService.resolveAbsoluteNumber(0, 26, lengths(25, 25)));
+        assertNull(SmartNamingService.resolveAbsoluteNumber(2, 0, lengths(25, 25)));
+    }
+
+    @Test
+    void testAbsoluteNoProviderKeepsLegacyBehavior() {
+        // Unit tests construct the service without CDI, so no SeasonLengthProvider
+        // is wired: absolute-numbered files keep the legacy S02E26 reading.
+        String filename = "Shangri-La Frontier - 026 - Half-Naked Birdman And The Gang In Golem Paradise.mkv";
+        String relativePath = "TV Shows/Shangri-La Frontier/Season 2/Shangri-La Frontier - 026 - Half-Naked Birdman And The Gang In Golem Paradise.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals(2, result.season, "season should come from the folder");
+        assertEquals(26, result.episode, "episode stays absolute without a provider");
+    }
+
+    @Test
+    void testAbsoluteExplicitSeasonUntouched() {
+        // SxxExx in the filename always wins, with or without a provider.
+        String filename = "Show - S02E05 - Title.mkv";
+        String relativePath = "TV Shows/Show/Season 2/Show - S02E05 - Title.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals(2, result.season);
+        assertEquals(5, result.episode);
+    }
 }

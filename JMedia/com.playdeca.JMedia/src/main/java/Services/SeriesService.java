@@ -61,6 +61,10 @@ public class SeriesService {
         series.stillPath = input.stillPath;
         series.akas = input.akas;
         series.keywords = input.keywords;
+        // Phase 4b absolute-numbering override (plain JSON API pass-through;
+        // the manage-series form validates strictly, the provider never throws).
+        series.absoluteSeasonLengths = input.absoluteSeasonLengths;
+        series.forceAbsoluteNumbering = input.forceAbsoluteNumbering;
 
         series.persist();
         initializeCollections(series);
@@ -116,6 +120,9 @@ public class SeriesService {
         if (input.stillPath != null) series.stillPath = input.stillPath;
         if (input.akas != null) series.akas = input.akas;
         if (input.keywords != null) series.keywords = input.keywords;
+        // Phase 4b absolute-numbering override (see create() note).
+        if (input.absoluteSeasonLengths != null) series.absoluteSeasonLengths = input.absoluteSeasonLengths;
+        if (input.forceAbsoluteNumbering != null) series.forceAbsoluteNumbering = input.forceAbsoluteNumbering;
 
         initializeCollections(series);
         LOG.info("Updated series: {} (id={})", series.title, series.id);

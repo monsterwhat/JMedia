@@ -233,6 +233,8 @@ public class Video extends PanacheEntity {
     // Manual Override Flags - prevent rescans from overwriting user edits
     public boolean seriesTitleManuallyEdited = false;
     public boolean titleManuallyEdited = false;
+    public boolean seasonManuallyEdited = false;
+    public boolean episodeManuallyEdited = false;
 
     // Enrichment tracking — prevents redundant re-scans
     @Enumerated(EnumType.STRING)

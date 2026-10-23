@@ -195,7 +195,9 @@ public class VideoManagementApi {
             @FormParam("backdropPath") String backdropPath,
             @FormParam("showImdbId") String showImdbId,
             @FormParam("tvdbId") String tvdbId,
-            @FormParam("tmdbId") String tmdbId) {
+            @FormParam("tmdbId") String tmdbId,
+            @FormParam("absoluteSeasonLengths") String absoluteSeasonLengths,
+            @FormParam("forceAbsoluteNumbering") String forceAbsoluteNumbering) {
         
         if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
             videoService.updateSeriesTitle(seriesTitle, newTitle);
@@ -205,6 +207,17 @@ public class VideoManagementApi {
         Integer tvdbIdParsed = parseTvdbId(tvdbId, seriesTitle);
         Integer tmdbIdParsed = parseTmdbId(tmdbId, seriesTitle);
         videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed, tmdbIdParsed);
+        // Phase 4b per-show absolute-numbering override (strictly validated;
+        // blank clears the override). Only runs when the edit form carries
+        // the field, so legacy callers are unaffected.
+        if (absoluteSeasonLengths != null) {
+            try {
+                videoService.updateSeriesAbsoluteOverride(seriesTitle, absoluteSeasonLengths,
+                        parseForceAbsoluteNumbering(forceAbsoluteNumbering));
+            } catch (IllegalArgumentException e) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
+            }
+        }
         return Response.ok("Series updated successfully").build();
     }
 
@@ -240,6 +253,20 @@ public class VideoManagementApi {
         }
     }
 
+    /**
+     * Phase 4b: parses the "Force absolute numbering" checkbox value.
+     * Unchecked checkboxes submit nothing (null → null = default-off);
+     * checked boxes submit "true"/"on"/"1" depending on the client.
+     */
+    private Boolean parseForceAbsoluteNumbering(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim().toLowerCase();
+        if (trimmed.isEmpty() || trimmed.equals("false") || trimmed.equals("0") || trimmed.equals("off")) {
+            return Boolean.FALSE;
+        }
+        return Boolean.TRUE;
+    }
+
     @POST
     @Path("/series/update-and-refetch")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -251,7 +278,9 @@ public class VideoManagementApi {
             @FormParam("backdropPath") String backdropPath,
             @FormParam("showImdbId") String showImdbId,
             @FormParam("tvdbId") String tvdbId,
-            @FormParam("tmdbId") String tmdbId) {
+            @FormParam("tmdbId") String tmdbId,
+            @FormParam("absoluteSeasonLengths") String absoluteSeasonLengths,
+            @FormParam("forceAbsoluteNumbering") String forceAbsoluteNumbering) {
 
         if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
             videoService.updateSeriesTitle(seriesTitle, newTitle);
@@ -260,6 +289,14 @@ public class VideoManagementApi {
 
         Integer tvdbIdParsed = parseTvdbId(tvdbId, seriesTitle);
         Integer tmdbIdParsed = parseTmdbId(tmdbId, seriesTitle);
+        if (absoluteSeasonLengths != null) {
+            try {
+                videoService.updateSeriesAbsoluteOverride(seriesTitle, absoluteSeasonLengths,
+                        parseForceAbsoluteNumbering(forceAbsoluteNumbering));
+            } catch (IllegalArgumentException e) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
+            }
+        }
         int queued = videoService.updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId, tvdbIdParsed, tmdbIdParsed);
         return Response.ok("Queued " + queued + " episodes for background enrichment").build();
     }
@@ -462,6 +499,22 @@ public class VideoManagementApi {
                 tmdbIdPrefill = representative.tmdbId.trim();
             }
         }
+        // Phase 4b per-show absolute-numbering override prefill.
+        String absoluteLengthsPrefill = "";
+        boolean forceAbsolutePrefill = false;
+        try {
+            Series series = Series.find("title", seriesTitle).firstResult();
+            if (series != null) {
+                if (series.absoluteSeasonLengths != null) {
+                    absoluteLengthsPrefill = series.absoluteSeasonLengths;
+                }
+                forceAbsolutePrefill = Boolean.TRUE.equals(series.forceAbsoluteNumbering);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to load absolute-numbering override for series '{}': {}", seriesTitle, e.getMessage());
+        }
+        String absoluteLengthsEscaped = absoluteLengthsPrefill.replace("&", "&amp;").replace("<", "&lt;").replace("'", "&#39;");
+        String forceAbsoluteChecked = forceAbsolutePrefill ? " checked" : "";
         
          return " <form hx-post='/api/video/manage/series/update' hx-swap='none' class='p-2'>" +
                 " <input type='hidden' name='seriesTitle' value='" + seriesTitle + "'>" +
@@ -487,6 +540,13 @@ public class VideoManagementApi {
                 " <div class='control'><input class='input is-dark' type='text' name='tmdbId' value='" + tmdbIdPrefill + "' " +
                 " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;' placeholder='e.g. 456'></div>" +
                 " <p class='help has-text-grey'>The TMDB ID of this TV series (e.g. 456 for The Simpsons)</p></div>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Absolute Season Lengths (JSON override)</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='absoluteSeasonLengths' value='" + absoluteLengthsEscaped + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;' placeholder='e.g. {\"1\":25,\"2\":25}'></div>" +
+                " <p class='help has-text-grey'>Optional raw JSON mapping season to episode count. Highest precedence when Force is checked. Blank clears the override; invalid JSON is rejected.</p></div>" +
+                " <div class='field'><div class='control'><label class='checkbox' style='color: rgba(255,255,255,0.7);'>" +
+                " <input type='checkbox' name='forceAbsoluteNumbering' value='true'" + forceAbsoluteChecked + "> Force absolute numbering</label></div>" +
+                " <p class='help has-text-grey'>When checked, the JSON above overrides metadata-derived season lengths for bare-numbered files.</p></div>" +
                 " <div class='field mt-5'><div class='control'><button class='button is-info is-fullwidth' type='submit'>" +
                 " <i class='pi pi-save mr-2'></i> Save Series Changes</button></div></div>" +
                 " </form>";

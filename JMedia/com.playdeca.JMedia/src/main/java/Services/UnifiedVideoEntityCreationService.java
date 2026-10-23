@@ -80,9 +80,14 @@ public class UnifiedVideoEntityCreationService {
             video.seriesTitle = result.showName;
         }
 
-        video.seasonNumber = result.season;
+        // Only overwrite season/episode if NOT manually edited
+        if (!video.seasonManuallyEdited) {
+            video.seasonNumber = result.season;
+        }
         video.seasonName = result.seasonName;
-        video.episodeNumber = result.episode;
+        if (!video.episodeManuallyEdited) {
+            video.episodeNumber = result.episode;
+        }
         video.folder = result.folder;
 
         // Set episodeTitle for episodes
@@ -92,7 +97,8 @@ public class UnifiedVideoEntityCreationService {
 
         // FALLBACK: Extract season number from seasonName if season is null
         // Skip for non-episodic content types (extras, featurettes, behind_the_scenes)
-        if (video.seasonNumber == null && video.seasonName != null && !video.seasonName.isEmpty()) {
+        // Skip when season was manually edited - never overwrite a user correction
+        if (!video.seasonManuallyEdited && video.seasonNumber == null && video.seasonName != null && !video.seasonName.isEmpty()) {
             if (!"extra".equalsIgnoreCase(video.contentType) && 
                 !"featurette".equalsIgnoreCase(video.contentType) && 
                 !"behind_the_scenes".equalsIgnoreCase(video.contentType)) {

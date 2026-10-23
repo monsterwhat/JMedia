@@ -88,6 +88,23 @@ public class Series extends PanacheEntity {
     @Column(length = 2000)
     public String parentsGuide;
 
+    // Phase 2 absolute-numbering: per-season episode counts as JSON (e.g. {"1":25,"2":25}),
+    // derived from the IMDb Dev episode list during enrichment. Null = unknown.
+    @Column(columnDefinition = "TEXT")
+    public String seasonEpisodeCounts;
+
+    // Phase 4b per-show absolute-numbering override (highest precedence):
+    // raw JSON in the same shape as seasonEpisodeCounts, applied only when
+    // forceAbsoluteNumbering is TRUE. Blank/null = no override (default-off).
+    // Invalid JSON (unparseable, gapped, non-positive) is rejected at the
+    // manage-series form and ignored-with-warning by the provider.
+    @Column(columnDefinition = "TEXT")
+    public String absoluteSeasonLengths;
+
+    // Phase 4b enable-switch for absoluteSeasonLengths. Nullable; null
+    // behaves as false so rows created before this column stay default-off.
+    public Boolean forceAbsoluteNumbering;
+
     // External IDs
     public String imdbId;
     public Integer tmdbId;
