@@ -59,27 +59,35 @@
         }
 
         /**
-         * Check if browser has native HEVC support
+         * Check if the browser has native HEVC Main 10 (10-bit) MSE playback.
          *
-         * IMPORTANT: MediaSource.isTypeSupported / canPlayType return a FALSE
-         * POSITIVE on Firefox (Gecko) — Firefox reports 'hev1'/'hvc1' as
-         * supported but its <video>/MSE H264 decoder cannot actually decode
-         * HEVC samples, so serving HEVC via copy yields NS_ERROR_DOM_MEDIA_FATAL
-         * ("Invalid H264 content"). Exclude Gecko explicitly; the backend
-         * (TranscodingService.isTranscodeNeededForWeb) makes the matching call
-         * and transcodes HEVC -> H.264 for Firefox. The probe is only trusted
-         * on Safari (VideoToolbox) and Chromium (OS HEVC Video Extension on Windows, built-in on macOS).
+         * A Main-profile-only probe is NOT sufficient: this library is
+         * overwhelmingly Main 10 (yuv420p10le), and a Main-only pass is a
+         * false positive that leads the server to serve unplayable copy
+         * streams. Probe the Main 10 profiles explicitly (hev1.2.x / hvc1.2.x).
+         *
+         * Exclude real Gecko (Firefox) via 'firefox', 'fxios', or 'gecko/'
+         * WITH the slash: every Chromium/WebKit UA contains the string
+         * "like Gecko" (no slash), so a bare indexOf('gecko') check would
+         * false-negative everywhere and the probe could never report support.
+         * Firefox reports hvc1 as supported but cannot decode HEVC in MSE
+         * (NS_ERROR_DOM_MEDIA_FATAL), so the exclusion stays.
+         *
+         * A "Yes" here means nativeHevc=1 (skip server transcode); anything
+         * else means the server must transcode.
          */
         static hasNativeHevcSupport() {
             var ua = (navigator.userAgent || '').toLowerCase();
-            if (ua.indexOf('firefox') !== -1 || ua.indexOf('gecko') !== -1) {
+            if (ua.indexOf('firefox') !== -1 || ua.indexOf('fxios') !== -1 || ua.indexOf('gecko/') !== -1) {
                 return false;
             }
-            const video = document.createElement('video');
-            return MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L93.B0"') ||
-                   MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"') ||
-                   video.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"') !== '' ||
-                   video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') !== '';
+            if (typeof MediaSource === 'undefined' || typeof MediaSource.isTypeSupported !== 'function') {
+                return false;
+            }
+            var video = document.createElement('video');
+            return MediaSource.isTypeSupported('video/mp4; codecs="hev1.2.4.L123.B0"') ||
+                MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.4.L123.B0"') ||
+                video.canPlayType('video/mp4; codecs="hev1.2.4.L123.B0"') === 'probably';
         }
 
         /**
