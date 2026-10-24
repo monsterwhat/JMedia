@@ -38,6 +38,7 @@ public class DatabaseMigration {
         runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
         runScript("/db/migrate-series-season-episode-counts.sql", "Series seasonEpisodeCounts migration applied");
         runScript("/db/migrate-series-absolute-override.sql", "Series absoluteSeasonLengths override migration applied");
+        runScript("/db/migrate-video-manual-season-flags.sql", "Video manual season/episode flags migration applied");
         runScript(settingsEm, "/db/migrate-profile-hls-streaming.sql", "Profile hlsStreaming migration applied");
         reclassifyImportedExtras();
         backfillAbsoluteNumbering();
