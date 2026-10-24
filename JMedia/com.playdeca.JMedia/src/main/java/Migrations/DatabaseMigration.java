@@ -34,6 +34,7 @@ public class DatabaseMigration {
     VideoService videoService;
 
     void onStart(@Observes StartupEvent event) {
+        runScript("/db/migrate-migration-state.sql", "Migration state table ready");
         runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
         runScript("/db/migrate-scanstate-paths.sql", "ScanState paths migration applied");
         runScript("/db/migrate-series-season-episode-counts.sql", "Series seasonEpisodeCounts migration applied");
@@ -54,10 +55,15 @@ public class DatabaseMigration {
      */
     private void reclassifyImportedExtras() {
         try {
+            if (isStepDone("reclassify-imported-extras")) {
+                LOGGER.debug("Extras backfill: already completed, skipping");
+                return;
+            }
             int reclassified = videoService.reclassifyExtras();
             if (reclassified > 0) {
                 LOGGER.info("Extras backfill: reclassified {} episode row(s) as extras", reclassified);
             }
+            markStepDone("reclassify-imported-extras");
         } catch (Exception e) {
             LOGGER.error("Extras backfill failed: {}", e.getMessage(), e);
         }
@@ -72,12 +78,47 @@ public class DatabaseMigration {
      */
     private void backfillAbsoluteNumbering() {
         try {
+            if (isStepDone("backfill-absolute-numbering")) {
+                LOGGER.debug("Absolute backfill: already completed, skipping");
+                return;
+            }
             int remapped = videoService.backfillAbsoluteNumbering();
             if (remapped > 0) {
                 LOGGER.info("Absolute backfill: remapped {} episode row(s) to season-relative numbers", remapped);
             }
+            markStepDone("backfill-absolute-numbering");
         } catch (Exception e) {
             LOGGER.error("Absolute backfill failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Boot-once bookkeeping: data backfills run a single time, then record
+     * completion in migration_state so later reboots skip the full-library
+     * scan. Fail-open by design — any error means "not done", i.e. the
+     * backfill runs again next boot exactly like before this change.
+     */
+    boolean isStepDone(String step) {
+        try {
+            Number n = (Number) em.createNativeQuery(
+                    "SELECT COUNT(*) FROM migration_state WHERE step_name = ?1")
+                    .setParameter(1, step)
+                    .getSingleResult();
+            return n != null && n.longValue() > 0;
+        } catch (Exception e) {
+            LOGGER.debug("Migration step check failed for '{}', will run backfill: {}", step, e.getMessage());
+            return false;
+        }
+    }
+
+    void markStepDone(String step) {
+        try {
+            em.createNativeQuery(
+                    "MERGE INTO migration_state (step_name, completed_at) KEY (step_name) VALUES (?1, CURRENT_TIMESTAMP)")
+                    .setParameter(1, step)
+                    .executeUpdate();
+        } catch (Exception e) {
+            LOGGER.warn("Could not record migration step '{}' as done, it will re-run next boot: {}", step, e.getMessage());
         }
     }
 
