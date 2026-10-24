@@ -22,9 +22,6 @@ public class IntroDbService {
     
     @Inject
     SettingsService settingsService;
-
-    @Inject
-    EnrichmentNegativeCache negativeCache;
     
     // Source 1: Newest segments endpoint
     private static final String API_URL_SEGMENTS = "https://api.introdb.app/segments";
@@ -86,7 +83,7 @@ public class IntroDbService {
             String url = String.format("%s?imdb_id=%s&season=%d&episode=%d",
                     baseUrl, imdbId, season, episode);
             String cacheKey = EnrichmentNegativeCache.keyForUrl(url);
-            if (negativeCache.isBlocked(cacheKey)) {
+            if (EnrichmentNegativeCache.isBlocked(cacheKey)) {
                 LOG.debug("IntroDB: skipping recently-failed fetch {}", url);
                 return Optional.empty();
             }
@@ -108,7 +105,7 @@ public class IntroDbService {
             }
 
             if (response.statusCode() == 404) {
-                if (negativeCache.rememberNotFound(cacheKey)) {
+                if (EnrichmentNegativeCache.rememberNotFound(cacheKey)) {
                     LOG.warn("IntroDB: {} 404s, pausing retries for 30d", baseUrl);
                 }
                 return Optional.empty();
@@ -130,7 +127,7 @@ public class IntroDbService {
                     LOG.info("IntroDB: Successfully retrieved data from {}", baseUrl);
                     return Optional.of(metadata);
                 }
-                if (negativeCache.rememberEmpty(cacheKey)) {
+                if (EnrichmentNegativeCache.rememberEmpty(cacheKey)) {
                     LOG.debug("IntroDB: no data at {} for {} S{}E{}, pausing retries", baseUrl, imdbId, season, episode);
                 }
             }
