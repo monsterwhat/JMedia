@@ -488,7 +488,10 @@
             p.streamStartOffset = absTime;
 
             const setupFallback = () => {
-                p.video.src = this.buildStreamUrl(absTime);
+                // Escalate, don't repeat: a fallback means the copy/HLS path already
+                // failed to play, so force a server transcode instead of re-serving
+                // the same unplayable bytes (previously an infinite fail loop).
+                p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=1'] });
                 p.video.load();
                 p.video.addEventListener('loadedmetadata', () => {
                     p._fallbackInProgress = false;

@@ -200,7 +200,6 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.subtitleController.loadSubtitles();
                 // F2a: Attach error handler for plain direct stream (was only on transcode path)
                 var self = this;
-                var _directStreamUrl = this.video.src;
                 this._setupStreamErrorHandler = function() {
                     if (self._destroyed || !document.body.contains(self.container)) return;
                     self._streamFallbackCount = (self._streamFallbackCount || 0) + 1;
@@ -210,7 +209,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                         setTimeout(function() {
                             if (self._destroyed || !document.body.contains(self.container)) return;
                             self.streamStartOffset = 0;
-                            self.video.src = _directStreamUrl;
+                            // Escalate, don't repeat: the copy/remux already failed once,
+                            // so drop any native-codec bypass and force a server transcode.
+                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'] });
                             self.video.load();
                             self.video.play().catch(function() {});
                         }, 1000);

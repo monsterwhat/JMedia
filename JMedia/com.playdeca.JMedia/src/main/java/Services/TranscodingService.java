@@ -783,14 +783,23 @@ public class TranscodingService {
     }
 
     public boolean isTranscodeNeededForWeb(Video video, String userAgent) {
+        return isTranscodeNeededForWeb(video, userAgent, false);
+    }
+
+    /**
+     * @param clientProvenHevc true only when the client proved Main 10 MSE
+     *                         playback (?nativeHevc=1 after a Main 10 probe).
+     *                         UA sniffing alone never proves it.
+     */
+    public boolean isTranscodeNeededForWeb(Video video, String userAgent, boolean clientProvenHevc) {
         if (video.videoCodec == null) {
             return true;
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
-        // Cache key versioned ("v4") so decisions made by the previous logic
-        // (v3: Firefox on Windows falsely whitelisted for HEVC) don't survive
-        // the fix within a running session.
-        String cacheKey = "v4|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
+        // Cache key versioned ("v5") so decisions made by the previous logic
+        // (v4: Chromium-on-Windows whitelisted for HEVC on UA alone) don't
+        // survive the fix within a running session.
+        String cacheKey = "v5|" + clientProvenHevc + "|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
         
         Boolean cached = transcodeNeededCache.get(cacheKey);
         if (cached != null) {
@@ -810,11 +819,12 @@ public class TranscodingService {
                 String ua = userAgent.toLowerCase(Locale.ROOT);
 
                 if (ua.contains("windows") && !ua.contains("firefox")) {
-                    // Chromium (Chrome 107+/Edge) on Windows decodes HEVC via the OS
-                    // Microsoft HEVC Video Extension. Firefox does NOT expose HEVC to
-                    // <video>/MSE even with the Extension installed — its
-                    // hasNativeHevcSupport() probe returns false — so it must transcode.
-                    result = false;
+                    // Chromium/Edge on Windows: only trust OS HEVC when the client
+                    // proved Main 10 MSE playback (?nativeHevc=1). The Microsoft HEVC
+                    // Video Extension is absent on most machines, and nothing in the
+                    // UA distinguishes those that have it — serving copy by default
+                    // produced unplayable streams (MSE fatal -> fallback loop).
+                    result = !clientProvenHevc;
                 } else if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
                     result = false;  // macOS native VideoToolbox
                 } else if (isIOSClient(userAgent)) {

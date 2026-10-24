@@ -175,7 +175,8 @@ public class VideoStreamResource {
                                @QueryParam("quality") @DefaultValue("0") int qualityHeight,
                                 @QueryParam("trace") String traceId,
                                 @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc,
-                                @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1) {
+                                @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1,
+                                @QueryParam("forceTranscode") @DefaultValue("false") boolean forceTranscode) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -240,16 +241,10 @@ public class VideoStreamResource {
         // 720p maximum.  Higher resolutions are only used when the user
         // explicitly selects them from the quality menu.
         boolean isFastStart = !isMKV && hasFastStart(videoFile);
-        boolean transcodeNeeded = transcodingService.isTranscodeNeededForWeb(video, userAgent);
-        // Client-side native HEVC support override: when the browser can play HEVC
-        // natively (e.g. Chrome with HEVC Video Extensions on Windows), skip the
-        // server-side FFmpeg transcode and serve the HEVC stream directly via
-        // the lightweight FFmpeg-copy path.
-        if (nativeHevc && video.videoCodec != null &&
-            (video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc") ||
-             video.videoCodec.toLowerCase(Locale.ROOT).contains("h265"))) {
-            transcodeNeeded = false;
-        }
+        boolean transcodeNeeded = transcodingService.isTranscodeNeededForWeb(video, userAgent, nativeHevc);
+        // Client-side native HEVC support override is now folded into the
+        // isTranscodeNeededForWeb call above (?nativeHevc=1 means the browser
+        // proved Main 10 MSE playback). It is intentionally NOT re-applied here.
         // Client-side native AV1 support override: when the browser can play AV1
         // natively (Chrome 70+, Edge 79+, Firefox 67+), skip the server-side
         // FFmpeg transcode and serve the AV1 stream directly via the copy path.
@@ -257,6 +252,14 @@ public class VideoStreamResource {
             (video.videoCodec.toLowerCase(Locale.ROOT).contains("av1") ||
              video.videoCodec.toLowerCase(Locale.ROOT).contains("av01"))) {
             transcodeNeeded = false;
+        }
+        // Escalation path: the client already failed to play a copy/remux stream
+        // (MSE decode failure, HLS fatal error, direct-stream error). Never serve
+        // copy again for this request — transcode even when the codec/UA heuristics
+        // (or a stale nativeHevc flag) say the stream is playable.
+        if (forceTranscode) {
+            LOG.info("[STREAM] videoId={} forcing transcode (client escalation after playback failure)", videoId);
+            transcodeNeeded = true;
         }
         if (qualityHeight <= 0) {
             int sourceHeight = parseSourceHeight(video.resolution);
