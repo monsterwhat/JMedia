@@ -6,6 +6,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.video = document.getElementById(config.videoId);
             this.videoId = config.currentVideoId;
             this.videoType = this.container.dataset.type || 'movie';
+            // Live channels are not backed by a Video row, so server state sync
+            // has nothing correct to say about them (see _initWebSocket).
+            this._isLive = String(this.videoType).toLowerCase() === 'live';
             this.utils = window.PlayerUtils;
 
             if (!this.container || !this.video) return;
@@ -329,6 +332,17 @@ if (typeof window.SimplePlayer === 'undefined') {
 
         _initWebSocket() {
             if (!window.VideoWebSocketManager) return;
+            // A live channel has no Video row, so the server's "currentVideoId"
+            // is whatever movie or episode was watched last. The source-swap in
+            // onStateUpdate below treats that as "the server selected a new
+            // video" and calls initDirectStream(), which replaces the channel
+            // with that recording — exactly the "I clicked a channel and it
+            // played the film I was watching" bug. Live also has no position to
+            // restore and no progress to report, so it stays out of state sync.
+            if (this._isLive) {
+                console.log('[SimplePlayer] Live channel — server state sync disabled');
+                return;
+            }
             const profileId = this.container.dataset.profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             if (!profileId) {
                 if (!window.profileInitialized) {
@@ -343,8 +357,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                     if (!state || this._destroyed) return;
                     this._applyingServerState = true;
                     try {
-                        // Source-reload: if server selected a different video, reinit player for the new source
-                        if (state.currentVideoId && state.currentVideoId.toString() !== this.videoId.toString()) {
+                        // Source-reload: if server selected a different video, reinit player for the new source.
+                        // Never for a live channel — see the _isLive guard in _initWebSocket().
+                        if (!this._isLive && state.currentVideoId && state.currentVideoId.toString() !== this.videoId.toString()) {
                             const newId = state.currentVideoId;
                             const newStateTime = typeof state.currentTime === 'number' ? state.currentTime : 0;
 
