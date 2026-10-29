@@ -467,12 +467,7 @@ public class VideoService {
      *
      * @return number of rows whose season/episode were rewritten
      */
-    @Transactional
     public int backfillAbsoluteNumbering() {
-        List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
-        int scanned = 0;
-        int changed = 0;
-        int skippedManual = 0;
         Path rootPath = null;
         try {
             String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
@@ -482,6 +477,15 @@ public class VideoService {
         } catch (Exception e) {
             LOGGER.warn("Absolute backfill: could not load library root, using filename fallback: {}", e.getMessage());
         }
+        return backfillAbsoluteNumberingVideo(rootPath);
+    }
+
+    @Transactional
+    public int backfillAbsoluteNumberingVideo(Path rootPath) {
+        List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
+        int scanned = 0;
+        int changed = 0;
+        int skippedManual = 0;
         for (Video v : candidates) {
             try {
                 if (v.seasonNumber == null || v.episodeNumber == null) {
