@@ -980,9 +980,12 @@ public class SmartNamingService {
         // If we matched episode from filename but haven't returned yet,
         // check for season folder in path before finalizing
         
-        // NEW: "Naruto 153 - Title" format
+        // NEW: "Naruto 153 - Title" format. Only when nothing above already set
+        // an episode: for "Kaiju No. 8 - 013 - Kaiju Weapon" the dash-trailing
+        // rule above already read 013, while this pattern would split the show
+        // name at the ". 8" and wrongly report episode 8 for every file.
         Matcher mShowDash = EPISODE_SHOW_NUMBER_DASH.matcher(filename);
-        if (mShowDash.matches()) {
+        if (mShowDash.matches() && !detection.hasEpisodePattern) {
             try {
                 String showHint = mShowDash.group(1);
                 String numStr = mShowDash.group(2);
@@ -996,7 +999,7 @@ public class SmartNamingService {
                         detection.showNameHint = showHint;
                         detection.hasEpisodePattern = true;
                         detection.detectionMethod = "ShowNumberDash";
-                        System.out.println("DEBUG: matched EPISODE_SHOW_NUMBER_DASH: show='" + showHint + "', episode=" + num);
+                        LOGGER.debug("matched EPISODE_SHOW_NUMBER_DASH: show='{}', episode={}", showHint, num);
                         return detection;
                     }
                 }

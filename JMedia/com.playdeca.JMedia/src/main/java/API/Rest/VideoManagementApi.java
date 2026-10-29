@@ -341,6 +341,46 @@ public class VideoManagementApi {
         return Response.ok("Rescan completed. Created/updated " + totalCreated + " videos.").build();
     }
 
+    /**
+     * Removes database rows whose backing file no longer exists on disk.
+     *
+     * <p>Deliberately separate from {@code /api/video/scan/tvshows} and
+     * {@code /api/video/scan/movies}: those also run a full re-scan and queue
+     * every video for thumbnail regeneration. This endpoint touches only the
+     * bookkeeping rows (and their state/genre/history relations), so it is
+     * cheap enough to run right after files are moved out of the library.
+     *
+     * @param type {@code episode} (default) or {@code movie}
+     */
+    @POST
+    @Path("/prune-missing")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_PLAIN)
+    @Blocking
+    public Response pruneMissing(@FormParam("type") String type) {
+        String mediaType = (type == null || type.isBlank()) ? "episode" : type.trim().toLowerCase();
+        if (!mediaType.equals("episode") && !mediaType.equals("movie")) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("type must be 'episode' or 'movie'").build();
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        java.nio.file.Path libraryPath = (videoLibraryPath == null || videoLibraryPath.isBlank())
+                ? null
+                : java.nio.file.Paths.get(videoLibraryPath);
+
+        LOG.info("Prune-missing requested for type '{}' (library path {})", mediaType, libraryPath);
+        try {
+            int pruned = videoImportService.pruneMissingByType(mediaType, libraryPath);
+            LOG.info("Prune-missing removed {} missing '{}' entries", pruned, mediaType);
+            return Response.ok("Pruned " + pruned + " missing " + mediaType + " entries.").build();
+        } catch (RuntimeException e) {
+            LOG.error("Prune-missing failed for type '{}': {}", mediaType, e.getMessage(), e);
+            return Response.serverError()
+                    .entity("Prune failed: " + e.getMessage()).build();
+        }
+    }
+
     @POST
     @Path("/series/force-refresh")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)

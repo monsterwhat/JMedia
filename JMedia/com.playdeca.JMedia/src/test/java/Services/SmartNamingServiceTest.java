@@ -476,11 +476,32 @@ public class SmartNamingServiceTest {
     }
 
     /**
+     * "Kaiju No. 8 - 013 - Kaiju Weapon.mkv": the show title itself ends in
+     * "8", so EPISODE_SHOW_NUMBER_DASH used to split it as show "Kaiju No." +
+     * episode 8 and overwrite the 013 that the dash-trailing rule had already
+     * read. Every season-2 file collapsed onto S02E08.
+     */
+    @Test
+    void testTitleEndingInNumberDoesNotOverrideDashEpisode() {
+        String filename = "Kaiju No. 8 - 013 - Kaiju Weapon.mkv";
+        String relativePath = "TV Shows/Kaiju No 8/Season 2/Kaiju No. 8 - 013 - Kaiju Weapon.mkv";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals(2, result.season, "season should come from the folder");
+        assertEquals(13, result.episode, "episode must be 013, not the 8 embedded in the title");
+        assertTrue(SmartNamingService.isSiblingInferenceEligible(result.detectionMethod),
+                "detection must stay eligible for absolute-number remapping, got: " + result.detectionMethod);
+    }
+
+    /**
      * "Extra 6.mp4" → some pattern match but in "Behind the Scenes" → should be "extra".
      */
     @Test
-    void testBehindTheScenesFolderWithNumberPattern() {
-        String filename = "Extra 6.mp4";
+    void testBehindTheScenesFolderWithNumberPattern() {        String filename = "Extra 6.mp4";
         String relativePath = "TV Shows/Show/Season 1/Behind the Scenes/Extra 6.mp4";
         SmartNamingService.NamingResult result = service.detectSmartNames(
                 null, filename, relativePath, null, null, null, null, null, null);
