@@ -12,6 +12,7 @@ import Models.Video.SubtitleTrack;
 import Models.Video.UserSubtitlePreferences;
 import Models.Video.AudioTrack;
 import Models.Video.VideoState;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -480,69 +481,116 @@ public class VideoService {
         return backfillAbsoluteNumberingVideo(rootPath);
     }
 
-    @Transactional(dontRollbackOn = Exception.class)
+    /** Per-row outcome codes for {@link #backfillAbsoluteNumberingVideo(Path)}. */
+    static final int BACKFILL_IGNORED = 0;
+    static final int BACKFILL_SCANNED = 1;
+    static final int BACKFILL_MANUAL = 2;
+    static final int BACKFILL_CHANGED = 3;
+
+    /**
+     * Runs the absolute-numbering pass one row per transaction.
+     *
+     * <p>Deliberately NOT annotated {@code @Transactional}: a full pass over a
+     * large library needs far more than the 5 minute Narayana default
+     * transaction timeout. Running it in a single transaction made the
+     * transaction reaper cancel the pass mid-flight (ARJUNA012108 "atomic
+     * action ... aborting with 1 threads active"), which closed the connection
+     * and poisoned every remaining row with "Connection is closed" /
+     * "Failing fast as the transaction has rolled back". Each row now gets its
+     * own short transaction, so one slow or failing row can never abort the
+     * pass and no intermediate state is kept across rows.
+     */
     public int backfillAbsoluteNumberingVideo(Path rootPath) {
-        List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
+        final List<Long> candidateIds;
+        try {
+            candidateIds = QuarkusTransaction.requiringNew().call(() ->
+                    Video.find("select v.id from Video v where v.type = ?1 and (v.contentType is null or v.contentType = 'episode')", "episode")
+                            .project(Long.class)
+                            .list());
+        } catch (Exception e) {
+            LOGGER.error("Absolute backfill: could not list episode rows, pass skipped", e);
+            return 0;
+        }
+
         int scanned = 0;
         int changed = 0;
         int skippedManual = 0;
-        for (Video v : candidates) {
+        for (Long id : candidateIds) {
             try {
-                if (v.seasonNumber == null || v.episodeNumber == null) {
+                int outcome = QuarkusTransaction.requiringNew()
+                        .call(() -> backfillAbsoluteNumberingRow(id, rootPath));
+                if (outcome == BACKFILL_IGNORED) {
                     continue;
                 }
                 scanned++;
-                if (v.seasonManuallyEdited || v.episodeManuallyEdited) {
+                if (outcome == BACKFILL_CHANGED) {
+                    changed++;
+                } else if (outcome == BACKFILL_MANUAL) {
                     skippedManual++;
-                    continue;
                 }
-                MediaFile mf = MediaFile.find("path", v.path).firstResult();
-                if (mf == null || v.path == null) {
-                    continue;
-                }
-                Path path;
-                try {
-                    path = Paths.get(v.path);
-                } catch (Exception e) {
-                    LOGGER.warn("Absolute backfill skipped for row id={}: unparseable path: {}", v.id, e.getMessage());
-                    continue;
-                }
-                String filename = path.getFileName() != null ? path.getFileName().toString() : v.filename;
-                if (filename == null) {
-                    continue;
-                }
-                // Library-relative path (same relativization the scan path uses)
-                // so folder context is preserved; filename-only fallback otherwise.
-                String relativePath = filename;
-                try {
-                    if (rootPath != null && path.startsWith(rootPath)) {
-                        relativePath = rootPath.relativize(path).toString();
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("Absolute backfill: could not relativize {} against library root: {}", v.path, e.getMessage());
-                }
-                SmartNamingService.NamingResult res =
-                        smartNamingService.detectSmartNames(mf, filename, relativePath, null, null, null, null, null, null);
-                if (res == null || res.season == null || res.episode == null) {
-                    continue;
-                }
-                int[] target = absoluteBackfillTarget(v.seasonNumber, v.episodeNumber,
-                        res.season, res.episode, v.seasonManuallyEdited, v.episodeManuallyEdited);
-                if (target == null) {
-                    continue;
-                }
-                v.seasonNumber = target[0];
-                v.episodeNumber = target[1];
-                v.persist();
-                changed++;
-                LOGGER.info("Absolute backfill: remapped {} (id={}) to S{}E{}", v.filename, v.id, target[0], target[1]);
             } catch (Exception e) {
-                LOGGER.warn("Absolute backfill skipped for row id={}: {}", v.id, e.getMessage());
+                LOGGER.warn("Absolute backfill skipped for row id={}: {}", id, e.getMessage());
             }
         }
         LOGGER.info("Absolute backfill: scanned {} episode row(s), changed {}, skipped-manual {}",
                 scanned, changed, skippedManual);
         return changed;
+    }
+
+    /**
+     * Recomputes absolute numbering for a single row inside its own
+     * transaction. Never called from inside a transaction.
+     *
+     * @return one of the {@code BACKFILL_*} outcome codes
+     */
+    int backfillAbsoluteNumberingRow(Long id, Path rootPath) {
+        Video v = Video.findById(id);
+        if (v == null || v.seasonNumber == null || v.episodeNumber == null) {
+            return BACKFILL_IGNORED;
+        }
+        if (v.seasonManuallyEdited || v.episodeManuallyEdited) {
+            return BACKFILL_MANUAL;
+        }
+        MediaFile mf = MediaFile.find("path", v.path).firstResult();
+        if (mf == null || v.path == null) {
+            return BACKFILL_SCANNED;
+        }
+        Path path;
+        try {
+            path = Paths.get(v.path);
+        } catch (Exception e) {
+            LOGGER.warn("Absolute backfill skipped for row id={}: unparseable path: {}", v.id, e.getMessage());
+            return BACKFILL_SCANNED;
+        }
+        String filename = path.getFileName() != null ? path.getFileName().toString() : v.filename;
+        if (filename == null) {
+            return BACKFILL_SCANNED;
+        }
+        // Library-relative path (same relativization the scan path uses)
+        // so folder context is preserved; filename-only fallback otherwise.
+        String relativePath = filename;
+        try {
+            if (rootPath != null && path.startsWith(rootPath)) {
+                relativePath = rootPath.relativize(path).toString();
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Absolute backfill: could not relativize {} against library root: {}", v.path, e.getMessage());
+        }
+        SmartNamingService.NamingResult res =
+                smartNamingService.detectSmartNames(mf, filename, relativePath, null, null, null, null, null, null);
+        if (res == null || res.season == null || res.episode == null) {
+            return BACKFILL_SCANNED;
+        }
+        int[] target = absoluteBackfillTarget(v.seasonNumber, v.episodeNumber,
+                res.season, res.episode, v.seasonManuallyEdited, v.episodeManuallyEdited);
+        if (target == null) {
+            return BACKFILL_SCANNED;
+        }
+        v.seasonNumber = target[0];
+        v.episodeNumber = target[1];
+        v.persist();
+        LOGGER.info("Absolute backfill: remapped {} (id={}) to S{}E{}", v.filename, v.id, target[0], target[1]);
+        return BACKFILL_CHANGED;
     }
 
     /**
