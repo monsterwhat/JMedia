@@ -350,6 +350,12 @@ public class SmartNamingService {
         if ((pathAnalysis.hasExtrasFolder || isExtrasSubfolder) && (result.contentType == null || "episode".equals(result.contentType))) {
             result.contentType = "extra";
         }
+        // OVA/OAD/OAV files are bonus content, not main episodes — mark as extra
+        // so they don't collide with regular episodes sharing the same number.
+        if (filename.toLowerCase().matches(".*\\b(ova|oad|oav)\\b.*")
+                && (result.contentType == null || "episode".equals(result.contentType))) {
+            result.contentType = "extra";
+        }
         result.seasonSuffix = episodeDetection.seasonSuffix;
         return result;
     }
@@ -936,6 +942,22 @@ public class SmartNamingService {
             return detection;
         }
         
+        // Prefer an explicit episode number after a " - " separator, so a number
+        // embedded in the show title (e.g. "Kaiju No. 8", "Kaijuu 8 Gou") is
+        // not mistaken for the episode number: "Kaijuu 8 Gou - 06.mkv" -> ep 6.
+        Matcher mDashTrailing = Pattern.compile("(?i)^.+?\\s+-\\s+(\\d{1,3})\\b(.*)$").matcher(filename);
+        if (mDashTrailing.matches() && !detection.hasEpisodePattern) {
+            int num = Integer.parseInt(mDashTrailing.group(1));
+            if (num > 0 && num < 1000) {
+                detection.episode = num;
+                String hint = mDashTrailing.group(2).trim().replaceFirst("\\.[^.]+$", "");
+                if (!hint.isEmpty()) detection.titleHint = hint;
+                detection.hasEpisodePattern = true;
+                detection.detectionMethod = "DashTrailingNumber";
+                detection.confidence = 0.7;
+            }
+        }
+
         // EPISODE_SIMPLE pattern - check AFTER EPISODE_DASH to avoid extracting wrong number
         // from filenames like "3 - Guerra Civil, Parte 1.mp4" (would extract 1 instead of 3)
         Matcher m4 = EPISODE_SIMPLE.matcher(filename);
@@ -1380,6 +1402,11 @@ public class SmartNamingService {
             System.out.println("DEBUG: matched SEASON_SXX_ONLY_PATTERN");
             return true;
         }
+        // Standalone S-number anywhere in the folder name (e.g. "Baki - S1", "[Judas] Baki - S2")
+        if (Pattern.compile("(?i)[\\s\\-_]s\\d{1,3}(?:[\\s\\-_]|$)").matcher(name).find()) {
+            System.out.println("DEBUG: matched standalone S-number folder pattern");
+            return true;
+        }
         if (SEASON_TEXT_N_TEXT.matcher(name).matches()) {
             return true;
         }
@@ -1764,7 +1791,13 @@ public class SmartNamingService {
         if (bracketRangeMatcher.find()) {
             try { return Integer.parseInt(bracketRangeMatcher.group(1)); } catch (NumberFormatException e) {}
         }
-        
+
+        // Standalone S-number anywhere in the folder name (e.g. "Baki - S1", "[Judas] Baki - S2")
+        Matcher standaloneSMatcher = Pattern.compile("(?i)[\\s\\-_]s(\\d{1,3})(?:[\\s\\-_]|$)").matcher(folderName);
+        if (standaloneSMatcher.find()) {
+            try { return Integer.parseInt(standaloneSMatcher.group(1)); } catch (NumberFormatException e) {}
+        }
+
         return null;
     }
     
