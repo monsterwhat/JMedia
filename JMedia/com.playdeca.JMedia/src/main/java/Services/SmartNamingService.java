@@ -85,6 +85,13 @@ public class SmartNamingService {
     // "Trailer Park Boys" are not mistaken for extras.
     private static final Pattern EXTRAS_KEYWORD_PATTERN = Pattern.compile(
         "(?i)[\\s\\._\\[\\]\\(\\)\\-]+(?:pv|trailer|teaser|preview|promo|menu|textless|creditless|ncop|nced|music video|mv|lookback|recap|encyclopedia|bonus|making of|behind the scenes|deleted scenes|outtakes|bloopers|interview|digest|tv spot|cm|special preview)(?:[\\s\\._\\[\\]\\(\\)\\-]+|\\d+|$)");
+    // OVA/OAD/OAV bonus markers in a filename. Bonus files are routinely named
+    // "Ova1.mkv"/"Ova01.mkv" with the number glued to the marker, and "ova1" has
+    // no word boundary after "ova" — a \b(ova|oad|oav)\b test silently missed
+    // those, leaving them as contentType="episode" at episode 0 and visible in
+    // the episode list. Require only that no letter follows, so "Ovation" and
+    // "novacaine" still do not match.
+    private static final Pattern BONUS_CONTENT_PATTERN = Pattern.compile("(?i)\\b(ova|oad|oav)(?![a-z])");
     // WWW release-group wrapper folders like "www.rtkorm.com" that wrap show folders
     private static final Pattern WWW_FOLDER_PATTERN = Pattern.compile("(?i)^www\\..+\\..+$");
     
@@ -352,7 +359,7 @@ public class SmartNamingService {
         }
         // OVA/OAD/OAV files are bonus content, not main episodes — mark as extra
         // so they don't collide with regular episodes sharing the same number.
-        if (filename.toLowerCase().matches(".*\\b(ova|oad|oav)\\b.*")
+        if (BONUS_CONTENT_PATTERN.matcher(filename).find()
                 && (result.contentType == null || "episode".equals(result.contentType))) {
             result.contentType = "extra";
         }

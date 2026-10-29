@@ -600,4 +600,54 @@ public class SmartNamingServiceTest {
         assertEquals(2, result.season);
         assertEquals(5, result.episode);
     }
+
+    // ── Fix: OVA/OAD markers with a glued number ────────────────────────
+
+    /**
+     * "One Punch Man - Ova1.mkv" is bonus content, but "ova1" has no word
+     * boundary after "ova", so \b(ova|oad|oav)\b missed it and the file stayed
+     * contentType="episode" at episode 0 — six stray rows in the season.
+     */
+    @Test
+    void testBonusMarkerWithGluedNumberIsExtra() {
+        String filename = "One Punch Man - Ova1.mkv";
+        String relativePath = "TV Shows/One Punch Man/Season 1/OVA & OAD/One Punch Man - Ova1.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("extra", result.contentType,
+                "Ova1 has no word boundary after 'ova' but is still bonus content");
+    }
+
+    @Test
+    void testBonusMarkerWithZeroPaddedNumberIsExtra() {
+        String filename = "Show - OVA01.mkv";
+        String relativePath = "TV Shows/Show/Season 1/Show - OVA01.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("extra", result.contentType, "OVA01 is bonus content");
+    }
+
+    @Test
+    void testBonusMarkerWithSeparatorIsExtra() {
+        String filename = "One Punch Man S2 OVA - 01.mkv";
+        String relativePath = "TV Shows/One Punch Man/Season 2/OVA/One Punch Man S2 OVA - 01.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("extra", result.contentType, "separated OVA markers stay extra");
+    }
+
+    @Test
+    void testWordContainingBonusMarkerIsNotExtra() {
+        // "Ovation" contains "ova" but is a word of its own, not a bonus marker.
+        String filename = "Ovation - 01.mkv";
+        String relativePath = "TV Shows/Ovation/Season 1/Ovation - 01.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertNotEquals("extra", result.contentType,
+                "'Ovation' must not be read as an OVA marker");
+    }
 }
