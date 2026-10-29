@@ -81,18 +81,34 @@ public class XtreamSessionService {
         endSession(session, reason);
     }
 
+    /**
+     * Refresh the heartbeat of the caller's most recent active live session.
+     *
+     * <p>The positional parameter used to be declared but never bound, so
+     * Hibernate threw {@code QueryParameterException: No argument for ordinal
+     * parameter '?1'} before the query ever ran. Because this is called for
+     * every live HLS segment, live playback died right after the playlist
+     * loaded: the manifest answered 200 and every segment answered 500. It also
+     * meant live sessions were never kept alive, so the 180s stale reaper closed
+     * each one and recorded it as "disconnected".
+     *
+     * @return true when a live session row was found and touched
+     */
     @Transactional
-    public void bumpLiveActivity(String username) {
+    public boolean bumpLiveActivity(String username) {
         if (username == null || username.isBlank()) {
-            return;
+            return false;
         }
         XtreamSession session = XtreamSession
-                .find("username = ?1 and type = 'live' and active = true order by startedAt desc")
+                .find("username = ?1 and type = 'live' and active = true order by startedAt desc",
+                        username)
                 .firstResult();
-        if (session != null) {
-            session.lastActivity = Instant.now();
-            session.persist();
+        if (session == null) {
+            return false;
         }
+        session.lastActivity = Instant.now();
+        session.persist();
+        return true;
     }
 
     @Transactional

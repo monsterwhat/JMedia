@@ -442,8 +442,26 @@ public class XtreamCodesAPI {
     public Response proxyStream(@QueryParam("url") String url) {
         if (url == null || url.isBlank()) return Response.status(Response.Status.BAD_REQUEST).build();
         if (!isValidStreamCredentials(username, password)) return unauthorizedStreamResponse();
-        xtreamSessionService.bumpLiveActivity(username);
+        markLiveSessionActive();
         return proxyExternalStream(url, username, password);
+    }
+
+    /**
+     * Best-effort heartbeat for the live session row behind this stream.
+     *
+     * <p>Session tracking is analytics: it must never be able to break
+     * playback. This call used to throw {@code QueryParameterException} inside
+     * the transaction for every live HLS segment, turning playback into a wall
+     * of HTTP 500s. Anything that goes wrong here is logged and ignored, and
+     * the segment is proxied regardless.
+     */
+    private void markLiveSessionActive() {
+        try {
+            xtreamSessionService.bumpLiveActivity(username);
+        } catch (RuntimeException e) {
+            log.warnf("Live session heartbeat failed for user=%s, continuing with stream: %s",
+                    username, e.toString());
+        }
     }
 
     private Response getSeriesInfo(String seriesId) {
