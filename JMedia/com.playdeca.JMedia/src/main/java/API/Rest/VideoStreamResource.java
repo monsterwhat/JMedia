@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
@@ -176,7 +175,8 @@ public class VideoStreamResource {
                                 @QueryParam("trace") String traceId,
                                 @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc,
                                 @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1,
-                                @QueryParam("forceTranscode") @DefaultValue("false") boolean forceTranscode) {
+                                @QueryParam("forceTranscode") @DefaultValue("false") boolean forceTranscode,
+                                @QueryParam("codecs") String codecsParam) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -237,39 +237,43 @@ public class VideoStreamResource {
                     .entity("Video file is unreadable or still downloading").build();
         }
 
+        // Device capabilities: the modern client probes MSE and sends ?codecs=hevc,av1.
+        // Legacy clients only send ?nativeHevc=1 / ?nativeAv1=1, so fold those flags
+        // into the same set — one capability model for the whole stream path.
+        java.util.Set<String> clientCodecs = new java.util.LinkedHashSet<>(
+                TranscodingService.parseClientCodecs(codecsParam));
+        if (nativeHevc) {
+            clientCodecs.add(TranscodingService.CODEC_HEVC);
+        }
+        if (nativeAv1) {
+            clientCodecs.add("av1");
+        }
+
         // Default quality cap: when no explicit quality is requested, limit to
         // 720p maximum.  Higher resolutions are only used when the user
         // explicitly selects them from the quality menu.
         boolean isFastStart = !isMKV && hasFastStart(videoFile);
-        boolean transcodeNeeded = transcodingService.isTranscodeNeededForWeb(video, userAgent, nativeHevc);
-        // Client-side native HEVC support override is now folded into the
-        // isTranscodeNeededForWeb call above (?nativeHevc=1 means the browser
-        // proved Main 10 MSE playback). It is intentionally NOT re-applied here.
-        // Client-side native AV1 support override: when the browser can play AV1
-        // natively (Chrome 70+, Edge 79+, Firefox 67+), skip the server-side
-        // FFmpeg transcode and serve the AV1 stream directly via the copy path.
-        if (nativeAv1 && video.videoCodec != null &&
-            (video.videoCodec.toLowerCase(Locale.ROOT).contains("av1") ||
-             video.videoCodec.toLowerCase(Locale.ROOT).contains("av01"))) {
-            transcodeNeeded = false;
-        }
-        // Escalation path: the client already failed to play a copy/remux stream
-        // (MSE decode failure, HLS fatal error, direct-stream error). Never serve
-        // copy again for this request — transcode even when the codec/UA heuristics
-        // (or a stale nativeHevc flag) say the stream is playable.
+        // The output codec is the single source of truth for "transcode or not":
+        // it folds in codec playability, the client's proven capabilities, the
+        // quality downscale and the forceTranscode escalation. Everything below
+        // (cache key, ETag, encoder) is derived from it, so the segment a client
+        // reads is always the one its device can actually decode.
+        String outputCodec = transcodingService.resolveOutputCodec(
+                video, userAgent, clientCodecs, qualityHeight, forceTranscode);
+        boolean transcodeNeeded = !TranscodingService.CODEC_COPY.equals(outputCodec);
         if (forceTranscode) {
             LOG.info("[STREAM] videoId={} forcing transcode (client escalation after playback failure)", videoId);
-            transcodeNeeded = true;
         }
         if (qualityHeight <= 0) {
             int sourceHeight = parseSourceHeight(video.resolution);
             if (isFastStart && !transcodeNeeded && sourceHeight > 0 && audioTrackIndex < 0) {
-                // Faststart + native codec → serve directly at source resolution.
-                // No re-encoding to downscale is CPU-intensive and counterproductive:
-                // transcoded H.264 at 720p often uses more bandwidth than source HEVC
-                // at 1080p. BUT only when no specific audio track is requested —
-                // streamDirectFile serves the raw file and would play the file's
-                // default audio stream regardless of ?audioTrack=.
+                // Faststart + natively playable codec → serve directly at source
+                // resolution. No re-encoding to downscale is CPU-intensive and
+                // counterproductive: transcoded H.264 at 720p often uses more
+                // bandwidth than source HEVC at 1080p. BUT only when no specific
+                // audio track is requested — streamDirectFile serves the raw file
+                // and would play the file's default audio stream regardless of
+                // ?audioTrack=.
                 if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight))) {
                     LOG.info("[STREAM] videoId={} file={} codec={}/{} path=direct-faststart res={}",
                         videoId, videoFile.getName(), video.videoCodec, video.audioCodec, video.resolution);
@@ -285,22 +289,26 @@ public class VideoStreamResource {
                 // Resolution unknown — fall back to the default cap.
                 qualityHeight = DEFAULT_QUALITY_HEIGHT;
             }
+            // Re-resolve with the final quality (a downscale forces a transcode).
+            outputCodec = transcodingService.resolveOutputCodec(
+                    video, userAgent, clientCodecs, qualityHeight, forceTranscode);
+            transcodeNeeded = !TranscodingService.CODEC_COPY.equals(outputCodec);
         }
 
         if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight))) {
-            LOG.info("[STREAM] videoId={} file={} codec={}/{} path=fragmented-mp4 isMKV={} transcodeNeeded={} quality={}",
+            LOG.info("[STREAM] videoId={} file={} codec={}/{} path=fragmented-mp4 isMKV={} transcodeNeeded={} outputCodec={} quality={}",
                 videoId, videoFile.getName(), video.videoCodec, video.audioCodec, isMKV,
-                transcodeNeeded, qualityHeight);
+                transcodeNeeded, outputCodec, qualityHeight);
         }
         // Latest-seek-wins: a drag-seek abandons the previous ?start= stream, but its
         // FFmpeg process can keep running until it exits, holding a transcode permit.
         // Kill superseded transcodes for this video so the new request never queues
         // behind a stale process (permits exhausted during rapid seeks).
-        transcodingService.releaseStaleTranscodesForVideo(videoId, startSeconds, audioTrackIndex, qualityHeight, filePath);
-        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, transcodeNeeded);
+        transcodingService.releaseStaleTranscodesForVideo(videoId, startSeconds, audioTrackIndex, qualityHeight, filePath, outputCodec);
+        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, outputCodec);
     }
 
-    private Response streamRemuxedMKV(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, boolean transcodeNeeded) {
+    private Response streamRemuxedMKV(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String outputCodec) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKV: videoId={} start={}s", traceId, videoId, startSeconds);
 
@@ -322,9 +330,9 @@ public class VideoStreamResource {
             // Safari rejects changing totals: probe reports the same total + ETag the follow-up
             // range request will use — the segment's byte-relative total when one covers the seek.
             Services.SegmentCacheService.SegmentCoverage probeCoverage = segmentCacheService
-                    .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath());
+                    .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath(), outputCodec);
             long probeTotal = estimatedFinalSize;
-            String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+            String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight + "|" + outputCodec).hashCode());
             if (probeCoverage != null) {
                 etag = Integer.toHexString((probeCoverage.file.getFileName().toString() + "|" + String.format(java.util.Locale.ROOT, "%.3f", probeCoverage.startSeconds)).hashCode());
                 // Same effective-offset rule as the serve path: a segment whose head is
@@ -365,7 +373,7 @@ public class VideoStreamResource {
         // also purges stale chains internally (source-file change detected via sidecar identity).
         java.nio.file.Path sourcePath = videoFile.toPath();
         Services.SegmentCacheService.SegmentCoverage coverage = segmentCacheService
-                .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath);
+                .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath, outputCodec);
         if (coverage != null) {
             Long off = coverage.byteOffset;
             if (off == null) {
@@ -425,30 +433,30 @@ public class VideoStreamResource {
                 } catch (IOException e) {
                     LOG.debug("Failed to refresh mtime of segment {}: {}", coverage.file, e.getMessage());
                 }
-                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true);
+                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true, outputCodec);
             }
         }
 
         // Temporary path: instead of blocking with 409 CONVERTING and forcing an
         // in-place conversion of the source file, serve the stream on-the-fly.
-        // TranscodingService performs the codec conversion (video → H.264,
+        // TranscodingService performs the codec conversion (video → target codec,
         // audio → AAC) live and caches the result in the temp dir; the original
         // MKV/MP4 source file is never modified.
-        if (transcodeNeeded) {
-            LOG.info("[STREAM] videoId={} codec not playable by this client — serving on-the-fly transcode (source file untouched)", videoId);
+        if (!TranscodingService.CODEC_COPY.equals(outputCodec)) {
+            LOG.info("[STREAM] videoId={} codec not playable by this client — serving on-the-fly transcode to {} (source file untouched)", videoId, outputCodec);
         }
 
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] Falling back to direct remux for video {}", traceId, videoId);
         LOG.debug("Fallback direct remux stream for video {} (start={}s, audio={})",
                   videoId, startSeconds, audioTrackIndex >= 0 ? audioTrackIndex : "default");
-        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId, rangeHeader);
+        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId, rangeHeader, outputCodec);
     }
 
-    private Response streamRemuxedMKVDirect(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId, String rangeHeader) {
+    private Response streamRemuxedMKVDirect(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId, String rangeHeader, String outputCodec) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKVDirect: videoId={} start={}s", traceId, videoId, startSeconds);
         // Create (or reuse) the growing segment file + sidecar; the transcode writes into it.
-        java.nio.file.Path cacheFile = segmentCacheService.startSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath());
+        java.nio.file.Path cacheFile = segmentCacheService.startSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath(), outputCodec);
         if (cacheFile == null) {
             LOG.error("Failed to create segment for video {} at {}s", videoId, startSeconds);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
@@ -469,16 +477,17 @@ public class VideoStreamResource {
         synchronized (lock) {
             if (!transcodingService.isCacheBeingWritten(cacheFile)) {
                 launchSegmentWriter("direct-transcode-" + videoId, null, null,
-                        video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+                        video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec);
             }
         }
 
-        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false);
+        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false, outputCodec);
     }
 
     private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String userAgent,
-                                       long estimatedFinalSize, long baseOffset, double segmentStart, boolean isSegment) {
+                                       long estimatedFinalSize, long baseOffset, double segmentStart, boolean isSegment,
+                                       String outputCodec) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromSegment: videoId={} start={}s segmentStart={}s baseOffset={} range={}", traceId, videoId, startSeconds, segmentStart, baseOffset, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
@@ -492,10 +501,10 @@ public class VideoStreamResource {
         // Fast-fail: if the segment's writer transcode has failed, return 503 instead of waiting 90s.
         // Also delete the dead segment's partial file so the client's retry falls through to a fresh
         // transcode (which clears the failed flag) instead of 503-ing again.
-        if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false)) {
-            LOG.warn("Transcode for segment {} already failed for video {} (segmentStart={}s, audio={}, quality={}), returning 503",
-                     tempFile.getFileName(), videoId, segmentStart, audioTrackIndex, qualityHeight);
-            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+        if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec)) {
+            LOG.warn("Transcode for segment {} already failed for video {} (segmentStart={}s, audio={}, quality={}, codec={}), returning 503",
+                     tempFile.getFileName(), videoId, segmentStart, audioTrackIndex, qualityHeight, outputCodec);
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
             transcodingService.deleteCacheFile(tempFile);
             segmentCacheService.releaseReader(tempFile);
             return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
@@ -503,7 +512,7 @@ public class VideoStreamResource {
 
         long fileLength;
         try {
-            transcodingService.waitForFile(tempFile, 65536, videoId, segmentStart, audioTrackIndex, qualityHeight);
+            transcodingService.waitForFile(tempFile, 65536, videoId, segmentStart, audioTrackIndex, qualityHeight, outputCodec);
             fileLength = Files.size(tempFile);
         } catch (IOException e) {
             LOG.error("Cannot get size of temp file for video {}: {}", videoId, e.getMessage());
@@ -597,7 +606,7 @@ public class VideoStreamResource {
         if (transcodingService.isCacheFileComplete(tempFile) && start >= browserTotal) {
             LOG.info("Client requested bytes {} >= total {} on completed segment {} — returning 416",
                      start, browserTotal, tempFile.getFileName());
-            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
             segmentCacheService.releaseReader(tempFile);
             return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
                     .header("Content-Range", "bytes */" + browserTotal)
@@ -627,8 +636,9 @@ public class VideoStreamResource {
             // for both the bytes=0-1 probe and the follow-up range request.
             etag = Integer.toHexString((tempFile.getFileName().toString() + "|" + String.format(java.util.Locale.ROOT, "%.3f", segmentStart)).hashCode());
         } else {
-            // Non-segment (direct/legacy) path — keep the legacy ETag.
-            etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+            // Non-segment (direct/legacy) path — keep the legacy ETag, codec-qualified
+            // so an HEVC and an H.264 variant of the same request never share a validator.
+            etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight + "|" + outputCodec).hashCode());
         }
 
         LOG.debug("Stream: range {}-{} (len={}) for video {} (etag={})", start, end, end - start + 1, videoId, etag);
@@ -657,10 +667,10 @@ public class VideoStreamResource {
             if (!xcodeFinished) {
                 waitTarget = Math.min(waitTarget, fileLength + 5 * 1024 * 1024);
             }
-            transcodingService.waitForFile(tempFile, waitTarget, videoId, segmentStart, audioTrackIndex, qualityHeight);
+            transcodingService.waitForFile(tempFile, waitTarget, videoId, segmentStart, audioTrackIndex, qualityHeight, outputCodec);
         } catch (IOException e) {
             LOG.error("Timeout waiting for requested byte range {}-{} for video {}: {}", start, end, videoId, e.getMessage());
-            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
             long currentSize;
             try {
                 currentSize = Files.size(tempFile);
@@ -670,7 +680,7 @@ public class VideoStreamResource {
             // If the segment's writer died while we waited, its partial file is poison — the next
             // request would 503 again. Delete it so the client's retry falls through to a fresh
             // transcode (which clears the failed flag). A live but slow transcode is left untouched.
-            if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false)) {
+            if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec)) {
                 LOG.info("Transcode failed for video {} (segmentStart={}s) while waiting for range {}-{} — deleting stale segment {}",
                          videoId, segmentStart, start, end, tempFile.getFileName());
                 transcodingService.deleteCacheFile(tempFile);
@@ -738,7 +748,7 @@ public class VideoStreamResource {
                                         () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
                                         null,
                                         video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight,
-                                        tempFile);
+                                        tempFile, outputCodec);
                             }
                             noGrowthSince = 0;
                         }
@@ -787,7 +797,7 @@ public class VideoStreamResource {
         }
 
         // Check for discontinuity
-        boolean hasDiscontinuity = transcodingService.hasTranscodeDiscontinuity(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+        boolean hasDiscontinuity = transcodingService.hasTranscodeDiscontinuity(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
 
         final long finalStart = start;
         final long finalEnd = end;
@@ -889,7 +899,7 @@ public class VideoStreamResource {
                                         int generation = restartGeneration.incrementAndGet();
                                         restartInFlight.set(true);
                                         restartSegmentWriter(video, videoFile, tempFile, segmentStart, userAgent,
-                                                audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation);
+                                                audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec);
                                     }
                                     noGrowthSince = 0;
                                 }
@@ -913,7 +923,7 @@ public class VideoStreamResource {
                 }
             } finally {
                 segmentCacheService.releaseReader(tempFile);
-                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
                 if (segmentKey != null) {
                     RESTART_IN_FLIGHT.remove(segmentKey);
                     RESTART_GENERATION.remove(segmentKey);
@@ -986,7 +996,8 @@ public class VideoStreamResource {
 
     private void launchSegmentWriter(String threadName, SegmentWriterAction preLaunch, SegmentWriterAction postLaunch,
                                      Models.Video.Video video, File videoFile, double segmentStart, String userAgent,
-                                     int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) {
+                                     int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile,
+                                     String outputCodec) {
         final Long videoId = video.id;
         Thread writerThread = new Thread(() -> {
             try {
@@ -994,7 +1005,7 @@ public class VideoStreamResource {
                     preLaunch.run();
                 }
                 transcodingService.streamRemuxedMKV(video, videoFile, segmentStart, userAgent,
-                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, cacheFile);
+                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, cacheFile, outputCodec);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (IOException e) {
@@ -1011,7 +1022,7 @@ public class VideoStreamResource {
                         LOG.warn("Segment writer cleanup for video {} failed: {}", videoId, e.getMessage());
                     }
                 }
-                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false, outputCodec);
             }
         }, threadName);
         writerThread.setDaemon(true);
@@ -1030,7 +1041,8 @@ public class VideoStreamResource {
     private void restartSegmentWriter(Models.Video.Video video, File videoFile, java.nio.file.Path cacheFile,
                                       double segmentStart, String userAgent, int audioTrackIndex, int qualityHeight,
                                       java.util.concurrent.atomic.AtomicBoolean restartInFlight,
-                                      java.util.concurrent.atomic.AtomicInteger restartGeneration, int generation) {
+                                      java.util.concurrent.atomic.AtomicInteger restartGeneration, int generation,
+                                      String outputCodec) {
         launchSegmentWriter("zombie-restart-" + video.id,
                 () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
                 () -> {
@@ -1038,12 +1050,12 @@ public class VideoStreamResource {
                         restartInFlight.set(false);
                     }
                 },
-                video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+                video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec);
     }
 
     private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
-        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds, false);
+        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds, false, TranscodingService.CODEC_H264);
     }
 
     /**

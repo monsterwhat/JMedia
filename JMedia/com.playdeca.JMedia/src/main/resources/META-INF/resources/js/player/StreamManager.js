@@ -40,11 +40,38 @@
                 params.push(`audioTrack=${p.currentAudioTrackIndex}`);
             }
             if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+            const clientCodecs = this.clientCodecList();
+            if (clientCodecs.length) params.push(`codecs=${clientCodecs.join(',')}`);
             if (opts && Array.isArray(opts.extraParams)) {
                 opts.extraParams.forEach(ep => params.push(ep));
             }
             params.push(`trace=${this._traceId()}`);
             return `/api/video/stream/${p.videoId}.mp4${params.length ? '?' + params.join('&') : ''}`;
+        }
+
+        /**
+         * Capability payload for the server's output-codec selection
+         * (`?codecs=hevc,av1`). Probed once per page and cached: the server trusts
+         * a non-empty list over its User-Agent heuristics, so a browser that can
+         * decode HEVC gets an HEVC stream instead of a wasted H.264 transcode.
+         *
+         * An empty array is meaningful: it tells the server "no declared
+         * capabilities", which is exactly the legacy behaviour.
+         *
+         * @returns {string[]} supported codec tags, e.g. ['hevc','av1']
+         */
+        clientCodecList() {
+            if (this._clientCodecs) return this._clientCodecs;
+            const codecs = [];
+            try {
+                const Cls = this.constructor;
+                if (Cls.hasNativeHevcSupport()) codecs.push('hevc');
+                if (Cls.hasNativeAv1Support()) codecs.push('av1');
+            } catch (err) {
+                console.warn('[SimplePlayer] codec capability probe failed:', err);
+            }
+            this._clientCodecs = codecs;
+            return codecs;
         }
 
         /**
@@ -364,6 +391,8 @@
                 params.push(`audioTrack=${p.currentAudioTrackIndex}`);
             }
             if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+            const clientCodecs = this.clientCodecList();
+            if (clientCodecs.length) params.push(`codecs=${clientCodecs.join(',')}`);
             params.push(`device=web-${p.videoId}-${p.profileId || 'default'}`);
 
             try {

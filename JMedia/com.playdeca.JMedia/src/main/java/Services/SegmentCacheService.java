@@ -152,10 +152,20 @@ public class SegmentCacheService {
      */
     public SegmentCoverage findCoveringSegment(Long videoId, double targetSeconds,
                                                int audioTrackIndex, int qualityHeight, Path sourcePath) {
+        return findCoveringSegment(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath, null);
+    }
+
+    /**
+     * Codec-aware coverage lookup. Segments are partitioned by output codec, so a
+     * chain may only be read by a request targeting the same codec.
+     */
+    public SegmentCoverage findCoveringSegment(Long videoId, double targetSeconds,
+                                               int audioTrackIndex, int qualityHeight, Path sourcePath,
+                                               String codecTag) {
         if (videoId == null) {
             return null;
         }
-        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight));
+        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight, codecTag));
         ReentrantLock lock = chainLock(absHash);
         lock.lock();
         try {
@@ -163,6 +173,12 @@ public class SegmentCacheService {
             for (SegmentEntry entry : chain) {
                 if (entry.sidecar != null && !videoId.equals(entry.sidecar.videoId)) {
                     LOG.warn("Segment chain {} contains sidecar for video {} but requested {}; purging cross-video chain", absHash, entry.sidecar.videoId, videoId);
+                    purgeChainByHash(absHash);
+                    return null;
+                }
+                if (isCodecMismatch(entry.sidecar, codecTag)) {
+                    LOG.info("Segment chain {} was produced for codec {} but request targets {}; purging",
+                            absHash, entry.sidecar.codecTag, codecTag);
                     purgeChainByHash(absHash);
                     return null;
                 }
@@ -220,17 +236,28 @@ public class SegmentCacheService {
      */
     public Path startSegment(Long videoId, double targetSeconds,
                              int audioTrackIndex, int qualityHeight, Path sourcePath) {
+        return startSegment(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath, null);
+    }
+
+    /**
+     * Codec-aware segment start. The sidecar records the target codec so a later
+     * request for a different codec never reuses this chain.
+     */
+    public Path startSegment(Long videoId, double targetSeconds,
+                             int audioTrackIndex, int qualityHeight, Path sourcePath, String codecTag) {
         if (videoId == null) {
             return null;
         }
-        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight));
+        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight, codecTag));
         ReentrantLock lock = chainLock(absHash);
         lock.lock();
         try {
             List<SegmentEntry> chainOnStart = scanChain(absHash);
             boolean crossVideo = chainOnStart.stream().anyMatch(e -> e.sidecar != null && !videoId.equals(e.sidecar.videoId));
-            if (crossVideo) {
-                LOG.warn("Segment chain {} has cross-video entry; purging before start for video {}", absHash, videoId);
+            boolean crossCodec = chainOnStart.stream().anyMatch(e -> isCodecMismatch(e.sidecar, codecTag));
+            if (crossVideo || crossCodec) {
+                LOG.warn("Segment chain {} has {} entry; purging before start for video {} (codec {})",
+                        absHash, crossVideo ? "cross-video" : "mismatched-codec", videoId, codecTag);
                 purgeChainByHash(absHash);
                 chainOnStart = List.of();
             }
@@ -245,15 +272,15 @@ public class SegmentCacheService {
             Path file = segmentPath(absHash, targetSeconds);
             if (Files.exists(file)) {
                 if (!Files.exists(sidecarPath(file))) {
-                    writeSidecar(file, newSidecar(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath));
+                    writeSidecar(file, newSidecar(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath, codecTag));
                 }
                 return file;
             }
 
             getTempDir(); // ensure the directory exists
             Files.createFile(file);
-            writeSidecar(file, newSidecar(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath));
-            LOG.debug("Started segment {} for video {} at {}s", file.getFileName(), videoId, targetSeconds);
+            writeSidecar(file, newSidecar(videoId, targetSeconds, audioTrackIndex, qualityHeight, sourcePath, codecTag));
+            LOG.debug("Started segment {} for video {} at {}s (codec {})", file.getFileName(), videoId, targetSeconds, codecTag);
             return file;
         } catch (IOException e) {
             LOG.warn("Failed to start segment for video {} at {}s: {}", videoId, targetSeconds, e.getMessage());
@@ -282,7 +309,8 @@ public class SegmentCacheService {
         }
         int absHash = absHash(videoHashKey(sidecar.videoId,
                 sidecar.audioTrackIndex != null ? sidecar.audioTrackIndex : -1,
-                sidecar.qualityHeight != null ? sidecar.qualityHeight : 0));
+                sidecar.qualityHeight != null ? sidecar.qualityHeight : 0,
+                sidecar.codecTag));
         ReentrantLock lock = chainLock(absHash);
         lock.lock();
         try {
@@ -335,10 +363,14 @@ public class SegmentCacheService {
     /** Purges the whole chain for the given video/audio/quality: files, sidecars,
      *  markers and gap temps, plus per-chain failure/defer state. */
     public void purgeChain(Long videoId, int audioTrackIndex, int qualityHeight) {
+        purgeChain(videoId, audioTrackIndex, qualityHeight, null);
+    }
+
+    public void purgeChain(Long videoId, int audioTrackIndex, int qualityHeight, String codecTag) {
         if (videoId == null) {
             return;
         }
-        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight));
+        int absHash = absHash(videoHashKey(videoId, audioTrackIndex, qualityHeight, codecTag));
         ReentrantLock lock = chainLock(absHash);
         lock.lock();
         try {
@@ -460,7 +492,8 @@ public class SegmentCacheService {
                     } catch (Exception parseEx) {
                         absHash = absHash(videoHashKey(data.videoId,
                                 data.audioTrackIndex != null ? data.audioTrackIndex : -1,
-                                data.qualityHeight != null ? data.qualityHeight : 0));
+                                data.qualityHeight != null ? data.qualityHeight : 0,
+                                data.codecTag));
                     }
                     ReentrantLock lock = chainLock(absHash);
                     lock.lock();
@@ -496,6 +529,9 @@ public class SegmentCacheService {
         public Double endSeconds;
         public Integer audioTrackIndex;
         public Integer qualityHeight;
+        /** Output codec of the segment's video track ("copy"/"h264"/"hevc").
+         *  null for sidecars written before codec partitioning existed. */
+        public String codecTag;
         public String status;
         public String sourcePath;
         public Long sourceMtime;
@@ -523,7 +559,16 @@ public class SegmentCacheService {
     }
 
     private String videoHashKey(Long videoId, int audioTrackIndex, int qualityHeight) {
-        return videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        return videoHashKey(videoId, audioTrackIndex, qualityHeight, null);
+    }
+
+    /**
+     * Chain identity: (video, audio track, quality) plus the output codec.
+     * Delegates to {@link TranscodingService#cacheKey} so segment file names and
+     * transcode temp-file names can never diverge.
+     */
+    static String videoHashKey(Long videoId, int audioTrackIndex, int qualityHeight, String codecTag) {
+        return TranscodingService.cacheKey(videoId, audioTrackIndex, qualityHeight, codecTag);
     }
 
     private int absHash(String key) {
@@ -591,13 +636,14 @@ public class SegmentCacheService {
     }
 
     private SegmentSidecar newSidecar(Long videoId, double startSeconds, int audioTrackIndex,
-                                      int qualityHeight, Path sourcePath) {
+                                      int qualityHeight, Path sourcePath, String codecTag) {
         SegmentSidecar sidecar = new SegmentSidecar();
         sidecar.videoId = videoId;
         sidecar.startSeconds = startSeconds;
         sidecar.endSeconds = null;
         sidecar.audioTrackIndex = audioTrackIndex;
         sidecar.qualityHeight = qualityHeight;
+        sidecar.codecTag = codecTag;
         sidecar.status = STATUS_GROWING;
         if (sourcePath != null) {
             sidecar.sourcePath = sourcePath.toString();
@@ -660,6 +706,21 @@ public class SegmentCacheService {
         } catch (IOException e) {
             return true; // source unreadable — assume stale
         }
+    }
+
+    /**
+     * True when a sidecar was produced for a different output codec than the one
+     * this request targets. A null sidecar codec means the segment predates codec
+     * partitioning: it is accepted only by requests that also carry no codec tag
+     * (legacy callers), otherwise it is treated as a mismatch and purged.
+     */
+    private boolean isCodecMismatch(SegmentSidecar sidecar, String codecTag) {
+        if (sidecar == null) {
+            return false;
+        }
+        String expected = (codecTag == null || codecTag.isEmpty()) ? null : codecTag;
+        String actual = (sidecar.codecTag == null || sidecar.codecTag.isEmpty()) ? null : sidecar.codecTag;
+        return expected != null && !expected.equals(actual);
     }
 
     /** Lists the chain sorted by startSeconds. Only sidecar-backed segments are
@@ -828,7 +889,7 @@ public class SegmentCacheService {
         int audioTrackIndex = a.sidecar.audioTrackIndex != null ? a.sidecar.audioTrackIndex : -1;
         int qualityHeight = a.sidecar.qualityHeight != null ? a.sidecar.qualityHeight : 0;
         Path temp = transcodingService.runGapTranscode(video, source.toFile(), gapStart, duration,
-                audioTrackIndex, qualityHeight);
+                audioTrackIndex, qualityHeight, a.sidecar.codecTag);
         if (temp == null) {
             LOG.warn("Gap transcode returned no file for gap [{}, {})", gapStart, gapEnd);
             return null;
@@ -857,6 +918,7 @@ public class SegmentCacheService {
             sidecar.endSeconds = gapEnd;
             sidecar.audioTrackIndex = template.audioTrackIndex;
             sidecar.qualityHeight = template.qualityHeight;
+            sidecar.codecTag = template.codecTag;
             sidecar.status = STATUS_COMPLETE;
             sidecar.sourcePath = template.sourcePath;
             sidecar.sourceMtime = template.sourceMtime;

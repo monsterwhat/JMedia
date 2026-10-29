@@ -47,6 +47,38 @@ public class TranscodingService {
         "aac", "mp3", "ac3", "eac3", "opus", "vorbis"
     );
 
+    /** Output-codec tags used for stream selection and cache-key partitioning. */
+    public static final String CODEC_COPY = "copy";
+    public static final String CODEC_H264 = "h264";
+    public static final String CODEC_HEVC = "hevc";
+
+    /**
+     * Parses the client capability query parameter ({@code ?codecs=hevc,av1})
+     * into a normalized set. Accepts the common aliases and is deliberately
+     * lenient: unknown tokens are kept (callers only test for known ones) and
+     * a null/blank value yields an empty set, meaning "legacy client, no
+     * declared capabilities".
+     */
+    public static java.util.Set<String> parseClientCodecs(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> codecs = new java.util.LinkedHashSet<>();
+        for (String token : raw.split(",")) {
+            String c = token.trim().toLowerCase(Locale.ROOT);
+            if (c.isEmpty()) {
+                continue;
+            }
+            if ("h265".equals(c)) {
+                c = CODEC_HEVC;
+            } else if ("av01".equals(c)) {
+                c = "av1";
+            }
+            codecs.add(c);
+        }
+        return java.util.Set.copyOf(codecs);
+    }
+
     @Inject
     VideoService videoService;
 
@@ -135,7 +167,6 @@ public class TranscodingService {
     }
 
     private final ConcurrentHashMap<String, ActiveTranscode> activeTranscodes = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, String> videoCodecTags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> transcodeNeededCache = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "transcode-cleanup");
@@ -365,6 +396,24 @@ public class TranscodingService {
         } catch (IOException e) {
             LOG.warn("Cache cleanup failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Canonical cache identity for a (video, audio track, quality) stream.
+     *
+     * <p>The output codec is part of the identity: an H.264 and an HEVC variant
+     * of the same request must never share a segment file, a sidecar or a
+     * transcode lifecycle entry — one device would otherwise be served the
+     * other device's bytes (and a codec it may not be able to decode).
+     *
+     * <p>Shared with {@link SegmentCacheService} so segment names and transcode
+     * cache names can never drift apart (they did before: the segment hash
+     * ignored the codec while the temp-file hash included it, which broke the
+     * "keep the segment my request reads" protection during drag-seeks).
+     */
+    static String cacheKey(Long videoId, int audioTrackIndex, int qualityHeight, String codecTag) {
+        String base = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        return (codecTag == null || codecTag.isEmpty()) ? base : base + "|" + codecTag;
     }
 
     /** Safe absolute hashCode — Math.abs returns negative when
@@ -853,11 +902,98 @@ public class TranscodingService {
         return result;
     }
 
+    /**
+     * Resolves the video codec this request should receive: {@link #CODEC_COPY}
+     * when the source is directly playable at the requested quality, otherwise
+     * the best codec the device proved it can decode <em>and</em> the server can
+     * encode in hardware.
+     *
+     * <p>Policy (Option A — capability-driven, progressive streaming):
+     * <ul>
+     *   <li>HEVC output is only chosen when the source is already HEVC/AV1
+     *       (preserve the family; never up-convert H.264 to HEVC) and a usable
+     *       hardware HEVC encoder exists.</li>
+     *   <li>Software HEVC (libx265) is never used for live streaming — it
+     *       cannot keep up in real time; the caller falls back to H.264.</li>
+     *   <li>{@code forceTranscode} (client escalation after a playback
+     *       failure) always resolves to H.264, the most universally decodable
+     *       codec.</li>
+     * </ul>
+     *
+     * @param clientCodecs capabilities the client proved (see
+     *                     {@link #parseClientCodecs(String)}); empty means a
+     *                     legacy client with no declared capabilities
+     */
+    public String resolveOutputCodec(Video video, String userAgent, java.util.Set<String> clientCodecs,
+                                     int qualityHeight, boolean forceTranscode) {
+        java.util.Set<String> codecs = clientCodecs != null ? clientCodecs : java.util.Set.of();
+        boolean clientHevc = clientSupportsHevc(codecs, userAgent);
+
+        String source = video != null && video.videoCodec != null
+                ? video.videoCodec.toLowerCase(Locale.ROOT) : "";
+        boolean sourceHevc = source.contains("hevc") || source.contains("h265");
+        boolean sourceAv1 = source.contains("av1") || source.contains("av01");
+
+        boolean codecNeedsTranscode = isTranscodeNeededForWeb(video, userAgent, clientHevc);
+        // The client's own AV1 probe is stronger evidence than the UA table,
+        // which only knows that iOS has no AV1 decoder.
+        if (sourceAv1 && codecs.contains("av1")) {
+            codecNeedsTranscode = false;
+        }
+
+        int sourceHeight = parseSourceHeight(video != null ? video.resolution : null);
+        boolean downscale = qualityHeight > 0 && sourceHeight > 0 && qualityHeight < sourceHeight;
+
+        if (!forceTranscode && !codecNeedsTranscode && !downscale) {
+            return CODEC_COPY;
+        }
+        if (forceTranscode) {
+            LOG.info("Output codec for video {}: h264 (forced escalation; client already failed a stream)",
+                    video != null ? video.id : null);
+            return CODEC_H264;
+        }
+        if ((sourceHevc || sourceAv1) && clientHevc && discoveryService.hasHardwareEncoder(CODEC_HEVC)) {
+            LOG.info("Output codec for video {}: hevc (source={}, client HEVC proven, hardware encoder available)",
+                    video != null ? video.id : null, video != null ? video.videoCodec : null);
+            return CODEC_HEVC;
+        }
+        LOG.info("Output codec for video {}: h264 (source={}, clientHevc={}, hwHevc={})",
+                video != null ? video.id : null, video != null ? video.videoCodec : null,
+                clientHevc, discoveryService.hasHardwareEncoder(CODEC_HEVC));
+        return CODEC_H264;
+    }
+
+    /**
+     * Whether the client can decode HEVC. A non-empty capability set is
+     * authoritative (the browser probed MSE itself). With no declared
+     * capabilities only Apple-native playback is trusted, which is the one
+     * case where HEVC decode is guaranteed.
+     */
+    private boolean clientSupportsHevc(java.util.Set<String> clientCodecs, String userAgent) {
+        if (clientCodecs != null && !clientCodecs.isEmpty()) {
+            return clientCodecs.contains(CODEC_HEVC) || clientCodecs.contains("h265");
+        }
+        return isIOSClient(userAgent) || isMacOSSafari(userAgent);
+    }
+
     public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
-        streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output, audioTrackIndex, qualityHeight, null);
+        streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output, audioTrackIndex, qualityHeight, null, null);
     }
 
     public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
+        streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output, audioTrackIndex, qualityHeight, cacheFile, null);
+    }
+
+    /**
+     * @param outputCodec resolved target codec ({@code copy}/{@code h264}/{@code hevc}).
+     *                    When null the service resolves it itself from the UA and
+     *                    the requested quality. Callers that already resolved it
+     *                    (VideoStreamResource) must pass it so the segment cache
+     *                    key and the actual encoder agree.
+     */
+    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent,
+                                 OutputStream output, int audioTrackIndex, int qualityHeight,
+                                 java.nio.file.Path cacheFile, String outputCodec) throws IOException {
         if (!videoFile.exists() || !videoFile.canRead()) {
             throw new IOException("Video file not found or not readable: " + videoFile.getName());
         }
@@ -876,20 +1012,20 @@ public class TranscodingService {
         boolean isMacSafari = isMacOSSafari(userAgent);
         boolean needsAppleHvc1Tag = needsHEVCTag(userAgent);
         LOG.info("Client request - iOS: {}, macOS Safari: {}, User-Agent: {}", isIOS, isMacSafari, userAgent);
-        
-        boolean codecNeedsTranscode = isTranscodeNeededForWeb(video, userAgent);
-        int sourceHeight = parseSourceHeight(video.resolution);
-        // Transcode only for codec conversion or a real downscale (quality < source).
-        // A native codec at source resolution is served as a pure remux (-c copy).
-        boolean needsVideoTranscode = codecNeedsTranscode
-                || (qualityHeight > 0 && sourceHeight > 0 && qualityHeight < sourceHeight);
+
+        // The output codec is the single source of truth for "transcode or not":
+        // it already folds in codec playability, the client's HEVC proof, the
+        // quality downscale and the forceTranscode escalation. Re-deriving it
+        // here from the UA alone is what used to drop ?nativeHevc=1/forceTranscode
+        // on the background writer thread.
+        String resolvedCodec = outputCodec != null && !outputCodec.isBlank()
+                ? outputCodec
+                : resolveOutputCodec(video, userAgent, java.util.Set.of(), qualityHeight, false);
+        boolean needsVideoTranscode = !CODEC_COPY.equals(resolvedCodec);
 
         if (needsVideoTranscode) {
-            if (codecNeedsTranscode) {
-                LOG.info("Transcoding forced for codec: {} to ensure web compatibility", video.videoCodec);
-            } else {
-                LOG.info("Transcoding forced: quality {} below source height {}", qualityHeight, sourceHeight);
-            }
+            LOG.info("Transcoding video for {} (source codec: {}, target: {})",
+                    videoFile.getName(), video.videoCodec, resolvedCodec);
         }
 
         boolean canCopyAudio = canCopyAudioForClient(video, userAgent);
@@ -905,9 +1041,11 @@ public class TranscodingService {
             }
         }
 
-        LOG.info("[STREAM] videoId={} remux path direct={} startSeconds={}", video.id, !needsVideoTranscode && startSeconds == 0, startSeconds);
+        LOG.info("[STREAM] videoId={} remux path direct={} startSeconds={} codec={}", video.id,
+                !needsVideoTranscode && startSeconds == 0, startSeconds, resolvedCodec);
 
-        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, cacheFile);
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio,
+                needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, cacheFile, resolvedCodec);
     }
 
     private static final int AVERROR_EOF = -40;
@@ -965,15 +1103,24 @@ public class TranscodingService {
 
     private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                                   boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
-        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, null);
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, null, null);
     }
 
     private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                                   boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag, OutputStream output, int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, cacheFile, null);
+    }
+
+    private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
+                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag, OutputStream output, int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile, String outputCodec) throws IOException {
         StringBuilder errorOutput = new StringBuilder();
         int exitCode =0;
         
         boolean useHardware = isHardwareAccelerationEnabled();
+        // Hardware failure drops to libx264. It must also drop the target codec
+        // to H.264: libx265 cannot sustain real-time streaming, and re-requesting
+        // HEVC from a broken GPU would just fail again.
+        String effectiveCodec = outputCodec != null && !outputCodec.isBlank() ? outputCodec : CODEC_H264;
         
         for (int attempt =0; attempt <= MAX_RETRIES; attempt++) {
             transcodeAttemptCount.incrementAndGet();
@@ -983,7 +1130,7 @@ public class TranscodingService {
             errorOutput.setLength(0);
 
             CountingOutputStream attemptOutput = new CountingOutputStream(output);
-            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, attemptOutput, errorOutput, audioTrackIndex, qualityHeight, cacheFile);
+            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, attemptOutput, errorOutput, audioTrackIndex, qualityHeight, cacheFile, effectiveCodec);
             
             if (exitCode == 0 || exitCode == EPIPE) {
                 return;
@@ -1011,6 +1158,7 @@ public class TranscodingService {
                     LOG.warn("OOM occurred with hardware acceleration for {}, falling back to software with tighter memory limits", videoFile.getName());
                     transcodeHwFallbackCount.incrementAndGet();
                     useHardware = false;
+                    effectiveCodec = CODEC_H264;
                     continue;
                 }
                 break;
@@ -1046,6 +1194,7 @@ public class TranscodingService {
                 
                 transcodeHwFallbackCount.incrementAndGet();
                 useHardware = false;
+                effectiveCodec = CODEC_H264;
                 continue;
             }
             
@@ -1053,6 +1202,7 @@ public class TranscodingService {
                 LOG.warn("FFmpeg exited with code {} while using hardware acceleration for {}, falling back to software", exitCode, videoFile.getName());
                 transcodeHwFallbackCount.incrementAndGet();
                 useHardware = false;
+                effectiveCodec = CODEC_H264;
                 continue;
             }
             
@@ -1081,12 +1231,21 @@ public class TranscodingService {
     private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                           boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag,
                           boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex, int qualityHeight) throws IOException {
-        return runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, output, errorOutput, audioTrackIndex, qualityHeight, null);
+        return runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, output, errorOutput, audioTrackIndex, qualityHeight, null, null);
     }
 
     private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                           boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag,
                           boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
+        return runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio,
+                needsAppleHvc1Tag, useHardware, output, errorOutput, audioTrackIndex, qualityHeight, cacheFile, null);
+    }
+
+    private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
+                          boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag,
+                          boolean useHardware, OutputStream output, StringBuilder errorOutput,
+                          int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile,
+                          String outputCodec) throws IOException {
         // Permit is held until the process fully exits: the finally below wraps the
         // entire launch + stream (including pb.start()), so a failed launch can never
         // leak one of the pool permits and black out all streaming. The pool instance
@@ -1116,7 +1275,7 @@ public class TranscodingService {
         try {
             return runFFmpegWithPermit(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode,
                                        canCopyAudio, needsAppleHvc1Tag, useHardware, output, errorOutput,
-                                       audioTrackIndex, qualityHeight, cacheFile);
+                                       audioTrackIndex, qualityHeight, cacheFile, outputCodec);
         } finally {
             permit.release();
             LOG.debug("Released transcode permit for {} (available: {})",
@@ -1127,7 +1286,8 @@ public class TranscodingService {
     private int runFFmpegWithPermit(Video video, File videoFile, String ffmpegPath, double startSeconds,
                                     boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag,
                                     boolean useHardware, OutputStream output, StringBuilder errorOutput,
-                                    int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
+                                    int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile,
+                                    String outputCodec) throws IOException {
         // Skip-restart guard: a cache file that already carries its .done marker is a
         // complete, servable segment. Restarting the transcode would truncate (or
         // append-into) a finished segment that streamFromSegment is serving — the request
@@ -1161,10 +1321,12 @@ public class TranscodingService {
             }
         }
 
-        String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
+        String requestedCodec = outputCodec != null && !outputCodec.isBlank() ? outputCodec : CODEC_H264;
+        String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder(requestedCodec) : null;
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
         
-        boolean isHardwareEncoder = useHardware && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
+        boolean isHardwareEncoder = useHardware && hardwareEncoder != null
+                && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
         
         String videoEncoder;
         String preset = "ultrafast";
@@ -1181,6 +1343,12 @@ public class TranscodingService {
                     preset = "medium";
                 }
             } else {
+                if (CODEC_HEVC.equals(requestedCodec)) {
+                    // Live streaming never falls back to libx265: software HEVC is
+                    // slower than real time, so the stream would starve. H.264 is
+                    // the only safe software fallback.
+                    LOG.warn("No usable HEVC hardware encoder for {} — falling back to software H.264", videoFile.getName());
+                }
                 videoEncoder = "libx264";
             }
         } else {
@@ -1201,28 +1369,19 @@ public class TranscodingService {
             vaapiUploadDevice = discoveryService.getBestVaaPiDevicePath();
             if (vaapiUploadDevice == null) {
                 LOG.warn("No VAAPI render node for {} — falling back to software encoder", videoFile.getName());
-                videoEncoder = videoEncoder.contains("hevc") ? "libx265" : "libx264";
+                // Never libx265: live streaming must stay real-time.
+                videoEncoder = "libx264";
                 vaapiUpload = false;
             } else {
                 LOG.info("VAAPI upload path for {}: sw decode -> {} via {}", videoFile.getName(), videoEncoder, vaapiUploadDevice);
             }
         }
 
-        // Compute the effective output codec tag so different codec variants (HEVC vs H.264)
-        // get separate cache files, preventing cross-codec poisoning.
-        String effectiveCodecTag;
-        if ("copy".equals(videoEncoder)) {
-            if (needsAppleHvc1Tag && video.videoCodec != null
-                    && video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc")) {
-                effectiveCodecTag = "hevc";
-            } else {
-                effectiveCodecTag = "copy";
-            }
-        } else if (videoEncoder.contains("hevc")) {
-            effectiveCodecTag = "hevc";
-        } else {
-            effectiveCodecTag = "h264";
-        }
+        // The request-level codec tag is the single cache-key partition: the
+        // caller (VideoStreamResource) computed the segment name from it, so it
+        // must not drift to a different value here. A hardware fallback to
+        // H.264 is logged above; HEVC-capable clients can still decode it.
+        String effectiveCodecTag = needsVideoTranscode ? requestedCodec : CODEC_COPY;
 
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
@@ -1376,6 +1535,12 @@ public class TranscodingService {
                 } else {
                     command.add("-crf"); command.add("23");
                 }
+
+                // Apple players require the hvc1 sample entry for HEVC in MP4;
+                // encoded HEVC defaults to hev1 (copy mode retags further below).
+                if (videoEncoder.contains("hevc")) {
+                    command.add("-tag:v"); command.add("hvc1");
+                }
                 
                 if (videoEncoder.equals("libx264")) {
                     command.add("-pix_fmt"); command.add("yuv420p");
@@ -1510,7 +1675,7 @@ public class TranscodingService {
         // Live streams have no temp file and are skipped — cleanupTranscode requires a
         // non-null tempFile.
         String transcodeKey = cacheFile != null
-                ? buildTranscodeKey(video.id, startSeconds, audioTrackIndex, qualityHeight)
+                ? buildTranscodeKey(video.id, startSeconds, audioTrackIndex, qualityHeight, effectiveCodecTag)
                 : null;
         if (transcodeKey != null) {
             // Always create a fresh ActiveTranscode so each writer gets its own
@@ -1519,8 +1684,6 @@ public class TranscodingService {
             activeTranscodes.compute(transcodeKey, (k, existing) -> {
                 return new ActiveTranscode(transcodeKey, process, cacheFile, effectiveCodecTag);
             });
-            if (videoCodecTags.size() > 10000) videoCodecTags.clear();
-            videoCodecTags.put(video.id, effectiveCodecTag);
         }
 
         Thread errorLogger = new Thread(() -> {
@@ -1727,7 +1890,20 @@ public class TranscodingService {
     }
 
     private String buildTranscodeKey(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
-        return videoId + "|" + String.format(Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight;
+        return buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, null);
+    }
+
+    /**
+     * Transcode lifecycle key. The output codec is part of the identity: two
+     * devices streaming the same video at the same position with different
+     * target codecs must not share an ActiveTranscode entry (one would see the
+     * other's failure/completion state and be served the wrong bytes).
+     */
+    private String buildTranscodeKey(Long videoId, double startSeconds, int audioTrackIndex,
+                                     int qualityHeight, String codecTag) {
+        String base = videoId + "|" + String.format(Locale.ROOT, "%.3f", startSeconds)
+                + "|" + audioTrackIndex + "|" + qualityHeight;
+        return (codecTag == null || codecTag.isEmpty()) ? base : base + "|" + codecTag;
     }
 
     private Path getTempDir() throws IOException {
@@ -1871,7 +2047,14 @@ public class TranscodingService {
      * to fail fast instead of waiting the full timeout.
      */
     public void waitForFile(Path file, long neededBytes, Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) throws IOException {
-        String key = videoId != null ? buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight) : null;
+        waitForFile(file, neededBytes, videoId, startSeconds, audioTrackIndex, qualityHeight, null);
+    }
+
+    /** Codec-aware form: the target codec is part of the transcode identity, so a
+     *  wait on an HEVC stream must not observe the H.264 stream's failure state. */
+    public void waitForFile(Path file, long neededBytes, Long videoId, double startSeconds,
+                            int audioTrackIndex, int qualityHeight, String codecTag) throws IOException {
+        String key = videoId != null ? buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag) : null;
         long deadline = System.currentTimeMillis() + TRANSCODE_START_TIMEOUT_MS;
         boolean everExisted = false;
         long vanishedSince = 0;
@@ -1929,7 +2112,12 @@ public class TranscodingService {
      * Returns true if no transcode exists for this key (treated as finished).
      */
     public boolean isTranscodeFinished(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) {
-        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        return isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, isAppleClient, null);
+    }
+
+    public boolean isTranscodeFinished(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight,
+                                       boolean isAppleClient, String codecTag) {
+        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
         ActiveTranscode at = activeTranscodes.get(key);
         if (at == null) return true;
         return at.completed || at.failed;
@@ -1940,7 +2128,12 @@ public class TranscodingService {
      * Returns false if no transcode exists or if it completed successfully.
      */
     public boolean isTranscodeFailed(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) {
-        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        return isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, isAppleClient, null);
+    }
+
+    public boolean isTranscodeFailed(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight,
+                                     boolean isAppleClient, String codecTag) {
+        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
         ActiveTranscode at = activeTranscodes.get(key);
         return at != null && at.failed;
     }
@@ -1950,7 +2143,12 @@ public class TranscodingService {
      * Returns true if the transcode was restarted and the discontinuity flag is set.
      */
     public boolean hasTranscodeDiscontinuity(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) {
-        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        return hasTranscodeDiscontinuity(videoId, startSeconds, audioTrackIndex, qualityHeight, isAppleClient, null);
+    }
+
+    public boolean hasTranscodeDiscontinuity(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight,
+                                             boolean isAppleClient, String codecTag) {
+        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
         ActiveTranscode at = activeTranscodes.get(key);
         if (at == null) return false;
         boolean result = at.discontinuityDetected.getAndSet(false);
@@ -1962,7 +2160,12 @@ public class TranscodingService {
      * Uses the same timeout as {@link #waitForFile}.
      */
     public void waitForTranscodeCompletion(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) throws IOException {
-        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        waitForTranscodeCompletion(videoId, startSeconds, audioTrackIndex, qualityHeight, isAppleClient, null);
+    }
+
+    public void waitForTranscodeCompletion(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight,
+                                           boolean isAppleClient, String codecTag) throws IOException {
+        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
         long deadline = System.currentTimeMillis() + TRANSCODE_START_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             ActiveTranscode at = activeTranscodes.get(key);
@@ -1983,7 +2186,12 @@ public class TranscodingService {
     }
 
     public void releaseTranscode(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) {
-        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, isAppleClient, null);
+    }
+
+    public void releaseTranscode(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight,
+                                 boolean isAppleClient, String codecTag) {
+        String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
         releaseTranscode(key);
     }
 
@@ -1996,13 +2204,18 @@ public class TranscodingService {
      * the new transcode never queues.
      */
     public void releaseStaleTranscodesForVideo(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, java.nio.file.Path sourcePath) {
+        releaseStaleTranscodesForVideo(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath, null);
+    }
+
+    public void releaseStaleTranscodesForVideo(Long videoId, double startSeconds, int audioTrackIndex,
+                                               int qualityHeight, java.nio.file.Path sourcePath, String codecTag) {
         java.util.Set<String> keys = videoProcessKeys.get(videoId);
         if (keys == null || keys.isEmpty()) return;
         // Segment this request will actually be served from, if any. A seek that lands
         // inside a growing segment must NOT kill that segment's writer: the request is
         // served from it, and the writer is what keeps it growing past the seek point.
         SegmentCacheService.SegmentCoverage coverage = sourcePath != null
-                ? segmentCacheService.findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath)
+                ? segmentCacheService.findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath, codecTag)
                 : null;
         // The coverage-segment protection below only applies while this request is genuinely
         // served from that segment. A seek target FAR past the segment's written frontier is
@@ -2020,7 +2233,7 @@ public class TranscodingService {
             }
             coverageProtectsWriter = startSeconds - writtenFrontier <= FAR_SEEK_AHEAD_SECONDS;
         }
-        String keepProcessPrefix = getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight).getFileName().toString();
+        String keepProcessPrefix = getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag).getFileName().toString();
         for (String processKey : keys) {
             if (processKey.startsWith(keepProcessPrefix)) {
                 continue;
@@ -2171,16 +2384,14 @@ public class TranscodingService {
 
     // === End temp-file transcode management ===
 
+    /** Legacy 4-arg form: no codec partition (pre-capability cache identity).
+     *  Callers that know the target codec must use the 5-arg form. */
     public java.nio.file.Path getCacheFilePath(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
-        ActiveTranscode at = activeTranscodes.get(buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight));
-        String codecTag = (at != null && at.codecTag != null) ? at.codecTag : videoCodecTags.getOrDefault(videoId, "");
-        return getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
+        return getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight, null);
     }
 
     public java.nio.file.Path getCacheFilePath(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, String codecTag) {
-        String baseKey = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
-        String hashInput = codecTag.isEmpty() ? baseKey : baseKey + "|" + codecTag;
-        int absHash = safeAbsHash(hashInput);
+        int absHash = safeAbsHash(cacheKey(videoId, audioTrackIndex, qualityHeight, codecTag));
         String fileName = "cache-" + absHash + "-" + String.format(Locale.ROOT, "%.3f", startSeconds) + ".mp4";
         try {
             return getTempDir().resolve(fileName);
@@ -2266,6 +2477,23 @@ public class TranscodingService {
      */
     public Path runGapTranscode(Video video, File videoFile, double gapStartSeconds,
                                 double gapDurationSeconds, int audioTrackIndex, int qualityHeight) {
+        // Legacy form: no resolved codec available, so mirror the pre-capability
+        // decision (H.264 when the source needs transcoding, otherwise copy).
+        String legacyCodec = (video != null && gapNeedsVideoTranscode(video, qualityHeight))
+                ? CODEC_H264 : CODEC_COPY;
+        return runGapTranscode(video, videoFile, gapStartSeconds, gapDurationSeconds,
+                audioTrackIndex, qualityHeight, legacyCodec);
+    }
+
+    /**
+     * @param outputCodec target codec of the chain this gap belongs to
+     *                    ({@code copy}/{@code h264}/{@code hevc}). Must match the
+     *                    neighbouring segments or the produced fragment cannot be
+     *                    concatenated with them (fillGap's param gate rejects it).
+     */
+    public Path runGapTranscode(Video video, File videoFile, double gapStartSeconds,
+                                double gapDurationSeconds, int audioTrackIndex, int qualityHeight,
+                                String outputCodec) {
         if (video == null || videoFile == null || !videoFile.exists() || !videoFile.canRead()) {
             LOG.warn("Gap transcode aborted: invalid input (video={}, file={})",
                     video != null ? video.id : null, videoFile != null ? videoFile.getName() : "null");
@@ -2275,6 +2503,7 @@ public class TranscodingService {
             LOG.debug("Gap transcode skipped: non-positive duration {}", gapDurationSeconds);
             return null;
         }
+        String codecTag = (outputCodec == null || outputCodec.isBlank()) ? CODEC_H264 : outputCodec;
         String ffmpegPath = discoveryService.findFFmpegExecutable();
         if (ffmpegPath == null) {
             LOG.warn("Gap transcode skipped: FFmpeg not found");
@@ -2289,7 +2518,7 @@ public class TranscodingService {
         }
         Path tempFile;
         try {
-            tempFile = getTempDir().resolve(gapTempFileName(video.id, audioTrackIndex, qualityHeight, gapStartSeconds));
+            tempFile = getTempDir().resolve(gapTempFileName(video.id, audioTrackIndex, qualityHeight, gapStartSeconds, codecTag));
         } catch (IOException e) {
             LOG.warn("Gap transcode aborted: cannot resolve temp dir: {}", e.getMessage());
             return null;
@@ -2299,30 +2528,35 @@ public class TranscodingService {
         // chain — that hole is what made seeking past the gap restart playback.
         boolean useHardware = isHardwareAccelerationEnabled();
         Path result = runGapAttempt(ffmpegPath, videoFile, tempFile, video,
-                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware);
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware, codecTag);
         if (result != null || !useHardware) {
             return result;
         }
         LOG.warn("Gap transcode for {} failed with hardware acceleration, retrying with software encoder", videoFile.getName());
-        String encoder = discoveryService.detectHardwareEncoder();
-        if (encoder != null && !"libx264".equals(encoder)) {
+        String encoder = discoveryService.detectHardwareEncoder(codecTag);
+        if (encoder != null && !encoder.startsWith("libx")) {
             discoveryService.recordEncoderFailure(encoder);
         }
         transcodeHwFallbackCount.incrementAndGet();
+        // Software retry is always H.264: libx265 cannot keep up in real time, and
+        // a gap whose params don't match its neighbours is discarded by fillGap
+        // anyway (safe failure instead of a corrupt chain).
         return runGapAttempt(ffmpegPath, videoFile, tempFile, video,
-                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, false);
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, false, CODEC_H264);
     }
 
     private Path runGapAttempt(String ffmpegPath, File videoFile, Path tempFile, Video video,
                                double gapStartSeconds, double gapDurationSeconds,
-                               int audioTrackIndex, int qualityHeight, boolean useHardware) {
-        String gapHwEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
+                               int audioTrackIndex, int qualityHeight, boolean useHardware,
+                               String outputCodec) {
+        String gapHwEncoder = useHardware ? discoveryService.detectHardwareEncoder(outputCodec) : "libx264";
         GpuScheduler.GpuLease gapLease = null;
         if (useHardware && gapHwEncoder != null && !gapHwEncoder.startsWith("libx")) {
             gapLease = gpuScheduler.acquire(video.videoCodec, gapHwEncoder);
         }
         List<String> command = buildGapFfmpegCommand(ffmpegPath, videoFile, tempFile, video,
-                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware, gapLease);
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware, gapLease,
+                outputCodec);
         final GpuScheduler.GpuLease gapLeaseToRelease = gapLease;
         Future<Path> future = gapExecutor.submit(() -> runGapProcess(command, tempFile, videoFile, gapStartSeconds));
         try {
@@ -2346,17 +2580,10 @@ public class TranscodingService {
     }
 
     /** Temp file name matching the segment naming scheme so a completed gap can
-     *  be moved into the chain directly: cache-&lt;absHash(videoId|audio|quality)&gt;-&lt;%.3f gapStart&gt;.mp4.tmp. */
-    private String gapTempFileName(Long videoId, int audioTrackIndex, int qualityHeight, double gapStartSeconds) {
-        ActiveTranscode at = activeTranscodes.get(buildTranscodeKey(videoId, gapStartSeconds, audioTrackIndex, qualityHeight));
-        String codecTag = (at != null && at.codecTag != null) ? at.codecTag : videoCodecTags.getOrDefault(videoId, "");
-        return gapTempFileName(videoId, audioTrackIndex, qualityHeight, gapStartSeconds, codecTag);
-    }
-
+     *  be moved into the chain directly:
+     *  cache-&lt;absHash(videoId|audio|quality|codec)&gt;-&lt;%.3f gapStart&gt;.mp4.tmp. */
     private String gapTempFileName(Long videoId, int audioTrackIndex, int qualityHeight, double gapStartSeconds, String codecTag) {
-        String baseKey = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
-        String hashInput = codecTag.isEmpty() ? baseKey : baseKey + "|" + codecTag;
-        return "cache-" + safeAbsHash(hashInput) + "-"
+        return "cache-" + safeAbsHash(cacheKey(videoId, audioTrackIndex, qualityHeight, codecTag)) + "-"
                 + String.format(Locale.ROOT, "%.3f", gapStartSeconds) + ".mp4.tmp";
     }
 
@@ -2367,12 +2594,14 @@ public class TranscodingService {
     private List<String> buildGapFfmpegCommand(String ffmpegPath, File videoFile, Path tempFile, Video video,
                                                double gapStartSeconds, double gapDurationSeconds,
                                                int audioTrackIndex, int qualityHeight, boolean useHardware,
-                                               GpuScheduler.GpuLease gpuLease) {
-        String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
+                                               GpuScheduler.GpuLease gpuLease, String outputCodec) {
+        String requestedCodec = (outputCodec == null || outputCodec.isBlank()) ? CODEC_H264 : outputCodec;
+        boolean needsVideoTranscode = !CODEC_COPY.equals(requestedCodec);
+        String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder(requestedCodec) : null;
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
-        boolean isHardwareEncoder = useHardware && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
+        boolean isHardwareEncoder = useHardware && hardwareEncoder != null
+                && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
 
-        boolean needsVideoTranscode = gapNeedsVideoTranscode(video, qualityHeight);
         boolean canCopyAudio = canCopyAudio(video);
 
         String videoEncoder;
@@ -2390,6 +2619,13 @@ public class TranscodingService {
                     preset = "medium";
                 }
             } else {
+                if (CODEC_HEVC.equals(requestedCodec)) {
+                    // Never libx265 for gap fill either: a software HEVC segment is
+                    // slower than real time and cannot be produced inside the gap
+                    // executor's 60s budget.
+                    LOG.warn("No usable HEVC hardware encoder for gap fill of {} — falling back to software H.264",
+                            videoFile.getName());
+                }
                 videoEncoder = "libx264";
             }
         } else {
@@ -2407,7 +2643,8 @@ public class TranscodingService {
             vaapiUploadDevice = discoveryService.getBestVaaPiDevicePath();
             if (vaapiUploadDevice == null) {
                 LOG.warn("No VAAPI render node for gap fill of {} — falling back to software encoder", videoFile.getName());
-                videoEncoder = videoEncoder.contains("hevc") ? "libx265" : "libx264";
+                // Never libx265: live streaming must stay real-time.
+                videoEncoder = "libx264";
                 vaapiUpload = false;
             } else {
                 LOG.info("VAAPI upload path for gap fill of {}: sw decode -> {} via {}", videoFile.getName(), videoEncoder, vaapiUploadDevice);
@@ -2531,6 +2768,11 @@ public class TranscodingService {
             } else {
                 command.add("-crf"); command.add("23");
             }
+            // Apple players require the hvc1 sample entry for HEVC in MP4; a gap
+            // segment must carry the same tag as its neighbours or concat fails.
+            if (videoEncoder.contains("hevc")) {
+                command.add("-tag:v"); command.add("hvc1");
+            }
             if (videoEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
                 command.add("-tune"); command.add("zerolatency");
@@ -2595,9 +2837,9 @@ public class TranscodingService {
         return command;
     }
 
-    /** Gap segments must be browser-decodable H.264 like the rest of the chain:
-     *  transcode when the source codec is not web-compatible or a real downscale
-     *  is requested (qualityHeight below the source height). */
+    /** Legacy gap decision (no resolved output codec available): transcode when
+     *  the source codec is not web-compatible or a real downscale is requested.
+     *  Callers with a resolved codec (the normal path) pass it explicitly. */
     private boolean gapNeedsVideoTranscode(Video video, int qualityHeight) {
         boolean codecNeedsTranscode = !isWebCompatibleVideoCodec(video.videoCodec);
         int sourceHeight = parseSourceHeight(video.resolution);

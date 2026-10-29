@@ -113,16 +113,24 @@ public class HlsService {
         final int height;
         final int bandwidth;
         final boolean useHardware;
+        /** Actual video codec this variant's playlist declares and FFmpeg produces
+         *  ({@code copy}/{@code h264}). */
+        final String outputCodec;
 
         VariantConfig(String name, int height, int bandwidth, boolean useHardware) {
+            this(name, height, bandwidth, useHardware, TranscodingService.CODEC_COPY);
+        }
+
+        VariantConfig(String name, int height, int bandwidth, boolean useHardware, String outputCodec) {
             this.name = name;
             this.height = height;
             this.bandwidth = bandwidth;
             this.useHardware = useHardware;
+            this.outputCodec = outputCodec;
         }
     }
 
-    private List<VariantConfig> determineVariants(Video video, int qualityHeight) {
+    private List<VariantConfig> determineVariants(Video video, int qualityHeight, String outputCodec) {
         int sourceHeight = 1080;
         try {
             if (video.resolution != null && video.resolution.contains("x")) {
@@ -132,18 +140,19 @@ public class HlsService {
 
         if (qualityHeight > 0) {
             int h = Math.min(qualityHeight, sourceHeight);
-            return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, h, 3000000, true));
+            return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, h, 3000000, true, outputCodec));
         }
 
-        // Default: remux natively when every stream is directly compatible
-        // (H.264/HEVC video + copyable audio) so Apple TV-class clients get
-        // progressive-like start times with subtitles; otherwise cap at 720p
-        // and transcode. Higher qualities are only used when explicitly selected.
-        if (isCopyEligibleVideo(video)) {
-            return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, sourceHeight, 8000000, true));
+        // Default: remux natively when the client proved it can decode the source
+        // codec AND every stream is directly compatible (H.264/HEVC video +
+        // copyable audio) so Apple TV-class clients get progressive-like start
+        // times with subtitles; otherwise cap at 720p and transcode. Higher
+        // qualities are only used when explicitly selected.
+        if (TranscodingService.CODEC_COPY.equals(outputCodec) && isCopyEligibleVideo(video)) {
+            return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, sourceHeight, 8000000, true, outputCodec));
         }
         int defaultHeight = Math.min(720, sourceHeight);
-        return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, defaultHeight, 1000000, true));
+        return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, defaultHeight, 1000000, true, outputCodec));
     }
 
     /**
@@ -174,20 +183,31 @@ public class HlsService {
     @Inject XtreamSessionService xtreamSessionService;
     @Inject SubtitleTrackService subtitleTrackService;
     @Inject PgsOcrService pgsOcrService;
+    @Inject TranscodingService transcodingService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
 
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, String deviceToken) throws IOException {
-        return createSession(videoId, startSeconds, profileId, null, null, deviceToken);
+        return createSession(videoId, startSeconds, profileId, null, null, deviceToken, null, null);
     }
 
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex, String deviceToken) throws IOException {
-        return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, null, deviceToken);
+        return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, null, deviceToken, null, null);
     }
 
-    @Transactional
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex, Integer qualityHeight, String deviceToken) throws IOException {
+        return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, qualityHeight, deviceToken, null, null);
+    }
+
+    /**
+     * @param codecsParam client capability payload ({@code ?codecs=hevc,av1}); null/blank
+     *                    for legacy clients, whose HEVC support is inferred from the UA
+     * @param userAgent   used only to infer capabilities when {@code codecsParam} is empty
+     */
+    @Transactional
+    public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex,
+                                    Integer qualityHeight, String deviceToken, String codecsParam, String userAgent) throws IOException {
         String safeDeviceToken = (deviceToken != null && !deviceToken.isBlank()) ? deviceToken : "unknown";
         // Include profileId so different profiles never share a key; append a
         // random nonce so two anonymous clients playing the same video cannot collide.
@@ -199,13 +219,8 @@ public class HlsService {
         // vid-{videoId}-{device}-{profile}-{nonce} format), so a plain map lookup can never find
         // a prior session. Instead, deterministically scan for an existing session for the same
         // video+device+profile and destroy it first — otherwise every re-create spawns a duplicate
-        // transcode and orphans the previous FFmpeg process.
-        HlsSession existing = findSessionByVideoDeviceProfile(videoId, safeDeviceToken, profileId);
-        if (existing != null) {
-            LOG.info("Destroying existing HLS session {} for same video/device/profile re-creation", existing.sessionId);
-            endXtreamLinkedSession(existing, "disconnected");
-            destroySession(existing.sessionId);
-        }
+        // transcode and orphans the previous FFmpeg process. The scan happens below, once the
+        // output codec is known, so a device whose capabilities changed also gets a fresh session.
 
         Video video = videoService.findById(videoId);
         if (video == null) throw new IOException("Video not found: " + videoId);
@@ -230,6 +245,31 @@ public class HlsService {
         HlsSession session = new HlsSession(sessionId, video, audioTracks, subtitleTracks, sessionDir, startSeconds);
         session.deviceToken = safeDeviceToken;
         session.profileId = profileId;
+
+        // Capability-driven output codec: the session only copies the source when
+        // the client proved it can decode it; otherwise it transcodes to H.264.
+        // HEVC is deliberately never an HLS *transcode* target: a hardware-HEVC
+        // failure would silently fall back to software H.264 while the master
+        // playlist still declared hvc1, so the declared CODECS would lie. HEVC is
+        // served by copy only (the source is already HEVC and Apple decodes it).
+        java.util.Set<String> clientCodecs = TranscodingService.parseClientCodecs(codecsParam);
+        String resolvedCodec = transcodingService.resolveOutputCodec(
+                video, userAgent, clientCodecs, qualityHeight != null ? qualityHeight : 0, false);
+        String outputCodec = TranscodingService.CODEC_HEVC.equals(resolvedCodec)
+                ? TranscodingService.CODEC_H264
+                : resolvedCodec;
+        session.outputCodec = outputCodec;
+        LOG.info("HLS session {} output codec: {} (source {}, client codecs {})",
+                sessionId, outputCodec, video.videoCodec, clientCodecs);
+
+        // Destroy a previous session for the same video/device/profile/codec so a
+        // re-create never spawns a duplicate transcode or orphans an FFmpeg process.
+        HlsSession existing = findSessionByVideoDeviceProfile(videoId, safeDeviceToken, profileId, outputCodec);
+        if (existing != null) {
+            LOG.info("Destroying existing HLS session {} for same video/device/profile/codec re-creation", existing.sessionId);
+            endXtreamLinkedSession(existing, "disconnected");
+            destroySession(existing.sessionId);
+        }
         
         if (qualityHeight != null && qualityHeight > 0) {
             session.qualityHeight = qualityHeight;
@@ -281,7 +321,7 @@ public class HlsService {
         }
 
         int qh = (qualityHeight != null && qualityHeight > 0) ? qualityHeight : 0;
-        List<VariantConfig> variants = determineVariants(video, qh);
+        List<VariantConfig> variants = determineVariants(video, qh, outputCodec);
         session.variants = variants;
 
         activeSessions.put(sessionId, session);
@@ -301,14 +341,34 @@ public class HlsService {
         return null;
     }
 
+    /** Same-video/device/profile lookup, now also codec-qualified: a re-created
+     *  session for a device whose capabilities changed (e.g. an updated browser
+     *  that now proves HEVC) must not inherit the previous session's variants. */
+    private HlsSession findSessionByVideoDeviceProfile(Long videoId, String deviceToken, Long profileId,
+                                                       String outputCodec) {
+        for (HlsSession session : activeSessions.values()) {
+            if (matchesVideoDeviceProfile(session, videoId, deviceToken, profileId, outputCodec)) {
+                return session;
+            }
+        }
+        return null;
+    }
+
     private boolean matchesVideoDeviceProfile(HlsSession session, Long videoId, String deviceToken, Long profileId) {
+        return matchesVideoDeviceProfile(session, videoId, deviceToken, profileId, null);
+    }
+
+    private boolean matchesVideoDeviceProfile(HlsSession session, Long videoId, String deviceToken, Long profileId,
+                                              String outputCodec) {
         if (session == null || session.video == null || videoId == null) return false;
         if (!videoId.equals(session.video.id)) return false;
         String sessionDevice = session.deviceToken != null ? session.deviceToken : "unknown";
         if (!sessionDevice.equals(deviceToken)) return false;
         Long sessionProfile = session.profileId != null ? session.profileId : -1L;
         Long targetProfile = profileId != null ? profileId : -1L;
-        return sessionProfile.equals(targetProfile);
+        if (!sessionProfile.equals(targetProfile)) return false;
+        // null = legacy caller: match on identity only, as before.
+        return outputCodec == null || outputCodec.equals(session.outputCodec);
     }
 
     private void startVariantEncoder(HlsSession session, VariantConfig variant, Long profileId) {
@@ -543,12 +603,19 @@ public class HlsService {
             throw new IOException("FFmpeg executable not found");
         }
 
-        // Determine encoder first to match decoder output format
+        // Determine encoder first to match decoder output format. The family is
+        // the variant's actual output codec: asking for an HEVC encoder when the
+        // playlist declares H.264 (or vice versa) breaks the declared CODECS.
         String hwEncoder = "libx264";
         if (useHardware) {
-            String detected = ffmpegDiscoveryService.detectHardwareEncoder();
-            if (!"libx264".equals(detected)) {
+            String family = TranscodingService.CODEC_HEVC.equals(variant.outputCodec)
+                    ? TranscodingService.CODEC_HEVC : TranscodingService.CODEC_H264;
+            String detected = ffmpegDiscoveryService.detectHardwareEncoder(family);
+            if (detected != null) {
                 hwEncoder = detected;
+            } else if (TranscodingService.CODEC_HEVC.equals(family)) {
+                LOG.warn("No hardware HEVC encoder for HLS variant {} — software HEVC is never used for live encoding",
+                        variant.name);
             }
         }
 
@@ -775,6 +842,10 @@ public class HlsService {
             } else if (hwEncoder.contains("vaapi")) {
                 command.add("-rc_mode"); command.add("CQP");
                 command.add("-qp"); command.add("23");
+            }
+            // Apple players require the hvc1 sample entry for HEVC in fMP4.
+            if (hwEncoder.contains("hevc")) {
+                command.add("-tag:v"); command.add("hvc1");
             }
             if (hwEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
@@ -1235,6 +1306,11 @@ public class HlsService {
     }
 
     private boolean isEligibleForCopyMode(HlsSession session, VariantConfig variant) {
+        // Copy mode only when the session resolved to copy, i.e. the client proved
+        // it can decode the source codec. This is what keeps a Chrome client from
+        // being handed an HEVC remux it cannot play.
+        if (!TranscodingService.CODEC_COPY.equals(session.outputCodec)) return false;
+        if (!TranscodingService.CODEC_COPY.equals(variant.outputCodec)) return false;
         // Video codec must be H.264 or HEVC for copy-mode eligibility
         String codec = session.video.videoCodec;
         if (codec == null) return false;
@@ -1359,28 +1435,65 @@ public class HlsService {
         return null;
     }
 
-    private String deriveCodecsString(Video video) {
-        String videoCodecStr = "avc1.64001f";
+    /**
+     * RFC 6381 CODECS attribute for the master playlist. Must describe what the
+     * encoder <em>actually produces</em>, not what the source contains: a
+     * transcoded HEVC source is announced as H.264, otherwise hls.js rejects the
+     * variant with a codec-support error.
+     *
+     * @param outputCodec session output codec ({@code copy}/{@code h264})
+     * @param outputHeight variant height the encoder targets (0 = unknown)
+     */
+    String deriveCodecsString(Video video, String outputCodec, int outputHeight) {
+        String videoCodecStr;
         String audioCodecStr = "mp4a.40.2";
 
-        if (video != null && video.videoCodec != null) {
-            String vc = video.videoCodec.toLowerCase();
-            if (vc.contains("hevc") || vc.contains("h265")) {
-                String level = deriveHvcLevel(video.resolution);
-                videoCodecStr = "hvc1.1.4.L" + level + ".B0";
-            } else if (vc.contains("h264") || vc.contains("avc")) {
-                videoCodecStr = deriveAvc1Codec(video);
+        if (TranscodingService.CODEC_COPY.equals(outputCodec)) {
+            // Pass-through: describe the source stream.
+            videoCodecStr = "avc1.64001f";
+            if (video != null && video.videoCodec != null) {
+                String vc = video.videoCodec.toLowerCase();
+                if (vc.contains("hevc") || vc.contains("h265")) {
+                    String level = deriveHvcLevel(video.resolution);
+                    videoCodecStr = "hvc1.1.4.L" + level + ".B0";
+                } else if (vc.contains("h264") || vc.contains("avc")) {
+                    videoCodecStr = deriveAvc1Codec(video);
+                }
             }
+            if (video != null && video.audioCodec != null) {
+                String ac = video.audioCodec.toLowerCase();
+                if (ac.contains("mp3")) {
+                    audioCodecStr = "mp4a.40.34";
+                }
+            }
+            return videoCodecStr + "," + audioCodecStr;
         }
 
-        if (video != null && video.audioCodec != null) {
-            String ac = video.audioCodec.toLowerCase();
-            if (ac.contains("mp3")) {
-                audioCodecStr = "mp4a.40.34";
-            }
-        }
+        // Transcode: video is H.264 High profile, audio is always AAC-LC.
+        int height = outputHeight > 0 ? outputHeight : parseResolutionHeight(video != null ? video.resolution : null);
+        return deriveAvc1ForHeight(height) + "," + audioCodecStr;
+    }
 
-        return videoCodecStr + "," + audioCodecStr;
+    /** avc1.PPCCLL for H.264 High profile at a level that covers {@code height}. */
+    private static String deriveAvc1ForHeight(int height) {
+        String level;
+        if (height > 2160) level = "3C";       // 6.0
+        else if (height > 1080) level = "33";  // 5.1
+        else if (height > 720) level = "28";   // 4.0
+        else if (height > 480) level = "1F";   // 3.1
+        else level = "1E";                     // 3.0
+        return "avc1.6400" + level;
+    }
+
+    private static int parseResolutionHeight(String resolution) {
+        if (resolution == null || !resolution.contains("x")) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(resolution.split("x")[1]);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private String deriveAvc1Codec(Video video) {
@@ -1456,7 +1569,9 @@ public class HlsService {
         sb.append("#EXTM3U\n");
         sb.append("#EXT-X-VERSION:").append(USE_FMP4_HLS ? 7 : 3).append("\n");
         sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
-        String codecs = deriveCodecsString(session.video);
+        int masterVariantHeight = session.variants != null && !session.variants.isEmpty()
+                ? session.variants.get(0).height : 0;
+        String codecs = deriveCodecsString(session.video, session.outputCodec, masterVariantHeight);
         int fps = session.video.frameRate != null && session.video.frameRate > 0 ? session.video.frameRate : 30;
         List<SubtitleTrack> servableSubs = servableSubtitleTracks(session);
         String subsAttr = servableSubs.isEmpty() ? "" : ",SUBTITLES=\"subs\"";
@@ -1881,6 +1996,9 @@ public class HlsService {
         public volatile String deviceToken;
 
         public Long profileId;
+
+        /** Actual video codec this session produces ({@code copy}/{@code h264}). */
+        public volatile String outputCodec = TranscodingService.CODEC_COPY;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;

@@ -283,6 +283,33 @@ public class FFmpegDiscoveryService {
         return hardwareEncoder;
     }
 
+    /**
+     * Returns the highest-priority usable hardware encoder for a specific output
+     * codec family ({@code h264}, {@code hevc} or {@code av1}), or {@code null}
+     * when the host has no usable hardware encoder for that family.
+     *
+     * <p>Unlike {@link #detectHardwareEncoder()}, this never falls back to a
+     * software encoder and never crosses codec families: a caller that asked for
+     * HEVC must decide for itself whether libx264 is an acceptable substitute.
+     */
+    public synchronized String detectHardwareEncoder(String codecFamily) {
+        if (codecFamily == null || codecFamily.isBlank()) {
+            return detectHardwareEncoder();
+        }
+        String prefix = codecFamily.toLowerCase(java.util.Locale.ROOT) + "_";
+        for (String encoder : getAvailableHardwareEncoders()) {
+            if (encoder.startsWith(prefix)) {
+                return encoder;
+            }
+        }
+        return null;
+    }
+
+    /** True when at least one usable hardware encoder exists for the family. */
+    public boolean hasHardwareEncoder(String codecFamily) {
+        return detectHardwareEncoder(codecFamily) != null;
+    }
+
     /** Returns available encoders grouped by codec family. Each entry contains
      *  the encoder name and whether it is hardware-accelerated. */
     public record CodecCapability(String encoder, boolean hardware) {}
