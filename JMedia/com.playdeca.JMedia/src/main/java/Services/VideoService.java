@@ -480,7 +480,7 @@ public class VideoService {
         return backfillAbsoluteNumberingVideo(rootPath);
     }
 
-    @Transactional
+    @Transactional(dontRollbackOn = Exception.class)
     public int backfillAbsoluteNumberingVideo(Path rootPath) {
         List<Video> candidates = Video.list("type = ?1 and (contentType is null or contentType = 'episode')", "episode");
         int scanned = 0;
