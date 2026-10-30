@@ -87,13 +87,16 @@ public class KeyframeIndexService {
     private double probe(Path source, double atSeconds) {
         double windowStart = Math.max(0.0, atSeconds - LOOKBACK_SECONDS);
         String interval = String.format(Locale.ROOT, "%.3f%%+%.3f", windowStart, LOOKBACK_SECONDS + 1.0);
+        // Enumerate PACKETS and filter on the K flag. The previous form
+        // ("-skip_frame nokey -show_entries frame=pts_time") silently dropped
+        // keyframes: on one episode it listed up to 116.408 and missed 117.743,
+        // so the snap undershot by a whole GOP and cues stayed ~1.3s out.
         ProcessBuilder pb = new ProcessBuilder(
                 "ffprobe", "-v", "error",
                 "-select_streams", "v:0",
-                "-skip_frame", "nokey",
-                "-read_intervals", interval,
-                "-show_entries", "frame=pts_time",
+                "-show_entries", "packet=pts_time,flags",
                 "-of", "csv=p=0",
+                "-read_intervals", interval,
                 source.toAbsolutePath().toString());
         pb.redirectErrorStream(true);
         Process process = null;
@@ -104,12 +107,16 @@ public class KeyframeIndexService {
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    String trimmed = line.trim().replace(",", "");
+                    String trimmed = line.trim();
                     if (trimmed.isEmpty()) {
                         continue;
                     }
+                    String[] parts = trimmed.split(",");
+                    if (parts.length < 2 || !parts[1].toUpperCase(Locale.ROOT).contains("K")) {
+                        continue;
+                    }
                     try {
-                        double t = Double.parseDouble(trimmed);
+                        double t = Double.parseDouble(parts[0].trim());
                         if (t <= atSeconds + 0.001) {
                             best = Math.max(best, t);
                         }

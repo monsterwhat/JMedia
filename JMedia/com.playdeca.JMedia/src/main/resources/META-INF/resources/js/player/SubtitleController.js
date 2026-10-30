@@ -228,6 +228,13 @@
                                     if (isAss) {
                                         this.initAssSubtitle(t.id);
                                     } else {
+                                        // Drop any previous <track> elements first. They hold the OLD
+                                        // ?start= offset, and because the new track reuses the same id
+                                        // ("subtitle-track-<id>"), a re-select after a seek matched the
+                                        // stale element and the fresh one never showed — which is why
+                                        // subtitles disappeared on a forward skip until you toggled them.
+                                        p.video.querySelectorAll('track').forEach(el => el.remove());
+
                                         const track = document.createElement('track');
                                         track.kind = 'subtitles';
 
