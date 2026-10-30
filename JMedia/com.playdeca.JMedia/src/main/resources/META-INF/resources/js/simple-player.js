@@ -63,6 +63,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             // where server playing:true instantly undid a local pause.
             this._userPaused = false;
             this._userPausedAt = 0;
+            // Set when the media stream is opened; before that, an audio-track
+            // preference is recorded rather than reloaded (see switchAudioTrack).
+            this._streamOpened = false;
 
             this.stateMgr = new window.PlayerStateManager(this);
             this.stateMgr.initState();
@@ -148,6 +151,45 @@ if (typeof window.SimplePlayer === 'undefined') {
                 return;
             }
 
+            // Resolve the saved audio preference BEFORE the first stream request.
+            // Opening the stream first and switching tracks ~250 ms later sends a
+            // second request with a different audio index; the server keys transcode
+            // cache files by that index, so the second request supersedes (kills) the
+            // first one's writer mid-write and leaves a dead partial segment behind.
+            this._openStreamWhenAudioResolved();
+        }
+
+        /**
+         * Waits (bounded) for the audio track list and the saved preference, then
+         * opens the stream once, already carrying the resolved track index.
+         * Degrades to opening immediately if the tracks never resolve, which is the
+         * previous behaviour — a late preference then switches tracks normally.
+         */
+        _openStreamWhenAudioResolved() {
+            let opened = false;
+            const open = () => {
+                if (opened || this._destroyed) return;
+                opened = true;
+                this._openStream();
+            };
+            const selector = this.audioTrackSelector;
+            if (!selector || typeof selector.init !== 'function') {
+                open();
+                return;
+            }
+            const cap = setTimeout(() => {
+                console.warn('[SimplePlayer] Audio tracks slow to resolve; opening stream with the current selection');
+                open();
+            }, 1500);
+            Promise.resolve()
+                .then(() => selector.init())
+                .catch(e => console.warn('[SimplePlayer] Audio track resolution failed; opening stream anyway:', e))
+                .then(() => { clearTimeout(cap); open(); });
+        }
+
+        /** Opens the media stream. Run once, after the audio preference is known. */
+        _openStream() {
+            this._streamOpened = true;
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
             if (this.dataHlsEnabled && (this.needsTranscode || this.container.dataset.hlsForced === 'true') && typeof Hls !== 'undefined' && Hls.isSupported()) {
                 // Local HLS session: the server transcodes to HLS segments; the element
@@ -253,7 +295,6 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             this.controlsManager.showControls();
             this.controlsManager.updatePageTitle();
-            this.audioTrackSelector.init();
         }
 
         updatePageTitle() { this.controlsManager.updatePageTitle(); }

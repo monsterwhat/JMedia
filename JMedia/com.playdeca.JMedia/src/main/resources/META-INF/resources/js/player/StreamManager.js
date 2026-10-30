@@ -611,6 +611,16 @@
 
             p.currentAudioTrackIndex = trackIndex;
 
+            // Nothing is open yet: the player applies the saved preference before opening
+            // the stream. Record the track and let that single request carry it —
+            // reloading here would open a second stream and supersede the first one's
+            // transcode mid-write. Once open, a switch is a real switch (the HLS path
+            // never sets video.src, so an explicit flag is the only reliable test).
+            if (!p._streamOpened) {
+                console.log('[SimplePlayer] Audio track recorded before the stream opens:', trackIndex);
+                return;
+            }
+
             const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
 
             // HLS local session: recreate the session at the current position so the

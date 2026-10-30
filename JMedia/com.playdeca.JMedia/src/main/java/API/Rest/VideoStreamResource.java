@@ -57,6 +57,9 @@ public class VideoStreamResource {
     // waiting is the efficient path.
     private static final double FAR_SEEK_AHEAD_SECONDS = 15.0;
 
+    /** How many times one response may relaunch a segment's writer before giving up. */
+    private static final int MAX_WRITER_RELAUNCHES = 3;
+
     // Suppress per-range-request spam: log hot-path stream events once per session.
     private static final long STREAM_SESSION_GAP_MS = 120_000;
     private static final int STREAM_LOG_MAX_ENTRIES = 4096;
@@ -433,6 +436,15 @@ public class VideoStreamResource {
                 } catch (IOException e) {
                     LOG.debug("Failed to refresh mtime of segment {}: {}", coverage.file, e.getMessage());
                 }
+                // A "growing" sidecar reports coverage for any time, including past the
+                // bytes actually written. If its writer is dead (superseded seek, zombie
+                // sweep), serving it here walks the client to that prefix and the response
+                // ends there. Relaunch first so the resume-append keeps it growing.
+                if (coverage.isGrowing()) {
+                    ensureSegmentWriter(video, videoFile, coverage.file, coverage.startSeconds,
+                            userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                            "range request hit a growing segment");
+                }
                 return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true, outputCodec);
             }
         }
@@ -698,6 +710,8 @@ public class VideoStreamResource {
         // instead of re-requesting every fragment. Requires the estimate to cover
         // the requested start; otherwise it degrades to the bounded convention.
         boolean growStream = openEndedRange && !transcodeFinished && estimatedFinalSize > start;
+        // Writer relaunches this one response is allowed to trigger (see ensureSegmentWriter).
+        final java.util.concurrent.atomic.AtomicInteger relaunches = new java.util.concurrent.atomic.AtomicInteger();
         long currentFileSize;
         try {
             if (transcodeFinished) {
@@ -764,8 +778,20 @@ public class VideoStreamResource {
                             if (writerGoneSince == 0) {
                                 writerGoneSince = System.currentTimeMillis();
                             } else if (System.currentTimeMillis() - writerGoneSince > WRITER_GONE_GRACE_MS) {
-                                throw new IOException("Writer gone for segment " + tempFile.getFileName()
-                                        + ", fragment containing byte " + startFileByte + " will never complete");
+                                // The prefix on disk is valid and resumable — relaunch a writer
+                                // onto it instead of failing the request with a 503 (which makes
+                                // the browser restart the media from byte 0). Only give up once
+                                // the relaunch budget for this response is spent.
+                                if (relaunches.get() < MAX_WRITER_RELAUNCHES
+                                        && ensureSegmentWriter(video, videoFile, tempFile, segmentStart,
+                                                userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                                                "writer gone before response headers")) {
+                                    relaunches.incrementAndGet();
+                                    writerGoneSince = 0;
+                                } else {
+                                    throw new IOException("Writer gone for segment " + tempFile.getFileName()
+                                            + ", fragment containing byte " + startFileByte + " will never complete");
+                                }
                             }
                         }
                     }
@@ -875,9 +901,33 @@ public class VideoStreamResource {
                             if (read == -1) {
                                 // Check if the segment's writer is done — no more data will come.
                                 boolean cacheComplete = transcodingService.isCacheFileComplete(tempFile);
+                                if (cacheComplete) {
+                                    LOG.debug("Segment writer finished, stopping stream for video {}", videoId);
+                                    break;
+                                }
                                 boolean beingWritten = transcodingService.isCacheBeingWritten(tempFile);
-                                if (cacheComplete || (!beingWritten && !restartInFlight.get())) {
-                                    LOG.debug("Segment writer finished or abandoned, stopping stream for video {}", videoId);
+                                if (!beingWritten && !restartInFlight.get()) {
+                                    // Writer gone but the segment is not complete. Ending the body
+                                    // here truncates the media mid-file, and the browser answers a
+                                    // truncated stream by re-requesting from byte 0 — the visible
+                                    // "playback restarts when it catches up with the transcode".
+                                    // Resume the writer onto the valid prefix instead.
+                                    if (relaunches.get() < MAX_WRITER_RELAUNCHES
+                                            && ensureSegmentWriter(video, videoFile, tempFile, segmentStart,
+                                                    userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                                                    "reader reached the written prefix")) {
+                                        relaunches.incrementAndGet();
+                                        noGrowthSince = 0;
+                                        try {
+                                            Thread.sleep(200);
+                                        } catch (InterruptedException ie) {
+                                            Thread.currentThread().interrupt();
+                                            break;
+                                        }
+                                        continue;
+                                    }
+                                    LOG.warn("Segment {} has no writer and could not be relaunched ({} attempt(s)) — ending stream for video {}",
+                                             tempFile.getFileName(), relaunches.get(), videoId);
                                     break;
                                 }
                                 if (!beingWritten) {
@@ -1051,6 +1101,67 @@ public class VideoStreamResource {
                     }
                 },
                 video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec);
+    }
+
+    /**
+     * Ensures a growing segment still has a writer, relaunching one that resumes into
+     * the same file when it does not.
+     *
+     * <p>A writer killed by a supersede, a zombie sweep or a disconnect deliberately
+     * leaves its valid fragment prefix on disk without the {@code .done} marker:
+     * {@code runFFmpegWithPermit} then trims the partial tail and appends new
+     * fragments with a shifted timeline, so the merged file stays continuous. That
+     * only happens if a writer is started again — and a reader that merely caught up
+     * with the prefix started none. It ended its response there instead, and a
+     * browser answers a media stream that stops mid-file by re-requesting from byte
+     * 0, which is what "playback restarts when it reaches the end of the converted
+     * part" looks like on screen.
+     *
+     * <p>Coordination is the same as the zombie path: one shared in-flight flag per
+     * segment plus the segment lock, so concurrent readers and requests cannot launch
+     * two writers into one file.
+     *
+     * @return true when a relaunch was started (or one is already in flight) and the
+     *         caller should keep waiting for data
+     */
+    private boolean ensureSegmentWriter(Models.Video.Video video, File videoFile, java.nio.file.Path cacheFile,
+                                        double segmentStart, String userAgent, int audioTrackIndex,
+                                        int qualityHeight, String outputCodec, String reason) {
+        if (cacheFile == null || !Files.exists(cacheFile)) {
+            return false;
+        }
+        if (transcodingService.isCacheFileComplete(cacheFile)) {
+            return false;
+        }
+        if (transcodingService.isCacheBeingWritten(cacheFile)) {
+            return false;
+        }
+        String segmentKey = cacheFile.getFileName().toString();
+        java.util.concurrent.atomic.AtomicBoolean restartInFlight =
+                RESTART_IN_FLIGHT.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
+        if (!restartInFlight.compareAndSet(false, true)) {
+            // Another reader already relaunched this segment; wait for it to register.
+            return true;
+        }
+        java.util.concurrent.atomic.AtomicInteger restartGeneration =
+                RESTART_GENERATION.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicInteger());
+        int generation = restartGeneration.incrementAndGet();
+        Object lock = segmentLocks.computeIfAbsent(
+                cacheFile.toAbsolutePath().normalize().toString(), k -> new Object());
+        synchronized (lock) {
+            if (transcodingService.isCacheBeingWritten(cacheFile)) {
+                // A writer registered while we waited for the lock — nothing to do.
+                if (restartGeneration.get() == generation) {
+                    restartInFlight.set(false);
+                }
+                return false;
+            }
+            LOG.info("Segment {} has no writer while serving video {} ({}), relaunching from {}s to resume its prefix",
+                    cacheFile.getFileName(), video.id, reason, segmentStart);
+            restartSegmentWriter(video, videoFile, cacheFile, segmentStart, userAgent,
+                    audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec);
+        }
+        return true;
     }
 
     private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
