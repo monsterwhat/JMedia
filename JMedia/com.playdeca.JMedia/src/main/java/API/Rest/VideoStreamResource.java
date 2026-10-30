@@ -926,6 +926,20 @@ public class VideoStreamResource {
                                         }
                                         continue;
                                     }
+                                    // No relaunch happened: either the budget is spent, the file is
+                                    // gone/complete, or a writer registered while we were deciding
+                                    // (the direct path can launch one concurrently). Wait for that
+                                    // writer instead of ending the body.
+                                    if (transcodingService.isCacheBeingWritten(tempFile)) {
+                                        noGrowthSince = 0;
+                                        try {
+                                            Thread.sleep(200);
+                                        } catch (InterruptedException ie) {
+                                            Thread.currentThread().interrupt();
+                                            break;
+                                        }
+                                        continue;
+                                    }
                                     LOG.warn("Segment {} has no writer and could not be relaunched ({} attempt(s)) — ending stream for video {}",
                                              tempFile.getFileName(), relaunches.get(), videoId);
                                     break;
