@@ -205,7 +205,7 @@ public class VideoSocket {
             // (fresh/unowned rows) are deliberately NOT broadcast anywhere.
             Long pid = stateToBroadcast.profileId;
             if (pid != null) {
-                webSocketManager.broadcastToProfile(pid, mapper.writeValueAsString(message));
+                webSocketManager.broadcastToVideoProfile(pid, mapper.writeValueAsString(message));
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -233,7 +233,7 @@ public class VideoSocket {
                 pid = currentState != null ? currentState.profileId : null;
             }
             if (pid != null) {
-                webSocketManager.broadcastToProfile(pid, json);
+                webSocketManager.broadcastToVideoProfile(pid, json);
             }
         } catch (Exception e) {
             System.err.println("[VideoSocket] Error broadcasting command: " + e.getMessage());

@@ -174,7 +174,7 @@ public class MusicSocket {
             ObjectNode message = mapper.createObjectNode();
             message.put("type", "state");
             message.set("payload", mapper.valueToTree(stateToBroadcast));
-            webSocketManager.broadcastToProfile(profileId, mapper.writeValueAsString(message));
+            webSocketManager.broadcastToMusicProfile(profileId, mapper.writeValueAsString(message));
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -187,7 +187,7 @@ public class MusicSocket {
             message.put("profileId", profileId);
             String messageJson = mapper.writeValueAsString(message);
             System.out.println("[MusicSocket] Broadcasting history update for profile " + profileId + ": " + messageJson);
-            webSocketManager.broadcastToProfile(profileId, messageJson);
+            webSocketManager.broadcastToMusicProfile(profileId, messageJson);
         } catch (IOException e) {
             e.printStackTrace();
         }

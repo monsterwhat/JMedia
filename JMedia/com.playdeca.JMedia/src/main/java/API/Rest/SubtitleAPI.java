@@ -58,6 +58,40 @@ public class SubtitleAPI {
     private PgsOcrService pgsOcrService;
 
     @Inject
+    private Services.KeyframeIndexService keyframeIndexService;
+
+    /**
+     * The stream path snaps a seek to the previous keyframe (a copy stream cannot cut
+     * mid-GOP), so cues must be shifted by that same position — shifting by the
+     * requested time leaves them off by the keyframe distance, which is why the
+     * offset changes every time you seek.
+     */
+    private double effectiveStreamStart(SubtitleTrack track, double requestedStart) {
+        if (track == null || requestedStart <= 0) {
+            return requestedStart;
+        }
+        try {
+            Video video = track.video;
+            if (video == null || video.path == null) {
+                return requestedStart;
+            }
+            java.nio.file.Path source = java.nio.file.Paths.get(video.path);
+            if (!source.isAbsolute()) {
+                String library = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                if (library == null || library.isBlank()) {
+                    return requestedStart;
+                }
+                source = java.nio.file.Paths.get(library, video.path);
+            }
+            return keyframeIndexService.snapToKeyframe(source, requestedStart);
+        } catch (RuntimeException e) {
+            LOGGER.warn("Could not resolve keyframe-aligned start for subtitle track {} at {}s: {}",
+                    track.id, requestedStart, e.getMessage(), e);
+            return requestedStart;
+        }
+    }
+
+    @Inject
     private Services.EnhancedSubtitleMatcher subtitleMatcher;
 
     // ========== SUBTITLE ENDPOINTS ==========
@@ -318,7 +352,7 @@ public class SubtitleAPI {
     @Path("/track/{trackId}")
     @Produces("text/vtt")
     public Response streamSubtitle(@PathParam("trackId") Long trackId,
-                                  @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double offset,
+                                  @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double requestedOffset,
                                   @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
@@ -329,7 +363,10 @@ public class SubtitleAPI {
 
         try {
             String webVTTContent;
-            
+            // Align with what the stream actually plays: a copy-mode seek starts at the
+            // previous keyframe, not at the requested position.
+            double offset = effectiveStreamStart(track, requestedOffset);
+
             // For external tracks:
             // -offset: shift earlier by seek position (because the browser video starts at 0.0)
             // +correction: user-defined adjustment (positive = later, negative = earlier)

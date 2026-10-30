@@ -137,6 +137,9 @@ public class VideoStreamResource {
     @Inject
     Services.VideoConversionService videoConversionService;
 
+    @Inject
+    Services.KeyframeIndexService keyframeIndexService;
+
     private String getMimeType(String filename) {
         if (filename == null) return "video/mp4";
         String lower = filename.toLowerCase();
@@ -172,7 +175,7 @@ public class VideoStreamResource {
     public Response streamVideo(@PathParam("videoId") Long videoId, 
                                @HeaderParam("Range") String rangeHeader,
                                @HeaderParam("User-Agent") String userAgent,
-                               @QueryParam("start") @DefaultValue("0") double startSeconds,
+                               @QueryParam("start") @DefaultValue("0") double requestedStart,
                                @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
                                @QueryParam("quality") @DefaultValue("0") int qualityHeight,
                                 @QueryParam("trace") String traceId,
@@ -221,6 +224,12 @@ public class VideoStreamResource {
 
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
+
+        // A copy-mode stream cannot cut mid-GOP: asking ffmpeg for N starts it at the
+        // previous keyframe K and the normalised output then begins at content K.
+        // Snap the request to that keyframe here so the media, the segment cache key
+        // and the subtitle shift (SubtitleAPI uses the same service) all agree.
+        final double startSeconds = keyframeIndexService.snapToKeyframe(filePath, requestedStart);
 
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamVideo called: videoId={} start={}s audioTrack={} quality={} range={} isMKV={}", traceId, videoId, startSeconds, audioTrackIndex, qualityHeight, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none", isMKV);
 

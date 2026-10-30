@@ -115,6 +115,38 @@ public class WebSocketManager {
         }
     }
 
+    /**
+     * Broadcasts only to the profile's MUSIC sockets.
+     *
+     * <p>{@code profileSessionsMap} holds both endpoint types for a profile (music and
+     * video), so the plain {@link #broadcastToProfile} delivered music state to video
+     * clients as well. The video player applies any {@code state} message to its own
+     * element, so a music pause ("playing": false, no currentVideoId) paused the video
+     * — and vice versa. Keep the two channels apart.
+     */
+    public void broadcastToMusicProfile(Long profileId, String message) {
+        broadcastToProfileType(profileId, musicSessions, message);
+    }
+
+    /** Broadcasts only to the profile's VIDEO sockets. */
+    public void broadcastToVideoProfile(Long profileId, String message) {
+        broadcastToProfileType(profileId, videoSessions, message);
+    }
+
+    private void broadcastToProfileType(Long profileId, Set<Session> typeSessions, String message) {
+        Set<Session> sessions = profileSessionsMap.get(profileId);
+        if (sessions == null) {
+            return;
+        }
+        sessions.stream()
+                .filter(typeSessions::contains)
+                .forEach(session -> {
+                    if (session.isOpen()) {
+                        session.getAsyncRemote().sendText(message);
+                    }
+                });
+    }
+
     private void broadcast(Set<Session> sessions, String message) {
         sessions.forEach(session -> {
             if (session.isOpen()) {

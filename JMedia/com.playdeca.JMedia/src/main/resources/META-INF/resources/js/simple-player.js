@@ -4,6 +4,26 @@ if (typeof window.SimplePlayer === 'undefined') {
             console.log('[SimplePlayer] Initializing...', config);
             this.container = document.getElementById(config.containerId);
             this.video = document.getElementById(config.videoId);
+            // Mount race: the SPA injects the fragment and runs this inline script in
+            // the same tick as a view transition, so the elements can still be missing
+            // here. Retrying is the difference between "the new video never loads until
+            // I refresh" and it just working.
+            if (!this.container || !this.video) {
+                const key = config.containerId + '|' + config.videoId;
+                window.__playerMountAttempts = window.__playerMountAttempts || {};
+                const attempt = window.__playerMountAttempts[key] =
+                        (window.__playerMountAttempts[key] || 0) + 1;
+                if (attempt <= 20) {
+                    console.warn('[SimplePlayer] Player elements not ready (attempt ' + attempt + '), retrying');
+                    setTimeout(function() { new window.SimplePlayer(config); }, 50);
+                } else {
+                    delete window.__playerMountAttempts[key];
+                    console.error('[SimplePlayer] Gave up mounting: player elements never appeared', config);
+                }
+                return;
+            }
+            window.__playerMountAttempts = window.__playerMountAttempts || {};
+            delete window.__playerMountAttempts[config.containerId + '|' + config.videoId];
             this.videoId = config.currentVideoId;
             this.videoType = this.container.dataset.type || 'movie';
             // Live channels are not backed by a Video row, so server state sync

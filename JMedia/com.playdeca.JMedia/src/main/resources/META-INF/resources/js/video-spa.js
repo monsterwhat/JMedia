@@ -364,14 +364,20 @@ class VideoSPA {
 
     async destroyCurrentPlayer() {
         if (window.ConversionGate) window.ConversionGate.destroy();
-        if (window.currentPlayerInstance && typeof window.currentPlayerInstance.destroy === 'function') {
-            await window.currentPlayerInstance.destroy();
+        const instance = window.currentPlayerInstance;
+        const legacy = window.player;
+        if (instance && typeof instance.destroy === 'function') {
+            await instance.destroy();
         }
-        if (window.player && typeof window.player.destroy === 'function') {
-            await window.player.destroy();
+        if (legacy && legacy !== instance && typeof legacy.destroy === 'function') {
+            await legacy.destroy();
         }
-        window.currentPlayerInstance = null;
-        window.player = null;
+        // Only clear the globals if they still point at what was destroyed: a player
+        // created while destroy() was awaiting (a fast second navigation) must not
+        // become untracked, or the next view cannot tear it down and you end up with
+        // a ghost player alongside the new one.
+        if (window.currentPlayerInstance === instance) window.currentPlayerInstance = null;
+        if (window.player === legacy) window.player = null;
 
         if (window.videoSidebarController) {
             window.videoSidebarController.destroy();

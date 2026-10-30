@@ -375,7 +375,26 @@
          */
         async initLocalHlsStream(savedTime) {
             const p = this.player;
-            if (p._destroyed || !document.body.contains(p.container)) return;
+            if (p._destroyed) return;
+            if (!document.body.contains(p.container)) {
+                // Detached during a view transition. Returning here silently left the
+                // new video with no stream at all until a page refresh; wait for the
+                // container to be attached and continue, then give up to direct play.
+                if (!p._hlsAttachRetry) {
+                    p._hlsAttachRetry = true;
+                    console.warn('[SimplePlayer] HLS start deferred: container not attached yet');
+                    setTimeout(() => {
+                        if (p._destroyed) return;
+                        p._hlsAttachRetry = false;
+                        this.initLocalHlsStream(savedTime);
+                    }, 250);
+                    return;
+                }
+                console.warn('[SimplePlayer] HLS container still detached - falling back to direct stream');
+                p._hlsAttachRetry = false;
+                this.fallbackToDirectStream(savedTime);
+                return;
+            }
 
             // A new session supersedes any previous one — tear the old one down
             // first (also invalidates any in-flight creation via the gen bump).
