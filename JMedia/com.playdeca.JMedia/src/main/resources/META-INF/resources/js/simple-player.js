@@ -221,17 +221,25 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.subtitleController.loadSubtitles();
             } else if (this.needsTranscode) {
                 const setupStream = () => {
-                    if (savedTime > 0) {
-                        this.streamStartOffset = savedTime;
-                        this.video.src = this.streamMgr.buildStreamUrl(savedTime);
-                    } else {
-                        this.streamStartOffset = 0;
-                        this.video.src = this.streamMgr.buildStreamUrl(null);
-                    }
-                    this.subtitleController.loadSubtitles();
-                    this.video.play().then(() => {
-                    }).catch(e => {
-                        console.log('[SimplePlayer] Play requires user gesture:', e);
+                    const target = savedTime > 0 ? savedTime : null;
+                    const streamUrl = this.streamMgr.buildStreamUrl(target);
+                    this.streamStartOffset = savedTime > 0 ? savedTime : 0;
+                    // The element may begin earlier than the requested position (a copy
+                    // seek starts at the previous keyframe, and a seek into an existing
+                    // segment starts deep inside that segment's own timeline). Use the
+                    // origin the server reports so the clock and subtitle offset match
+                    // the picture instead of the request.
+                    this.streamMgr.resolveStreamOrigin(streamUrl).then((origin) => {
+                        if (this._destroyed) return;
+                        if (origin !== null) {
+                            this.streamStartOffset = origin;
+                        }
+                        this.video.src = streamUrl;
+                        this.subtitleController.loadSubtitles();
+                        this.video.play().then(() => {
+                        }).catch(e => {
+                            console.log('[SimplePlayer] Play requires user gesture:', e);
+                        });
                     });
                 };
                 const setupStreamErrorHandler = () => {

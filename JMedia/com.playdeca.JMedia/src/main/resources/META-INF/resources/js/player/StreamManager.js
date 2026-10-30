@@ -649,6 +649,13 @@
             if (p._hlsSessionId || p._hlsSessionPending) {
                 const hlsSavedTime = savedTime > 0 ? savedTime : (p.initialResumeTime || 0);
                 this.recreateLocalHlsSession(hlsSavedTime);
+                // The session restarts at a new position and streamStartOffset changes,
+                // so the active <track> must be rebuilt with the matching ?start=. This
+                // branch returns before the progressive reload below, which is why
+                // subtitles drifted after an audio switch on HLS playback.
+                setTimeout(() => {
+                    if (!p._destroyed) p.loadSubtitles();
+                }, 500);
                 return;
             }
 
@@ -922,6 +929,33 @@
             }
         }
 
+        /**
+         * Reads X-Stream-Origin from the stream: the content time of element time 0.
+         * A seek served from the middle of a segment starts the browser deep into the
+         * file, so `requested` is not where the picture begins. Returns null when the
+         * header is absent (direct/local playback, older server) so callers keep the
+         * requested position.
+         */
+        async resolveStreamOrigin(url) {
+            try {
+                const res = await fetch(url, {
+                    headers: { 'Range': 'bytes=0-0' },
+                    cache: 'no-store',
+                    credentials: 'include'
+                });
+                const raw = res.headers.get('X-Stream-Origin');
+                if (raw != null && raw !== '') {
+                    const origin = parseFloat(raw);
+                    if (!isNaN(origin) && origin >= 0) {
+                        return origin;
+                    }
+                }
+            } catch (e) {
+                console.warn('[SimplePlayer] Stream origin probe failed:', e);
+            }
+            return null;
+        }
+
         _doServerSeek(time) {
             const p = this.player;
             console.log(`[SimplePlayer] Server-side seek to ${time}s starting new transcode`);
@@ -954,15 +988,28 @@
             // F7: Reset stall-detection state (mirror switchAudioTrack)
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
-            p.video.src = this.buildStreamUrl(Math.max(0, time));
-            p.video.load();
-            // Autoplay attribute alone is unreliable here: the reload happens
-            // outside the original user gesture (remote/keyboard/auto seeks),
-            // so the browser may block it silently with no pause event — leaving
-            // the playing icon over a frozen frame. Resume explicitly instead.
-            if (resumeAfterSeek) {
-                p.video.play().catch((e) => console.log('[SimplePlayer] Resume after seek blocked, awaiting gesture:', e));
-            }
+            const seekUrl = this.buildStreamUrl(Math.max(0, time));
+            // Learn where the picture actually begins before assigning src: a seek into
+            // an existing segment starts the browser deep into that file, and using the
+            // requested time as the origin puts the clock (and the subtitle offset) out
+            // by the segment start.
+            this.resolveStreamOrigin(seekUrl).then((origin) => {
+                if (p._destroyed) return;
+                if (origin !== null) {
+                    p.streamStartOffset = origin;
+                    console.log('[SimplePlayer] Seek origin from stream:', origin);
+                    if (p.loadSubtitles) p.loadSubtitles();
+                }
+                p.video.src = seekUrl;
+                p.video.load();
+                // Autoplay attribute alone is unreliable here: the reload happens
+                // outside the original user gesture (remote/keyboard/auto seeks),
+                // so the browser may block it silently with no pause event — leaving
+                // the playing icon over a frozen frame. Resume explicitly instead.
+                if (resumeAfterSeek) {
+                    p.video.play().catch((e) => console.log('[SimplePlayer] Resume after seek blocked, awaiting gesture:', e));
+                }
+            });
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
             // the server's phantom clock snaps to the new absolute position (element + offset).

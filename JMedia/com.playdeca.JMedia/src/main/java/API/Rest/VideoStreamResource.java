@@ -454,6 +454,11 @@ public class VideoStreamResource {
                             userAgent, audioTrackIndex, qualityHeight, outputCodec,
                             "range request hit a growing segment");
                 }
+                // The element timeline is the SEGMENT's, not the request's: a segment that
+                // started at 5.406s puts content C at element time C-5.406, and the browser
+                // starts at the fragment's tfdt (measured: start_time 1579.6 for a seek to
+                // 1591.9). X-Stream-Origin tells the player the content time of element 0
+                // so its clock and subtitle offset use the real origin.
                 return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true, outputCodec);
             }
         }
@@ -1013,6 +1018,12 @@ public class VideoStreamResource {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", "video/mp4")
                 .header("Cache-Control", cacheControl)
+                // Content time of element time 0. Segments carry their own 0-based
+                // timeline, so a seek served from the middle of a segment starts the
+                // browser deep into the file (measured start_time 1579.6 for a seek to
+                // 1591.9). The player reads this to set its clock and the subtitle
+                // offset to where the picture actually begins.
+                .header("X-Stream-Origin", String.format(java.util.Locale.ROOT, "%.3f", segmentStart))
                 .header("ETag", "\"" + etag + "\"");
 
         boolean isRangeRequest = rangeHeader != null;
