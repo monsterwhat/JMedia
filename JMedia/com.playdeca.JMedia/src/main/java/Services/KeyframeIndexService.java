@@ -85,24 +85,25 @@ public class KeyframeIndexService {
     }
 
     private double probe(Path source, double atSeconds) {
-        double windowStart = Math.max(0.0, atSeconds - LOOKBACK_SECONDS);
-        String interval = String.format(Locale.ROOT, "%.3f%%+%.3f", windowStart, LOOKBACK_SECONDS + 1.0);
-        // Enumerate PACKETS and filter on the K flag. The previous form
-        // ("-skip_frame nokey -show_entries frame=pts_time") silently dropped
-        // keyframes: on one episode it listed up to 116.408 and missed 117.743,
-        // so the snap undershot by a whole GOP and cues stayed ~1.3s out.
+        // Ask the demuxer where a seek actually lands: reading ONE packet from the seek
+        // point reports the keyframe ffmpeg itself starts at. Verified against a real
+        // copy seek to 120s (first output PTS -2.252 => starts at 117.743): this probe
+        // returns 117.743. Sequential window scans were unreliable — the 105..121 window
+        // reported up to 116.408 and missed 117.743, which is exactly the residual
+        // "still a second or two behind" after a seek.
+        String interval = String.format(Locale.ROOT, "%.3f%%+#1", atSeconds);
         ProcessBuilder pb = new ProcessBuilder(
                 "ffprobe", "-v", "error",
                 "-select_streams", "v:0",
+                "-read_intervals", interval,
                 "-show_entries", "packet=pts_time,flags",
                 "-of", "csv=p=0",
-                "-read_intervals", interval,
                 source.toAbsolutePath().toString());
         pb.redirectErrorStream(true);
         Process process = null;
         try {
             process = pb.start();
-            double best = -1.0;
+            double keyframe = -1.0;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -116,13 +117,11 @@ public class KeyframeIndexService {
                         continue;
                     }
                     try {
-                        double t = Double.parseDouble(parts[0].trim());
-                        if (t <= atSeconds + 0.001) {
-                            best = Math.max(best, t);
-                        }
+                        keyframe = Double.parseDouble(parts[0].trim());
                     } catch (NumberFormatException ignored) {
                         // ffprobe prints headers/notes on some inputs; skip them.
                     }
+                    break;
                 }
             }
             if (!process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
@@ -130,25 +129,30 @@ public class KeyframeIndexService {
                 process.destroyForcibly();
                 return atSeconds;
             }
-            if (best < 0) {
-                LOG.debug("No keyframe found within {}s before {}s in {}; keeping the requested position",
-                        LOOKBACK_SECONDS, atSeconds, source.getFileName());
+            if (keyframe < 0) {
+                LOG.debug("No keyframe reported for a seek to {}s in {}; keeping the requested position",
+                        atSeconds, source.getFileName());
                 return atSeconds;
             }
-            if (atSeconds - best > MAX_SNAP_SECONDS) {
+            if (keyframe > atSeconds + 0.5) {
+                LOG.debug("Keyframe probe for {} returned {}s, past the requested {}s; keeping the request",
+                        source.getFileName(), String.format(Locale.ROOT, "%.3f", keyframe), atSeconds);
+                return atSeconds;
+            }
+            if (atSeconds - keyframe > MAX_SNAP_SECONDS) {
                 LOG.info("Previous keyframe for {} is {}s before the request ({}s); not snapping",
                         source.getFileName(),
-                        String.format(Locale.ROOT, "%.2f", atSeconds - best),
+                        String.format(Locale.ROOT, "%.2f", atSeconds - keyframe),
                         String.format(Locale.ROOT, "%.2f", atSeconds));
                 return atSeconds;
             }
-            if (atSeconds - best >= 0.05) {
+            if (atSeconds - keyframe >= 0.05) {
                 LOG.info("Snapshot start for {}: requested {}s -> keyframe {}s",
                         source.getFileName(),
                         String.format(Locale.ROOT, "%.3f", atSeconds),
-                        String.format(Locale.ROOT, "%.3f", best));
+                        String.format(Locale.ROOT, "%.3f", keyframe));
             }
-            return best;
+            return keyframe;
         } catch (IOException e) {
             LOG.warn("Keyframe probe failed for {} at {}s: {}", source.getFileName(), atSeconds, e.getMessage(), e);
             return atSeconds;
