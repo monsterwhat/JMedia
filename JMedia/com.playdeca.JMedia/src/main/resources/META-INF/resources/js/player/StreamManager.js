@@ -938,12 +938,19 @@
          */
         async resolveStreamOrigin(url) {
             try {
+                // 4096 bytes, not 0-0: tiny ranges are answered by a special empty-206
+                // branch that carries no headers, so the origin would always be missing.
                 const res = await fetch(url, {
-                    headers: { 'Range': 'bytes=0-0' },
+                    headers: { 'Range': 'bytes=0-4095' },
                     cache: 'no-store',
                     credentials: 'include'
                 });
                 const raw = res.headers.get('X-Stream-Origin');
+                try {
+                    if (res.body && res.body.cancel) res.body.cancel();
+                } catch (e) {
+                    // Body cancel is best-effort; the range is only 4 KB.
+                }
                 if (raw != null && raw !== '') {
                     const origin = parseFloat(raw);
                     if (!isNaN(origin) && origin >= 0) {
