@@ -73,6 +73,10 @@ public class TranscodingService {
                 c = CODEC_HEVC;
             } else if ("av01".equals(c)) {
                 c = "av1";
+            } else if ("ac-3".equals(c)) {
+                c = "ac3";
+            } else if ("ec-3".equals(c)) {
+                c = "eac3";
             }
             codecs.add(c);
         }
@@ -489,14 +493,45 @@ public class TranscodingService {
     /** Like {@link #canCopyAudio(Video)} but also gates UA-sensitive codecs
      *  (AC3/EAC3) on browsers that can't decode them. */
     private boolean canCopyAudioForClient(Video video, String userAgent) {
-        if (video.audioCodec == null) {
+        return canCopyAudioForClient(video, userAgent, null);
+    }
+
+    /**
+     * Client-capability-aware audio copy decision.
+     *
+     * @param audioCodecsParam the browser's declared audio capabilities
+     *                         ({@code ?audioCodecs=ac3,eac3}). A non-null value
+     *                         is authoritative: an empty string means the client
+     *                         can decode none of the gated codecs, so AC-3/E-AC-3
+     *                         must be transcoded to AAC. A null value (legacy
+     *                         client) falls back to the UA heuristic.
+     */
+    public boolean canCopyAudioForClient(Video video, String userAgent, String audioCodecsParam) {
+        return video.audioCodec != null
+                && canCopyAudioCodecForClient(video.audioCodec, userAgent, audioCodecsParam);
+    }
+
+    /**
+     * Same decision as {@link #canCopyAudioForClient(Video, String, String)} but
+     * for an explicit codec name (HLS checks each audio rendition track).
+     */
+    public boolean canCopyAudioCodecForClient(String audioCodec, String userAgent, String audioCodecsParam) {
+        if (audioCodec == null) {
             return false;
         }
-        String codec = video.audioCodec.toLowerCase(Locale.ROOT);
+        String codec = audioCodec.toLowerCase(Locale.ROOT);
         if (!COPYABLE_AUDIO_CODECS.contains(codec)) {
             return false;
         }
-        if (!UA_GATED_AUDIO_CODECS.contains(codec) || userAgent == null) {
+        if (!UA_GATED_AUDIO_CODECS.contains(codec)) {
+            return true;
+        }
+        // Modern clients prove support themselves. Never assume a Chromium
+        // browser on Windows has the OS Dolby codec installed.
+        if (audioCodecsParam != null) {
+            return parseClientCodecs(audioCodecsParam).contains(codec);
+        }
+        if (userAgent == null) {
             return true;
         }
         String ua = userAgent.toLowerCase(Locale.ROOT);
@@ -994,6 +1029,19 @@ public class TranscodingService {
     public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent,
                                  OutputStream output, int audioTrackIndex, int qualityHeight,
                                  java.nio.file.Path cacheFile, String outputCodec) throws IOException {
+        streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output, audioTrackIndex, qualityHeight,
+                cacheFile, outputCodec, null);
+    }
+
+    /**
+     * @param audioCodecsParam the client's declared audio capabilities
+     *                         ({@code ?audioCodecs=ac3,eac3}); null for legacy
+     *                         clients, empty for "supports none of the gated
+     *                         codecs". See {@link #canCopyAudioForClient(Video, String, String)}.
+     */
+    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent,
+                                 OutputStream output, int audioTrackIndex, int qualityHeight,
+                                 java.nio.file.Path cacheFile, String outputCodec, String audioCodecsParam) throws IOException {
         if (!videoFile.exists() || !videoFile.canRead()) {
             throw new IOException("Video file not found or not readable: " + videoFile.getName());
         }
@@ -1028,7 +1076,7 @@ public class TranscodingService {
                     videoFile.getName(), video.videoCodec, resolvedCodec);
         }
 
-        boolean canCopyAudio = canCopyAudioForClient(video, userAgent);
+        boolean canCopyAudio = canCopyAudioForClient(video, userAgent, audioCodecsParam);
 
         // Permanent audio fix: when the video stream is served as a pure remux but the
         // audio must be re-encoded on EVERY request, schedule a background job that
@@ -1581,7 +1629,11 @@ public class TranscodingService {
             LOG.info("Remuxing video for {} (source codec: {})", videoFile.getName(), video.videoCodec);
             boolean isCopy = videoEncoder != null && videoEncoder.equals("copy");
             command.add("-c:v"); command.add(isCopy ? "copy" : "libx264");
-            if (isCopy && needsAppleHvc1Tag && video.videoCodec != null && video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc")) {
+            // Always retag copied HEVC as hvc1. Some Windows Chromium builds
+            // advertise HEVC MSE support for hvc1 only; a hev1 sample entry is
+            // then rejected at playback even though the bytes are decodable.
+            // hvc1 is also what Apple players require, so it is safe everywhere.
+            if (isCopy && video.videoCodec != null && video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc")) {
                 command.add("-tag:v"); command.add("hvc1");
             }
         }

@@ -26,11 +26,12 @@ public class HlsResource {
                                                 @QueryParam("quality") Integer qualityHeight,
                                                 @QueryParam("device") String deviceToken,
                                                 @QueryParam("codecs") String codecs,
+                                                @QueryParam("audioCodecs") String audioCodecs,
                                                 @HeaderParam("User-Agent") String userAgent) {
         try {
             double start = startSeconds != null ? startSeconds : 0.0;
             HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId,
-                    audioTrackIndex, qualityHeight, deviceToken, codecs, userAgent);
+                    audioTrackIndex, qualityHeight, deviceToken, codecs, userAgent, audioCodecs);
             String playlistUrl = "/api/hls/master/" + session.sessionId + ".m3u8";
             return new HlsService.SessionInfo(session.sessionId, playlistUrl);
         } catch (Exception e) {

@@ -182,7 +182,8 @@ public class VideoStreamResource {
                                 @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc,
                                 @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1,
                                 @QueryParam("forceTranscode") @DefaultValue("false") boolean forceTranscode,
-                                @QueryParam("codecs") String codecsParam) {
+                                @QueryParam("codecs") String codecsParam,
+                                @QueryParam("audioCodecs") String audioCodecsParam) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -278,7 +279,11 @@ public class VideoStreamResource {
         }
         if (qualityHeight <= 0) {
             int sourceHeight = parseSourceHeight(video.resolution);
-            if (isFastStart && !transcodeNeeded && sourceHeight > 0 && audioTrackIndex < 0) {
+            // A raw file serve cannot transcode the audio track, so only take
+            // this fast path when the client can decode the container's audio
+            // too (e.g. AC-3/E-AC-3 on machines without the OS Dolby codec).
+            boolean canCopyAudio = transcodingService.canCopyAudioForClient(video, userAgent, audioCodecsParam);
+            if (isFastStart && !transcodeNeeded && sourceHeight > 0 && audioTrackIndex < 0 && canCopyAudio) {
                 // Faststart + natively playable codec → serve directly at source
                 // resolution. No re-encoding to downscale is CPU-intensive and
                 // counterproductive: transcoded H.264 at 720p often uses more
@@ -317,10 +322,10 @@ public class VideoStreamResource {
         // Kill superseded transcodes for this video so the new request never queues
         // behind a stale process (permits exhausted during rapid seeks).
         transcodingService.releaseStaleTranscodesForVideo(videoId, startSeconds, audioTrackIndex, qualityHeight, filePath, outputCodec);
-        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, outputCodec);
+        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, outputCodec, audioCodecsParam);
     }
 
-    private Response streamRemuxedMKV(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String outputCodec) {
+    private Response streamRemuxedMKV(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String outputCodec, String audioCodecsParam) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKV: videoId={} start={}s", traceId, videoId, startSeconds);
 
@@ -451,7 +456,7 @@ public class VideoStreamResource {
                 // ends there. Relaunch first so the resume-append keeps it growing.
                 if (coverage.isGrowing()) {
                     ensureSegmentWriter(video, videoFile, coverage.file, coverage.startSeconds,
-                            userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                            userAgent, audioTrackIndex, qualityHeight, outputCodec, audioCodecsParam,
                             "range request hit a growing segment");
                 }
                 // The element timeline is the SEGMENT's, not the request's: a segment that
@@ -459,7 +464,7 @@ public class VideoStreamResource {
                 // starts at the fragment's tfdt (measured: start_time 1579.6 for a seek to
                 // 1591.9). X-Stream-Origin tells the player the content time of element 0
                 // so its clock and subtitle offset use the real origin.
-                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true, outputCodec);
+                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true, outputCodec, audioCodecsParam);
             }
         }
 
@@ -475,10 +480,10 @@ public class VideoStreamResource {
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] Falling back to direct remux for video {}", traceId, videoId);
         LOG.debug("Fallback direct remux stream for video {} (start={}s, audio={})",
                   videoId, startSeconds, audioTrackIndex >= 0 ? audioTrackIndex : "default");
-        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId, rangeHeader, outputCodec);
+        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId, rangeHeader, outputCodec, audioCodecsParam);
     }
 
-    private Response streamRemuxedMKVDirect(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId, String rangeHeader, String outputCodec) {
+    private Response streamRemuxedMKVDirect(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId, String rangeHeader, String outputCodec, String audioCodecsParam) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKVDirect: videoId={} start={}s", traceId, videoId, startSeconds);
         // Create (or reuse) the growing segment file + sidecar; the transcode writes into it.
@@ -503,17 +508,17 @@ public class VideoStreamResource {
         synchronized (lock) {
             if (!transcodingService.isCacheBeingWritten(cacheFile)) {
                 launchSegmentWriter("direct-transcode-" + videoId, null, null,
-                        video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec);
+                        video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec, audioCodecsParam);
             }
         }
 
-        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false, outputCodec);
+        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false, outputCodec, audioCodecsParam);
     }
 
     private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String userAgent,
                                        long estimatedFinalSize, long baseOffset, double segmentStart, boolean isSegment,
-                                       String outputCodec) {
+                                       String outputCodec, String audioCodecsParam) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromSegment: videoId={} start={}s segmentStart={}s baseOffset={} range={}", traceId, videoId, startSeconds, segmentStart, baseOffset, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
@@ -776,7 +781,7 @@ public class VideoStreamResource {
                                         () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
                                         null,
                                         video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight,
-                                        tempFile, outputCodec);
+                                        tempFile, outputCodec, audioCodecsParam);
                             }
                             noGrowthSince = 0;
                         }
@@ -798,7 +803,7 @@ public class VideoStreamResource {
                                 // the relaunch budget for this response is spent.
                                 if (relaunches.get() < MAX_WRITER_RELAUNCHES
                                         && ensureSegmentWriter(video, videoFile, tempFile, segmentStart,
-                                                userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                                                userAgent, audioTrackIndex, qualityHeight, outputCodec, audioCodecsParam,
                                                 "writer gone before response headers")) {
                                     relaunches.incrementAndGet();
                                     writerGoneSince = 0;
@@ -928,7 +933,7 @@ public class VideoStreamResource {
                                     // Resume the writer onto the valid prefix instead.
                                     if (relaunches.get() < MAX_WRITER_RELAUNCHES
                                             && ensureSegmentWriter(video, videoFile, tempFile, segmentStart,
-                                                    userAgent, audioTrackIndex, qualityHeight, outputCodec,
+                                                    userAgent, audioTrackIndex, qualityHeight, outputCodec, audioCodecsParam,
                                                     "reader reached the written prefix")) {
                                         relaunches.incrementAndGet();
                                         noGrowthSince = 0;
@@ -977,7 +982,7 @@ public class VideoStreamResource {
                                         int generation = restartGeneration.incrementAndGet();
                                         restartInFlight.set(true);
                                         restartSegmentWriter(video, videoFile, tempFile, segmentStart, userAgent,
-                                                audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec);
+                                                audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec, audioCodecsParam);
                                     }
                                     noGrowthSince = 0;
                                 }
@@ -1081,7 +1086,7 @@ public class VideoStreamResource {
     private void launchSegmentWriter(String threadName, SegmentWriterAction preLaunch, SegmentWriterAction postLaunch,
                                      Models.Video.Video video, File videoFile, double segmentStart, String userAgent,
                                      int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile,
-                                     String outputCodec) {
+                                     String outputCodec, String audioCodecsParam) {
         final Long videoId = video.id;
         Thread writerThread = new Thread(() -> {
             try {
@@ -1089,7 +1094,7 @@ public class VideoStreamResource {
                     preLaunch.run();
                 }
                 transcodingService.streamRemuxedMKV(video, videoFile, segmentStart, userAgent,
-                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, cacheFile, outputCodec);
+                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, cacheFile, outputCodec, audioCodecsParam);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (IOException e) {
@@ -1126,7 +1131,7 @@ public class VideoStreamResource {
                                       double segmentStart, String userAgent, int audioTrackIndex, int qualityHeight,
                                       java.util.concurrent.atomic.AtomicBoolean restartInFlight,
                                       java.util.concurrent.atomic.AtomicInteger restartGeneration, int generation,
-                                      String outputCodec) {
+                                      String outputCodec, String audioCodecsParam) {
         launchSegmentWriter("zombie-restart-" + video.id,
                 () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
                 () -> {
@@ -1134,7 +1139,7 @@ public class VideoStreamResource {
                         restartInFlight.set(false);
                     }
                 },
-                video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec);
+                video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile, outputCodec, audioCodecsParam);
     }
 
     /**
@@ -1160,7 +1165,7 @@ public class VideoStreamResource {
      */
     private boolean ensureSegmentWriter(Models.Video.Video video, File videoFile, java.nio.file.Path cacheFile,
                                         double segmentStart, String userAgent, int audioTrackIndex,
-                                        int qualityHeight, String outputCodec, String reason) {
+                                        int qualityHeight, String outputCodec, String audioCodecsParam, String reason) {
         if (cacheFile == null || !Files.exists(cacheFile)) {
             return false;
         }
@@ -1193,14 +1198,14 @@ public class VideoStreamResource {
             LOG.info("Segment {} has no writer while serving video {} ({}), relaunching from {}s to resume its prefix",
                     cacheFile.getFileName(), video.id, reason, segmentStart);
             restartSegmentWriter(video, videoFile, cacheFile, segmentStart, userAgent,
-                    audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec);
+                    audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation, outputCodec, audioCodecsParam);
         }
         return true;
     }
 
     private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
-        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds, false, TranscodingService.CODEC_H264);
+        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds, false, TranscodingService.CODEC_H264, null);
     }
 
     /**

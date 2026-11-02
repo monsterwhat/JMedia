@@ -208,6 +208,21 @@ public class HlsService {
     @Transactional
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex,
                                     Integer qualityHeight, String deviceToken, String codecsParam, String userAgent) throws IOException {
+        return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, qualityHeight,
+                deviceToken, codecsParam, userAgent, null);
+    }
+
+    /**
+     * @param audioCodecsParam client audio capability payload
+     *                         ({@code ?audioCodecs=ac3,eac3}); null for legacy
+     *                         clients, empty for "supports none". AC-3/E-AC-3
+     *                         copy mode is disabled unless the client proved it
+     *                         can decode them.
+     */
+    @Transactional
+    public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex,
+                                    Integer qualityHeight, String deviceToken, String codecsParam, String userAgent,
+                                    String audioCodecsParam) throws IOException {
         String safeDeviceToken = (deviceToken != null && !deviceToken.isBlank()) ? deviceToken : "unknown";
         // Include profileId so different profiles never share a key; append a
         // random nonce so two anonymous clients playing the same video cannot collide.
@@ -259,8 +274,10 @@ public class HlsService {
                 ? TranscodingService.CODEC_H264
                 : resolvedCodec;
         session.outputCodec = outputCodec;
-        LOG.info("HLS session {} output codec: {} (source {}, client codecs {})",
-                sessionId, outputCodec, video.videoCodec, clientCodecs);
+        session.audioCodecsParam = audioCodecsParam;
+        session.userAgent = userAgent;
+        LOG.info("HLS session {} output codec: {} (source {}, client codecs {}, client audio codecs {})",
+                sessionId, outputCodec, video.videoCodec, clientCodecs, audioCodecsParam);
 
         // Destroy a previous session for the same video/device/profile/codec so a
         // re-create never spawns a duplicate transcode or orphans an FFmpeg process.
@@ -646,7 +663,23 @@ public class HlsService {
             } else {
                 copyCommand.add("-map"); copyCommand.add("0:a?");
             }
-            copyCommand.add("-c:a"); copyCommand.add("copy");
+            // Video is always copied here; audio is copied only when this client
+            // can decode every track (AC-3/E-AC-3 are gated on the client probe).
+            // Otherwise re-encode just the audio to AAC to keep the video copy cheap.
+            boolean copyAllAudio = true;
+            if (!session.audioTracks.isEmpty()) {
+                for (AudioTrack track : session.audioTracks) {
+                    if (!isCopyableAudioForSession(session, track.codec)) {
+                        copyAllAudio = false;
+                        break;
+                    }
+                }
+            }
+            copyCommand.add("-c:a"); copyCommand.add(copyAllAudio ? "copy" : "aac");
+            if (!copyAllAudio) {
+                copyCommand.add("-b:a"); copyCommand.add("128k");
+                copyCommand.add("-ac"); copyCommand.add("2");
+            }
             copyCommand.add("-f"); copyCommand.add("hls");
             copyCommand.add("-hls_time"); copyCommand.add("6");
             copyCommand.add("-hls_list_size"); copyCommand.add("0");
@@ -665,8 +698,8 @@ public class HlsService {
             }
             copyCommand.add(variant.name + ".m3u8");
 
-            LOG.info("[HLS] session={} variant={} encoder=copy height={} hw=false audio=copy",
-                session.sessionId, variant.name, variant.height);
+            LOG.info("[HLS] session={} variant={} encoder=copy height={} hw=false audio={}",
+                session.sessionId, variant.name, variant.height, copyAllAudio ? "copy" : "aac");
             LOG.info("Starting HLS copy-mode encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", copyCommand));
 
             ProcessBuilder pb = new ProcessBuilder(copyCommand);
@@ -784,7 +817,7 @@ public class HlsService {
             command.add("-map");
             command.add("0:" + track.trackIndex);
             command.add("-c:a");
-            if (isCopyableCodec(track.codec)) {
+            if (isCopyableAudioForSession(session, track.codec)) {
                 command.add("copy");
             } else {
                 command.add("aac");
@@ -1305,6 +1338,19 @@ public class HlsService {
             || lower.contains("dts") || lower.contains("dca");
     }
 
+    /**
+     * Copyable for this particular client. AC-3/E-AC-3 are only copied when
+     * the session's client proved it can decode them; otherwise the HLS command
+     * transcodes that track to AAC.
+     */
+    private boolean isCopyableAudioForSession(HlsSession session, String codec) {
+        if (!isCopyableCodec(codec)) return false;
+        String lower = codec.toLowerCase();
+        boolean gated = lower.contains("ac3") || lower.contains("eac3") || lower.contains("ec-3");
+        if (!gated) return true;
+        return transcodingService.canCopyAudioCodecForClient(codec, session.userAgent, session.audioCodecsParam);
+    }
+
     private boolean isEligibleForCopyMode(HlsSession session, VariantConfig variant) {
         // Copy mode only when the session resolved to copy, i.e. the client proved
         // it can decode the source codec. This is what keeps a Chrome client from
@@ -1319,12 +1365,8 @@ public class HlsService {
         boolean isHevc = lower.contains("hevc") || lower.contains("h265");
         if (!isH264 && !isHevc) return false;
 
-        // All audio tracks must use copyable codecs
-        if (session.audioTracks != null) {
-            for (AudioTrack track : session.audioTracks) {
-                if (!isCopyableCodec(track.codec)) return false;
-            }
-        }
+        // Audio does not block video copy: the copy command transcodes any
+        // track this client cannot decode (AC-3/E-AC-3) to AAC.
 
         // No downscale needed — variant height must be >= source height
         if (variant.height > 0 && session.video.resolution != null && session.video.resolution.contains("x")) {
@@ -1999,6 +2041,11 @@ public class HlsService {
 
         /** Actual video codec this session produces ({@code copy}/{@code h264}). */
         public volatile String outputCodec = TranscodingService.CODEC_COPY;
+
+        /** Client-declared audio capabilities ({@code ?audioCodecs=ac3,eac3}); null = legacy. */
+        public volatile String audioCodecsParam;
+        /** Request UA, used for the legacy audio-capability fallback. */
+        public volatile String userAgent;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;

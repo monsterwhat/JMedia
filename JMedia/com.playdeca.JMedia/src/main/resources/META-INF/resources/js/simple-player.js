@@ -236,6 +236,17 @@ if (typeof window.SimplePlayer === 'undefined') {
                         }
                         this.video.src = streamUrl;
                         this.subtitleController.loadSubtitles();
+                        this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
+                        // Some HEVC transcode failures never fire a `video` error;
+                        // escalate to H.264 if playback has not started in time.
+                        this.streamMgr._armPlaybackWatchdog('transcode', () => {
+                            if (this._destroyed || this._userPaused) return;
+                            this.video.src = this.streamMgr.buildStreamUrl(target, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                            this.video.load();
+                            this.video.play().catch(function(e) {
+                                console.error('[SimplePlayer] Transcode watchdog retry play failed', e);
+                            });
+                        }, 15000);
                         this.video.play().then(() => {
                         }).catch(e => {
                             console.log('[SimplePlayer] Play requires user gesture:', e);
@@ -271,6 +282,17 @@ if (typeof window.SimplePlayer === 'undefined') {
                 if (this._canNativeAv1) extraParams.push('nativeAv1=1');
                 this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams });
                 this.subtitleController.loadSubtitles();
+                this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
+                // Guards the copy path against a silent HEVC decode stall that
+                // never raises a `video` error on some Windows Chromium builds.
+                this.streamMgr._armPlaybackWatchdog('copy', () => {
+                    if (this._destroyed || this._userPaused) return;
+                    this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                    this.video.load();
+                    this.video.play().catch(function(e) {
+                        console.error('[SimplePlayer] Copy watchdog retry play failed', e);
+                    });
+                }, 15000);
                 // F2a: Attach error handler for plain direct stream (was only on transcode path)
                 var self = this;
                 this._setupStreamErrorHandler = function() {
@@ -284,7 +306,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                             self.streamStartOffset = 0;
                             // Escalate, don't repeat: the copy/remux already failed once,
                             // so drop any native-codec bypass and force a server transcode.
-                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'] });
+                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                             self.video.load();
                             self.video.play().catch(function() {});
                         }, 1000);
@@ -685,6 +707,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this._hlsInstance = null;
             }
             this.streamMgr.destroyLocalHlsSession();
+            this.streamMgr._clearPlaybackWatchdog();
             this.progressReporter.stop();
             this.progressReporter.setMusicSuspended(false);
             this.video.pause();

@@ -42,6 +42,15 @@
             if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
             const clientCodecs = this.clientCodecList();
             if (clientCodecs.length) params.push(`codecs=${clientCodecs.join(',')}`);
+            // Always declare audio capabilities (even an empty list) so the
+            // server transcodes AC-3/E-AC-3 to AAC on machines that lack the
+            // OS Dolby codec instead of assuming Chrome-on-Windows can play it.
+            // Escalation retries pass an empty override so a false-positive
+            // probe cannot keep a bad audio codec on the retry.
+            const audioCodecs = opts && opts.audioCodecs != null
+                ? opts.audioCodecs
+                : this.clientAudioCodecList().join(',');
+            params.push(`audioCodecs=${audioCodecs}`);
             if (opts && Array.isArray(opts.extraParams)) {
                 opts.extraParams.forEach(ep => params.push(ep));
             }
@@ -71,6 +80,74 @@
                 console.warn('[SimplePlayer] codec capability probe failed:', err);
             }
             this._clientCodecs = codecs;
+            return codecs;
+        }
+
+        /**
+         * Probe native AC-3 (Dolby Digital) decode support.
+         *
+         * Chrome/Edge on Windows only decode AC-3 when the OS Dolby/Media
+         * Feature Pack is installed, so a machine that can play H.264 may still
+         * reject a copied AC-3 track. Safari/iOS decode it natively. The result
+         * is sent to the server as ?audioCodecs= so it only copies AC-3 when
+         * this client can actually decode it.
+         */
+        static hasNativeAc3Support() {
+            var ua = (navigator.userAgent || '').toLowerCase();
+            if (ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('chromium') === -1) {
+                return true;
+            }
+            try {
+                if (typeof MediaSource !== 'undefined' && typeof MediaSource.isTypeSupported === 'function'
+                        && MediaSource.isTypeSupported('audio/mp4; codecs="ac-3"')) {
+                    return true;
+                }
+                var v = document.createElement('video');
+                return v.canPlayType('audio/mp4; codecs="ac-3"') === 'probably';
+            } catch (err) {
+                console.warn('[SimplePlayer] AC-3 capability probe failed:', err);
+                return false;
+            }
+        }
+
+        /** Probe native E-AC-3 (Dolby Digital Plus) decode support. */
+        static hasNativeEac3Support() {
+            var ua = (navigator.userAgent || '').toLowerCase();
+            if (ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('chromium') === -1) {
+                return true;
+            }
+            try {
+                if (typeof MediaSource !== 'undefined' && typeof MediaSource.isTypeSupported === 'function'
+                        && MediaSource.isTypeSupported('audio/mp4; codecs="ec-3"')) {
+                    return true;
+                }
+                var v = document.createElement('video');
+                return v.canPlayType('audio/mp4; codecs="ec-3"') === 'probably';
+            } catch (err) {
+                console.warn('[SimplePlayer] E-AC-3 capability probe failed:', err);
+                return false;
+            }
+        }
+
+        /**
+         * Audio codecs this client proved it can decode. The server uses this
+         * to decide whether AC-3/E-AC-3 can be copied or must be transcoded to
+         * AAC. Always returns an array (possibly empty) so the query parameter
+         * is present and authoritative even when nothing is supported.
+         *
+         * @returns {string[]} e.g. ['ac3'] or []
+         */
+        clientAudioCodecList() {
+            if (this._clientAudioCodecs) return this._clientAudioCodecs;
+            const codecs = [];
+            try {
+                const Cls = this.constructor;
+                if (Cls.hasNativeAc3Support()) codecs.push('ac3');
+                if (Cls.hasNativeEac3Support()) codecs.push('eac3');
+            } catch (err) {
+                console.warn('[SimplePlayer] audio codec capability probe failed:', err);
+            }
+            this._clientAudioCodecs = codecs;
             return codecs;
         }
 
@@ -276,6 +353,17 @@
 
             p._showLoading('Loading video...');
 
+            // A HEVC copy that the client cannot actually decode can stall
+            // without ever firing a `video` error. Escalate to a forced H.264
+            // transcode when playback has not started in time.
+            this._armPlaybackWatchdog('direct', () => {
+                if (p._destroyed || p._userPaused) return;
+                const resumeAt = p.lastKnownGoodPosition > 0 ? p.lastKnownGoodPosition : 0;
+                p.video.src = this.buildStreamUrl(resumeAt, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                p.video.load();
+                p.video.play().catch(function(e) { console.error('[SimplePlayer] Watchdog retry play failed', e); });
+            }, 15000);
+
             p.video.addEventListener('loadedmetadata', () => {
                 console.log('[SimplePlayer] Direct stream metadata loaded, duration:', p.video.duration);
                 p.applyInitialState();
@@ -284,6 +372,7 @@
 
             p.video.addEventListener('playing', () => {
                 p._streamFallbackCount = 0;
+                this._clearPlaybackWatchdog();
                 p._hideLoading();
             }, { once: true });
 
@@ -412,6 +501,7 @@
             if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
             const clientCodecs = this.clientCodecList();
             if (clientCodecs.length) params.push(`codecs=${clientCodecs.join(',')}`);
+            params.push(`audioCodecs=${this.clientAudioCodecList().join(',')}`);
             params.push(`device=web-${p.videoId}-${p.profileId || 'default'}`);
 
             try {
@@ -451,6 +541,40 @@
             }
         }
 
+        /**
+         * Cancel a pending playback-start watchdog. Safe to call repeatedly.
+         * The watchdog exists because some HEVC/MSE failures on Windows
+         * Chromium never surface as a `video` error or a fatal hls.js error �?"
+         * the element simply never leaves the buffering state, so the UI
+         * spinner would otherwise stay forever with no fallback.
+         */
+        _clearPlaybackWatchdog() {
+            const p = this.player;
+            if (p._playbackWatchdog) {
+                clearTimeout(p._playbackWatchdog);
+                p._playbackWatchdog = null;
+            }
+        }
+
+        /**
+         * Escalate to an H.264 transcode when playback has not actually
+         * started within `ms`. `onTimeout` receives no arguments and must be
+         * idempotent; the watchdog is cleared before it runs.
+         */
+        _armPlaybackWatchdog(label, onTimeout, ms) {
+            const p = this.player;
+            this._clearPlaybackWatchdog();
+            p._playbackWatchdog = setTimeout(() => {
+                p._playbackWatchdog = null;
+                if (p._destroyed) return;
+                const v = p.video;
+                const started = v && !v.paused && v.readyState >= 2 && v.currentTime > 0.1;
+                if (started) return;
+                console.warn('[SimplePlayer] Playback did not start within ' + ms + 'ms (' + label + '); escalating to H.264');
+                onTimeout();
+            }, ms || 15000);
+        }
+
         // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
         // opts.fallbackToDirect: fall back to the direct stream on fatal error
         // (local HLS sessions) instead of the external-stream 'Playback error'
@@ -478,6 +602,19 @@
             hls.loadSource(url);
             hls.attachMedia(p.video);
 
+            this._armPlaybackWatchdog('hls', () => {
+                if (p._userPaused) return;
+                if (p._hlsInstance === hls) {
+                    hls.destroy();
+                    p._hlsInstance = null;
+                }
+                if (fallbackToDirect) {
+                    this.fallbackToDirectStream(savedTime);
+                } else {
+                    p._showLoading('Playback error');
+                }
+            }, 15000);
+
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 if (p._destroyed || p._hlsInstance !== hls) return;
                 if (p._userPaused) {
@@ -497,6 +634,7 @@
                 if (!data || p._destroyed || p._hlsInstance !== hls) return;
                 if (!data.fatal) return;
                 console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
+                this._clearPlaybackWatchdog();
                 if (p._userPaused) {
                     console.log('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
                     return;
@@ -526,7 +664,10 @@
                 }
             });
 
-            p.video.addEventListener('playing', () => p._hideLoading(), { once: true });
+            p.video.addEventListener('playing', () => {
+                this._clearPlaybackWatchdog();
+                p._hideLoading();
+            }, { once: true });
 
             p.setMusicSuspended(true);
             p.startProgressReporting();
@@ -547,8 +688,13 @@
                 // Escalate, don't repeat: a fallback means the copy/HLS path already
                 // failed to play, so force a server transcode instead of re-serving
                 // the same unplayable bytes (previously an infinite fail loop).
-                p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=1'] });
+                p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                 p.video.load();
+                this._armPlaybackWatchdog('fallback', () => {
+                    if (p._userPaused) return;
+                    p._fallbackInProgress = false;
+                    p._showLoading('Playback failed - try reloading');
+                }, 25000);
                 p.video.addEventListener('loadedmetadata', () => {
                     p._fallbackInProgress = false;
                     p.applyInitialState();
@@ -556,10 +702,12 @@
                 }, { once: true });
                 p.video.addEventListener('playing', () => {
                     p._fallbackInProgress = false;
+                    this._clearPlaybackWatchdog();
                     p._hideLoading();
                 }, { once: true });
                 p.video.addEventListener('error', () => {
                     p._fallbackInProgress = false;
+                    this._clearPlaybackWatchdog();
                 }, { once: true });
                 p.video.play().catch(() => {});
             };
@@ -842,6 +990,7 @@
 
         cleanupHls() {
             const p = this.player;
+            this._clearPlaybackWatchdog();
             if (p._hlsInstance) {
                 p._hlsInstance.destroy();
                 p._hlsInstance = null;
