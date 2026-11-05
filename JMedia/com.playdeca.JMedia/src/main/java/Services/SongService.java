@@ -270,7 +270,7 @@ public class SongService {
                     .append("LOWER(s.artist) LIKE :search OR ")
                     .append("LOWER(s.album) LIKE :search OR ")
                     .append("LOWER(s.albumArtist) LIKE :search OR ")
-                    .append(genreNormExpr()).append(" LIKE :normSearch");
+                    .append("s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch)");
         }
 
         StringBuilder orderByClause = new StringBuilder(" ORDER BY ");
@@ -292,7 +292,7 @@ public class SongService {
 
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
-            query.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
+            query.setParameter("normSearch", "%" + search.toLowerCase() + "%");
         }
 
         List<SongListItem> songs = query
@@ -312,13 +312,13 @@ public class SongService {
                     + "LOWER(s.artist) LIKE :search OR "
                     + "LOWER(s.album) LIKE :search OR "
                     + "LOWER(s.albumArtist) LIKE :search OR "
-                    + genreNormExpr() + " LIKE :normSearch";
+                    + "s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch)";
         }
 
         jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery + whereClause, Long.class);
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
-            query.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
+            query.setParameter("normSearch", "%" + search.toLowerCase() + "%");
         }
         return query.getSingleResult();
     }
@@ -733,7 +733,7 @@ public class SongService {
     @Transactional
     public List<String> getDistinctGenres() {
         return em.createQuery(
-            "SELECT DISTINCT s.genre FROM Song s WHERE s.genre IS NOT NULL AND s.genre != '' ORDER BY s.genre", 
+            "SELECT DISTINCT sg.genreName FROM SongGenre sg ORDER BY sg.genreName",
             String.class)
             .getResultList();
     }
@@ -893,15 +893,16 @@ public class SongService {
     }
 
     public PaginatedGenres findGenres(int page, int limit, String search) {
-        String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
+        String where = "";
         if (search != null && !search.isBlank()) {
-            where += " AND " + genreNormExpr() + " LIKE :normSearch";
+            where = " WHERE LOWER(sg.genreName) LIKE :search";
         }
         var q = em.createQuery(
-            "SELECT MIN(s.genre), COUNT(s.id) FROM Song s" + where + " GROUP BY " + genreNormExpr() + " ORDER BY MIN(s.genre)",
+            "SELECT sg.genreName, COUNT(DISTINCT sg.song.id) FROM SongGenre sg" + where
+                + " GROUP BY sg.genreName ORDER BY sg.genreName",
             Object[].class);
         if (search != null && !search.isBlank()) {
-            q.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
         }
         List<Object[]> genres = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
         long total = countGenres(search);
@@ -909,13 +910,13 @@ public class SongService {
     }
 
     public long countGenres(String search) {
-        String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
+        String where = "";
         if (search != null && !search.isBlank()) {
-            where += " AND " + genreNormExpr() + " LIKE :normSearch";
+            where = " WHERE LOWER(sg.genreName) LIKE :search";
         }
-        var q = em.createQuery("SELECT COUNT(DISTINCT " + genreNormExpr() + ") FROM Song s" + where, Long.class);
+        var q = em.createQuery("SELECT COUNT(DISTINCT sg.genreName) FROM SongGenre sg" + where, Long.class);
         if (search != null && !search.isBlank()) {
-            q.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
         }
         return q.getSingleResult();
     }
@@ -932,17 +933,17 @@ public class SongService {
         }
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
-        String norm = normalizeGenre(genre);
+        String key = Utils.GenreNormalizer.key(genre);
         List<SongListItem> songs = em.createQuery(
-            "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
-            "FROM Song s WHERE " + genreNormExpr() + " = :genre" + order, SongListItem.class)
-            .setParameter("genre", norm)
+            "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+            "FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key" + order, SongListItem.class)
+            .setParameter("key", key)
             .setFirstResult((page - 1) * limit).setMaxResults(limit)
             .getResultList();
 
         long total = em.createQuery(
-            "SELECT COUNT(s) FROM Song s WHERE " + genreNormExpr() + " = :genre", Long.class)
-            .setParameter("genre", norm)
+            "SELECT COUNT(DISTINCT s) FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key", Long.class)
+            .setParameter("key", key)
             .getSingleResult();
 
         return new PaginatedSongs(songs, total);

@@ -38,7 +38,50 @@ public class Song extends PanacheEntity {
     @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private SongAnalysis analysis;
 
+    /**
+     * Every canonical genre this song belongs to. Derived from the raw {@link #genre}
+     * tag; "Rock/Pop" yields two rows so the song lists under both.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @lombok.ToString.Exclude
+    @OneToMany(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private java.util.List<SongGenre> genres = new java.util.ArrayList<>();
 
+    /**
+     * Re-resolve the raw genre into the {@link #genres} link rows. Idempotent:
+     * when the resolved set is unchanged it does nothing, so ordinary updates
+     * (play counts, artwork, etc.) do not churn the link table.
+     */
+    public void syncGenresFromRaw() {
+        java.util.List<Utils.GenreNormalizer.Genre> resolved = Utils.GenreNormalizer.resolveAll(genre);
+        boolean same = genres != null && genres.size() == resolved.size();
+        if (same) {
+            for (int i = 0; i < resolved.size(); i++) {
+                if (!resolved.get(i).key().equals(genres.get(i).genreKey)) {
+                    same = false;
+                    break;
+                }
+            }
+        }
+        if (same) return;
+        if (genres == null) genres = new java.util.ArrayList<>();
+        genres.clear();
+        int position = 0;
+        for (Utils.GenreNormalizer.Genre g : resolved) {
+            SongGenre link = new SongGenre();
+            link.song = this;
+            link.genreKey = g.key();
+            link.genreName = g.name();
+            link.sortOrder = position++;
+            genres.add(link);
+        }
+    }
+
+    @PrePersist
+    @PreUpdate
+    private void syncGenresOnWrite() {
+        syncGenresFromRaw();
+    }
 
     public boolean isFlac() {
         return path != null && path.toLowerCase().endsWith(".flac");
