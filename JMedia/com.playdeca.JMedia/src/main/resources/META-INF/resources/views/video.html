@@ -2,11 +2,11 @@
 <link rel="stylesheet" href="/css/player-modal.css">
 <link rel="stylesheet" href="/css/episode-sidebar.css">
 <link rel="stylesheet" href="/css/subtitle-search-sidebar.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="/lib/font-awesome/all.min.css">
 
 <!-- Ambient Blur Background -->
 <div class="cinema-ambient-container">
-  <img class="cinema-ambient-blur" id="ambient-blur-img" src="" alt="" style="background: #0a0a0a;">
+  <img class="cinema-ambient-blur" id="ambient-blur-img" src="" alt="" decoding="async" style="background: #0a0a0a;">
   <div class="cinema-ambient-gradient"></div>
 </div>
 
@@ -25,8 +25,10 @@
 <!-- Hero Section -->
 <section class="cinema-hero" id="cinema-hero">
   <img class="cinema-hero-backdrop" id="hero-backdrop"
-       src="" 
+       src=""
        alt="Featured backdrop"
+       decoding="async"
+       fetchpriority="high"
        style="background: #0a0a0a;">
   <div class="cinema-hero-top-gradient"></div>
   <div class="cinema-hero-left-gradient"></div>

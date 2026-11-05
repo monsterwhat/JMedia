@@ -100,6 +100,7 @@
         initSyncLoop: function() {
             setInterval(function() {
                 if (document.hidden) return;
+                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
                 const audio = JMedia.PlaybackApi.getAudioElement();
                 if (!audio || audio.paused) return;
                 if (window.StateManager && typeof window.StateManager.getState === 'function') {
@@ -122,6 +123,8 @@
 
         initUIUpdateLoop: function() {
             setInterval(function() {
+                if (document.hidden) return;
+                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
                 var isVideo = window.VideoModeCoordinator ? window.VideoModeCoordinator.isVideoActive() : window.videoPlaying === true;
                 if (isVideo) {
                     var player = document.getElementById('musicPlayerContainer');

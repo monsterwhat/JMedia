@@ -153,9 +153,10 @@ public class VideoAPI {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
                     return Response.ok(customThumbnail)
-                            .header("Content-Type", "image/jpeg")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Content-Type", imageContentTypeForPath(customThumbnail.getName()))
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
+                            .lastModified(new java.util.Date(customThumbnail.lastModified()))
                             .build();
                 }
             }
@@ -179,8 +180,9 @@ public class VideoAPI {
                             File episodeThumbFile = java.nio.file.Paths.get(episodeThumb).toFile();
                             return Response.ok(episodeThumbFile)
                                     .header("Content-Type", "image/webp")
-                                    .header("Cache-Control", "public, no-cache")
+                                    .header("Cache-Control", "public, max-age=3600")
                                     .header("ETag", "\"" + episodeThumbFile.lastModified() + "\"")
+                                    .lastModified(new java.util.Date(episodeThumbFile.lastModified()))
                                     .build();
                         }
                     } catch (Exception e) {
@@ -197,8 +199,9 @@ public class VideoAPI {
                     File posterFile = posterPath.toFile();
                     return Response.ok(posterFile)
                             .header("Content-Type", "image/webp")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + posterFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(posterFile.lastModified()))
                             .build();
                 }
                 // Try PNG fallback for poster
@@ -207,8 +210,9 @@ public class VideoAPI {
                     File posterFile = posterPng.toFile();
                     return Response.ok(posterFile)
                             .header("Content-Type", "image/png")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + posterFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(posterFile.lastModified()))
                             .build();
                 }
             } catch (Exception e) {
@@ -239,9 +243,10 @@ public class VideoAPI {
             if (thumbnailUrl != null && Files.exists(java.nio.file.Paths.get(thumbnailUrl))) {
                 File thumbnailFile = java.nio.file.Paths.get(thumbnailUrl).toFile();
                 return Response.ok(thumbnailFile)
-                        .header("Content-Type", "image/jpeg")
-                        .header("Cache-Control", "public, no-cache")
+                        .header("Content-Type", imageContentTypeForPath(thumbnailFile.getName()))
+                        .header("Cache-Control", "public, max-age=3600")
                         .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
+                        .lastModified(new java.util.Date(thumbnailFile.lastModified()))
                         .build();
             }
 
@@ -276,8 +281,9 @@ public class VideoAPI {
                 File imageFile = primaryPath.toFile();
                 return Response.ok(imageFile)
                         .header("Content-Type", "image/webp")
-                        .header("Cache-Control", "public, no-cache")
+                        .header("Cache-Control", "public, max-age=3600")
                         .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .lastModified(new java.util.Date(imageFile.lastModified()))
                         .build();
             }
 
@@ -287,8 +293,9 @@ public class VideoAPI {
                 File imageFile = pngPath.toFile();
                 return Response.ok(imageFile)
                         .header("Content-Type", "image/png")
-                        .header("Cache-Control", "public, no-cache")
+                        .header("Cache-Control", "public, max-age=3600")
                         .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .lastModified(new java.util.Date(imageFile.lastModified()))
                         .build();
             }
 
@@ -298,8 +305,9 @@ public class VideoAPI {
                 File imageFile = jpgPath.toFile();
                 return Response.ok(imageFile)
                         .header("Content-Type", "image/jpeg")
-                        .header("Cache-Control", "public, no-cache")
+                        .header("Cache-Control", "public, max-age=3600")
                         .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .lastModified(new java.util.Date(imageFile.lastModified()))
                         .build();
             }
 
@@ -309,8 +317,9 @@ public class VideoAPI {
                     File imageFile = fallbackPath.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/webp")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
 
@@ -319,8 +328,9 @@ public class VideoAPI {
                     File imageFile = fbPngPath.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/png")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
 
@@ -329,8 +339,9 @@ public class VideoAPI {
                     File imageFile = fbJpgPath.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/jpeg")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
             }
@@ -339,9 +350,10 @@ public class VideoAPI {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
                     return Response.ok(customThumbnail)
-                            .header("Content-Type", "image/jpeg")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Content-Type", imageContentTypeForPath(customThumbnail.getName()))
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
+                            .lastModified(new java.util.Date(customThumbnail.lastModified()))
                             .build();
                 }
             }
@@ -354,8 +366,9 @@ public class VideoAPI {
                     File imageFile = regeneratedPrimary.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/webp")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
                 java.nio.file.Path regeneratedPng = thumbnailsDir.resolve(videoId + "_" + imageType + ".png");
@@ -363,8 +376,9 @@ public class VideoAPI {
                     File imageFile = regeneratedPng.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/png")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
                 java.nio.file.Path regeneratedJpg = thumbnailsDir.resolve(videoId + "_" + imageType + ".jpg");
@@ -372,8 +386,9 @@ public class VideoAPI {
                     File imageFile = regeneratedJpg.toFile();
                     return Response.ok(imageFile)
                             .header("Content-Type", "image/jpeg")
-                            .header("Cache-Control", "public, no-cache")
+                            .header("Cache-Control", "public, max-age=3600")
                             .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .lastModified(new java.util.Date(imageFile.lastModified()))
                             .build();
                 }
             }
@@ -433,8 +448,9 @@ public class VideoAPI {
 
             return Response.ok(logoFile)
                     .header("Content-Type", contentType)
-                    .header("Cache-Control", "public, no-cache")
+                    .header("Cache-Control", "public, max-age=3600")
                     .header("ETag", "\"" + logoFile.lastModified() + "\"")
+                    .lastModified(new java.util.Date(logoFile.lastModified()))
                     .build();
 
         } catch (Exception e) {
@@ -569,11 +585,21 @@ public class VideoAPI {
         }
     }
 
+    private static String imageContentTypeForPath(String path) {
+        if (path == null) return "image/jpeg";
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".avif")) return "image/avif";
+        return "image/jpeg";
+    }
+
     private String getImageContentType(String filename) {
         if (filename == null) return "application/octet-stream";
         String lower = filename.toLowerCase();
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".avif")) return "image/avif";
         if (lower.endsWith(".gif")) return "image/gif";
         if (lower.endsWith(".webp")) return "image/webp";
         if (lower.endsWith(".svg")) return "image/svg+xml";
@@ -1467,7 +1493,8 @@ public class VideoAPI {
         }
         return Response.ok(file)
                 .header("Content-Type", "image/webp")
-                .header("Cache-Control", "public, no-cache")
+                .header("Cache-Control", "public, max-age=3600")
+                .lastModified(new java.util.Date(file.lastModified()))
                 .build();
     }
 

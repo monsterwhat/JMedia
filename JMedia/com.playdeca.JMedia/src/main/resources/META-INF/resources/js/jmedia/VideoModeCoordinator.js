@@ -51,6 +51,7 @@
         _djLocked: false,
         _observer: null,
         _pollTimer: null,
+        _lastDomSync: 0,
         _resumeTimer: null,
         _resumePendingSource: null,
         _RESUME_DEBOUNCE_MS: 750,
@@ -381,18 +382,63 @@
                 });
             } catch (e) { /* body not yet parser-available — observer will cover */ }
 
-            // MutationObserver for overlay players hidden-but-in-DOM
+            // MutationObserver for overlay players hidden-but-in-DOM.
+            // Narrowed to #app-content when available + throttled + guarded: only
+            // sync when the computed active state would actually change (cheap
+            // pathname check first), so we don't churn on every DOM mutation.
             try {
-                var obsTarget = document.body || document.documentElement;
+                var obsTarget = document.getElementById('app-content') || document.body || document.documentElement;
                 this._observer = new MutationObserver(function() {
-                    try { Coordinator.syncFromDom('mutation'); } catch (e) { console.error('[VideoModeCoordinator] mutation sync failed', e); }
+                    try {
+                        var now = Date.now();
+                        if (now - (Coordinator._lastDomSync || 0) < 300) return;
+                        var routeActive = Coordinator.isVideoRoute();
+                        var currentlyActive = Coordinator.isVideoActive();
+                        var wouldChange;
+                        if (currentlyActive) {
+                            if (routeActive) {
+                                wouldChange = false;
+                            } else {
+                                wouldChange = !Coordinator.hasActiveVideoPlayer();
+                            }
+                        } else {
+                            if (routeActive) {
+                                wouldChange = true;
+                            } else {
+                                wouldChange = Coordinator.hasActiveVideoPlayer();
+                            }
+                        }
+                        if (!wouldChange) return;
+                        Coordinator._lastDomSync = now;
+                        Coordinator.syncFromDom('mutation');
+                    } catch (e) { console.error('[VideoModeCoordinator] mutation sync failed', e); }
                 });
                 this._observer.observe(obsTarget, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
             } catch (e) { console.error('[VideoModeCoordinator] MutationObserver failed', e); }
 
             // Interval fallback (1s) — cheap, keeps in sync if observer misses
             this._pollTimer = setInterval(function() {
-                try { Coordinator.syncFromDom('poll'); } catch (e) { console.error('[VideoModeCoordinator] poll sync failed', e); }
+                try {
+                    var routeActive = Coordinator.isVideoRoute();
+                    var currentlyActive = Coordinator.isVideoActive();
+                    var wouldChange;
+                    if (currentlyActive) {
+                        if (routeActive) {
+                            wouldChange = false;
+                        } else {
+                            wouldChange = !Coordinator.hasActiveVideoPlayer();
+                        }
+                    } else {
+                        if (routeActive) {
+                            wouldChange = true;
+                        } else {
+                            wouldChange = Coordinator.hasActiveVideoPlayer();
+                        }
+                    }
+                    if (!wouldChange) return;
+                    Coordinator._lastDomSync = Date.now();
+                    Coordinator.syncFromDom('poll');
+                } catch (e) { console.error('[VideoModeCoordinator] poll sync failed', e); }
             }, 1000);
 
             // Cleanup on unload

@@ -86,6 +86,7 @@ const HERO_INTERVAL = 15000;
 let allSeries = [];
 const seriesLookup = new Map();
 var _episodesCache = new Map();
+var _episodeById = new Map();
 let allContinueWatching = [];
 let _modalGeneration = 0;
 
@@ -1220,6 +1221,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (!seriesTitle) return;
   const gen = ++_modalGeneration;
   const modal = document.getElementById('cinema-modal');
+  if (modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
   if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
   if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
   // Reset modal fields from previous series to prevent stale data
@@ -1233,18 +1235,6 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (resetDescToggle) resetDescToggle.style.display = 'none';
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
-  // Fetch episodes for this series from the JSON endpoint
-  const epResp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`).catch(() => null);
-  if (!epResp || !epResp.ok) return;
-  const episodes = await epResp.json();
-  if (!Array.isArray(episodes) || !episodes.length) return;
-  // Sort episodes by season then episode number, then group by
-  // (seasonNumber, contentType) pair - each distinct pair becomes a dropdown tab.
-  const { groups, seasonKeys } = sortAndGroupEpisodes(episodes);
-  // Cache episodes for the season tab handler
-  _episodesCache.set(seriesTitle, episodes);
-  const firstEp = episodes[0];
-  const resumeEp = resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) || firstEp;
 
   // Open modal immediately with skeleton state � don't wait for network
   modal.dataset.originalParent = modal.parentElement.id || 'app-content';
@@ -1256,11 +1246,43 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   initModalScrollBlur();
 
   // Show text title immediately, hide logo until it loads
-  document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
+  modal.dataset.seriesTitle = seriesTitle;
   const textTitleEl = document.getElementById('modal-text-title');
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
   if (logoHeroImg) { logoHeroImg.style.display = 'none'; logoHeroImg.classList.add('is-skeleton'); }
+
+  // Hide action buttons until episode data loads
+  const playBtnEarly = document.getElementById('modal-play-btn');
+  if (playBtnEarly) playBtnEarly.style.display = 'none';
+  const watchBtnEarly = document.getElementById('modal-watchlist-btn');
+  if (watchBtnEarly) watchBtnEarly.style.display = 'none';
+  const dlBtnEarly = document.getElementById('modal-download-btn');
+  if (dlBtnEarly) dlBtnEarly.style.display = 'none';
+
+  // Fetch episodes for this series from the JSON endpoint
+  const epResp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`).catch(() => null);
+  if (gen !== _modalGeneration) return;
+  if (!epResp || !epResp.ok) {
+    if (window.showToast) window.showToast('Could not load this show', 'error');
+    closeModal();
+    return;
+  }
+  const episodes = await epResp.json();
+  if (gen !== _modalGeneration) return;
+  if (!Array.isArray(episodes) || !episodes.length) {
+    if (window.showToast) window.showToast('No episodes found for this show', 'warning');
+    closeModal();
+    return;
+  }
+  // Sort episodes by season then episode number, then group by
+  // (seasonNumber, contentType) pair - each distinct pair becomes a dropdown tab.
+  const { groups, seasonKeys } = sortAndGroupEpisodes(episodes);
+  // Cache episodes for the season tab handler
+  _episodesCache.set(seriesTitle, episodes);
+  const firstEp = episodes[0];
+  const resumeEp = resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) || firstEp;
+  if (gen !== _modalGeneration) return;
 
   const playBtn = document.getElementById('modal-play-btn');
   if (playBtn) { playBtn.style.display = ''; playBtn.onclick = () => playVideo(resumeEp); }
@@ -1290,10 +1312,13 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
       }
     }
   }
-  // Cache may have stale un-enriched data � fetch fresh from API (triggers enrichment)
-  if (seriesData && seriesData.id) {
+  // Cache may have stale un-enriched data � fetch fresh from API (triggers enrichment).
+  // Only fetch when the cached entry lacks both genres and overview, to avoid a
+  // duplicate series fetch on every open.
+  if (seriesData && seriesData.id && !(seriesData.genres?.length) && !(seriesData.overview || seriesData.description)) {
     try {
       const fresh = await fetchJSON(`/api/series/${seriesData.id}`);
+      if (gen !== _modalGeneration) return;
       if (fresh && (fresh.genres?.length || fresh.overview || fresh.networks?.length)) {
         seriesData = fresh;
         seriesLookup.set(String(seriesData.id), fresh);
@@ -1326,7 +1351,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
         if (backdropRetries < 3) {
           backdropRetries++;
           modal._backdropRetry = setTimeout(() => {
-            const retryUrl = getSeriesImageUrl(seriesData.id, 'backdrop') + '?r=' + Date.now();
+            const retryUrl = getSeriesImageUrl(seriesData.id, 'backdrop');
             backdropImg.src = retryUrl;
             if (bgBlur) bgBlur.style.backgroundImage = `url(${retryUrl})`;
             if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${retryUrl})`;
@@ -1369,7 +1394,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
         if (logoRetries < 3) {
           logoRetries++;
           modal._logoRetry = setTimeout(() => {
-            logoHeroImg.src = getSeriesImageUrl(seriesData.id, 'logo') + '?r=' + Date.now();
+            logoHeroImg.src = getSeriesImageUrl(seriesData.id, 'logo');
           }, 2000 * logoRetries);
         } else {
           logoHeroImg.onerror = null;
@@ -1530,6 +1555,7 @@ function renderContentTypeBadge(contentType) {
 
 function buildEpisodesList(episodeArray) {
   return episodeArray.map((ep, i) => {
+    _episodeById.set(String(ep.id), ep);
     const epTitle = ep.episodeTitle || ep.title || `Episode ${(ep.episodeNumber || i + 1)}`;
     const epNum = ep.episodeNumber || (i + 1);
     const dur = formatDuration(ep.duration);
@@ -1538,7 +1564,7 @@ function buildEpisodesList(episodeArray) {
     const durHtml = dur ? `<span class="cinema-episode-duration">${dur}</span>` : '';
     const metaRight = durHtml ? `<span class="cinema-episode-meta">${durHtml}</span>` : '';
     const downloadBtn = `<button class="cinema-episode-download" title="Download episode" onclick="event.stopPropagation(); downloadVideo(${ep.id})"><i class="fa-solid fa-download"></i></button>`;
-    return `<div class="cinema-episode-card" data-video-id="${ep.id}" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
+    return `<div class="cinema-episode-card" data-video-id="${ep.id}" data-click="playEpisodeFromCard">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
         <div class="cinema-episode-play-overlay">
@@ -2116,6 +2142,9 @@ function openDetails(videoId) {
 
   // Reset modal fields from previous open
   const modal = document.getElementById('cinema-modal');
+  if (modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
+  if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
+  if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
   delete modal.dataset.seriesTitle;
 
   const descEl = document.getElementById('modal-desc');
@@ -2166,7 +2195,7 @@ function openDetails(videoId) {
         if (retries < 3) {
           retries++;
           modal._backdropRetry = setTimeout(() => {
-            const retryUrl = getBackdropUrl(data) + '?r=' + Date.now();
+            const retryUrl = getBackdropUrl(data);
             backdropImg.src = retryUrl;
             if (bgBlur) bgBlur.style.backgroundImage = `url(${retryUrl})`;
             if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${retryUrl})`;
@@ -2410,6 +2439,7 @@ function initModalScrollBlur() {
 
 function closeModal() {
   if (window.location.pathname.indexOf('/video/info/') === 0) _resetUrlToBrowse();
+  _episodeById.clear();
   // Clear series data polling
   const modal = document.getElementById('cinema-modal');
   if (modal && modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
@@ -4149,6 +4179,20 @@ function sortShowAll(sortBy) {
 // ============================================================
 // XSS-Safe Delegated Handlers for Cards (replaces inline onclick)
 // ============================================================
+function playEpisodeFromCard(el) {
+  var card = el && el.closest ? el.closest('[data-video-id]') : null;
+  if (!card || !card.dataset.videoId) return;
+  var id = card.dataset.videoId;
+  var ep = _episodeById.get(String(id));
+  if (!ep) {
+    for (const [title, eps] of _episodesCache) {
+      if (!Array.isArray(eps)) continue;
+      const found = eps.find(e => String(e.id) === String(id));
+      if (found) { ep = found; break; }
+    }
+  }
+  if (ep) playVideo(ep);
+}
 function openSeriesDetailFromCard(el) {
   var card = el.closest('[data-series-title]');
   if (card) openSeriesDetail(decodeURIComponent(card.dataset.seriesTitle));

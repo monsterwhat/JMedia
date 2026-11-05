@@ -43,7 +43,7 @@ public class ArtworkAPI {
         if (thumbnailService.hasThumbnail(videoId)) {
             byte[] img = thumbnailService.getThumbnailBytes(videoId);
             if (img != null && img.length > 0) {
-                return serveJpeg(img);
+                return serveJpeg(img, false);
             }
             log.warnf("art/movie: cached thumbnail unreadable for videoId=%d, trying poster fallback", videoId);
         }
@@ -53,7 +53,7 @@ public class ArtworkAPI {
                 if (java.nio.file.Files.exists(posterPath) && java.nio.file.Files.isRegularFile(posterPath)) {
                     byte[] img = java.nio.file.Files.readAllBytes(posterPath);
                     if (img.length > 0) {
-                        return serveJpeg(img);
+                        return serveJpeg(img, false);
                     }
                 }
             } catch (Exception e) {
@@ -63,7 +63,7 @@ public class ArtworkAPI {
         log.warnf("art/movie: no artwork for videoId=%d, serving bundled placeholder", videoId);
         byte[] placeholder = thumbnailService.getPlaceholderImageBytes();
         if (placeholder != null && placeholder.length > 0) {
-            return serveJpeg(placeholder);
+            return serveJpeg(placeholder, true);
         }
         return Response.status(Response.Status.NOT_FOUND).build();
     }
@@ -149,7 +149,7 @@ public class ArtworkAPI {
                 }
             }
             if (raw != null && raw.length > 0) {
-                return serveJpeg(raw);
+                return serveJpeg(raw, false);
             }
         } catch (Exception e) {
             log.errorf("art/series: failure for seriesId=%s: %s", seriesId, e.getMessage());
@@ -157,19 +157,20 @@ public class ArtworkAPI {
         log.warnf("art/series: no artwork for seriesId=%s, serving bundled placeholder", seriesId);
         byte[] placeholder = thumbnailService.getPlaceholderImageBytes();
         if (placeholder != null && placeholder.length > 0) {
-            return serveJpeg(placeholder);
+            return serveJpeg(placeholder, true);
         }
         return Response.status(Response.Status.NOT_FOUND).build();
     }
 
-    private Response serveJpeg(byte[] img) {
+    private Response serveJpeg(byte[] img, boolean placeholder) {
         Services.ThumbnailService.ServedImage served = thumbnailService.toJpegForServing(img);
         if (served.bytes() == null || served.bytes().length == 0) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
+        String cacheControl = placeholder ? "public, no-cache" : "public, max-age=3600";
         return Response.ok(served.bytes())
                 .type(served.contentType())
-                .header("Cache-Control", "public, no-cache")
+                .header("Cache-Control", cacheControl)
                 .build();
     }
 

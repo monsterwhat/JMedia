@@ -28,10 +28,30 @@
 
         startPolling() {
             this.fetchState();
-            this.pollInterval = setInterval(() => this.fetchState(), 300);
+            this.pollInterval = setInterval(() => this.fetchState(), 2000);
+        }
+
+        isPlayerModalActive() {
+            try {
+                var modal = document.getElementById('player-modal');
+                var cinemaModal = document.getElementById('cinema-modal');
+                // If no modal elements exist in this document, don't gate polling
+                // (preserves original behaviour in non-modal / test environments).
+                if (!modal && !cinemaModal) return true;
+                if (modal && modal.classList.contains('active')) return true;
+                var backdrop = document.getElementById('player-modal-backdrop');
+                if (backdrop && backdrop.classList.contains('active')) return true;
+                if (cinemaModal && cinemaModal.classList.contains('active')) return true;
+                if (window.currentPlayerInstance) return true;
+                var npView = document.getElementById('section-dynamic');
+                if (npView && npView.classList.contains('np-view-active')) return true;
+            } catch (e) { return true; }
+            return false;
         }
 
         async fetchState() {
+            if (document.hidden) return;
+            if (!this.isPlayerModalActive()) return;
             function structuralKey(st) {
                 if (!st) return '';
                 return [st.id, st.seriesTitle, st.episodeTitle, st.title, st.playing,

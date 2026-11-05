@@ -161,7 +161,11 @@ if (typeof window.SimplePlayer === 'undefined') {
             this._boundKeydown = (e) => this.keyboardShortcuts.handleKeydown(e);
             window.addEventListener('keydown', this._boundKeydown);
 
-            this._initWebSocket();
+            // Defer the WebSocket connection until the first `playing` event so
+            // init stays off the critical path. One-shot listener; the _isLive
+            // guard and onStateUpdate/onCommand handlers live inside _initWebSocket.
+            const deferWsInit = () => { if (!this._destroyed) this._initWebSocket(); };
+            this.video.addEventListener('playing', deferWsInit, { once: true });
 
             this.externalUrl = this.container.dataset.externalUrl || null;
             this.externalOriginalUrl = this.container.dataset.externalOriginalUrl || null;
@@ -234,7 +238,12 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (origin !== null) {
                             this.streamStartOffset = origin;
                         }
+                        // Assign src first (with the origin probe as today), then
+                        // load subtitles. Subtitle preload is NOT awaited on the
+                        // critical path; kick it off (unawaited) after src is set.
                         this.video.src = streamUrl;
+                        this.streamMgr._preloadSubtitleTracks()
+                            .catch(e => console.warn('[SimplePlayer] Subtitle preload failed:', e));
                         this.subtitleController.loadSubtitles();
                         this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
                         // Some HEVC transcode failures never fire a `video` error;
@@ -268,10 +277,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                     }
                 };
                 this._setupStreamErrorHandler = setupStreamErrorHandler;
-                this.streamMgr._preloadSubtitleTracks().then(() => {
-                    this.video.addEventListener('error', this._setupStreamErrorHandler);
-                    setupStream();
-                });
+                this.video.addEventListener('error', this._setupStreamErrorHandler);
+                setupStream();
             } else {
                 /* Load from beginning; client-side seek in loadedmetadata handles resume.
                    Server-side ?start= can fail for direct streams, causing the progress bar
@@ -321,7 +328,18 @@ if (typeof window.SimplePlayer === 'undefined') {
                 });
             }
 
-            this.storyboardMgr.loadStoryboard();
+            // Defer storyboard loading off the critical path: run after the first
+            // `playing` event, or after 2s idle, whichever comes first.
+            if (!this._storyboardLoadScheduled) {
+                this._storyboardLoadScheduled = true;
+                const loadSb = () => {
+                    if (this._destroyed || this._storyboardLoaded) return;
+                    this._storyboardLoaded = true;
+                    try { this.storyboardMgr.loadStoryboard(); } catch (e) { console.warn('[SimplePlayer] Storyboard load failed:', e); }
+                };
+                this.video.addEventListener('playing', loadSb, { once: true });
+                setTimeout(loadSb, 2000);
+            }
             this.progressReporter.setMusicSuspended(true);
             this.progressReporter.start();
             this.controlsManager.updateMarkers();
@@ -422,6 +440,7 @@ if (typeof window.SimplePlayer === 'undefined') {
         _restoreSubtitlesAfterFullscreen() { this.subtitleController.restoreAfterFullscreen(); }
 
         _initWebSocket() {
+            if (this._wsInitialized) return;
             if (!window.VideoWebSocketManager) return;
             // A live channel has no Video row, so the server's "currentVideoId"
             // is whatever movie or episode was watched last. The source-swap in
@@ -432,6 +451,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // restore and no progress to report, so it stays out of state sync.
             if (this._isLive) {
                 console.log('[SimplePlayer] Live channel — server state sync disabled');
+                this._wsInitialized = true;
                 return;
             }
             const profileId = this.container.dataset.profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
@@ -639,6 +659,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             });
 
             this._wsManager.connect();
+            this._wsInitialized = true;
         }
 
         _broadcastState() {
