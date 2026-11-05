@@ -181,10 +181,10 @@ public class MusicPlaylistApi {
                         .entity(ApiResponse.error("Song not found"))
                         .build();
             }
-            if (p.getSongs().stream().noneMatch(song -> song.id.equals(sid))) {
-                p.getSongs().add(s);
-            }
-            playlistService.save(p);
+            // find() returns a DETACHED entity, so touching the lazy `songs`
+            // collection here throws LazyInitializationException ("no session").
+            // The service reloads the playlist inside a transaction and merges it.
+            playlistService.addSongsToPlaylist(p, java.util.List.of(s));
             return Response.ok(ApiResponse.success(p)).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -211,8 +211,8 @@ public class MusicPlaylistApi {
                         .entity(ApiResponse.error("Playlist not found"))
                         .build();
             }
-            p.getSongs().removeIf(song -> song.id.equals(sid));
-            playlistService.save(p);
+            // Detached entity from find(): mutate through the service's transaction.
+            playlistService.removeSongFromPlaylist(pid, sid);
             return Response.ok().build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -240,14 +240,8 @@ public class MusicPlaylistApi {
                         .build();
             }
 
-            boolean songExistsInPlaylist = p.getSongs().stream().anyMatch(song -> song.id.equals(sid));
-
-            if (songExistsInPlaylist) {
-                p.getSongs().removeIf(song -> song.id.equals(sid));
-            } else {
-                p.getSongs().add(s);
-            }
-            playlistService.save(p);
+            // Detached entity from find(): toggle through the service's transaction.
+            playlistService.toggleSongInPlaylist(pid, sid);
             return Response.ok().build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

@@ -136,18 +136,22 @@ public class PlaylistService {
 
     @Transactional
     public void toggleSongInPlaylist(Long playlistId, Long songId) {
-        Playlist playlist = find(playlistId); // find is access-aware
-        Song song = songService.find(songId);
-
-        if (playlist != null && song != null) {
-            if (playlist.getSongs().contains(song)) {
-                playlist.getSongs().remove(song);
-            } else {
-                playlist.getSongs().add(song);
-            }
-            em.merge(playlist);
-            em.flush();
+        Playlist managedPlaylist = find(playlistId); // find is access-aware
+        if (managedPlaylist == null || songId == null) {
+            return;
         }
+        boolean exists = managedPlaylist.getSongs().stream()
+                .anyMatch(song -> song.id != null && song.id.equals(songId));
+        if (exists) {
+            managedPlaylist.getSongs().removeIf(song -> song.id != null && song.id.equals(songId));
+        } else {
+            Song song = songService.find(songId);
+            if (song != null) {
+                managedPlaylist.getSongs().add(song);
+            }
+        }
+        em.merge(managedPlaylist);
+        em.flush();
     }
 
     @Transactional
@@ -316,7 +320,11 @@ public class PlaylistService {
             int addedCount =0;
             
                 for (Song song : songs) {
-                    if (!managedPlaylist.getSongs().contains(song)) {
+                    // Compare by id: Song has no equals(), so contains() compares
+                    // identity and a detached instance would always be "new".
+                    boolean alreadyPresent = managedPlaylist.getSongs().stream()
+                            .anyMatch(existing -> existing.id != null && existing.id.equals(song.id));
+                    if (!alreadyPresent) {
                         managedPlaylist.getSongs().add(song);
                         addedCount++;
                     }
@@ -334,6 +342,17 @@ public class PlaylistService {
         }
     } 
  
+    @Transactional
+    public void removeSongFromPlaylist(Long playlistId, Long songId) {
+        Playlist managedPlaylist = find(playlistId);
+        if (managedPlaylist == null || songId == null) {
+            return;
+        }
+        managedPlaylist.getSongs().removeIf(song -> song.id != null && song.id.equals(songId));
+        em.merge(managedPlaylist);
+        em.flush();
+    }
+
     @Transactional
     public void removeSongFromAllPlaylists(Long songId) {
         if (songId == null) {
