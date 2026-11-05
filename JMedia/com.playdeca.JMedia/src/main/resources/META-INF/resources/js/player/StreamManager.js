@@ -1188,7 +1188,7 @@
                     p.video.src = this.buildStreamUrl(retryTarget);
                     p.video.load();
                     p.video.play().catch((e) => console.log('[SimplePlayer] Seek retry play blocked, awaiting gesture:', e));
-                }, 1000 * p._streamFallbackCount);
+                }, Math.min(8000, 2000 * p._streamFallbackCount));
             };
             p._seekErrorHandler = onSeekError;
             p.video.addEventListener('error', onSeekError);
