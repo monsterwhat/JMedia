@@ -3914,11 +3914,28 @@ window.addEventListener('popstate', () => {
 });
 
 // First load of a deep link (/video/info/… or /video/watch/…)
+// The video view can be injected more than once (SPA route load + a re-render),
+// which replaces the DOM the first attempt rendered into. Retry briefly, guarded
+// by the URL so a handled link is never opened twice.
 (function bootVideoDeepLink() {
   const parsed = _parseVideoUrl();
   if (!_isDeepLink(parsed)) return;
+  let attempts = 0;
+  const tryOpen = function() {
+    const key = window.location.pathname + window.location.search;
+    if (window.__videoDeepLinkDone === key || window.__videoDeepLinkOpening === key) return;
+    window.__videoDeepLinkOpening = key;
+    Promise.resolve(_openFromUrl(parsed)).then(function(handled) {
+      if (window.__videoDeepLinkOpening === key) window.__videoDeepLinkOpening = null;
+      if (handled) window.__videoDeepLinkDone = key;
+    }).catch(function(e) {
+      if (window.__videoDeepLinkOpening === key) window.__videoDeepLinkOpening = null;
+      console.warn('[cinema] deep-link open failed', e);
+    });
+    if (++attempts < 5) setTimeout(tryOpen, 700 * attempts);
+  };
   // Open after the first paint so the modal animates over a rendered page.
-  setTimeout(function() { _openFromUrl(parsed); }, 0);
+  setTimeout(tryOpen, 0);
 })();
 
 // Wire logout
