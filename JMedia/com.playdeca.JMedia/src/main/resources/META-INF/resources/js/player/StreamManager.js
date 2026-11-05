@@ -593,31 +593,69 @@
         }
 
         /**
+         * Seconds of media buffered at the end of the element's ranges. Used to
+         * tell "the stream is dead" apart from "the encoder is still producing
+         * in real time": the latter keeps this number growing even while
+         * readyState sits below HAVE_CURRENT_DATA.
+         */
+        _bufferedEnd(video) {
+            try {
+                const b = video && video.buffered;
+                if (!b || !b.length) return 0;
+                return b.end(b.length - 1) || 0;
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        /**
          * Escalate to an H.264 transcode when playback has not actually
          * started within `ms`. `onTimeout` receives no arguments and must be
          * idempotent; the watchdog is cleared before it runs.
+         *
+         * A slow-but-healthy stream is given more time instead of being
+         * restarted: re-opening the source aborts the in-flight play() and
+         * launches a second transcode from scratch, which is how a 1080p
+         * movie that simply needed another 10 seconds ended up never playing.
          */
         _armPlaybackWatchdog(label, onTimeout, ms) {
             const p = this.player;
             this._clearPlaybackWatchdog();
-            p._playbackWatchdog = setTimeout(() => {
-                p._playbackWatchdog = null;
-                if (p._destroyed) return;
-                const v = p.video;
-                const started = v && !v.paused && v.readyState >= 2 && v.currentTime > 0.1;
-                if (started) return;
-                if (v && v.readyState >= 2) {
-                    // The stream decoded fine; the element is simply paused, usually
-                    // because a deep link opened it without a user gesture and Chrome
-                    // blocked autoplay. Reloading here aborts a healthy stream and
-                    // produces "play() interrupted by a new load request" in a loop.
-                    console.log('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
-                    if (typeof p._hideLoading === 'function') p._hideLoading();
-                    return;
-                }
-                console.warn('[SimplePlayer] Playback did not start within ' + ms + 'ms (' + label + '); escalating to H.264');
-                onTimeout();
-            }, ms || 15000);
+            const deadline = ms || 15000;
+            const MAX_EXTENSIONS = 3;
+            let extensions = 0;
+
+            const arm = (bufferedAtWindowStart) => {
+                p._playbackWatchdog = setTimeout(() => {
+                    p._playbackWatchdog = null;
+                    if (p._destroyed) return;
+                    const v = p.video;
+                    const started = v && !v.paused && v.readyState >= 2 && v.currentTime > 0.1;
+                    if (started) return;
+                    if (v && v.readyState >= 2) {
+                        // The stream decoded fine; the element is simply paused, usually
+                        // because a deep link opened it without a user gesture and Chrome
+                        // blocked autoplay. Reloading here aborts a healthy stream and
+                        // produces "play() interrupted by a new load request" in a loop.
+                        console.log('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
+                        if (typeof p._hideLoading === 'function') p._hideLoading();
+                        return;
+                    }
+                    const bufferedNow = this._bufferedEnd(v);
+                    if (bufferedNow > bufferedAtWindowStart + 0.05 && extensions < MAX_EXTENSIONS) {
+                        extensions++;
+                        console.log('[SimplePlayer] Watchdog: no playback yet but the stream is still arriving (' +
+                            bufferedNow.toFixed(1) + 's buffered, window ' + extensions + '/' + MAX_EXTENSIONS +
+                            ') - waiting instead of restarting');
+                        arm(bufferedNow);
+                        return;
+                    }
+                    console.warn('[SimplePlayer] Playback did not start within ' + deadline * (extensions + 1) + 'ms (' + label + '); escalating to H.264');
+                    onTimeout();
+                }, deadline);
+            };
+
+            arm(this._bufferedEnd(p.video));
         }
 
         // Instance is stored on the player so destroy()/cleanupHls() can tear it down.

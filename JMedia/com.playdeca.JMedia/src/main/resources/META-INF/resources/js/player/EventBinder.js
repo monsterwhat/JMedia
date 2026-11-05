@@ -85,38 +85,57 @@
                 p.controlsManager.showControls();
                 _reportStreamStatus('working');
                 if (p._stallTimer) clearTimeout(p._stallTimer);
-                p._stallTimer = setTimeout(() => {
-                    if (p._destroyed) return;
-                    if (p._userPaused) {
-                        console.log('[SimplePlayer] Stall timer suppressed — user pause active');
-                        return;
-                    }
-                    if (p.video.currentTime === 0 && !p.video.paused && !p._hasPlayedData) {
-                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer fired: currentTime=' + p.video.currentTime + ' paused=' + p.video.paused + ' _hasPlayedData=' + p._hasPlayedData + ' _destroyed=' + p._destroyed + ' _streamFallbackCount=' + (p._streamFallbackCount || 0) + ' _maxStreamFallbacks=' + p._maxStreamFallbacks);
-                        console.warn('[SimplePlayer] Playback stalled - no data received in 20s');
-                        if (window.Toast) window.Toast.warning('Playback stuck - retrying...');
-
-                        p.streamMgr.clearStreamErrorHandlers();
-
-                        if (p._qualitySwitching) return;
-
-                        p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
-                        if (p._streamFallbackCount < p._maxStreamFallbacks) {
-                            const saved = p.streamStartOffset || p.lastKnownGoodPosition || p.initialResumeTime || 0;
-                            p.video.src = p.streamMgr.buildStreamUrl(saved);
-                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
-                            p.video.load();
-                            if (p._userPaused) {
-                                console.log('[SimplePlayer] Blocked stall-recovery play — user pause active');
-                            } else {
-                                console.log('[SimplePlayer] Stall-recovery play()');
-                                p.video.play().catch(function(e) { console.error('[SimplePlayer] Stall-recovery play failed', e); });
-                            }
-                        } else {
-                            if (window.Toast) window.Toast.error('Playback failed after retries - please reload');
+                // Buffered ranges keep growing while a server-side transcode is
+                // still producing in real time. Reloading the source in that
+                // state aborts a play() that was about to succeed, so treat
+                // "no data received" literally: only reload when the buffer has
+                // not advanced since the timer was armed.
+                let stallExtensions = 0;
+                const armStallTimer = (bufferedAtWindowStart) => {
+                    p._stallTimer = setTimeout(() => {
+                        if (p._destroyed) return;
+                        if (p._userPaused) {
+                            console.log('[SimplePlayer] Stall timer suppressed — user pause active');
+                            return;
                         }
-                    }
-                }, 20000);
+                        if (p.video.currentTime === 0 && !p.video.paused && !p._hasPlayedData) {
+                            const bufferedNow = (p.streamMgr && typeof p.streamMgr._bufferedEnd === 'function')
+                                ? p.streamMgr._bufferedEnd(p.video) : 0;
+                            if (bufferedNow > bufferedAtWindowStart + 0.05 && stallExtensions < 3) {
+                                stallExtensions++;
+                                console.log('[SimplePlayer] Playback has not started yet but data is still arriving (' +
+                                    bufferedNow.toFixed(1) + 's buffered) - waiting instead of reloading');
+                                armStallTimer(bufferedNow);
+                                return;
+                            }
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer fired: currentTime=' + p.video.currentTime + ' paused=' + p.video.paused + ' _hasPlayedData=' + p._hasPlayedData + ' _destroyed=' + p._destroyed + ' _streamFallbackCount=' + (p._streamFallbackCount || 0) + ' _maxStreamFallbacks=' + p._maxStreamFallbacks);
+                            console.warn('[SimplePlayer] Playback stalled - no data received in 20s');
+                            if (window.Toast) window.Toast.warning('Playback stuck - retrying...');
+
+                            p.streamMgr.clearStreamErrorHandlers();
+
+                            if (p._qualitySwitching) return;
+
+                            p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
+                            if (p._streamFallbackCount < p._maxStreamFallbacks) {
+                                const saved = p.streamStartOffset || p.lastKnownGoodPosition || p.initialResumeTime || 0;
+                                p.video.src = p.streamMgr.buildStreamUrl(saved);
+                                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
+                                p.video.load();
+                                if (p._userPaused) {
+                                    console.log('[SimplePlayer] Blocked stall-recovery play — user pause active');
+                                } else {
+                                    console.log('[SimplePlayer] Stall-recovery play()');
+                                    p.video.play().catch(function(e) { console.error('[SimplePlayer] Stall-recovery play failed', e); });
+                                }
+                            } else {
+                                if (window.Toast) window.Toast.error('Playback failed after retries - please reload');
+                            }
+                        }
+                    }, 20000);
+                };
+                armStallTimer((p.streamMgr && typeof p.streamMgr._bufferedEnd === 'function')
+                    ? p.streamMgr._bufferedEnd(p.video) : 0);
                 setTimeout(() => {
                     if (p._stallTimer && p.video.currentTime === 0 && !p._hasPlayedData) {
                         if (window.Toast) window.Toast.info('Server is preparing your video, please wait...');

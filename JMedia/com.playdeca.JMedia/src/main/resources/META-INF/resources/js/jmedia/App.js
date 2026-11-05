@@ -115,6 +115,18 @@
         }
 
         async loadView(viewName) {
+            // A single client-side navigation can reach loadView twice: an
+            // in-flight route change plus a second handleRoute()/navigate() for
+            // the same path. Both calls pass the currentView check below because
+            // currentView is only assigned after the fetch resolves, so both
+            // inject the view and run executeScripts(). The second execution of
+            // cinema-mode.js then throws "Identifier 'heroItems' has already
+            // been declared" and the rest of that script never runs. Coalesce
+            // duplicate loads instead of executing the view twice.
+            if (this._loadingView === viewName) {
+                console.log('[App] loadView(' + viewName + ') already in flight; ignoring duplicate');
+                return;
+            }
             if (this.currentView === viewName) {
                 if (viewName === 'video') {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -135,6 +147,7 @@
 
             const container = document.getElementById('app-content');
 
+            this._loadingView = viewName;
             container.innerHTML = this.getViewSkeleton(viewName);
 
             try {
@@ -244,6 +257,8 @@
             } catch (error) {
                 console.error('Failed to load view:', error);
                 container.innerHTML = `<div class="notification is-danger">Failed to load view: ${error.message}</div>`;
+            } finally {
+                if (this._loadingView === viewName) this._loadingView = null;
             }
         }
 

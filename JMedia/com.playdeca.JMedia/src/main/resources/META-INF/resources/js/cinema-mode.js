@@ -77,26 +77,32 @@
 // ============================================================
 // State
 // ============================================================
-let heroItems = [];
+// These are `var`, not `let`/`const`, on purpose. The SPA injects this script
+// with executeScripts() when it swaps in the cinema view, so a duplicate route
+// change could evaluate the file twice. A second evaluation of a top-level
+// `let`/`const` throws "Identifier ... has already been declared" before any
+// statement of the file can run, which silently kills the whole view. `var`
+// redeclaration is legal, so a stray second load degrades instead of breaking.
+var heroItems = [];
 var allVideos = [];
 var allTvShows = [];
-let currentHeroIndex = 0;
-let heroTimer = null;
-const HERO_INTERVAL = 15000;
-let allSeries = [];
-const seriesLookup = new Map();
+var currentHeroIndex = 0;
+var heroTimer = null;
+var HERO_INTERVAL = 15000;
+var allSeries = [];
+var seriesLookup = new Map();
 var _episodesCache = new Map();
 var _episodeById = new Map();
-let allContinueWatching = [];
-let _modalGeneration = 0;
+var allContinueWatching = [];
+var _modalGeneration = 0;
 // True while the "not in your library" page owns the view. Blocks the late
 // showSection('home') from the boot render from painting over it.
-let _notInLibrary = false;
+var _notInLibrary = false;
 
 // ── Shareable URLs (/video/info/… , /video/watch/…) ─────────────────────────
 // Set while a deep link is being opened: the open functions then skip writing the
 // URL again, so the history entry the user arrived with stays untouched.
-let _suppressUrlWrite = false;
+var _suppressUrlWrite = false;
 
 function _pushInfoUrl(token) {
   if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
@@ -342,12 +348,12 @@ function requestNotInLibraryTitle(el) {
 
 
 // Show All state
-let _showAllMode = null;
-let _showAllData = [];
-let _showAllIndex = 0;
-let _showAllSort = 'dateAdded';
-let _showAllObserver = null;
-const _SHOW_ALL_BATCH = 20;
+var _showAllMode = null;
+var _showAllData = [];
+var _showAllIndex = 0;
+var _showAllSort = 'dateAdded';
+var _showAllObserver = null;
+var _SHOW_ALL_BATCH = 20;
 
 // ============================================================
 // API Helpers
@@ -903,7 +909,7 @@ function createCollectionCard(collection) {
   `;
 }
 
-let _collectionDataCache = null;
+var _collectionDataCache = null;
 
 async function openCollectionDetail(collectionId) {
   // Close any existing player modal
@@ -1210,9 +1216,9 @@ async function renderCollectionsSection(container) {
 // ============================================================
 // Catalog loader — single-flight promise over /api/video/videos
 // ============================================================
-let catalogPromise = null;
+var catalogPromise = null;
 
-const fetchCatalog = () => {
+var fetchCatalog = () => {
   if (catalogPromise) return catalogPromise;
   catalogPromise = fetch('/api/video/videos').then(r => r.ok ? r.json() : []).then(data => {
     const d = data && typeof data === 'object' && data.success !== undefined && data.data !== undefined ? data.data : data;
@@ -2532,8 +2538,8 @@ function toggleDescription() {
   }
 }
 
-let previousFocusElement = null;
-let focusTrapHandler = null;
+var previousFocusElement = null;
+var focusTrapHandler = null;
 
 function trapFocus(modalElement) {
   previousFocusElement = document.activeElement;
@@ -2716,7 +2722,7 @@ function toggleAutoSkip(type, el) {
   saveSettingsDebounced();
 }
 
-let _saveSettingsTimer;
+var _saveSettingsTimer;
 function saveSettingsDebounced() {
   clearTimeout(_saveSettingsTimer);
   _saveSettingsTimer = setTimeout(saveSettings, 500);
@@ -3936,7 +3942,7 @@ document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
   });
 });
 // Home button � SPA style
-const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video"]');
+var homeDockBtn = document.querySelector('.cinema-dock-item[href="/video"]');
 if (homeDockBtn) {
   homeDockBtn.addEventListener('click', function(e) {
     e.preventDefault();
