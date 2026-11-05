@@ -4,7 +4,6 @@ import Models.Settings.User;
 import Models.Video.MediaRequest;
 import Services.AuthService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -55,7 +54,6 @@ public class MediaRequestResource {
     }
 
     @POST
-    @Transactional
     public Response create(@Context HttpHeaders headers, RequestPayload payload) {
         User user = authService.getCurrentUser(headers);
         if (user == null) {
@@ -73,29 +71,36 @@ public class MediaRequestResource {
 
         String token = payload.token.trim();
         try {
-            long pending = MediaRequest.count("token = ?1 and status = ?2", token, STATUS_PENDING);
-            if (pending > 0) {
-                LOG.info("Media request already pending for token '{}' (user '{}')", token, user.getUsername());
-                return Response.ok(Map.of("created", false, "existing", true)).build();
-            }
+            // The caller's session lives in the default datasource, so the auth read
+            // above and this write must NOT share a JTA transaction: Narayana can only
+            // enlist one datasource per transaction, and the previous @Transactional
+            // method produced "Failed to enlist ... another datasource" on every POST.
+            // QuarkusTransaction.requiringNew() here enlists only the video datasource.
+            return io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> {
+                long pending = MediaRequest.count("token = ?1 and status = ?2", token, STATUS_PENDING);
+                if (pending > 0) {
+                    LOG.info("Media request already pending for token '{}' (user '{}')", token, user.getUsername());
+                    return Response.ok(Map.of("created", false, "existing", true)).build();
+                }
 
-            MediaRequest req = new MediaRequest();
-            req.token = token;
-            req.kind = payload.kind.trim();
-            req.title = payload.title.trim();
-            req.year = payload.year;
-            req.posterUrl = payload.posterUrl;
-            req.mediaType = payload.mediaType != null ? payload.mediaType.trim() : null;
-            req.tmdbId = payload.tmdbId;
-            req.requestedBy = user.getUsername();
-            req.createdAt = Instant.now();
-            req.status = STATUS_PENDING;
-            req.persist();
+                MediaRequest req = new MediaRequest();
+                req.token = token;
+                req.kind = payload.kind.trim();
+                req.title = payload.title.trim();
+                req.year = payload.year;
+                req.posterUrl = payload.posterUrl;
+                req.mediaType = payload.mediaType != null ? payload.mediaType.trim() : null;
+                req.tmdbId = payload.tmdbId;
+                req.requestedBy = user.getUsername();
+                req.createdAt = Instant.now();
+                req.status = STATUS_PENDING;
+                req.persist();
 
-            LOG.info("Media request created id={} token='{}' kind='{}' title='{}' by='{}'",
-                    req.id, req.token, req.kind, req.title, req.requestedBy);
-            return Response.status(Response.Status.CREATED)
-                    .entity(Map.of("created", true)).build();
+                LOG.info("Media request created id={} token='{}' kind='{}' title='{}' by='{}'",
+                        req.id, req.token, req.kind, req.title, req.requestedBy);
+                return Response.status(Response.Status.CREATED)
+                        .entity(Map.of("created", true)).build();
+            });
         } catch (Exception e) {
             LOG.error("Failed to persist media request for token '{}' by '{}'", token, user.getUsername(), e);
             return Response.serverError()
@@ -124,7 +129,6 @@ public class MediaRequestResource {
 
     @PATCH
     @Path("/{id}")
-    @Transactional
     public Response updateStatus(@Context HttpHeaders headers,
                                  @PathParam("id") Long id,
                                  StatusPayload payload) {
@@ -142,15 +146,17 @@ public class MediaRequestResource {
         }
 
         try {
-            MediaRequest req = MediaRequest.findById(id);
-            if (req == null) {
-                LOG.warn("Media request status update failed: id={} not found", id);
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity(Map.of("error", "Request not found")).build();
-            }
-            req.status = STATUS_HANDLED;
-            LOG.info("Media request id={} marked HANDLED", id);
-            return Response.ok(Map.of("id", req.id, "status", req.status)).build();
+            return io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> {
+                MediaRequest req = MediaRequest.findById(id);
+                if (req == null) {
+                    LOG.warn("Media request status update failed: id={} not found", id);
+                    return Response.status(Response.Status.NOT_FOUND)
+                            .entity(Map.of("error", "Request not found")).build();
+                }
+                req.status = STATUS_HANDLED;
+                LOG.info("Media request id={} marked HANDLED", id);
+                return Response.ok(Map.of("id", req.id, "status", req.status)).build();
+            });
         } catch (Exception e) {
             LOG.error("Failed to update media request id={}", id, e);
             return Response.serverError()

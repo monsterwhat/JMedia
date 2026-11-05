@@ -23,6 +23,9 @@ public class MediaRequest extends PanacheEntity {
     @Column(nullable = false, length = 300)
     public String title;
 
+    // "year" is a reserved word in H2 and breaks the generated SELECT; keep the
+    // Java field name but map it to a safe column name.
+    @Column(name = "release_year")
     public Integer year;
 
     @Column(length = 512)
