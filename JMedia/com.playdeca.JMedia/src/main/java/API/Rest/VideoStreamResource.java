@@ -351,7 +351,13 @@ public class VideoStreamResource {
         // yet, but the 206 + Content-Range headers confirm that ranges are supported and
         // reveal the (estimated) total size.  Safari then follows up with a proper range
         // request (e.g. bytes 0-65535) by which time the transcode will have data ready.
-        if (rangeHeader != null && (rangeHeader.startsWith("bytes=0-0") || rangeHeader.startsWith("bytes=0-1"))) {
+        //
+        // Match the EXACT probe only. A startsWith("bytes=0-1") check also matched real
+        // requests such as "bytes=0-131071" and answered them with Content-Length: 0,
+        // which left Chrome with no init segment (black player, "preparing video").
+        boolean tinyRangeProbe = rangeHeader != null
+                && rangeHeader.trim().matches("(?i)bytes=0-[01]");
+        if (tinyRangeProbe) {
             // Safari rejects changing totals: probe reports the same total + ETag the follow-up
             // range request will use — the segment's byte-relative total when one covers the seek.
             Services.SegmentCacheService.SegmentCoverage probeCoverage = segmentCacheService
