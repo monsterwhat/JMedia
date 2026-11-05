@@ -1005,22 +1005,10 @@ public class TranscodingService {
      * case where HEVC decode is guaranteed.
      */
     private boolean clientSupportsHevc(java.util.Set<String> clientCodecs, String userAgent) {
-        // iOS (WKWebView, including CriOS) genuinely decodes HEVC.
-        if (isIOSClient(userAgent)) {
-            return true;
-        }
-        // Chromium's canPlayType/MSE.isTypeSupported report HEVC as playable even
-        // when no decoder is installed. Trusting a "hevc" claim from a Chromium UA
-        // made the server copy HEVC and Chrome rendered a black frame instead of
-        // starting playback, so Chromium always gets the H.264 transcode.
-        String ua = userAgent == null ? "" : userAgent.toLowerCase(java.util.Locale.ROOT);
-        if (ua.contains("chrome") || ua.contains("chromium") || ua.contains("crios")) {
-            return false;
-        }
         if (clientCodecs != null && !clientCodecs.isEmpty()) {
             return clientCodecs.contains(CODEC_HEVC) || clientCodecs.contains("h265");
         }
-        return isMacOSSafari(userAgent);
+        return isIOSClient(userAgent) || isMacOSSafari(userAgent);
     }
 
     public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
