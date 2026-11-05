@@ -89,6 +89,108 @@ var _episodesCache = new Map();
 let allContinueWatching = [];
 let _modalGeneration = 0;
 
+// ── Shareable URLs (/video/info/… , /video/watch/…) ─────────────────────────
+// Set while a deep link is being opened: the open functions then skip writing the
+// URL again, so the history entry the user arrived with stays untouched.
+let _suppressUrlWrite = false;
+
+function _pushInfoUrl(token) {
+  if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
+  const url = VideoRoutes.infoUrl(token);
+  if (!url || window.location.pathname === url) return;
+  try {
+    history.pushState({ video: { area: 'info', token: token } }, '', url);
+  } catch (e) {
+    console.warn('[cinema] pushState info failed', e);
+  }
+}
+
+function _pushWatchUrl(token, season, episode) {
+  if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
+  const url = VideoRoutes.watchUrl(token, season, episode);
+  if (!url || window.location.pathname === url) return;
+  try {
+    history.pushState({ video: { area: 'watch', token: token } }, '', url);
+  } catch (e) {
+    console.warn('[cinema] pushState watch failed', e);
+  }
+}
+
+/** Back to the browse URL without leaving a modal entry in history. */
+function _resetUrlToBrowse() {
+  if (window.location.pathname === '/video') return;
+  try {
+    history.replaceState({ video: { area: 'browse' } }, '', '/video');
+  } catch (e) {
+    console.warn('[cinema] replaceState browse failed', e);
+  }
+}
+
+/** Resolve /video/watch/db123 to the canonical series+episode URL, then push it. */
+async function _pushWatchUrlForVideo(videoId) {
+  if (_suppressUrlWrite || !window.VideoRoutes || !videoId) return;
+  if (window.location.pathname.indexOf('/video/watch/') === 0) return;
+  try {
+    const res = await fetch('/api/video/resolve/db' + videoId, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.found && data.watch) {
+        if (window.location.pathname !== data.watch) {
+          history.pushState({ video: { area: 'watch', token: data.token } }, '', data.watch);
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[cinema] watch url resolve failed', e);
+  }
+  _pushWatchUrl('db' + videoId);
+}
+
+function _parseVideoUrl() {
+  return window.VideoRoutes ? VideoRoutes.parse() : null;
+}
+
+function _isDeepLink(parsed) {
+  return !!(window.VideoRoutes && VideoRoutes.isDeepLink(parsed));
+}
+
+async function _openFromUrl(parsed) {
+  if (!_isDeepLink(parsed)) return false;
+  _suppressUrlWrite = true;
+  try {
+    const resolved = await VideoRoutes.resolve(parsed);
+    if (!resolved) {
+      if (window.showToast) window.showToast('That title is not in your library', 'warning');
+      _resetUrlToBrowse();
+      return true;
+    }
+    if (parsed.area === 'info') {
+      if (resolved.type === 'series') {
+        await openSeriesDetail(resolved.title);
+      } else {
+        await openDetails(resolved.id);
+      }
+      return true;
+    }
+    // watch
+    const episodeId = resolved.episode && resolved.episode.found ? resolved.episode.videoId : null;
+    if (episodeId) {
+      await openPlayerModal(episodeId);
+    } else if (resolved.type === 'series') {
+      // No episode in the URL: open the show so the user can pick one (the modal's
+      // Play button resumes, same as clicking the card).
+      await openSeriesDetail(resolved.title);
+    } else if (resolved.id) {
+      await openPlayerModal(resolved.id);
+    }
+    return true;
+  } finally {
+    _suppressUrlWrite = false;
+  }
+}
+
+
 // Show All state
 let _showAllMode = null;
 let _showAllData = [];
@@ -1199,6 +1301,13 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
     } catch (e) { /* keep cached version on transient error */ }
   }
   if (gen !== _modalGeneration) return;
+  // Shareable URL: write /video/info/{imdb|tmdb} once the ids are known.
+  if (window.VideoRoutes) {
+    const token = VideoRoutes.tokenFor(seriesData)
+      || VideoRoutes.tokenFor(firstEp && firstEp.series)
+      || (seriesId ? 'db' + seriesId : null);
+    _pushInfoUrl(token);
+  }
   const imgSource = seriesData || firstEp;
 
   // Populate modal � Series images take priority
@@ -2043,6 +2152,8 @@ function openDetails(videoId) {
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
     if (gen !== _modalGeneration) return;
+    // Shareable URL: /video/info/{imdb|tmdb} for a movie.
+    if (window.VideoRoutes) _pushInfoUrl(VideoRoutes.tokenFor(data));
 
     // Hero image � prefer wider images
     const heroUrl = getBackdropUrl(data);
@@ -2298,6 +2409,7 @@ function initModalScrollBlur() {
 }
 
 function closeModal() {
+  if (window.location.pathname.indexOf('/video/info/') === 0) _resetUrlToBrowse();
   // Clear series data polling
   const modal = document.getElementById('cinema-modal');
   if (modal && modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
@@ -2555,6 +2667,9 @@ async function openPlayerModal(videoId, collectionId) {
   modal.classList.add('active');
   document.body.style.overflow = 'hidden';
 
+  // Shareable player URL: /video/watch/{imdb|tmdb}[/s01e02]
+  _pushWatchUrlForVideo(videoId);
+
   try {
     // Command the server before loading the fragment so the new player's first
     // state broadcast has the locked id. Only POST when the target differs from
@@ -2605,6 +2720,7 @@ async function openPlayerModal(videoId, collectionId) {
 }
 
 function closePlayerModal() {
+  if (window.location.pathname.indexOf('/video/watch/') === 0) _resetUrlToBrowse();
   const backdrop = document.getElementById('player-modal-backdrop');
   const modal = document.getElementById('player-modal');
   const content = document.getElementById('player-modal-content');
@@ -3648,8 +3764,18 @@ if (homeDockBtn) {
     this.classList.add('active');
   });
 }
-// Browser back/forward
+// Browser back/forward — deep links first, then the dock sections
 window.addEventListener('popstate', () => {
+  const parsed = _parseVideoUrl();
+  if (_isDeepLink(parsed)) {
+    _openFromUrl(parsed);
+    return;
+  }
+  // Left a deep link: close whatever was open and show the browse section.
+  const playerModal = document.getElementById('player-modal');
+  if (playerModal && playerModal.classList.contains('active')) closePlayerModal();
+  const cinemaModal = document.getElementById('cinema-modal');
+  if (cinemaModal && cinemaModal.classList.contains('active')) closeModal();
   const p = new URLSearchParams(window.location.search);
   const sec = p.get('section') || 'home';
   showSection(sec);
@@ -3661,6 +3787,14 @@ window.addEventListener('popstate', () => {
     document.querySelector('.cinema-dock-item')?.classList.add('active');
   }
 });
+
+// First load of a deep link (/video/info/… or /video/watch/…)
+(function bootVideoDeepLink() {
+  const parsed = _parseVideoUrl();
+  if (!_isDeepLink(parsed)) return;
+  // Open after the first paint so the modal animates over a rendered page.
+  setTimeout(function() { _openFromUrl(parsed); }, 0);
+})();
 
 // Wire logout
 document.getElementById('logout-btn')?.addEventListener('click', function() {

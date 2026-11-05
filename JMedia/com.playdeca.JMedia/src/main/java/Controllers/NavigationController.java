@@ -35,6 +35,17 @@ public class NavigationController {
     public Response serveVideo() {
         return servePage("index.html", "Video page (SPA)");
     }
+
+    /**
+     * Deep links: /video/info/{id} and /video/watch/{id}[/s01e02] must load the SPA
+     * shell, not 404. The SPA parses the path itself (js/video-routes.js). Kept as a
+     * separate route so the exact /video handler above stays untouched.
+     */
+    @GET
+    @Path("/video/{rest:.*}")
+    public Response serveVideoDeepLink() {
+        return servePage("index.html", "Video page (SPA)");
+    }
     
     @GET
     @Path("/video-test")
