@@ -401,6 +401,13 @@ public class VideoStreamResource {
                 .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath, outputCodec);
         if (coverage != null) {
             Long off = coverage.byteOffset;
+            if (off == null && startSeconds - coverage.startSeconds < 0.5) {
+                // Request starts exactly at the segment head, so the first fragment is
+                // already on disk. Skip the "wait for coverage" path below: on a growing
+                // segment it burns its 10 s timeout (and measured ~22 s to first byte),
+                // which is long enough for Chrome to give up before any data arrives.
+                off = 0L;
+            }
             if (off == null) {
                 // Target lies beyond the segment's written end (still growing): wait for the
                 // fragment containing the seek point, then re-probe. But if the target is FAR
