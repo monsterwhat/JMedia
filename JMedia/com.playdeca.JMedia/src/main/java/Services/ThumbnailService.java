@@ -1686,6 +1686,12 @@ public class ThumbnailService {
         Object lock = VARIANT_LOCKS.computeIfAbsent(variant.getAbsolutePath(), k -> new Object());
         synchronized (lock) {
             try {
+                // Serve the cached variant without decoding the full-size source:
+                // otherwise every card request pays a full JPEG/WebP decode even
+                // though the resized file is already on disk.
+                if (variant.exists() && variant.lastModified() >= source.lastModified()) {
+                    return variant;
+                }
                 BufferedImage srcImage = ImageIO.read(source);
                 if (srcImage == null) {
                     return source;
@@ -1694,10 +1700,6 @@ public class ThumbnailService {
                 // Do not upscale.
                 if (width >= srcW) {
                     return source;
-                }
-                // Serve cached variant if fresh.
-                if (variant.exists() && variant.lastModified() >= source.lastModified()) {
-                    return variant;
                 }
 
                 int srcH = srcImage.getHeight();
