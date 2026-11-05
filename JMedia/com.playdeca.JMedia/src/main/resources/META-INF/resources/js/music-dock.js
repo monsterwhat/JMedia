@@ -212,6 +212,12 @@
         });
     }
 
+    function wireMusicState() {
+        updateHero();
+        window.addEventListener('musicStateChanged', updateHero);
+        window.addEventListener('refreshDOMCache', updateHero);
+    }
+
     function init() {
         hero = document.getElementById('musicHero');
         heroArtwork = document.getElementById('musicHeroArtwork');
@@ -223,10 +229,37 @@
         setupSearchButton();
         setupNavSidebar();
         setupScrollListener();
-        updateHero();
 
-        window.addEventListener('musicStateChanged', updateHero);
-        window.addEventListener('refreshDOMCache', updateHero);
+        // The music engine (StateManager, Helpers, ...) is injected by
+        // music-bundle-loader.js after this script may already have run, so
+        // never read those globals synchronously here. Wait for the bundle
+        // promise first; warn (do not silently fail) on timeout/skip.
+        var bundlePromise = (typeof window.__musicBundleLoaded !== 'undefined')
+            ? window.__musicBundleLoaded : null;
+
+        if (bundlePromise && typeof bundlePromise.then === 'function') {
+            var timeoutMs = 10000;
+            Promise.race([
+                bundlePromise,
+                new Promise(function (_, reject) {
+                    setTimeout(function () {
+                        reject(new Error('music bundle load timed out after ' + timeoutMs + 'ms'));
+                    }, timeoutMs);
+                })
+            ]).then(function (loaded) {
+                if (loaded === false) {
+                    console.warn('[MusicDock] Music bundle was skipped; music globals unavailable.');
+                    return;
+                }
+                wireMusicState();
+            }).catch(function (err) {
+                console.warn('[MusicDock] Music bundle not ready:', err && err.message ? err.message : err);
+                wireMusicState();
+            });
+        } else {
+            console.warn('[MusicDock] window.__musicBundleLoaded not found; proceeding without bundle wait.');
+            wireMusicState();
+        }
     }
 
     if (document.readyState === 'loading') {

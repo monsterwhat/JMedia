@@ -214,10 +214,13 @@ function showNotInLibraryPanel(parsed, resolved) {
   const poster = /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9_]+\/[A-Za-z0-9_.-]+$/.test(rawPoster)
     ? rawPoster : '';
   const title = meta && meta.title ? String(meta.title) : 'This title';
-  const year = meta && meta.year ? ' (' + meta.year + ')' : '';
+  const yearText = meta && meta.year ? ' (' + meta.year + ')' : '';
   const overview = meta && meta.overview ? String(meta.overview) : '';
   const kindLabel = kind === 'imdb' ? 'IMDb' : kind === 'tmdb' ? 'TMDb' : kind === 'tvdb' ? 'TVDB' : 'id';
-  const copyText = title + year + (token ? ' — /video/info/' + token : '');
+  const copyText = title + yearText + (token ? ' — /video/info/' + token : '');
+  const yearNum = meta && meta.year != null && meta.year !== '' ? String(meta.year) : '';
+  const mediaType = meta && meta.mediaType ? String(meta.mediaType) : '';
+  const tmdbId = meta && meta.tmdbId != null && meta.tmdbId !== '' ? String(meta.tmdbId) : '';
 
   let page = document.getElementById('not-in-library-page');
   if (!page) {
@@ -230,7 +233,7 @@ function showNotInLibraryPanel(parsed, resolved) {
         (poster ? '<img src="' + escapeHtml(poster) + '" alt="" style="width:200px;max-width:45vw;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5);">' : '') +
         '<div style="flex:1;min-width:260px;">' +
           '<div class="cinema-section-title" style="margin-bottom:.75rem;">Not in your library</div>' +
-          '<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 .35rem;">' + escapeHtml(title) + escapeHtml(year) + '</h2>' +
+          '<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 .35rem;">' + escapeHtml(title) + escapeHtml(yearText) + '</h2>' +
           (overview ? '<p class="cinema-modal-desc" style="margin:0 0 1.25rem;">' + escapeHtml(overview) + '</p>' : '') +
           '<p style="color:rgba(255,255,255,.7);margin:0 0 1.5rem;">' +
             'This link points to ' + escapeHtml(kindLabel) + ' id <strong>' + escapeHtml(token) + '</strong>, ' +
@@ -239,7 +242,13 @@ function showNotInLibraryPanel(parsed, resolved) {
           '<div style="display:flex;gap:.75rem;flex-wrap:wrap;">' +
             '<button type="button" class="button is-light" data-click="closeNotInLibrary">' +
               '<i class="fa-solid fa-arrow-left"></i>&nbsp;Browse library</button>' +
-            '<button type="button" class="button is-link is-light" data-click="copyNotInLibraryTitle" data-copy="' + escapeHtml(copyText) + '">' +
+            '<button type="button" class="button is-link" data-click="requestNotInLibraryTitle"' +
+              ' data-token="' + escapeHtml(token) + '" data-kind="' + escapeHtml(kind) + '"' +
+              ' data-title="' + escapeHtml(title) + '" data-year="' + escapeHtml(yearNum) + '"' +
+              ' data-poster="' + escapeHtml(poster) + '" data-media-type="' + escapeHtml(mediaType) + '"' +
+              ' data-tmdb-id="' + escapeHtml(tmdbId) + '">' +
+              '<i class="fa-solid fa-paper-plane"></i>&nbsp;Request it</button>' +
+            '<button type="button" class="button is-light" data-click="copyNotInLibraryTitle" data-copy="' + escapeHtml(copyText) + '">' +
               '<i class="fa-solid fa-copy"></i>&nbsp;Copy title</button>' +
           '</div>' +
         '</div>' +
@@ -275,6 +284,59 @@ function copyNotInLibraryTitle(el) {
   } else if (window.showToast) {
     window.showToast('Clipboard is not available', 'warning');
   }
+}
+
+/** Submit a library request for a title that is not in the local library. */
+function requestNotInLibraryTitle(el) {
+  if (!el || !el.dataset) return;
+  var token = el.dataset.token || '';
+  var kind = el.dataset.kind || '';
+  var title = el.dataset.title || '';
+  var yearVal = el.dataset.year || '';
+  var posterUrl = el.dataset.poster || '';
+  var mediaType = el.dataset.mediaType || '';
+  var tmdbIdVal = el.dataset.tmdbId || '';
+  var payload = {
+    token: token,
+    kind: kind,
+    title: title,
+    year: yearVal ? Number(yearVal) : null,
+    posterUrl: posterUrl || null,
+    mediaType: mediaType || null,
+    tmdbId: tmdbIdVal ? Number(tmdbIdVal) : null
+  };
+
+  el.disabled = true;
+  el.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>&nbsp;Requesting…';
+
+  fetch('/api/library/requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    return res.json().catch(function() { return {}; }).then(function(data) {
+      return { ok: res.ok, status: res.status, data: data || {} };
+    });
+  }).then(function(result) {
+    if (result.ok && result.data && result.data.existing === true) {
+      el.innerHTML = '<i class="fa-solid fa-check"></i>&nbsp;Already requested';
+      return;
+    }
+    if (result.ok) {
+      el.innerHTML = '<i class="fa-solid fa-check"></i>&nbsp;Requested';
+      return;
+    }
+    el.disabled = false;
+    el.innerHTML = '<i class="fa-solid fa-paper-plane"></i>&nbsp;Request it';
+    console.error('[cinema] media request failed', result.status, result.data);
+    if (window.showToast) window.showToast('Could not submit request', 'error');
+  }).catch(function(e) {
+    el.disabled = false;
+    el.innerHTML = '<i class="fa-solid fa-paper-plane"></i>&nbsp;Request it';
+    console.error('[cinema] media request failed', e);
+    if (window.showToast) window.showToast('Could not submit request', 'error');
+  });
 }
 
 

@@ -104,36 +104,75 @@
             const videoId = p?.videoId;
             if (!videoId) return;
 
+            const select = document.getElementById('subtitleTrack');
+            if (!select) {
+                console.warn('[SubtitleSettings] #subtitleTrack is not in the DOM; cannot refresh track options');
+                return;
+            }
+
             try {
                 const res = await fetch('/api/video/subtitles/' + videoId);
-                if (res.ok) {
-                    const data = await res.json();
-                    const select = document.getElementById('subtitleTrack');
-                    const tracks = data.tracks || [];
-
-                    select.innerHTML = '<option value="off">Off</option>';
-
-                    tracks.forEach(t => {
-                        const opt = document.createElement('option');
-                        opt.value = t.id;
-                        opt.textContent = (t.displayName || t.filename) + ' (' + (t.isEmbedded ? 'Embedded' : 'External') + ')';
-                        select.appendChild(opt);
-                    });
-
-                    const lastTrackId = localStorage.getItem('jmedia_last_track_' + videoId);
-                    if (lastTrackId) select.value = lastTrackId;
+                if (!res.ok) {
+                    console.warn('[SubtitleSettings] Track list request failed with HTTP ' + res.status);
+                    return;
                 }
-            } catch (e) {}
+                const data = await res.json();
+                const tracks = data.tracks || [];
+
+                select.innerHTML = '<option value="off">Off</option>';
+
+                tracks.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = (t.displayName || t.filename) + ' (' + (t.isEmbedded ? 'Embedded' : 'External') + ')';
+                    select.appendChild(opt);
+                });
+
+                const lastTrackId = localStorage.getItem('jmedia_last_track_' + videoId);
+                if (lastTrackId) select.value = lastTrackId;
+            } catch (e) {
+                console.error('[SubtitleSettings] Failed to load subtitle tracks for the settings panel:', e);
+            }
         }
 
         changeTrack(trackId) {
-            const p = this.player || window.currentPlayerInstance;
-            if (p) {
-                const list = p.subtitleList;
-                const opt = list?.querySelector('.subtitle-option[data-id="' + trackId + '"]');
-                if (opt) opt.click();
-                else if (trackId === 'off') p.turnOffSubtitles();
+            // Prefer a player whose container is still in the document. A stale
+            // instance from a previous modal would silently click options in a
+            // detached DOM tree, which looks like "selecting does nothing".
+            const live = (this.player && this.player.container && document.body.contains(this.player.container))
+                ? this.player
+                : window.currentPlayerInstance;
+            if (!live) {
+                console.warn('[SubtitleSettings] No live player to apply subtitle track ' + trackId);
+                return;
             }
+
+            const id = String(trackId);
+            const findOption = () => (live.subtitleList
+                ? live.subtitleList.querySelector('.subtitle-option[data-id="' + id + '"]')
+                : null);
+
+            const opt = findOption();
+            if (opt) {
+                opt.click();
+                return;
+            }
+
+            // The settings panel can be filled before the stream opens, so its ids may
+            // predate the player's track list. Refresh once and retry before giving up.
+            const refresh = (typeof live.loadSubtitles === 'function') ? live.loadSubtitles() : Promise.resolve();
+            Promise.resolve(refresh).then(() => {
+                const retry = findOption();
+                if (retry) {
+                    retry.click();
+                } else if (id === 'off' && typeof live.turnOffSubtitles === 'function') {
+                    live.turnOffSubtitles();
+                } else {
+                    console.warn('[SubtitleSettings] Track ' + id + ' is not in the player track list after refresh');
+                }
+            }).catch(e => {
+                console.error('[SubtitleSettings] Failed to apply subtitle track ' + id, e);
+            });
         }
 
         resetStyles() {
