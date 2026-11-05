@@ -89,6 +89,9 @@ var _episodesCache = new Map();
 var _episodeById = new Map();
 let allContinueWatching = [];
 let _modalGeneration = 0;
+// True while the "not in your library" page owns the view. Blocks the late
+// showSection('home') from the boot render from painting over it.
+let _notInLibrary = false;
 
 // ── Shareable URLs (/video/info/… , /video/watch/…) ─────────────────────────
 // Set while a deep link is being opened: the open functions then skip writing the
@@ -198,6 +201,7 @@ async function _openFromUrl(parsed) {
  * (/video/info/tt…) without a redirect, keeping the URL shareable.
  */
 function showNotInLibraryPanel(parsed, resolved) {
+  _notInLibrary = true;
   const meta = resolved && resolved.meta ? resolved.meta : null;
   const token = (resolved && resolved.token) || (parsed && parsed.token) || '';
   const kind = (resolved && resolved.kind) || (parsed && parsed.kind) || '';
@@ -251,6 +255,7 @@ function showNotInLibraryPanel(parsed, resolved) {
 
 /** Leave the not-in-library state and restore the browse URL. */
 function closeNotInLibrary() {
+  _notInLibrary = false;
   _resetUrlToBrowse();
   if (typeof showSection === 'function') showSection('home');
 }
@@ -966,6 +971,9 @@ function ensureNowPlayingController() {
 }
 
 async function showSection(section) {
+  // The not-in-library page must survive the boot render's late showSection('home').
+  // Explicit navigation clears the flag first (dock handlers, closeNotInLibrary, popstate).
+  if (_notInLibrary) return;
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
   const dynEl = document.getElementById('section-dynamic');
@@ -3859,6 +3867,7 @@ document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function
 document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
   item.addEventListener('click', function(e) {
     e.preventDefault();
+    _notInLibrary = false;
     const sec = this.dataset.section;
     const url = `/video?section=${sec}`;
     history.pushState({}, '', url);
@@ -3872,6 +3881,7 @@ const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video"]');
 if (homeDockBtn) {
   homeDockBtn.addEventListener('click', function(e) {
     e.preventDefault();
+    _notInLibrary = false;
     history.pushState({}, '', '/video');
     showSection('home');
     document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
@@ -3892,6 +3902,7 @@ window.addEventListener('popstate', () => {
   if (cinemaModal && cinemaModal.classList.contains('active')) closeModal();
   const p = new URLSearchParams(window.location.search);
   const sec = p.get('section') || 'home';
+  _notInLibrary = false;
   showSection(sec);
   document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
   if (sec !== 'home') {
