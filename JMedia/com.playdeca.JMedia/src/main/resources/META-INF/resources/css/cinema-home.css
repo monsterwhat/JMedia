@@ -3009,3 +3009,8 @@ body.cinema-mode .persistent-music-player {
     background: linear-gradient(to right, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.45) 15%, transparent 45%);
   }
 }
+
+/* Full-page 'not in your library' state for shareable links. Body-level so the
+   SPA can re-inject the video view without wiping it. */
+#not-in-library-page{position:fixed;inset:0;z-index:9000;overflow-y:auto;background:#0b0b0f;padding:3.5rem 1.5rem 5rem;}
+

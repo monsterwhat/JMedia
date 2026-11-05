@@ -171,6 +171,7 @@ async function _openFromUrl(parsed) {
       return true;
     }
     if (parsed.area === 'info') {
+      _removeNotInLibraryPage();
       if (resolved.type === 'series') {
         await openSeriesDetail(resolved.title);
       } else {
@@ -197,27 +198,15 @@ async function _openFromUrl(parsed) {
 
 /**
  * Full-page "this title is not in your library" state for a shareable link.
- * Renders into the existing dynamic section so it survives a direct page load
- * (/video/info/tt…) without a redirect, keeping the URL shareable.
+ * Rendered as a body-level overlay, not inside the view: the SPA re-injects the
+ * video view (and can do it again after a slow boot), and anything inside it
+ * would be wiped. The overlay survives that and keeps the URL unchanged.
  */
 function showNotInLibraryPanel(parsed, resolved) {
   _notInLibrary = true;
   const meta = resolved && resolved.meta ? resolved.meta : null;
   const token = (resolved && resolved.token) || (parsed && parsed.token) || '';
   const kind = (resolved && resolved.kind) || (parsed && parsed.kind) || '';
-
-  document.querySelectorAll('.cinema-section').forEach(function(s) { s.style.display = 'none'; });
-  document.querySelectorAll('.cinema-section-header[id]').forEach(function(h) { h.style.display = 'none'; });
-  const hero = document.getElementById('cinema-hero');
-  if (hero) hero.style.display = 'none';
-  const dyn = document.getElementById('section-dynamic');
-  const container = document.getElementById('dynamic-content');
-  if (!dyn || !container) {
-    if (window.showToast) window.showToast('That title is not in your library', 'warning');
-    console.warn('[cinema] not-in-library panel: dynamic container missing');
-    return;
-  }
-  dyn.style.display = '';
 
   // Only ever point an <img> at a TMDb image URL: the payload comes from an
   // external service, so never interpolate an arbitrary URL into src.
@@ -230,8 +219,13 @@ function showNotInLibraryPanel(parsed, resolved) {
   const kindLabel = kind === 'imdb' ? 'IMDb' : kind === 'tmdb' ? 'TMDb' : kind === 'tvdb' ? 'TVDB' : 'id';
   const copyText = title + year + (token ? ' — /video/info/' + token : '');
 
-  container.innerHTML =
-    '<div class="cinema-section" style="padding:2.5rem 1.5rem;">' +
+  let page = document.getElementById('not-in-library-page');
+  if (!page) {
+    page = document.createElement('div');
+    page.id = 'not-in-library-page';
+    document.body.appendChild(page);
+  }
+  page.innerHTML =
       '<div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;max-width:1000px;margin:0 auto;">' +
         (poster ? '<img src="' + escapeHtml(poster) + '" alt="" style="width:200px;max-width:45vw;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5);">' : '') +
         '<div style="flex:1;min-width:260px;">' +
@@ -249,13 +243,19 @@ function showNotInLibraryPanel(parsed, resolved) {
               '<i class="fa-solid fa-copy"></i>&nbsp;Copy title</button>' +
           '</div>' +
         '</div>' +
-      '</div>' +
-    '</div>';
+      '</div>';
+}
+
+/** Remove the not-in-library overlay (and clear the guard it sets). */
+function _removeNotInLibraryPage() {
+  const page = document.getElementById('not-in-library-page');
+  if (page) page.remove();
+  _notInLibrary = false;
 }
 
 /** Leave the not-in-library state and restore the browse URL. */
 function closeNotInLibrary() {
-  _notInLibrary = false;
+  _removeNotInLibraryPage();
   _resetUrlToBrowse();
   if (typeof showSection === 'function') showSection('home');
 }
@@ -971,9 +971,6 @@ function ensureNowPlayingController() {
 }
 
 async function showSection(section) {
-  // The not-in-library page must survive the boot render's late showSection('home').
-  // Explicit navigation clears the flag first (dock handlers, closeNotInLibrary, popstate).
-  if (_notInLibrary) return;
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
   const dynEl = document.getElementById('section-dynamic');
@@ -3867,7 +3864,7 @@ document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function
 document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
   item.addEventListener('click', function(e) {
     e.preventDefault();
-    _notInLibrary = false;
+    _removeNotInLibraryPage();
     const sec = this.dataset.section;
     const url = `/video?section=${sec}`;
     history.pushState({}, '', url);
@@ -3881,7 +3878,7 @@ const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video"]');
 if (homeDockBtn) {
   homeDockBtn.addEventListener('click', function(e) {
     e.preventDefault();
-    _notInLibrary = false;
+    _removeNotInLibraryPage();
     history.pushState({}, '', '/video');
     showSection('home');
     document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
@@ -3902,7 +3899,7 @@ window.addEventListener('popstate', () => {
   if (cinemaModal && cinemaModal.classList.contains('active')) closeModal();
   const p = new URLSearchParams(window.location.search);
   const sec = p.get('section') || 'home';
-  _notInLibrary = false;
+  _removeNotInLibraryPage();
   showSection(sec);
   document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
   if (sec !== 'home') {
