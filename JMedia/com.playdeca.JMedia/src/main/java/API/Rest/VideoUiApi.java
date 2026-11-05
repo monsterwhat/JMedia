@@ -392,7 +392,7 @@ public class VideoUiApi {
             + "\" data-click=\"" + clickAction + "\""
             + seriesTitleAttr + ">"
             + "<div class=\"cinema-card-poster\">"
-            + "<img src=\"" + imgSrc + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\" onerror=\"this.src='/logo.png'\">"
+            + "<img src=\"" + imgSrc + "\" srcset=\"" + srcsetFor(imgSrc) + "\" sizes=\"(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\" onerror=\"this.src='/logo.png'\">"
             + "<div class=\"cinema-card-play-overlay\">"
             + "<div class=\"cinema-card-play-icon\"><i class=\"fa-solid fa-play\"></i></div>"
             + "</div></div>"
@@ -1493,14 +1493,20 @@ public class VideoUiApi {
         }
 
         String vThumb = "/api/video/thumbnail/" + item.id;
+        String vSrcset = srcsetFor(vThumb);
         return String.format(
             "<div class='streaming-card' %s onclick=\"window.selectItem(%d, 'details')\">" +
-            "<div class='card-image-container'><img class='card-image' src='%s' loading='lazy'>" +
+            "<div class='card-image-container'><img class='card-image' src='%s' srcset='%s' sizes='(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px' loading='lazy'>" +
             "<div class='card-play-overlay'><div class='card-play-btn' onclick=\"event.stopPropagation(); window.selectItem(%d, 'play')\"><i class='pi pi-play'></i></div></div>" +
             progressBar +
             "</div><div class='card-content'><div class='card-title'>%s</div><div class='card-meta'>%s</div></div></div>",
-            dataAttrs, item.id, vThumb, item.id, escapeHtml(title), meta
+            dataAttrs, item.id, vThumb, vSrcset, item.id, escapeHtml(title), meta
         );
+    }
+
+    /** Responsive artwork candidates for the card endpoints (all support ?w=). */
+    private static String srcsetFor(String url) {
+        return url + "?w=144 144w, " + url + "?w=288 288w, " + url + "?w=400 400w";
     }
 
     private String createExternalCardHTML(Models.Video.ExternalVideo ev) {
@@ -1519,7 +1525,7 @@ public class VideoUiApi {
         if (thumbnailId != null) {
             return "<div class='streaming-card' onclick=\"playExternalEntry(" + ev.id + ")\">" +
                    "<div class='card-image-container'>" +
-                   "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' loading='lazy'>" +
+                   "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' srcset='" + srcsetFor("/api/video/thumbnail/" + thumbnailId) + "' sizes='(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px' loading='lazy'>" +
                    "<div class='card-play-overlay'><div class='card-play-btn' onclick=\"event.stopPropagation(); playExternalEntry(" + ev.id + ")\"><i class='pi pi-play'></i></div></div>" +
                    "<div style='position:absolute;top:8px;right:8px;z-index:2;'><span class='tag is-warning is-light is-small' style='font-size:0.6rem;'>Ext</span></div>" +
                    "</div>" +
@@ -1593,7 +1599,7 @@ public class VideoUiApi {
                 if (sample != null && sample.video != null) thumbnailId = sample.video.id;
             }
             String imgTag = thumbnailId != null
-                ? "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' loading='lazy'>"
+                ? "<img class='card-image' src='/api/video/thumbnail/" + thumbnailId + "' srcset='" + srcsetFor("/api/video/thumbnail/" + thumbnailId) + "' sizes='(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px' loading='lazy'>"
                 : "<div class='carousel-empty-state' style='height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.04);'><i class='pi pi-th-large' style='font-size:2rem;opacity:0.3;color:#00b894;'></i></div>";
             html.append("<div class='streaming-card' onclick=\"window.playCollection(")
                 .append(p.collection.id).append(", ").append(p.lastEntryIndex).append(")\">")
