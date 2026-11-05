@@ -523,6 +523,29 @@ public class VideoStreamResource {
         return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false, outputCodec, audioCodecsParam);
     }
 
+    /**
+     * Content time (seconds) of element time 0 for a range response. At a segment head it
+     * is the segment start; for a mid-segment serve it is the decode time of the fragment
+     * the response begins at (segments carry a 0-based timeline, so add the segment start).
+     * Falls back to the requested position when the fragment cannot be parsed.
+     */
+    private double resolveOriginSeconds(java.nio.file.Path segmentFile, double startSeconds,
+                                        double segmentStart, long baseOffset) {
+        if (baseOffset <= 0) {
+            return segmentStart;
+        }
+        try {
+            double rel = Utils.FragmentedMp4Seeker.fragmentTimeAt(segmentFile, baseOffset);
+            if (rel >= 0) {
+                return segmentStart + rel;
+            }
+        } catch (IOException e) {
+            LOG.debug("Could not resolve fragment time at offset {} in {}: {}",
+                    baseOffset, segmentFile.getFileName(), e.getMessage());
+        }
+        return startSeconds;
+    }
+
     private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String userAgent,
                                        long estimatedFinalSize, long baseOffset, double segmentStart, boolean isSegment,
@@ -1097,7 +1120,15 @@ public class VideoStreamResource {
                 // browser deep into the file (measured start_time 1579.6 for a seek to
                 // 1591.9). The player reads this to set its clock and the subtitle
                 // offset to where the picture actually begins.
-                .header("X-Stream-Origin", String.format(java.util.Locale.ROOT, "%.3f", segmentStart))
+                //
+                // For a mid-segment serve (baseOffset > 0) element 0 is NOT the
+                // segment head: the response starts at the fragment containing the
+                // requested time. Reporting segmentStart there told the player the
+                // content began at 0, so a far seek into a still-growing segment
+                // rewound the clock and picture to 0:00. Derive the fragment's real
+                // decode time; fall back to the requested position when unreadable.
+                .header("X-Stream-Origin", String.format(java.util.Locale.ROOT, "%.3f",
+                        resolveOriginSeconds(tempFile, startSeconds, segmentStart, baseOffset)))
                 .header("ETag", "\"" + etag + "\"");
 
         boolean isRangeRequest = rangeHeader != null;

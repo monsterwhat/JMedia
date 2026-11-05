@@ -89,6 +89,30 @@ public final class FragmentedMp4Seeker {
     }
 
     /**
+     * Decode time (seconds, in the video track's timescale, relative to the segment's
+     * own 0-based timeline) of the fragment that starts at {@code offset}. Returns a
+     * negative value when the box at that offset is not a readable moof, so callers can
+     * fall back to the requested position.
+     */
+    public static double fragmentTimeAt(Path file, long offset) throws IOException {
+        try (RandomAccess raf = new RandomAccess(file)) {
+            TrackInfo track = readVideoTrack(raf);
+            if (track == null) {
+                return -1.0;
+            }
+            Box box = readTopBox(raf, offset);
+            if (box == null || !"moof".equals(box.type)) {
+                return -1.0;
+            }
+            Fragment frag = readFragment(raf, box, track.trackId);
+            if (frag == null) {
+                return -1.0;
+            }
+            return frag.decodeTime / (double) track.timescale;
+        }
+    }
+
+    /**
      * Decode time (seconds, in the video track's timescale) of the last fragment plus its
      * duration — i.e. the end of the written timeline. Returns 0.0 when no fragments exist.
      */

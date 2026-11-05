@@ -1093,13 +1093,22 @@
          * requested position.
          */
         async resolveStreamOrigin(url) {
+            // The probe must never hold the player hostage: it is served through the
+            // same transcode/segment path as the real stream, so on a busy or
+            // still-starting encoder it can take tens of seconds. Cap it and let the
+            // caller fall back to the requested position instead of leaving the
+            // element with no src at all (black player).
+            const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const timeoutMs = 5000;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
             try {
                 // 4096 bytes, not 0-0: tiny ranges are answered by a special empty-206
                 // branch that carries no headers, so the origin would always be missing.
                 const res = await fetch(url, {
                     headers: { 'Range': 'bytes=0-4095' },
                     cache: 'no-store',
-                    credentials: 'include'
+                    credentials: 'include',
+                    signal: controller ? controller.signal : undefined
                 });
                 const raw = res.headers.get('X-Stream-Origin');
                 try {
@@ -1114,7 +1123,13 @@
                     }
                 }
             } catch (e) {
-                console.warn('[SimplePlayer] Stream origin probe failed:', e);
+                if (e && e.name === 'AbortError') {
+                    console.warn('[SimplePlayer] Stream origin probe timed out after ' + timeoutMs + 'ms; using the requested position');
+                } else {
+                    console.warn('[SimplePlayer] Stream origin probe failed:', e);
+                }
+            } finally {
+                if (timer) clearTimeout(timer);
             }
             return null;
         }
