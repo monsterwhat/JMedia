@@ -761,8 +761,8 @@ public class SongService {
 
         // Build query dynamically based on whether we have exclusions
         StringBuilder queryStr = new StringBuilder(
-            "SELECT s FROM Song s WHERE s.id IN :songPoolIds " +
-            "AND LOWER(s.genre) = :genre " +
+            "SELECT s FROM Song s JOIN s.genres sg WHERE s.id IN :songPoolIds " +
+            "AND sg.genreKey = :genreKey " +
             "AND s.bpm >= :minBpm AND s.bpm <= :maxBpm"
         );
 
@@ -774,7 +774,7 @@ public class SongService {
 
         var query = em.createQuery(queryStr.toString(), Song.class)
                 .setParameter("songPoolIds", songPoolIds)
-                .setParameter("genre", genre.toLowerCase())
+                .setParameter("genreKey", Utils.GenreNormalizer.resolveAll(genre).get(0).key())
                 .setParameter("minBpm", minBpm)
                 .setParameter("maxBpm", maxBpm);
 
@@ -797,8 +797,8 @@ public class SongService {
         }
 
         StringBuilder queryStr = new StringBuilder(
-            "SELECT s FROM Song s WHERE s.id IN :songPoolIds " +
-            "AND LOWER(s.genre) = :genre"
+            "SELECT s FROM Song s JOIN s.genres sg WHERE s.id IN :songPoolIds " +
+            "AND sg.genreKey = :genreKey"
         );
 
         if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
@@ -809,7 +809,7 @@ public class SongService {
 
         var query = em.createQuery(queryStr.toString(), Song.class)
                 .setParameter("songPoolIds", songPoolIds)
-                .setParameter("genre", genre.toLowerCase());
+                .setParameter("genreKey", Utils.GenreNormalizer.resolveAll(genre).get(0).key());
 
         if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
             query.setParameter("excludeSongIds", excludeSongIds);

@@ -1,6 +1,6 @@
 # Limits Manifest — Music Multi-Genre
 
-Version: 1
+Version: 2
 Status: active
 Owner: JMedia
 Last reviewed: 2026-11-05
@@ -9,7 +9,9 @@ Last reviewed: 2026-11-05
 
 Resolve each song's raw genre string into **all** canonical genres it belongs to, store the full set, and show the song under every one of those genres. Unknown/blank/sentinel values are grouped under a single **Unidentified** genre.
 
-Phase 1 only: resolver, link table, backfill, genre list/count/drill-down. No admin UI, no fuzzy merge, no DJ-pool rewrite.
+Phase 1: resolver, link table, backfill, genre list/count/drill-down.
+
+Phase 2: DJ mode pool matching, smart-shuffle grouping, candidate lookup, consecutive-genre cap, and stored DJ pool labels use canonical keys. No admin UI, no fuzzy merge.
 
 ## Architecture Limits
 
@@ -26,6 +28,7 @@ Phase 1 only: resolver, link table, backfill, genre list/count/drill-down. No ad
 - L-F4: A song appears under every resolved genre (e.g. `Rock/Pop` appears under Rock and Pop).
 - L-F5: Explicit list separators (`/ \ , ; | • · +`) split; whole-string aliases win first so `R&B`, `Drum & Bass`, `Hip-Hop` are not broken.
 - L-F6: No automatic fuzzy/near-match merging; only exact alias/taxonomy mappings.
+- L-F7: DJ pool matching, smart-shuffle grouping, candidate lookup, and the consecutive-genre cap use canonical keys. Stored raw pool labels are migrated once; token-overlap remains only as a stale-label fallback.
 
 ## Data Limits
 
@@ -41,6 +44,7 @@ Phase 1 only: resolver, link table, backfill, genre list/count/drill-down. No ad
 ## Scope Limits
 
 - L-C1: Phase 1 changes ≤ 8 files, ≤ 400 changed lines.
+- L-C1b: Phase 2 changes ≤ 4 files, ≤ 200 changed lines.
 - L-C2: Existing tests stay green; new resolver tests cover ≥ 10 variant classes (case, separators, `R&B`, `Drum & Bass`, `Hip-Hop/Rap`, tabs/NBSP, accents, numeric ID3, Unknown, Turkish locale).
 - L-C3: No mixed refactors; video code untouched.
 
@@ -55,3 +59,4 @@ Phase 1 only: resolver, link table, backfill, genre list/count/drill-down. No ad
 ## Changelog
 
 - v1 (2026-11-05): initial manifest. User-directed: no 4-genre cap (L-F1), unknown/blank grouped under `Unidentified` (L-F2/L-F3).
+- v2 (2026-11-05): phase 2 adds canonical DJ/smart-shuffle matching and a one-time pool migration (L-F7, L-C1b).

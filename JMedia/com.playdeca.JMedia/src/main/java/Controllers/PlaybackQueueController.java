@@ -13,6 +13,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import Models.Music.PlaybackHistory;
 import Services.AudioAnalysisService;
+import Utils.GenreNormalizer;
 
 @ApplicationScoped
 public class PlaybackQueueController {
@@ -322,11 +323,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             }
         }
 
-        // 2. Group songs by genre
+        // 2. Group songs by primary canonical genre. Songs sharing a canonical
+        // genre (Rock / rock / Rock/Pop) stay in one rotation bucket.
         java.util.Map<String, List<Song>> songsByGenre = allSongs.stream()
-                .collect(java.util.stream.Collectors.groupingBy(song ->
-                        song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
-                ));
+                .collect(java.util.stream.Collectors.groupingBy(song -> genreKey(song.getGenre())));
 
         // 3. Shuffle the order of genres
         List<String> genres = new ArrayList<>(songsByGenre.keySet());
@@ -662,15 +662,13 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             state.setDjGenreSkipCount(0);
             List<Song> allSongsInPool = songService.findByIds(songPool);
             java.util.Map<String, List<Song>> songsByGenre = allSongsInPool.stream()
-                    .collect(java.util.stream.Collectors.groupingBy(song ->
-                            song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
-                    ));
-            
-            String currentGenre = currentSong.getGenre();
+                    .collect(java.util.stream.Collectors.groupingBy(song -> genreKey(song.getGenre())));
+
+            String currentGenre = genreKey(currentSong.getGenre());
             List<String> otherGenres = songsByGenre.keySet().stream()
-                    .filter(g -> !g.equalsIgnoreCase(currentGenre))
+                    .filter(g -> !g.equals(currentGenre))
                     .collect(java.util.stream.Collectors.toList());
-            
+
             if (otherGenres.isEmpty()) {
                 targetGenre = currentGenre; // Fallback to current genre if no others
             } else {
@@ -678,8 +676,8 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 targetGenre = otherGenres.get(0);
             }
         } else {
-            // Normal case - stay in same genre
-            targetGenre = currentSong.getGenre();
+            // Normal case - stay in the same canonical genre
+            targetGenre = genreKey(currentSong.getGenre());
         }
 
         if (targetGenre == null || targetGenre.isBlank()) {
@@ -1043,22 +1041,29 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 || (state.getDjYearMax() != null && state.getDjYearMax() > 0);
     }
 
-    private boolean isGenreAllowed(PlaybackState state, String genre) {
+    boolean isGenreAllowed(PlaybackState state, String genre) {
         if (isDjGenrePoolUnrestricted(state)) {
             return true;
         }
-        java.util.Set<String> songTokens = genreTokens(genre);
-        if (songTokens.isEmpty()) {
-            return false;
-        }
+        java.util.Set<String> songKeys = canonicalKeys(genre);
         java.util.List<String> pool = state.getDjGenrePool();
         if (pool == null) {
             return false;
         }
-        // Token overlap (not whole-string equality): a pool entry like
-        // "Hip-Hop" must match compound server values like "Hip-Hop/Rap".
-        // Every old exact match still matches (identical strings share all
-        // tokens), so this only widens matching to genre families.
+        // Canonical match first: Rock/rock/Rock-Pop and Hip-Hop/Hip Hop all
+        // resolve to the same key, so a pool chip matches every variant.
+        for (String allowed : pool) {
+            if (allowed == null) {
+                continue;
+            }
+            for (String key : canonicalKeys(allowed)) {
+                if (songKeys.contains(key)) {
+                    return true;
+                }
+            }
+        }
+        // Compatibility fallback for stale/unknown pool labels: token overlap.
+        java.util.Set<String> songTokens = genreTokens(genre);
         for (String allowed : pool) {
             if (allowed == null) {
                 continue;
@@ -1070,6 +1075,20 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             }
         }
         return false;
+    }
+
+    /** Primary canonical genre key, e.g. "Rock/Pop" -> "rock". */
+    private static String genreKey(String genre) {
+        return GenreNormalizer.resolveAll(genre).get(0).key();
+    }
+
+    /** Every canonical genre key in a raw label. */
+    private static java.util.Set<String> canonicalKeys(String genre) {
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (GenreNormalizer.Genre g : GenreNormalizer.resolveAll(genre)) {
+            keys.add(g.key());
+        }
+        return keys;
     }
 
     /**
@@ -1118,10 +1137,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         if (currentSong == null || cue == null || cue.isEmpty()) {
             return 0;
         }
-        String currentGenre = currentSong.getGenre();
-        if (currentGenre == null || currentGenre.isBlank()) {
-            return 0;
-        }
+        String currentGenre = genreKey(currentSong.getGenre());
         int currentIndex = state.getCueIndex();
         if (currentIndex < 0 || currentIndex >= cue.size()) {
             return 1;
@@ -1134,7 +1150,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                     .collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s, (a, b) -> a));
             for (int j = i; j >= from; j--) {
                 Song song = batchById.get(cue.get(j));
-                if (song != null && SongService.normalizeGenre(song.getGenre()).equals(SongService.normalizeGenre(currentGenre))) {
+                if (song != null && genreKey(song.getGenre()).equals(currentGenre)) {
                     streak++;
                 } else {
                     return streak;

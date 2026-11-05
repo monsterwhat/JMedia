@@ -1,7 +1,9 @@
 package Services;
 
+import Models.Music.PlaybackState;
 import Models.Music.Song;
 import Models.Music.SongGenre;
+import Utils.GenreNormalizer;
 import io.quarkus.runtime.Startup;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -9,6 +11,9 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,22 +57,52 @@ public class MusicGenreBackfillService {
             long missing = self.countMissing();
             if (missing == 0) {
                 LOG.info("Music genre backfill skipped - every song already has genre links");
-                return;
+            } else {
+                LOG.info("Music genre backfill: {} song(s) without genre links", missing);
+                long lastId = 0L;
+                int batches = 0;
+                while (true) {
+                    long nextId = self.backfillBatch(lastId);
+                    if (nextId <= lastId) break;
+                    lastId = nextId;
+                    batches++;
+                }
+                LOG.info("Music genre backfill complete - {} batch(es), {} song(s) still missing",
+                        batches, self.countMissing());
             }
-            LOG.info("Music genre backfill: {} song(s) without genre links", missing);
-            long lastId = 0L;
-            int batches = 0;
-            while (true) {
-                long nextId = self.backfillBatch(lastId);
-                if (nextId <= lastId) break;
-                lastId = nextId;
-                batches++;
-            }
-            LOG.info("Music genre backfill complete - {} batch(es), {} song(s) still missing",
-                    batches, self.countMissing());
+            self.migrateDjPools();
         } catch (Exception e) {
             LOG.error("Music genre backfill failed (non-fatal, app continues)", e);
         }
+    }
+
+    /**
+     * Canonicalize stored DJ genre pools. Existing pools may contain raw labels
+     * ("Hip Hop", "rock", "Rock/Pop"); resolve each to canonical names, dedupe,
+     * and keep the first-seen order. Idempotent.
+     */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public void migrateDjPools() {
+        List<PlaybackState> states = PlaybackState.listAll();
+        int changed = 0;
+        for (PlaybackState state : states) {
+            List<String> pool = state.getDjGenrePool();
+            if (pool == null || pool.isEmpty()) continue;
+            LinkedHashMap<String, String> canonical = new LinkedHashMap<>();
+            for (String raw : pool) {
+                if (raw == null) continue;
+                for (GenreNormalizer.Genre g : GenreNormalizer.resolveAll(raw)) {
+                    canonical.putIfAbsent(g.key(), g.name());
+                }
+            }
+            List<String> next = new ArrayList<>(canonical.values());
+            if (!next.equals(pool)) {
+                LOG.info("DJ pool migration profile={}: {} -> {}", state.id, pool, next);
+                state.setDjGenrePool(next);
+                changed++;
+            }
+        }
+        LOG.info("DJ pool migration complete - {} profile(s) updated", changed);
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
