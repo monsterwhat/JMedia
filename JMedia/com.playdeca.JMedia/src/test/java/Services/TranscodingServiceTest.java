@@ -48,10 +48,12 @@ class TranscodingServiceTest {
     }
 
     @Test
-    void testProvenMain10SkipsTranscode() {
-        // Client proved Main 10 MSE playback (?nativeHevc=1): copy path is safe.
-        assertFalse(service.isTranscodeNeededForWeb(video("hevc"), CHROME_WINDOWS, true));
-        assertFalse(service.isTranscodeNeededForWeb(video("h265"), CHROME_WINDOWS, true));
+    void testWindowsChromiumAlwaysTranscodesHevcEvenWhenProven() {
+        // MediaSource.isTypeSupported() reports HEVC on Windows Chromium even
+        // when the GPU/driver cannot actually decode it. A proven flag must not
+        // whitelist the copy path: these clients always get H.264.
+        assertTrue(service.isTranscodeNeededForWeb(video("hevc"), CHROME_WINDOWS, true));
+        assertTrue(service.isTranscodeNeededForWeb(video("h265"), CHROME_WINDOWS, true));
     }
 
     @Test
@@ -137,18 +139,26 @@ class TranscodingServiceTest {
     }
 
     @Test
-    void testHevcSourceCopiesForProvenClient() {
-        // A client that proved HEVC playback needs no re-encode at all: copying
-        // the source is strictly better than transcoding it.
+    void testWindowsChromiumHevcAlwaysResolvesToH264() {
+        // Even a client that advertises HEVC gets H.264 on Windows Chromium;
+        // the probe is not a reliable decode guarantee there.
         service.discoveryService = discoveryWithHardware("h264", "hevc");
-        assertEquals(TranscodingService.CODEC_COPY, service.resolveOutputCodec(
+        assertEquals(TranscodingService.CODEC_H264, service.resolveOutputCodec(
                 video("hevc", "1920x1080"), CHROME_WINDOWS, java.util.Set.of("hevc"), 0, false));
     }
 
     @Test
-    void testDownscaledHevcKeepsHevcWhenClientProvesAndHardwareExists() {
+    void testMacChromeHevcStillCopies() {
+        // macOS Chromium uses the reliable VideoToolbox decoder and keeps copy.
         service.discoveryService = discoveryWithHardware("h264", "hevc");
-        assertEquals(TranscodingService.CODEC_HEVC, service.resolveOutputCodec(
+        assertEquals(TranscodingService.CODEC_COPY, service.resolveOutputCodec(
+                video("hevc", "1920x1080"), CHROME_MAC, java.util.Set.of("hevc"), 0, false));
+    }
+
+    @Test
+    void testDownscaledHevcOnWindowsChromiumIsH264() {
+        service.discoveryService = discoveryWithHardware("h264", "hevc");
+        assertEquals(TranscodingService.CODEC_H264, service.resolveOutputCodec(
                 video("hevc", "1920x1080"), CHROME_WINDOWS, java.util.Set.of("hevc"), 720, false));
     }
 

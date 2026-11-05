@@ -42,18 +42,12 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.needsConversion = this.container.dataset.needsConversion === 'true';
             this.dataHlsEnabled = this.container.dataset.hlsEnabled === 'true';
             this._canNativeHevc = false;
-            // Browser-native HEVC override: if the server flagged transcode but the
-            // browser can play HEVC natively (e.g. Chrome with HEVC Video Extensions),
-            // skip the server-side FFmpeg transcode and request the lightweight remux.
+            // HEVC is intentionally NOT overridden client-side. MediaSource's
+            // isTypeSupported() reports true on Windows Chromium whenever the OS
+            // codec is installed, even when the GPU/driver cannot decode the
+            // stream, which produced black players. The server decides HEVC vs
+            // H.264 (Windows Chromium is always transcoded to H.264).
             const codec = (this.container.dataset.videoCodec || '').toLowerCase();
-            if ((this.needsTranscode || this.needsConversion) && (codec.includes('hevc') || codec.includes('h265') || codec.includes('hvc1') || codec.includes('hev1'))) {
-                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport()) {
-                    this.needsTranscode = false;
-                    this.needsConversion = false;
-                    this._canNativeHevc = true;
-                    console.log('[SimplePlayer] Browser supports HEVC natively — skipping server transcode');
-                }
-            }
             this._canNativeAv1 = false;
             // Browser-native AV1 override: if the server flagged transcode but the
             // browser can play AV1 natively (Chrome 70+, Edge 79+, Firefox 67+),

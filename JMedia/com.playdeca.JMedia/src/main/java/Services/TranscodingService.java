@@ -866,6 +866,25 @@ public class TranscodingService {
         return isIOSClient(userAgent) || isMacOSSafari(userAgent);
     }
 
+    /**
+     * Chromium on Windows (Chrome, Edge, Brave, Opera). These builds report
+     * HEVC MSE support whenever the OS HEVC codec is present, but actual
+     * hardware decode depends on the GPU/driver and the stream's Main 10
+     * profile/level. A false positive leaves the player on a black screen,
+     * so this family is always served H.264 for HEVC sources.
+     */
+    public boolean isWindowsChromium(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return false;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        if (!ua.contains("windows") || ua.contains("firefox")) {
+            return false;
+        }
+        return ua.contains("chrome") || ua.contains("chromium") || ua.contains("edg/")
+                || ua.contains("opr/");
+    }
+
     public boolean isTranscodeNeededForWeb(Video video, String userAgent) {
         return isTranscodeNeededForWeb(video, userAgent, false);
     }
@@ -880,10 +899,10 @@ public class TranscodingService {
             return true;
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
-        // Cache key versioned ("v5") so decisions made by the previous logic
-        // (v4: Chromium-on-Windows whitelisted for HEVC on UA alone) don't
-        // survive the fix within a running session.
-        String cacheKey = "v5|" + clientProvenHevc + "|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
+        // Cache key versioned ("v6") so decisions made by the previous logic
+        // (v5: trusted the Windows Chromium HEVC probe) don't survive within a
+        // running session.
+        String cacheKey = "v6|" + clientProvenHevc + "|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
         
         Boolean cached = transcodeNeededCache.get(cacheKey);
         if (cached != null) {
@@ -908,7 +927,10 @@ public class TranscodingService {
                     // Video Extension is absent on most machines, and nothing in the
                     // UA distinguishes those that have it — serving copy by default
                     // produced unplayable streams (MSE fatal -> fallback loop).
-                    result = !clientProvenHevc;
+                    // Trusting the probe left Windows Chromium black on machines
+                    // whose GPU/driver cannot actually decode Main 10 HEVC.
+                    // Always transcode to H.264; the GPU encoder keeps this cheap.
+                    result = true;
                 } else if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
                     result = false;  // macOS native VideoToolbox
                 } else if (isIOSClient(userAgent)) {
@@ -987,7 +1009,11 @@ public class TranscodingService {
                     video != null ? video.id : null);
             return CODEC_H264;
         }
-        if ((sourceHevc || sourceAv1) && clientHevc && discoveryService.hasHardwareEncoder(CODEC_HEVC)) {
+        // Never transcode *to* HEVC for Windows Chromium: the decoder probe is
+        // unreliable there, and an HEVC output the client cannot decode is the
+        // exact black-player failure this policy avoids. H.264 is universal.
+        if ((sourceHevc || sourceAv1) && clientHevc && !isWindowsChromium(userAgent)
+                && discoveryService.hasHardwareEncoder(CODEC_HEVC)) {
             LOG.info("Output codec for video {}: hevc (source={}, client HEVC proven, hardware encoder available)",
                     video != null ? video.id : null, video != null ? video.videoCodec : null);
             return CODEC_HEVC;
