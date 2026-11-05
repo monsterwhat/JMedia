@@ -187,14 +187,20 @@ public class VideoStreamResource {
                                @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
                                @QueryParam("quality") @DefaultValue("0") int qualityHeight,
                                 @QueryParam("trace") String traceId,
-                                @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc,
-                                @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1,
-                                @QueryParam("forceTranscode") @DefaultValue("false") boolean forceTranscode,
+                                @QueryParam("nativeHevc") String nativeHevcParam,
+                                @QueryParam("nativeAv1") String nativeAv1Param,
+                                @QueryParam("forceTranscode") String forceTranscodeParam,
                                 @QueryParam("codecs") String codecsParam,
                                 @QueryParam("audioCodecs") String audioCodecsParam) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
+        // The web player has historically sent ?forceTranscode=1 / ?nativeHevc=1.
+        // JAX-RS binds "1" to a boolean as false (Boolean.valueOf), so accept the
+        // numeric and textual truthy forms explicitly.
+        boolean nativeHevc = isTruthy(nativeHevcParam);
+        boolean nativeAv1 = isTruthy(nativeAv1Param);
+        boolean forceTranscode = isTruthy(forceTranscodeParam);
 
         // Complete a conversion finalize deferred while the video was streaming
         // — must run BEFORE findById so the path resolves to the converted file.
@@ -1335,6 +1341,13 @@ public class VideoStreamResource {
      * Parses the video height from a resolution string (e.g. "1920x1080" → 1080).
      * Returns 0 if the resolution is unknown or unparseable.
      */
+    /** Accepts the numeric and textual truthy forms used by older/newer clients. */
+    private static boolean isTruthy(String value) {
+        if (value == null) return false;
+        String s = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return s.equals("1") || s.equals("true") || s.equals("yes") || s.equals("on");
+    }
+
     private static int parseSourceHeight(String resolution) {
         if (resolution == null || !resolution.contains("x")) return 0;
         try {

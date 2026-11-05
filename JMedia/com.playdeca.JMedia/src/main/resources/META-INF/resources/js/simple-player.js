@@ -264,7 +264,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                         this.streamMgr._armPlaybackWatchdog('transcode', () => {
                             if (this._destroyed || this._userPaused) return;
                             this.streamMgr.disableClientCodecs();
-                            this.video.src = this.streamMgr.buildStreamUrl(target, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                            this.video.src = this.streamMgr.buildStreamUrl(target, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                             this.video.load();
                             this.video.play().catch(function(e) {
                                 console.error('[SimplePlayer] Transcode watchdog retry play failed', e);
@@ -311,7 +311,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                     // The copy attempt just failed to decode; never advertise the
                     // codec again or the server will copy the same unplayable stream.
                     this.streamMgr.disableClientCodecs();
-                    this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                    this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                     this.video.load();
                     this.video.play().catch(function(e) {
                         console.error('[SimplePlayer] Copy watchdog retry play failed', e);
@@ -331,7 +331,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Escalate, don't repeat: the copy/remux already failed once,
                             // so drop any native-codec bypass and force a server transcode.
                             self.streamMgr.disableClientCodecs();
-                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                             self.video.load();
                             self.video.play().catch(function() {});
                         }, 1000);

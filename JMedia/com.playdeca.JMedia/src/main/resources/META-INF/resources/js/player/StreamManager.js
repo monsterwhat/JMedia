@@ -384,7 +384,7 @@
                 const resumeAt = p.lastKnownGoodPosition > 0 ? p.lastKnownGoodPosition : 0;
                 if (p._destroyed || p._userPaused) return;
                 this.disableClientCodecs();
-                p.video.src = this.buildStreamUrl(resumeAt, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                p.video.src = this.buildStreamUrl(resumeAt, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                 p.video.load();
                 p.video.play().catch(function(e) { console.error('[SimplePlayer] Watchdog retry play failed', e); });
             }, 15000);
@@ -772,7 +772,7 @@
                 // failed to play, so force a server transcode instead of re-serving
                 // the same unplayable bytes (previously an infinite fail loop).
                 this.disableClientCodecs();
-                p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
+                p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                 p.video.load();
                 this._armPlaybackWatchdog('fallback', () => {
                     if (p._userPaused) return;
