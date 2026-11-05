@@ -1156,11 +1156,14 @@ public class VideoStreamResource {
         if (isRangeRequest) {
             if (transcodeFinished) {
                 long responseEnd = Math.min(finalEnd, currentBrowserTotal - 1);
-                // D2 fix: total must never DECREASE from the growing phase (which reported
-                // at least estimatedFinalSize). Safari rejects streams whose Content-Range
-                // total changes between requests. Use the larger of the actual final size
-                // and the estimate the client already saw.
-                long finishedTotal = Math.max(currentBrowserTotal, estimatedFinalSize);
+                // The growing phase advertises an ESTIMATE (source size * 1.10) as the
+                // total. When the encoder finishes, that estimate is often larger than
+                // the real output, so keeping it told the browser to wait for bytes that
+                // never exist: Chrome played to the actual end, asked for the phantom
+                // tail, stalled, and the player retried from the start. Report the real
+                // final size instead; a one-time total correction is far better than an
+                // unabortable wait.
+                long finishedTotal = currentBrowserTotal;
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + finishedTotal);
             } else {
                 // Report a STABLE total (the estimated final size) so Firefox's media cache
