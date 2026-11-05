@@ -265,6 +265,12 @@
             const scripts = container.querySelectorAll('script');
             scripts.forEach(script => {
                 const newScript = document.createElement('script');
+                // Dynamically inserted scripts are async by default, so without this the
+                // view's scripts execute in download order instead of document order.
+                // Several views depend on it (video-routes before cinema-mode,
+                // StreamManager before simple-player), and the deep-link boot silently
+                // failed when cinema-mode won the race against video-routes.
+                newScript.async = false;
                 if (script.src) newScript.src = script.src;
                 else newScript.textContent = script.textContent;
                 document.head.appendChild(newScript).parentNode.removeChild(newScript);
