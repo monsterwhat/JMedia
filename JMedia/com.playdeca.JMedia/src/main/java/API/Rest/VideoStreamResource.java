@@ -583,10 +583,11 @@ public class VideoStreamResource {
         // supersede pass frees the permit.
         if (!transcodingService.isCacheFileComplete(tempFile)
                 && !transcodingService.isCacheBeingWritten(tempFile)) {
-            LOG.info("Segment {} has no writer at request start for video {} (segmentStart={}s) - relaunching",
-                    tempFile.getFileName(), videoId, segmentStart);
-            ensureSegmentWriter(video, videoFile, tempFile, segmentStart, userAgent, audioTrackIndex,
-                    qualityHeight, outputCodec, audioCodecsParam, "no writer when the request started");
+            // A fresh segment legitimately has no registered writer for a few seconds:
+            // the transcode thread registers only after the permit and ffmpeg startup.
+            // Wait for that BEFORE relaunching - relaunching immediately launched a
+            // second ffmpeg for the same segment while the first was still starting,
+            // and two writers into one file produce a stream the browser cannot parse.
             long writerDeadline = System.currentTimeMillis() + WRITER_REGISTRATION_DEADLINE_MS;
             while (!transcodingService.isCacheBeingWritten(tempFile)
                     && !transcodingService.isCacheFileComplete(tempFile)
@@ -600,6 +601,12 @@ public class VideoStreamResource {
             }
             if (!transcodingService.isCacheBeingWritten(tempFile)
                     && !transcodingService.isCacheFileComplete(tempFile)) {
+                // Do NOT relaunch here. The original launch may simply still be queued
+                // behind the transcode-permit semaphore (it registers only after
+                // ffmpeg starts), and a second writer into the same segment produces
+                // a stream the browser cannot parse. Fail fast instead; the client's
+                // retry lands after the queued launch has registered or after the
+                // superseded writer released its permit.
                 long currentSize = 0;
                 try {
                     currentSize = Files.size(tempFile);
