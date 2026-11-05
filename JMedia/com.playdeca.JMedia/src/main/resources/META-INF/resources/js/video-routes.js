@@ -130,7 +130,9 @@
             var res = await fetch(url, { credentials: 'include' });
             if (!res.ok) return null;
             var json = await res.json();
-            return json && json.found ? json : null;
+            // Return found:false payloads too: they may carry `meta` so the caller can
+            // render the "not in your library" page instead of a dead end.
+            return json || null;
         } catch (e) {
             console.warn('[VideoRoutes] resolve failed', e);
             return null;

@@ -27,7 +27,10 @@
 
     window.toggleCardContent = JMedia.PlaylistBar.toggleCard;
 
-    document.addEventListener('DOMContentLoaded', () => {
+    (window.__whenDomReady || function (fn) {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
+        else fn();
+    })(() => {
         JMedia.PlaylistBar.restoreSidebar();
 
         const sidebarToggle = document.getElementById('sidebarToggle');

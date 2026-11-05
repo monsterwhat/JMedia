@@ -2,9 +2,11 @@ package API.Rest;
 
 import Models.Video.Series;
 import Models.Video.Video;
+import Services.VideoMetadataService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -16,6 +18,8 @@ import org.jboss.logging.Logger;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +47,19 @@ public class VideoLinkResolver {
     private static final Pattern INTERNAL = Pattern.compile("^db(\\d+)$", Pattern.CASE_INSENSITIVE);
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Inject
+    VideoMetadataService metadataService;
+
+    /** Not-found lookups are rare: cache hits briefly, misses longer (TMDb gap or outage). */
+    private static final long META_TTL_MS = 10 * 60_000L;
+    private static final long META_NEGATIVE_TTL_MS = 30 * 60_000L;
+    private static final int META_CACHE_MAX = 500;
+
+    private record MetaCacheEntry(ObjectNode meta, long expiresAt) {
+    }
+
+    private final Map<String, MetaCacheEntry> metaCache = new ConcurrentHashMap<>();
 
     /** Auto-detected id: tt… → IMDb, digits → TMDb, dbN → internal row id. */
     @GET
@@ -103,7 +120,11 @@ public class VideoLinkResolver {
             ObjectNode missing = mapper.createObjectNode();
             missing.put("found", false);
             missing.put("token", token);
-            missing.put("kind", kindNorm == null ? detectKind(token) : kindNorm);
+            String detectedKind = kindNorm == null ? detectKind(token) : kindNorm;
+            missing.put("kind", detectedKind);
+            // Best-effort TMDb metadata so the SPA can render a friendly "not in your
+            // library" page instead of a dead end. Never fails the response.
+            attachMeta(missing, detectedKind, token);
             return Response.ok(missing).build();
         }
 
@@ -214,6 +235,56 @@ public class VideoLinkResolver {
         node.put("watch", watchUrl(node.path("token").asText(null))
                 + "/s" + String.format(Locale.ROOT, "%02d", season)
                 + "e" + String.format(Locale.ROOT, "%02d", episode));
+    }
+
+    // ── not-found metadata ─────────────────────────────────────────────────
+
+    /**
+     * Adds a {@code meta} object ({title, year, posterUrl, mediaType, overview}) for
+     * external ids TMDb knows but our library does not. In-memory cached; a TMDb
+     * outage or unknown id simply leaves the body unchanged.
+     */
+    private void attachMeta(ObjectNode node, String kind, String token) {
+        if (token == null || (!"imdb".equals(kind) && !"tmdb".equals(kind) && !"tvdb".equals(kind))) {
+            return;
+        }
+        String cacheKey = kind + ':' + token.toLowerCase(Locale.ROOT);
+        try {
+            long now = System.currentTimeMillis();
+            MetaCacheEntry cached = metaCache.get(cacheKey);
+            if (cached != null && now < cached.expiresAt) {
+                if (cached.meta != null) {
+                    node.set("meta", cached.meta);
+                }
+                return;
+            }
+            ObjectNode meta = metadataService.lookupExternalTitle(kind, token)
+                    .map(this::buildMeta).orElse(null);
+            metaCache.put(cacheKey, new MetaCacheEntry(meta,
+                    now + (meta != null ? META_TTL_MS : META_NEGATIVE_TTL_MS)));
+            if (metaCache.size() > META_CACHE_MAX) {
+                long cutoff = now;
+                metaCache.entrySet().removeIf(e -> cutoff >= e.getValue().expiresAt);
+            }
+            if (meta != null) {
+                node.set("meta", meta);
+            }
+        } catch (RuntimeException e) {
+            // A provider problem must never turn a shareable link into an error page.
+            LOG.warnf(e, "Resolve: TMDb metadata lookup failed for %s/%s", kind, token);
+        }
+    }
+
+    private ObjectNode buildMeta(VideoMetadataService.ExternalTitleMeta meta) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("title", meta.title());
+        if (meta.year() != null) node.put("year", meta.year());
+        node.put("posterUrl", meta.posterUrl());
+        node.put("mediaType", meta.mediaType());
+        node.put("overview", meta.overview());
+        if (meta.tmdbId() != null) node.put("tmdbId", meta.tmdbId());
+        if (meta.imdbId() != null) node.put("imdbId", meta.imdbId());
+        return node;
     }
 
     // ── shaping ────────────────────────────────────────────────────────────

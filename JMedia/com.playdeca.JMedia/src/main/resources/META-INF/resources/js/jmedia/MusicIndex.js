@@ -627,7 +627,10 @@
             .then(function(data) { if (data.success && window.Toast) { window.Toast.success('Queue reordered'); window.loadQueuePage(1); } });
     };
 
-    document.addEventListener('DOMContentLoaded', function() {
+    (window.__whenDomReady || function (fn) {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
+        else fn();
+    })(function() {
         const coverContainer = document.getElementById('songCoverImageContainer');
         if (coverContainer) {
             coverContainer.style.cursor = 'pointer';

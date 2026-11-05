@@ -38,30 +38,13 @@
     <script src="/js/video/VideoSidebarController.js" defer></script>
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
-        <!-- Modular Music Bar System (Migrated from legacy monolith) -->
-        <script src="/js/musicBar/utils/Helpers.js?v=2" defer></script>
-        <script src="/js/musicBar/utils/ActionTracker.js?v=2" defer></script>
-        <script src="/js/musicBar/core/DeviceManager.js?v=2" defer></script>
-        <script src="/js/musicBar/core/SynchronizationManager.js?v=2" defer></script>
-        <script src="/js/musicBar/core/StateManager.js?v=2" defer></script>
-        <script src="/js/musicBar/data/StatePersistence.js?v=2" defer></script>
-        <script src="/js/musicBar/data/SongContextCache.js?v=2" defer></script>
-        <script src="/js/musicBar/data/QueueManager.js?v=2" defer></script>
-        <script src="/lib/howler.min.js" defer></script>
-        <script src="/js/musicBar/core/AudioEngine.js?v=2" defer></script>
-        <script src="/js/musicBar/core/DjTransitionManager.js?v=1" defer></script>
-        <script src="/js/musicBar/core/WebSocketManager.js?v=2" defer></script>
-        <script src="/js/musicBar/controls/PlaybackController.js?v=2" defer></script>
-        <script src="/js/musicBar/controls/TimeController.js?v=2" defer></script>
-        <script src="/js/musicBar/controls/VolumeController.js?v=2" defer></script>
-        <script src="/js/musicBar/ui/UIUpdater.js?v=2" defer></script>
-        <script src="/js/musicBar/ui/EventBindings.js?v=2" defer></script>
-        <script src="/js/musicBar/ui/DjSettingsPanel.js?v=1" defer></script>
-        <script src="/js/musicBar/ui/ImageManager.js?v=2" defer></script>
-        <script src="/js/musicBar/mobile/MobileBridge.js?v=2" defer></script>
-        <script src="/js/musicBar/responsive/ResponsivePlayer.js?v=2" defer></script>
-        <script src="/js/musicBar/adapters/DesktopAdapter.js?v=2" defer></script>
-        <script src="/js/musicBar/adapters/MobileAdapter.js?v=2" defer></script>
+        <!-- Modular Music Bar System: route-split. The music engine (musicBar/*
+             plus the jmedia audio/music modules) is ~1 MB and is suspended on
+             /video by VideoModeCoordinator, so it now lives in
+             /js/music-bundle-loader.js, which injects it in the original order
+             everywhere EXCEPT /video* routes. Kept scripts below reach moved
+             modules only through existence guards. -->
+        <script src="/js/music-bundle-loader.js"></script>
 
         
         <!-- jMedia Module System -->
@@ -80,21 +63,13 @@
         <script src="/js/jmedia/PlaylistCreator.js" defer></script>
         <script src="/js/jmedia/ImportUI.js" defer></script>
         <script src="/js/jmedia/ImportApi.js" defer></script>
-        <script src="/js/jmedia/Player.js" defer></script>
-        <script src="/js/jmedia/PlaybackApi.js" defer></script>
-        <script src="/js/jmedia/QueueManager.js" defer></script>
-        <script src="/js/jmedia/SongCache.js" defer></script>
-        <script src="/js/jmedia/MusicIndex.js" defer></script>
-        <script src="/js/jmedia/MobileContextMenu.js" defer></script>
-        <script src="/js/jmedia/MusicBarInit.js" defer></script>
-        <script src="/js/jmedia/MediaSession.js" defer></script>
-        <script src="/js/jmedia/HistoryManager.js" defer></script>
-        <script src="/js/jmedia/PlaylistBar.js" defer></script>
-        <script src="/js/jmedia/PlaylistBodyHelper.js" defer></script>
+        <!-- Player/PlaybackApi/QueueManager/SongCache/MusicIndex/MobileContextMenu/
+             MusicBarInit/MediaSession/HistoryManager/PlaylistBar/PlaylistBodyHelper
+             moved to /js/music-bundle-loader.js (music-only). -->
         <script src="/js/jmedia/Breadcrumbs.js" defer></script>
         <script src="/js/jmedia/PageChrome.js" defer></script>
         <script src="/js/jmedia/App.js" defer></script>
-        <script src="/js/jmedia/MobileApp.js" defer></script>
+        <!-- MobileApp (mobile music UI) moved to /js/music-bundle-loader.js -->
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
 

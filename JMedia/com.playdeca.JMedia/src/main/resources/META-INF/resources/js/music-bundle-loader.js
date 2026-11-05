@@ -1,0 +1,118 @@
+/**
+ * music-bundle-loader.js — route-split loader for the music experience.
+ *
+ * The music bar engine (/js/musicBar/*) and the jmedia audio/music modules are
+ * only used outside /video: on /video the music engine is fully suspended by
+ * VideoModeCoordinator, so downloading ~1 MB of music JS there is pointless.
+ *
+ * Bootstrap rules:
+ *   - pathname starting with /video (cinema views, /video-classic, deep links)
+ *       → bundle is skipped entirely. window.__musicBundleSkipped = true.
+ *   - any other route (/music, /settings, /import, ...)
+ *       → bundle is injected immediately, one <script> at a time, in the exact
+ *         order index.html used to declare them, so module construction order
+ *         inside the bundle is unchanged.
+ *
+ * window.__musicBundleLoaded is always set:
+ *   resolves true once every script in the bundle executed,
+ *   resolves false when the bundle was skipped for a video route.
+ */
+(function (window) {
+    'use strict';
+
+    // Original document order from index.html preserved, including the
+    // cache-busting query strings.
+    var MUSIC_SCRIPTS = [
+        '/js/musicBar/utils/Helpers.js?v=2',
+        '/js/musicBar/utils/ActionTracker.js?v=2',
+        '/js/musicBar/core/DeviceManager.js?v=2',
+        '/js/musicBar/core/SynchronizationManager.js?v=2',
+        '/js/musicBar/core/StateManager.js?v=2',
+        '/js/musicBar/data/StatePersistence.js?v=2',
+        '/js/musicBar/data/SongContextCache.js?v=2',
+        '/js/musicBar/data/QueueManager.js?v=2',
+        '/lib/howler.min.js',
+        '/js/musicBar/core/AudioEngine.js?v=2',
+        '/js/musicBar/core/DjTransitionManager.js?v=1',
+        '/js/musicBar/core/WebSocketManager.js?v=2',
+        '/js/musicBar/controls/PlaybackController.js?v=2',
+        '/js/musicBar/controls/TimeController.js?v=2',
+        '/js/musicBar/controls/VolumeController.js?v=2',
+        '/js/musicBar/ui/UIUpdater.js?v=2',
+        '/js/musicBar/ui/EventBindings.js?v=2',
+        '/js/musicBar/ui/DjSettingsPanel.js?v=1',
+        '/js/musicBar/ui/ImageManager.js?v=2',
+        '/js/musicBar/mobile/MobileBridge.js?v=2',
+        '/js/musicBar/responsive/ResponsivePlayer.js?v=2',
+        '/js/musicBar/adapters/DesktopAdapter.js?v=2',
+        '/js/musicBar/adapters/MobileAdapter.js?v=2',
+        '/js/jmedia/Player.js',
+        '/js/jmedia/PlaybackApi.js',
+        '/js/jmedia/QueueManager.js',
+        '/js/jmedia/SongCache.js',
+        '/js/jmedia/MusicIndex.js',
+        '/js/jmedia/MobileContextMenu.js',
+        '/js/jmedia/MusicBarInit.js',
+        '/js/jmedia/MediaSession.js',
+        '/js/jmedia/HistoryManager.js',
+        '/js/jmedia/PlaylistBar.js',
+        '/js/jmedia/PlaylistBodyHelper.js',
+        '/js/jmedia/MobileApp.js'
+    ];
+
+    // These modules are injected dynamically, so they can finish downloading
+    // AFTER DOMContentLoaded has already fired. Their original init pattern
+    // (addEventListener('DOMContentLoaded', init)) would then never run and the
+    // music bar would silently stay dead. __whenDomReady handles both cases.
+    window.__whenDomReady = function (fn) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn, { once: true });
+        } else {
+            fn();
+        }
+    };
+
+    // Video routes: /video, /video-classic, /video/watch/..., /video/info/...
+    // No deep link on a video route can ever start music playback, so the
+    // bundle is never needed there.
+    if (window.location.pathname.indexOf('/video') === 0) {
+        window.__musicBundleSkipped = true;
+        window.__musicBundleLoaded = Promise.resolve(false);
+        return;
+    }
+
+    window.__musicBundleSkipped = false;
+    window.__musicBundleLoaded = new Promise(function (resolve) {
+        var next = 0;
+
+        function injectNext() {
+            if (next >= MUSIC_SCRIPTS.length) {
+                resolve(true);
+                return;
+            }
+            var src = MUSIC_SCRIPTS[next++];
+            try {
+                var el = document.createElement('script');
+                el.src = src;
+                // async=false keeps dynamic scripts in insertion order even if
+                // the loader pipes them faster than they resolve.
+                el.async = false;
+                el.onload = injectNext;
+                el.onerror = function () {
+                    // A failed music script must not kill the chain: every
+                    // module that follows re-checks its dependencies itself
+                    // (MusicBarInit.verifyModules logs missing modules) and
+                    // all shell call sites are guarded with existence checks.
+                    console.error('[music-bundle-loader] failed to load ' + src);
+                    injectNext();
+                };
+                (document.head || document.documentElement).appendChild(el);
+            } catch (err) {
+                console.error('[music-bundle-loader] injection threw for ' + src, err);
+                injectNext();
+            }
+        }
+
+        injectNext();
+    });
+})(window);

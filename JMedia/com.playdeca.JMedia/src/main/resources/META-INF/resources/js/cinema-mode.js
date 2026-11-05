@@ -161,9 +161,10 @@ async function _openFromUrl(parsed) {
   _suppressUrlWrite = true;
   try {
     const resolved = await VideoRoutes.resolve(parsed);
-    if (!resolved) {
-      if (window.showToast) window.showToast('That title is not in your library', 'warning');
-      _resetUrlToBrowse();
+    if (!resolved || resolved.found === false) {
+      // Keep the shared URL (do NOT fall back to /video): the link stays shareable
+      // and the panel explains why the title cannot be played here.
+      showNotInLibraryPanel(parsed, resolved);
       return true;
     }
     if (parsed.area === 'info') {
@@ -190,6 +191,87 @@ async function _openFromUrl(parsed) {
     _suppressUrlWrite = false;
   }
 }
+
+/**
+ * Full-page "this title is not in your library" state for a shareable link.
+ * Renders into the existing dynamic section so it survives a direct page load
+ * (/video/info/tt…) without a redirect, keeping the URL shareable.
+ */
+function showNotInLibraryPanel(parsed, resolved) {
+  const meta = resolved && resolved.meta ? resolved.meta : null;
+  const token = (resolved && resolved.token) || (parsed && parsed.token) || '';
+  const kind = (resolved && resolved.kind) || (parsed && parsed.kind) || '';
+
+  document.querySelectorAll('.cinema-section').forEach(function(s) { s.style.display = 'none'; });
+  document.querySelectorAll('.cinema-section-header[id]').forEach(function(h) { h.style.display = 'none'; });
+  const hero = document.getElementById('cinema-hero');
+  if (hero) hero.style.display = 'none';
+  const dyn = document.getElementById('section-dynamic');
+  const container = document.getElementById('dynamic-content');
+  if (!dyn || !container) {
+    if (window.showToast) window.showToast('That title is not in your library', 'warning');
+    console.warn('[cinema] not-in-library panel: dynamic container missing');
+    return;
+  }
+  dyn.style.display = '';
+
+  // Only ever point an <img> at a TMDb image URL: the payload comes from an
+  // external service, so never interpolate an arbitrary URL into src.
+  const rawPoster = meta && meta.posterUrl ? String(meta.posterUrl) : '';
+  const poster = /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9_]+\/[A-Za-z0-9_.-]+$/.test(rawPoster)
+    ? rawPoster : '';
+  const title = meta && meta.title ? String(meta.title) : 'This title';
+  const year = meta && meta.year ? ' (' + meta.year + ')' : '';
+  const overview = meta && meta.overview ? String(meta.overview) : '';
+  const kindLabel = kind === 'imdb' ? 'IMDb' : kind === 'tmdb' ? 'TMDb' : kind === 'tvdb' ? 'TVDB' : 'id';
+  const copyText = title + year + (token ? ' — /video/info/' + token : '');
+
+  container.innerHTML =
+    '<div class="cinema-section" style="padding:2.5rem 1.5rem;">' +
+      '<div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;max-width:1000px;margin:0 auto;">' +
+        (poster ? '<img src="' + escapeHtml(poster) + '" alt="" style="width:200px;max-width:45vw;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5);">' : '') +
+        '<div style="flex:1;min-width:260px;">' +
+          '<div class="cinema-section-title" style="margin-bottom:.75rem;">Not in your library</div>' +
+          '<h2 style="font-size:1.9rem;font-weight:700;margin:0 0 .35rem;">' + escapeHtml(title) + escapeHtml(year) + '</h2>' +
+          (overview ? '<p class="cinema-modal-desc" style="margin:0 0 1.25rem;">' + escapeHtml(overview) + '</p>' : '') +
+          '<p style="color:rgba(255,255,255,.7);margin:0 0 1.5rem;">' +
+            'This link points to ' + escapeHtml(kindLabel) + ' id <strong>' + escapeHtml(token) + '</strong>, ' +
+            'which is not in this JMedia library, so there is nothing to play here.' +
+          '</p>' +
+          '<div style="display:flex;gap:.75rem;flex-wrap:wrap;">' +
+            '<button type="button" class="button is-light" data-click="closeNotInLibrary">' +
+              '<i class="fa-solid fa-arrow-left"></i>&nbsp;Browse library</button>' +
+            '<button type="button" class="button is-link is-light" data-click="copyNotInLibraryTitle" data-copy="' + escapeHtml(copyText) + '">' +
+              '<i class="fa-solid fa-copy"></i>&nbsp;Copy title</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+/** Leave the not-in-library state and restore the browse URL. */
+function closeNotInLibrary() {
+  _resetUrlToBrowse();
+  if (typeof showSection === 'function') showSection('home');
+}
+
+/** Copy the title/link so the user can ask for it to be added. */
+function copyNotInLibraryTitle(el) {
+  const text = el && el.dataset ? el.dataset.copy : '';
+  if (!text) return;
+  const done = function() {
+    if (window.showToast) window.showToast('Title copied', 'success');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function(e) {
+      console.warn('[cinema] clipboard copy failed', e);
+      if (window.showToast) window.showToast('Could not copy the title', 'error');
+    });
+  } else if (window.showToast) {
+    window.showToast('Clipboard is not available', 'warning');
+  }
+}
+
 
 
 // Show All state
@@ -222,6 +304,8 @@ async function fetchJSON(url) {
 function getThumbnailUrl(videoId) {
   return `/api/video/thumbnail/${videoId}`;
 }
+function withArtWidth(url, w) { return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'w=' + w; }
+function artSrcset(url) { return [144,288,400].map(w => withArtWidth(url,w) + ' ' + w + 'w').join(', '); }
 
 function getHeroUrl(videoId) {
   return `/api/video/hero/${videoId}`;
@@ -293,7 +377,7 @@ function createCardHTML(video) {
     <div class="cinema-card ${statusClass}" data-video-id="${id}" data-type="${video.type || 'movie'}" data-title="${title.replace(/"/g, '&quot;')}" data-click="${(video.type === 'episode' && video.seriesTitle) ? 'openSeriesDetailFromCard' : 'openDetailsFromCard'}"${(video.type === 'episode' && video.seriesTitle) ? ` data-series-title="${encodeURIComponent(video.seriesTitle || '')}"` : ''}>
       <div class="cinema-card-poster">
         ${statusClass ? `<span class="card-progress-indicator ${statusClass}"></span>` : ''}
-        <img src="${imgSrc}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+        <img src="${withArtWidth(imgSrc,400)}" srcset="${artSrcset(imgSrc)}" sizes="(min-width: 768px) 176px, 144px" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
         <div class="cinema-card-play-overlay">
           <div class="cinema-card-play-icon">
             <i class="fa-solid fa-play"></i>
@@ -820,7 +904,7 @@ async function openCollectionDetail(collectionId) {
         if (statusClass) {
           html += '    <span class="card-progress-indicator ' + statusClass + '"></span>';
         }
-        html += '    <img src="' + imgSrc + '" alt="' + title + '" loading="lazy" onerror="this.src=\'/logo.png\'">';
+        html += '    <img src="' + (imgSrc ? withArtWidth(imgSrc, 400) : '') + '" srcset="' + (imgSrc ? artSrcset(imgSrc) : '') + '" sizes="(min-width: 768px) 176px, 144px" alt="' + title + '" loading="lazy" onerror="this.src=\'/logo.png\'">';
         html += '    <div class="cinema-card-play-overlay"><div class="cinema-card-play-icon"><i class="fa-solid fa-play"></i></div></div>';
         html += '  </div>';
         html += '  <div class="cinema-card-title">' + title + '</div>';
@@ -1566,7 +1650,7 @@ function buildEpisodesList(episodeArray) {
     const downloadBtn = `<button class="cinema-episode-download" title="Download episode" onclick="event.stopPropagation(); downloadVideo(${ep.id})"><i class="fa-solid fa-download"></i></button>`;
     return `<div class="cinema-episode-card" data-video-id="${ep.id}" data-click="playEpisodeFromCard">
       <div class="cinema-episode-thumb-wrap">
-        <img src="${img}" alt="${epTitle}" loading="lazy">
+        <img src="${withArtWidth(img,400)}" srcset="${artSrcset(img)}" sizes="112px" alt="${epTitle}" loading="lazy">
         <div class="cinema-episode-play-overlay">
           <div class="cinema-episode-play-icon">
             <i class="fa-solid fa-play"></i>
@@ -2017,7 +2101,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
   const starColor = ratingText ? ratingColor(ratingVal) : '';
     allCards.push(`<div class="cinema-more-like-card" data-click="openSeriesDetailFromCard" data-series-title="${encodeURIComponent(series.title || '')}">
       <div class="cinema-more-like-img-wrap">
-        <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+        <img src="${img === '/logo.png' ? img : withArtWidth(img,400)}" srcset="${img === '/logo.png' ? '' : artSrcset(img)}" sizes="(min-width: 768px) 176px, 144px" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
         <div class="cinema-more-like-play-overlay">
           <div class="cinema-more-like-play-icon">
             <i class="fa-solid fa-play"></i>
@@ -3900,7 +3984,7 @@ async function performSearch(query) {
     const type = v.type === 'movie' ? 'Movie' : 'TV';
     const year = v.releaseYear ? ` \u2022 ${v.releaseYear}` : '';
     return `<button class="cinema-search-result" data-click="closeSearchByClick" data-search-action="${v.type === 'movie' ? 'openDetails' : 'openSeriesDetailFromSearch'}" ${v.type === 'movie' ? `data-video-id="${id}"` : `data-series-title="${encodeURIComponent(v.seriesTitle || '')}"`}>
-      <img class="cinema-search-result-thumb" src="/api/video/poster/${id}" alt="" loading="lazy">
+      <img class="cinema-search-result-thumb" src="${withArtWidth('/api/video/poster/' + id, 400)}" srcset="${artSrcset('/api/video/poster/' + id)}" sizes="40px" alt="" loading="lazy">
       <div class="cinema-search-result-info">
         <div class="cinema-search-result-title">${title}</div>
         <div class="cinema-search-result-sub">${type}${year}</div>

@@ -89,6 +89,15 @@
 
         handleRoute() {
             const path = window.location.pathname;
+            // Route-split guard: music-bundle-loader.js skips ~1 MB of music JS on
+            // /video* routes. Switching client-side to a music-capable view from
+            // there would render the music UI with no engine (no AudioEngine, no
+            // MusicBarInit). Force a real document load so the bundle runs.
+            if (window.__musicBundleSkipped && path.indexOf('/video') !== 0) {
+                console.log('[App] Music bundle was skipped on a video route; reloading for ' + path);
+                window.location.reload();
+                return;
+            }
             let viewName = this.routes[path] || 'music';
             if (path.startsWith('/video-classic')) {
                 viewName = 'video-classic';

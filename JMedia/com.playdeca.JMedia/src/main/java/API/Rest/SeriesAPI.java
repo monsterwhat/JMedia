@@ -163,7 +163,7 @@ public class SeriesAPI {
         return Response.ok(ApiResponse.success("Series deleted")).build();
     }
 
-    private Response serveSeriesImage(Long seriesId, String imageType) {
+    private Response serveSeriesImage(Long seriesId, String imageType, int w) {
         try {
             Series series = seriesService.find(seriesId);
             if (series == null) {
@@ -190,16 +190,18 @@ public class SeriesAPI {
             if (imagePath != null && !imagePath.isBlank()) {
                 File imageFile = new File(imagePath);
                 if (imageFile.exists() && imageFile.isFile()) {
+                    String ext = imageFile.getName().contains(".") ? imageFile.getName().substring(imageFile.getName().lastIndexOf('.') + 1) : "";
+                    File variantFile = thumbnailService.ensureWidthVariant(imageFile, "series_" + seriesId + "_" + imageType, w, ext);
                     // Locally-generated WebP is converted to JPEG for clients whose
                     // decoders cannot render it (Apple TV ImageIO / SDWebImage);
                     // JPEG/PNG pass through untouched, Content-Type always matches bytes.
                     ThumbnailService.ServedImage served = thumbnailService
-                            .toJpegForServing(java.nio.file.Files.readAllBytes(imageFile.toPath()));
+                            .toJpegForServing(java.nio.file.Files.readAllBytes(variantFile.toPath()));
                     return Response.ok(served.bytes())
                             .type(served.contentType())
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + variantFile.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(variantFile.lastModified()))
                             .build();
                 }
             }
@@ -213,41 +215,45 @@ public class SeriesAPI {
 
     @GET
     @Path("/{id}/poster")
-    public Response getSeriesPoster(@PathParam("id") Long id) {
+    public Response getSeriesPoster(@PathParam("id") Long id,
+                                   @QueryParam("w") @DefaultValue("0") int w) {
         Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return serveSeriesImage(id, "poster");
+        return serveSeriesImage(id, "poster", w);
     }
 
     @GET
     @Path("/{id}/backdrop")
-    public Response getSeriesBackdrop(@PathParam("id") Long id) {
+    public Response getSeriesBackdrop(@PathParam("id") Long id,
+                                    @QueryParam("w") @DefaultValue("0") int w) {
         Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return serveSeriesImage(id, "backdrop");
+        return serveSeriesImage(id, "backdrop", w);
     }
 
     @GET
     @Path("/{id}/logo")
-    public Response getSeriesLogo(@PathParam("id") Long id) {
+    public Response getSeriesLogo(@PathParam("id") Long id,
+                                 @QueryParam("w") @DefaultValue("0") int w) {
         Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return serveSeriesImage(id, "logo");
+        return serveSeriesImage(id, "logo", w);
     }
 
     @GET
     @Path("/{id}/hero")
-    public Response getSeriesHero(@PathParam("id") Long id) {
+    public Response getSeriesHero(@PathParam("id") Long id,
+                                 @QueryParam("w") @DefaultValue("0") int w) {
         Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return serveSeriesImage(id, "hero");
+        return serveSeriesImage(id, "hero", w);
     }
 }

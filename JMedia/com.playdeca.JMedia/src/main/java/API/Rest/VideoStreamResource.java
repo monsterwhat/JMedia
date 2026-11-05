@@ -60,6 +60,14 @@ public class VideoStreamResource {
     /** How many times one response may relaunch a segment's writer before giving up. */
     private static final int MAX_WRITER_RELAUNCHES = 3;
 
+    // How long a request waits for a segment's writer to register before answering
+    // 503 + Retry-After. Registration happens after the transcode permit is granted
+    // and ffmpeg has started (GPU probe included), so this covers the normal startup
+    // path comfortably while failing fast when the only permit is still held by the
+    // writer this seek superseded. waitForFile's own 90s deadline is far too long: a
+    // <video> element turns the resulting late 500 into an unrecoverable media error.
+    private static final long WRITER_REGISTRATION_DEADLINE_MS = 15_000L;
+
     // Suppress per-range-request spam: log hot-path stream events once per session.
     private static final long STREAM_SESSION_GAP_MS = 120_000;
     private static final int STREAM_LOG_MAX_ENTRIES = 4096;
@@ -542,13 +550,74 @@ public class VideoStreamResource {
         }
 
         long fileLength;
+        // A fresh far-seek segment exists (startSegment created it) before its writer
+        // does: registration only happens after the transcode permit is granted and
+        // ffmpeg has started. If the writer this seek superseded still holds the only
+        // permit, nobody will ever write this file and waitForFile below spins its
+        // full 90s deadline into a bare 500. Relaunch now when no writer is active,
+        // then fail fast (503 + Retry-After) instead of blocking for 90s, so the
+        // player can retry - by then the abandoned reader is gone and the retry's
+        // supersede pass frees the permit.
+        if (!transcodingService.isCacheFileComplete(tempFile)
+                && !transcodingService.isCacheBeingWritten(tempFile)) {
+            LOG.info("Segment {} has no writer at request start for video {} (segmentStart={}s) - relaunching",
+                    tempFile.getFileName(), videoId, segmentStart);
+            ensureSegmentWriter(video, videoFile, tempFile, segmentStart, userAgent, audioTrackIndex,
+                    qualityHeight, outputCodec, audioCodecsParam, "no writer when the request started");
+            long writerDeadline = System.currentTimeMillis() + WRITER_REGISTRATION_DEADLINE_MS;
+            while (!transcodingService.isCacheBeingWritten(tempFile)
+                    && !transcodingService.isCacheFileComplete(tempFile)
+                    && System.currentTimeMillis() < writerDeadline) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            if (!transcodingService.isCacheBeingWritten(tempFile)
+                    && !transcodingService.isCacheFileComplete(tempFile)) {
+                long currentSize = 0;
+                try {
+                    currentSize = Files.size(tempFile);
+                } catch (IOException ioe) {
+                    LOG.debug("Could not read size of unwritten segment {}: {}", tempFile.getFileName(), ioe.getMessage());
+                }
+                LOG.warn("No transcode writer for segment {} of video {} after {}ms - returning 503 so the client retries",
+                        tempFile.getFileName(), videoId, WRITER_REGISTRATION_DEADLINE_MS);
+                segmentCacheService.releaseReader(tempFile);
+                return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                        .header("Retry-After", "1")
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Type", "video/mp4")
+                        .header("Content-Range", "bytes */" + Math.max(0, currentSize))
+                        .header("X-Stream-Origin", String.format(java.util.Locale.ROOT, "%.3f", segmentStart))
+                        .build();
+            }
+        }
+
         try {
             transcodingService.waitForFile(tempFile, 65536, videoId, segmentStart, audioTrackIndex, qualityHeight, outputCodec);
             fileLength = Files.size(tempFile);
         } catch (IOException e) {
             LOG.error("Cannot get size of temp file for video {}: {}", videoId, e.getMessage());
+            long currentSize = 0;
+            try {
+                currentSize = Files.size(tempFile);
+            } catch (IOException sizeEx) {
+                LOG.debug("Could not read size of temp file {} after wait failure: {}", tempFile.getFileName(), sizeEx.getMessage());
+            }
             segmentCacheService.releaseReader(tempFile);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+            // 503 + range metadata, not a bare 500: a segment that never reached its
+            // first fragment is transient (permit contention / ffmpeg start failure)
+            // and the media stack needs the range headers to retry cleanly.
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .header("Retry-After", "1")
+                    .header("Accept-Ranges", "bytes")
+                    .header("Content-Type", "video/mp4")
+                    .header("Content-Range", "bytes */" + Math.max(0, currentSize))
+                    .header("X-Stream-Origin", String.format(java.util.Locale.ROOT, "%.3f", segmentStart))
+                    .build();
         }
 
         // Mid-segment serves (baseOffset > 0) must prepend the file's init segment (ftyp + moov,

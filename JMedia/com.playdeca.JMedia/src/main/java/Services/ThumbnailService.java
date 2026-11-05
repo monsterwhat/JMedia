@@ -48,6 +48,8 @@ public class ThumbnailService {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(ThumbnailService.class);
     private static final String THUMBNAIL_DIR = "thumbnails";
+    private static final java.util.concurrent.ConcurrentHashMap<String, Object> VARIANT_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Set<Integer> VARIANT_WIDTHS = new java.util.HashSet<>(java.util.Arrays.asList(144, 288, 400, 780));
 
     /** Classpath location of the bundled "No Image" placeholder JPEG (300x450). */
     private static final String PLACEHOLDER_IMAGE_RESOURCE = "/META-INF/resources/images/placeholders/thumbnail.jpg";
@@ -1637,5 +1639,107 @@ public class ThumbnailService {
             return "image/gif";
         }
         return null;
+    }
+
+    /**
+     * Returns a resized copy of {@code source} at the requested {@code width} (whitelisted:
+     * 144, 288, 400, 780), cached next to the source as {@code cacheBaseName}_{width}.{ext}.
+     * Returns {@code source} unchanged for non-whitelisted widths, missing sources, upscaling
+     * requests, or any failure (so callers always have an image to serve).
+     */
+    public java.io.File ensureWidthVariant(java.io.File source, String cacheBaseName, int width, String ext) {
+        if (source == null || !source.exists() || !source.isFile()) {
+            return source;
+        }
+        if (width <= 0 || !VARIANT_WIDTHS.contains(width)) {
+            return source;
+        }
+
+        // Normalize extension (strip leading dot).
+        String normalizedExt = (ext == null) ? "" : ext.trim();
+        if (normalizedExt.startsWith(".")) {
+            normalizedExt = normalizedExt.substring(1);
+        }
+        if (normalizedExt.isEmpty()) {
+            String name = source.getName();
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot < name.length() - 1) {
+                normalizedExt = name.substring(dot + 1);
+            }
+        }
+        if (normalizedExt.isEmpty()) {
+            return source;
+        }
+
+        if (cacheBaseName == null || cacheBaseName.isBlank()) {
+            String name = source.getName();
+            int dot = name.lastIndexOf('.');
+            cacheBaseName = (dot >= 0) ? name.substring(0, dot) : name;
+        }
+
+        java.io.File parent = source.getParentFile();
+        if (parent == null) {
+            parent = new java.io.File(".");
+        }
+        java.io.File variant = new java.io.File(parent, cacheBaseName + "_" + width + "." + normalizedExt);
+
+        Object lock = VARIANT_LOCKS.computeIfAbsent(variant.getAbsolutePath(), k -> new Object());
+        synchronized (lock) {
+            try {
+                BufferedImage srcImage = ImageIO.read(source);
+                if (srcImage == null) {
+                    return source;
+                }
+                int srcW = srcImage.getWidth();
+                // Do not upscale.
+                if (width >= srcW) {
+                    return source;
+                }
+                // Serve cached variant if fresh.
+                if (variant.exists() && variant.lastModified() >= source.lastModified()) {
+                    return variant;
+                }
+
+                int srcH = srcImage.getHeight();
+                int targetH = (int) Math.round((double) srcH * width / srcW);
+                if (targetH < 1) {
+                    targetH = 1;
+                }
+
+                boolean preserveAlpha = normalizedExt.equalsIgnoreCase("png");
+                BufferedImage scaled = new BufferedImage(width, targetH,
+                        preserveAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+                java.awt.Graphics2D g = scaled.createGraphics();
+                try {
+                    g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                            java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                            java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+                    if (!preserveAlpha) {
+                        g.setColor(java.awt.Color.BLACK);
+                        g.fillRect(0, 0, width, targetH);
+                    }
+                    g.drawImage(srcImage, 0, 0, width, targetH, null);
+                } finally {
+                    g.dispose();
+                }
+
+                boolean isWebp = normalizedExt.equalsIgnoreCase("webp");
+                boolean isJpeg = normalizedExt.equalsIgnoreCase("jpg") || normalizedExt.equalsIgnoreCase("jpeg");
+                if (isWebp) {
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    ImageIO.write(scaled, "png", baos);
+                    writeWebP(baos.toByteArray(), variant.toPath());
+                } else {
+                    String format = isJpeg ? "jpeg" : normalizedExt;
+                    ImageIO.write(scaled, format, variant);
+                }
+                return variant;
+            } catch (Exception e) {
+                LOGGER.error("Failed to create width variant for source {} (width={}, cacheBaseName={}): {}",
+                        source, width, cacheBaseName, e.getMessage(), e);
+                return source;
+            }
+        }
     }
 }

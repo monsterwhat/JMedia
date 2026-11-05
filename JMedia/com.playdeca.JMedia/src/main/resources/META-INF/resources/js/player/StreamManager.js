@@ -415,7 +415,7 @@
             }
         }
 
-        initExternalStream() {
+        async initExternalStream() {
             const p = this.player;
             const url = p.externalUrl;
             const savedTime = parseFloat(p.container.dataset.startTime || 0);
@@ -426,9 +426,20 @@
             // HLS (m3u8) requires hls.js (MSE) in Chromium/Firefox — only Safari/iOS
             // plays it natively in a <video> element. Fall back to native for those.
             const isHls = /\.m3u8(\?|#|$)/i.test(url) || /\.m3u8(\?|#|$)/i.test(p.externalOriginalUrl || '');
-            if (isHls && typeof Hls !== 'undefined' && Hls.isSupported() && !isIOS) {
-                this._initHlsExternalStream(url, savedTime);
-                return;
+            if (isHls && !isIOS) {
+                if (typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
+                    try {
+                        await window.ensureHlsLoaded();
+                    } catch (e) {
+                        // Logged in hls-loader. Fall through to the native path: a
+                        // browser without MSE may still handle the URL itself.
+                        console.error('[SimplePlayer] hls.js unavailable for external HLS stream', e);
+                    }
+                }
+                if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                    this._initHlsExternalStream(url, savedTime);
+                    return;
+                }
             }
 
             p.video.src = url;
@@ -767,14 +778,10 @@
             const p = this.player;
             console.log('[SimplePlayer] Switching audio track to:', trackIndex);
 
-            if (p._seekErrorHandler) {
-                p.video.removeEventListener('error', p._seekErrorHandler);
-                p._seekErrorHandler = null;
-            }
-            if (p._setupStreamErrorHandler) {
-                p.video.removeEventListener('error', p._setupStreamErrorHandler);
-                p._setupStreamErrorHandler = null;
-            }
+            // A reload is about to happen: every handler from the previous load
+            // (including the initial-open one, which retries at its closure-captured
+            // resume time) must be gone or it will fight the new request.
+            this.clearStreamErrorHandlers();
 
             p.currentAudioTrackIndex = trackIndex;
 
@@ -1122,6 +1129,55 @@
                 return;
             }
 
+            // Invalidate any seek still in flight. A probe or `once` handler from an
+            // older seek must never overwrite this seek's origin or reassign src.
+            p._seekGen = (p._seekGen || 0) + 1;
+            const seekGen = p._seekGen;
+
+            // The handler installed by the initial open retries with its
+            // closure-captured resume time (normally 0). The empty-src below fires a
+            // media error, and one second later that handler would reload the stream
+            // WITHOUT ?start= - restarting the movie from the beginning. Drop every
+            // stale handler and the transcode watchdog before reloading, then install
+            // a seek-scoped handler that retries at the seek target instead.
+            this.clearStreamErrorHandlers();
+            this._clearPlaybackWatchdog();
+            if (p._seekRetryTimer) { clearTimeout(p._seekRetryTimer); p._seekRetryTimer = null; }
+            p._streamFallbackCount = 0;
+
+            // Seek-scoped error handler. The rest of the player is now unprotected
+            // (the initial-open handler was removed above), so without this a real
+            // failure would leave a dead player. Retries always reload at the seek
+            // target, never at the original resume position. `seekSrcAssigned` makes
+            // the handler ignore the empty-src error raised while the old resource is
+            // torn down, so it cannot mistake teardown for a failed seek.
+            let seekSrcAssigned = false;
+            const onSeekError = () => {
+                if (!seekSrcAssigned) return;
+                if (p._destroyed || seekGen !== p._seekGen) return;
+                p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
+                const maxFallbacks = p._maxStreamFallbacks || 3;
+                console.error('[SimplePlayer] Seek stream error (fallback ' + p._streamFallbackCount + '/' + maxFallbacks + '):', p.video.error);
+                if (p._streamFallbackCount >= maxFallbacks) {
+                    p._showLoading('Playback failed after ' + p._streamFallbackCount + ' attempts');
+                    return;
+                }
+                p._showLoading('Stream error, retrying...');
+                if (p._seekRetryTimer) clearTimeout(p._seekRetryTimer);
+                p._seekRetryTimer = setTimeout(() => {
+                    if (p._destroyed || seekGen !== p._seekGen) return;
+                    // streamStartOffset may have been corrected down to the real
+                    // keyframe/segment origin: that is the safe place to resume.
+                    const retryTarget = Math.max(0, p.streamStartOffset || time);
+                    console.log(`[SimplePlayer] Retrying seek at ${retryTarget}s (attempt ${p._streamFallbackCount}/${maxFallbacks})`);
+                    p.video.src = this.buildStreamUrl(retryTarget);
+                    p.video.load();
+                    p.video.play().catch((e) => console.log('[SimplePlayer] Seek retry play blocked, awaiting gesture:', e));
+                }, 1000 * p._streamFallbackCount);
+            };
+            p._seekErrorHandler = onSeekError;
+            p.video.addEventListener('error', onSeekError);
+
             if (p.buffering) p.buffering.style.display = 'block';
 
             // The new element sits at 0 (relative) while the server timer may still
@@ -1150,12 +1206,17 @@
             // requested time as the origin puts the clock (and the subtitle offset) out
             // by the segment start.
             this.resolveStreamOrigin(seekUrl).then((origin) => {
-                if (p._destroyed) return;
+                if (p._destroyed || seekGen !== p._seekGen) return;
                 if (origin !== null) {
                     p.streamStartOffset = origin;
                     console.log('[SimplePlayer] Seek origin from stream:', origin);
                     if (p.loadSubtitles) p.loadSubtitles();
                 }
+
+                // The seek-scoped error handler is already attached before teardown;
+                // mark the real request as live so it starts counting failures here.
+                seekSrcAssigned = true;
+
                 p.video.src = seekUrl;
                 p.video.load();
                 // Autoplay attribute alone is unreliable here: the reload happens
@@ -1170,10 +1231,14 @@
             // On playing, clear the swap guard and send ONE confirmation broadcast so
             // the server's phantom clock snaps to the new absolute position (element + offset).
             const onSeekPlaying = () => {
+                if (seekGen !== p._seekGen) return;
                 p._clearSwapInProgress();
                 if (!p._destroyed) p._broadcastState();
             };
-            const onSeekReady = () => p._clearSwapInProgress();
+            const onSeekReady = () => {
+                if (seekGen !== p._seekGen) return;
+                p._clearSwapInProgress();
+            };
             p.video.addEventListener('playing', onSeekPlaying, { once: true });
             p.video.addEventListener('loadeddata', onSeekReady, { once: true });
             p.video.addEventListener('error', onSeekReady, { once: true });
@@ -1182,6 +1247,7 @@
             // timeline restarts at its head), not at the requested seek point — re-derive
             // the true content start at load so subtitle ?start= matches the real timeline.
             const onLoadedDataCorrectOffset = () => {
+                if (seekGen !== p._seekGen) return;
                 const ct = p.video.currentTime || 0;
                 const base = Math.max(0, p.streamStartOffset - ct);
                 if (Math.abs(base - p.streamStartOffset) > 0.1) {

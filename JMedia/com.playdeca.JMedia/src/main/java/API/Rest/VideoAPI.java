@@ -138,7 +138,8 @@ public class VideoAPI {
     @GET
     @Path("/thumbnail/{videoId}")
     @Produces("image/jpeg")
-    public Response getThumbnail(@PathParam("videoId") Long videoId) {
+    public Response getThumbnail(@PathParam("videoId") Long videoId,
+                               @QueryParam("w") @DefaultValue("0") int w) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
@@ -152,11 +153,16 @@ public class VideoAPI {
             if (video.thumbnailPath != null && !video.thumbnailPath.isBlank()) {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
-                    return Response.ok(customThumbnail)
-                            .header("Content-Type", imageContentTypeForPath(customThumbnail.getName()))
+                    String baseName = customThumbnail.getName();
+                    int dot = baseName.lastIndexOf('.');
+                    String cb = (dot >= 0) ? baseName.substring(0, dot) : baseName;
+                    String ext = (dot >= 0 && dot < baseName.length() - 1) ? baseName.substring(dot + 1) : "";
+                    File served = thumbnailService.ensureWidthVariant(customThumbnail, cb, w, ext);
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
-                            .lastModified(new java.util.Date(customThumbnail.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
             }
@@ -178,11 +184,14 @@ public class VideoAPI {
                         String episodeThumb = thumbnailService.getOrFetchEpisodeThumbnail(videoId, fullPath);
                         if (episodeThumb != null && java.nio.file.Files.exists(java.nio.file.Paths.get(episodeThumb))) {
                             File episodeThumbFile = java.nio.file.Paths.get(episodeThumb).toFile();
-                            return Response.ok(episodeThumbFile)
-                                    .header("Content-Type", "image/webp")
+                            File servedEpisode = thumbnailService.ensureWidthVariant(episodeThumbFile,
+                                    episodeThumbFile.getName().contains(".") ? episodeThumbFile.getName().substring(0, episodeThumbFile.getName().lastIndexOf('.')) : episodeThumbFile.getName(),
+                                    w, "webp");
+                            return Response.ok(servedEpisode)
+                                    .header("Content-Type", imageContentTypeForPath(servedEpisode.getName()))
                                     .header("Cache-Control", "public, max-age=3600")
-                                    .header("ETag", "\"" + episodeThumbFile.lastModified() + "\"")
-                                    .lastModified(new java.util.Date(episodeThumbFile.lastModified()))
+                                    .header("ETag", "\"" + servedEpisode.lastModified() + "-w" + w + "\"")
+                                    .lastModified(new java.util.Date(servedEpisode.lastModified()))
                                     .build();
                         }
                     } catch (Exception e) {
@@ -197,22 +206,24 @@ public class VideoAPI {
                 java.nio.file.Path posterPath = thumbnailService.getThumbnailDirectory().resolve(videoId + "_poster.webp");
                 if (java.nio.file.Files.exists(posterPath)) {
                     File posterFile = posterPath.toFile();
-                    return Response.ok(posterFile)
-                            .header("Content-Type", "image/webp")
+                    File served = thumbnailService.ensureWidthVariant(posterFile, videoId + "_poster", w, "webp");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + posterFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(posterFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
                 // Try PNG fallback for poster
                 java.nio.file.Path posterPng = thumbnailService.getThumbnailDirectory().resolve(videoId + "_poster.png");
                 if (java.nio.file.Files.exists(posterPng)) {
                     File posterFile = posterPng.toFile();
-                    return Response.ok(posterFile)
-                            .header("Content-Type", "image/png")
+                    File served = thumbnailService.ensureWidthVariant(posterFile, videoId + "_poster", w, "png");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + posterFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(posterFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
             } catch (Exception e) {
@@ -242,11 +253,16 @@ public class VideoAPI {
 
             if (thumbnailUrl != null && Files.exists(java.nio.file.Paths.get(thumbnailUrl))) {
                 File thumbnailFile = java.nio.file.Paths.get(thumbnailUrl).toFile();
-                return Response.ok(thumbnailFile)
-                        .header("Content-Type", imageContentTypeForPath(thumbnailFile.getName()))
+                String baseName = thumbnailFile.getName();
+                int dot = baseName.lastIndexOf('.');
+                String cb = (dot >= 0) ? baseName.substring(0, dot) : baseName;
+                String ext = (dot >= 0 && dot < baseName.length() - 1) ? baseName.substring(dot + 1) : "";
+                File served = thumbnailService.ensureWidthVariant(thumbnailFile, cb, w, ext);
+                return Response.ok(served)
+                        .header("Content-Type", imageContentTypeForPath(served.getName()))
                         .header("Cache-Control", "public, max-age=3600")
-                        .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
-                        .lastModified(new java.util.Date(thumbnailFile.lastModified()))
+                        .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                        .lastModified(new java.util.Date(served.lastModified()))
                         .build();
             }
 
@@ -267,7 +283,7 @@ public class VideoAPI {
      *   3. Existing thumbnail path from the Video entity (custom thumbnailPath or generated thumbnail)
      *   4. Return 404 (client shows text title fallback)
      */
-    private Response serveImageFromThumbnails(Long videoId, String imageType, String fallbackType) {
+    private Response serveImageFromThumbnails(Long videoId, String imageType, String fallbackType, int w) {
         try {
             Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
@@ -276,38 +292,42 @@ public class VideoAPI {
 
             java.nio.file.Path thumbnailsDir = thumbnailService.getThumbnailDirectory();
 
+            // Helper lambda-ish inline: apply width variant + build response.
+            // We'll handle each candidate file below.
+
             java.nio.file.Path primaryPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".webp");
             if (java.nio.file.Files.exists(primaryPath)) {
                 File imageFile = primaryPath.toFile();
-                return Response.ok(imageFile)
-                        .header("Content-Type", "image/webp")
+                File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "webp");
+                return Response.ok(served)
+                        .header("Content-Type", imageContentTypeForPath(served.getName()))
                         .header("Cache-Control", "public, max-age=3600")
-                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                        .lastModified(new java.util.Date(imageFile.lastModified()))
+                        .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                        .lastModified(new java.util.Date(served.lastModified()))
                         .build();
             }
 
-            // Check for .png fallback (e.g. alpha-transparent logos that failed WebP)
             java.nio.file.Path pngPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".png");
             if (java.nio.file.Files.exists(pngPath)) {
                 File imageFile = pngPath.toFile();
-                return Response.ok(imageFile)
-                        .header("Content-Type", "image/png")
+                File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "png");
+                return Response.ok(served)
+                        .header("Content-Type", imageContentTypeForPath(served.getName()))
                         .header("Cache-Control", "public, max-age=3600")
-                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                        .lastModified(new java.util.Date(imageFile.lastModified()))
+                        .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                        .lastModified(new java.util.Date(served.lastModified()))
                         .build();
             }
 
-            // Check for .jpg fallback
             java.nio.file.Path jpgPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".jpg");
             if (java.nio.file.Files.exists(jpgPath)) {
                 File imageFile = jpgPath.toFile();
-                return Response.ok(imageFile)
-                        .header("Content-Type", "image/jpeg")
+                File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "jpg");
+                return Response.ok(served)
+                        .header("Content-Type", imageContentTypeForPath(served.getName()))
                         .header("Cache-Control", "public, max-age=3600")
-                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                        .lastModified(new java.util.Date(imageFile.lastModified()))
+                        .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                        .lastModified(new java.util.Date(served.lastModified()))
                         .build();
             }
 
@@ -315,33 +335,36 @@ public class VideoAPI {
                 java.nio.file.Path fallbackPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".webp");
                 if (java.nio.file.Files.exists(fallbackPath)) {
                     File imageFile = fallbackPath.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/webp")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + fallbackType, w, "webp");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
 
                 java.nio.file.Path fbPngPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".png");
                 if (java.nio.file.Files.exists(fbPngPath)) {
                     File imageFile = fbPngPath.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/png")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + fallbackType, w, "png");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
 
                 java.nio.file.Path fbJpgPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".jpg");
                 if (java.nio.file.Files.exists(fbJpgPath)) {
                     File imageFile = fbJpgPath.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/jpeg")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + fallbackType, w, "jpg");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
             }
@@ -349,46 +372,51 @@ public class VideoAPI {
             if (video.thumbnailPath != null && !video.thumbnailPath.isBlank()) {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
-                    return Response.ok(customThumbnail)
-                            .header("Content-Type", imageContentTypeForPath(customThumbnail.getName()))
+                    File served = thumbnailService.ensureWidthVariant(customThumbnail,
+                            (customThumbnail.getName().contains(".") ? customThumbnail.getName().substring(0, customThumbnail.getName().lastIndexOf('.')) : customThumbnail.getName()),
+                            w, (customThumbnail.getName().contains(".") ? customThumbnail.getName().substring(customThumbnail.getName().lastIndexOf('.') + 1) : ""));
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
-                            .lastModified(new java.util.Date(customThumbnail.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
             }
 
             // Generate on-demand: fetch all TMDB media images for this video
             if (thumbnailService.ensureMediaImages(videoId)) {
-                // Re-check for the requested image type after generation
                 java.nio.file.Path regeneratedPrimary = thumbnailsDir.resolve(videoId + "_" + imageType + ".webp");
                 if (java.nio.file.Files.exists(regeneratedPrimary)) {
                     File imageFile = regeneratedPrimary.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/webp")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "webp");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
                 java.nio.file.Path regeneratedPng = thumbnailsDir.resolve(videoId + "_" + imageType + ".png");
                 if (java.nio.file.Files.exists(regeneratedPng)) {
                     File imageFile = regeneratedPng.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/png")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "png");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
                 java.nio.file.Path regeneratedJpg = thumbnailsDir.resolve(videoId + "_" + imageType + ".jpg");
                 if (java.nio.file.Files.exists(regeneratedJpg)) {
                     File imageFile = regeneratedJpg.toFile();
-                    return Response.ok(imageFile)
-                            .header("Content-Type", "image/jpeg")
+                    File served = thumbnailService.ensureWidthVariant(imageFile, videoId + "_" + imageType, w, "jpg");
+                    return Response.ok(served)
+                            .header("Content-Type", imageContentTypeForPath(served.getName()))
                             .header("Cache-Control", "public, max-age=3600")
-                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
-                            .lastModified(new java.util.Date(imageFile.lastModified()))
+                            .header("ETag", "\"" + served.lastModified() + "-w" + w + "\"")
+                            .lastModified(new java.util.Date(served.lastModified()))
                             .build();
                 }
             }
@@ -404,21 +432,23 @@ public class VideoAPI {
     @GET
     @Path("/poster/{videoId}")
     @Produces("image/webp")
-    public Response getPoster(@PathParam("videoId") Long videoId) {
+    public Response getPoster(@PathParam("videoId") Long videoId,
+                             @QueryParam("w") @DefaultValue("0") int w) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        return serveImageFromThumbnails(videoId, "poster", null);
+        return serveImageFromThumbnails(videoId, "poster", null, w);
     }
 
     @GET
     @Path("/backdrop/{videoId}")
     @Produces("image/webp")
-    public Response getBackdrop(@PathParam("videoId") Long videoId) {
+    public Response getBackdrop(@PathParam("videoId") Long videoId,
+                               @QueryParam("w") @DefaultValue("0") int w) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        return serveImageFromThumbnails(videoId, "backdrop", null);
+        return serveImageFromThumbnails(videoId, "backdrop", null, w);
     }
 
     @GET
@@ -462,11 +492,12 @@ public class VideoAPI {
     @GET
     @Path("/hero/{videoId}")
     @Produces("image/webp")
-    public Response getHero(@PathParam("videoId") Long videoId) {
+    public Response getHero(@PathParam("videoId") Long videoId,
+                           @QueryParam("w") @DefaultValue("0") int w) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        return serveImageFromThumbnails(videoId, "hero", "backdrop");
+        return serveImageFromThumbnails(videoId, "hero", "backdrop", w);
     }
 
     /**

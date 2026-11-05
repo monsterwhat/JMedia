@@ -197,7 +197,10 @@
         },
 
         bindClearQueue: function() {
-            document.addEventListener('DOMContentLoaded', () => {
+            (window.__whenDomReady || function (fn) {
+                if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
+                else fn();
+            })(() => {
                 const clearBtn = document.getElementById('clearQueueBtn');
                 if (clearBtn) {
                     clearBtn.addEventListener('click', () => {

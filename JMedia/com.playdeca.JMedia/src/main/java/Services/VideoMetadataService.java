@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
@@ -1504,12 +1505,16 @@ public class VideoMetadataService {
     }
 
     private JsonNode fetchJson(String url, Map<String, String> headers) throws IOException, InterruptedException {
+        return fetchJson(url, headers, Duration.ofSeconds(30));
+    }
+
+    private JsonNode fetchJson(String url, Map<String, String> headers, Duration timeout) throws IOException, InterruptedException {
         String cacheKey = EnrichmentNegativeCache.keyForUrl(url);
         if (EnrichmentNegativeCache.isBlocked(cacheKey)) {
             LOG.debug("Skipping recently-failed enrichment fetch (known miss): {}", cacheKey);
             return null;
         }
-        var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET().timeout(Duration.ofSeconds(30));
+        var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET().timeout(timeout);
         if (headers != null) {
             headers.forEach(builder::header);
         }
@@ -1537,6 +1542,183 @@ public class VideoMetadataService {
             LOG.warn("Request failed: {} - {}", response.statusCode(), url);
         }
         return null;
+    }
+
+    /**
+     * Metadata for an external id that is NOT in the library, used by the shareable-link
+     * resolver to render the "not in your library" page. Best effort: returns empty on
+     * a missing key, an unknown id, or a TMDb outage — it never throws.
+     */
+    public record ExternalTitleMeta(String title, Integer year, String posterUrl,
+                                    String mediaType, String overview, Integer tmdbId, String imdbId) {
+    }
+
+    public Optional<ExternalTitleMeta> lookupExternalTitle(String kind, String token) {
+        if (kind == null || token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        String apiKey = getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.debug("TMDb lookup skipped: no API key configured");
+            return Optional.empty();
+        }
+        boolean bearer = isBearerToken(apiKey);
+        Map<String, String> authHeaders = bearer ? Map.of("Authorization", "Bearer " + apiKey) : null;
+        Duration timeout = Duration.ofSeconds(5);
+        try {
+            switch (kind.toLowerCase(Locale.ROOT)) {
+                case "imdb" -> {
+                    return findResult(tmdbUrl("/find/" + token, "external_source=imdb_id", apiKey, bearer),
+                            authHeaders, timeout);
+                }
+                case "tvdb" -> {
+                    return findResult(tmdbUrl("/find/" + token, "external_source=tvdb_id", apiKey, bearer),
+                            authHeaders, timeout);
+                }
+                case "tmdb" -> {
+                    int id;
+                    try {
+                        id = Integer.parseInt(token.trim());
+                    } catch (NumberFormatException e) {
+                        LOG.debug("TMDb lookup skipped: '{}' is not a numeric id", token);
+                        return Optional.empty();
+                    }
+                    Optional<ExternalTitleMeta> movie = detailsMeta(
+                            tmdbUrl("/movie/" + id, null, apiKey, bearer), authHeaders, timeout, "movie");
+                    if (movie.isPresent()) {
+                        return movie;
+                    }
+                    return detailsMeta(tmdbUrl("/tv/" + id, null, apiKey, bearer), authHeaders, timeout, "tv");
+                }
+                default -> {
+                    LOG.debug("TMDb lookup skipped: unsupported id kind '{}'", kind);
+                    return Optional.empty();
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("TMDb external title lookup failed for " + kind + "/" + token + ": " + e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (RuntimeException e) {
+            LOG.warn("TMDb external title lookup failed for " + kind + "/" + token + ": " + e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private String tmdbUrl(String path, String query, String apiKey, boolean bearer) {
+        StringBuilder url = new StringBuilder("https://api.themoviedb.org/3").append(path);
+        char sep = '?';
+        if (!bearer) {
+            url.append(sep).append("api_key=").append(apiKey);
+            sep = '&';
+        }
+        if (query != null && !query.isBlank()) {
+            url.append(sep).append(query);
+        }
+        return url.toString();
+    }
+
+    private Optional<ExternalTitleMeta> findResult(String url, Map<String, String> headers, Duration timeout)
+            throws IOException, InterruptedException {
+        JsonNode root = fetchJson(url, headers, timeout);
+        if (root == null) {
+            return Optional.empty();
+        }
+        JsonNode movie = root.path("movie_results").path(0);
+        if (movie != null && !movie.isMissingNode()) {
+            return Optional.of(toMeta(movie, "movie"));
+        }
+        JsonNode tv = root.path("tv_results").path(0);
+        if (tv != null && !tv.isMissingNode()) {
+            return Optional.of(toMeta(tv, "tv"));
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ExternalTitleMeta> detailsMeta(String url, Map<String, String> headers,
+                                                    Duration timeout, String mediaType)
+            throws IOException, InterruptedException {
+        JsonNode root = fetchJson(url, headers, timeout);
+        if (root == null || root.isMissingNode()) {
+            return Optional.empty();
+        }
+        String title = "movie".equals(mediaType) ? root.path("title").asText(null)
+                : root.path("name").asText(null);
+        if (title == null || title.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(toMeta(root, mediaType));
+    }
+
+    private ExternalTitleMeta toMeta(JsonNode node, String mediaType) {
+        String title = "movie".equals(mediaType) ? node.path("title").asText(null)
+                : node.path("name").asText(null);
+        if (title == null || title.isBlank()) {
+            title = node.path("original_title").asText(node.path("original_name").asText(""));
+        }
+        String date = "movie".equals(mediaType) ? node.path("release_date").asText("")
+                : node.path("first_air_date").asText("");
+        Integer year = null;
+        if (date != null && date.length() >= 4) {
+            try {
+                year = Integer.parseInt(date.substring(0, 4));
+            } catch (NumberFormatException e) {
+                LOG.debug("TMDb metadata has an unparseable date '{}'", date);
+            }
+        }
+        String posterPath = node.path("poster_path").asText("");
+        String posterUrl = posterPath == null || posterPath.isBlank() || "null".equals(posterPath)
+                ? null : TMDB_IMAGE_W500 + posterPath;
+        String overview = node.path("overview").asText("");
+        if (overview.length() > 800) {
+            overview = overview.substring(0, 800);
+        }
+        Integer tmdbId = node.path("id").isInt() ? node.path("id").asInt() : null;
+        String imdbId = node.path("imdb_id").asText(null);
+        if (imdbId != null && imdbId.isBlank()) {
+            imdbId = null;
+        }
+        return new ExternalTitleMeta(title, year, posterUrl, mediaType, overview, tmdbId, imdbId);
+    }
+
+    /**
+     * Resolves the IMDb id of a TMDb title (used by the library backfill). Honours the
+     * same key/auth resolution as the rest of the class; returns empty on any failure.
+     */
+    public Optional<String> fetchImdbIdFromTmdb(int tmdbId, boolean isTv) {
+        if (tmdbId <= 0) {
+            return Optional.empty();
+        }
+        String apiKey = getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.debug("TMDb imdb lookup skipped: no API key configured");
+            return Optional.empty();
+        }
+        boolean bearer = isBearerToken(apiKey);
+        Map<String, String> headers = bearer ? Map.of("Authorization", "Bearer " + apiKey) : null;
+        String path = isTv ? "/tv/" + tmdbId : "/movie/" + tmdbId;
+        String query = isTv ? "append_to_response=external_ids" : null;
+        try {
+            JsonNode root = fetchJson(tmdbUrl(path, query, apiKey, bearer), headers, Duration.ofSeconds(30));
+            if (root == null) {
+                return Optional.empty();
+            }
+            String imdbId = isTv ? root.path("external_ids").path("imdb_id").asText(null)
+                    : root.path("imdb_id").asText(null);
+            if (imdbId == null || imdbId.isBlank() || "null".equalsIgnoreCase(imdbId)) {
+                LOG.debug("TMDb has no imdb_id for {} {}", isTv ? "tv" : "movie", tmdbId);
+                return Optional.empty();
+            }
+            return Optional.of(imdbId.trim());
+        } catch (IOException e) {
+            LOG.warn("TMDb imdb id lookup failed for {} {}: {}", isTv ? "tv" : "movie", tmdbId, e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
     }
 
     public Optional<String> fetchPosterUrl(String type, String title, Integer year) {

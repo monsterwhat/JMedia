@@ -212,10 +212,23 @@ if (typeof window.SimplePlayer === 'undefined') {
         }
 
         /** Opens the media stream. Run once, after the audio preference is known. */
-        _openStream() {
+        async _openStream() {
             this._streamOpened = true;
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            if (this.dataHlsEnabled && (this.needsTranscode || this.container.dataset.hlsForced === 'true') && typeof Hls !== 'undefined' && Hls.isSupported()) {
+            // hls.js is ~542 KB and is only needed when this profile actually uses
+            // HLS. Load it here, at the first point where the answer is known,
+            // instead of shipping it in every playback fragment.
+            const wantsHls = this.dataHlsEnabled &&
+                (this.needsTranscode || this.container.dataset.hlsForced === 'true');
+            if (wantsHls && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
+                try {
+                    await window.ensureHlsLoaded();
+                } catch (e) {
+                    // Logged in hls-loader; fall back to the progressive/transcode path.
+                    console.error('[SimplePlayer] hls.js unavailable, falling back to non-HLS playback', e);
+                }
+            }
+            if (wantsHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
                 // Local HLS session: the server transcodes to HLS segments; the element
                 // stays 0-based (streamStartOffset 0) so subtitle ?start= and the absolute
                 // clock both match the master playlist. Resume is a client-side seek after
