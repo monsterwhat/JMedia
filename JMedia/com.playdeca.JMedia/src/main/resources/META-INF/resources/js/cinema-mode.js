@@ -3918,10 +3918,15 @@ window.addEventListener('popstate', () => {
 // which replaces the DOM the first attempt rendered into. Retry briefly, guarded
 // by the URL so a handled link is never opened twice.
 (function bootVideoDeepLink() {
-  const parsed = _parseVideoUrl();
-  if (!_isDeepLink(parsed)) return;
   let attempts = 0;
   const tryOpen = function() {
+    const parsed = _parseVideoUrl();
+    // VideoRoutes may not be evaluated yet on the first pass (the SPA injects the
+    // view scripts asynchronously, in order), so re-check instead of giving up.
+    if (!_isDeepLink(parsed)) {
+      if (++attempts < 8) setTimeout(tryOpen, 500 * attempts);
+      return;
+    }
     const key = window.location.pathname + window.location.search;
     if (window.__videoDeepLinkDone === key || window.__videoDeepLinkOpening === key) return;
     window.__videoDeepLinkOpening = key;
