@@ -10,7 +10,7 @@
             {#for entry in queue}
             <div class="video-queue-item" data-video-id="{entry.video.id}" data-queue-index="{entry.index}">
                 <div class="video-queue-thumbnail">
-                    <img src="/api/video/thumbnail/{entry.video.id}" class="is-skeleton" 
+                    <img src="/api/video/thumbnail/{entry.video.id}" srcset="/api/video/thumbnail/{entry.video.id}?w=144 144w, /api/video/thumbnail/{entry.video.id}?w=288 288w, /api/video/thumbnail/{entry.video.id}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" class="is-skeleton" 
                          alt="{entry.video.title ?: entry.video.seriesTitle}"
                          loading="lazy"
                          onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none'; this.classList.remove('is-skeleton')">

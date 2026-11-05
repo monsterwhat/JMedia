@@ -1,7 +1,7 @@
 {#for video in videos}
 <div class="standard-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'details')">
     <div class="standard-card-poster">
-        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{video.id}" alt="{video.title}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{video.id}" srcset="/api/video/thumbnail/{video.id}?w=144 144w, /api/video/thumbnail/{video.id}?w=288 288w, /api/video/thumbnail/{video.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="{video.title}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         <div class="standard-card-overlay">
             <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({video.id}, 'play')">
                 <i class="pi pi-play"></i>

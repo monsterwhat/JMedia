@@ -8,7 +8,7 @@
      onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
     <div class="standard-card-poster">
         {#if entry.sampleVideoId}
-            <img class="poster-img is-skeleton" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+            <img class="poster-img is-skeleton" src="/api/video/thumbnail/{entry.sampleVideoId}" srcset="/api/video/thumbnail/{entry.sampleVideoId}?w=144 144w, /api/video/thumbnail/{entry.sampleVideoId}?w=288 288w, /api/video/thumbnail/{entry.sampleVideoId}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="{entry.rawTitle}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         {#else}
             <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
                 <i class="pi pi-image"></i>

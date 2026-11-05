@@ -23,7 +23,7 @@
             <div class="standard-card" onclick="window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
                 <div class="standard-card-poster">
                     {#if c.coverVideoId}
-                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{c.coverVideoId}" alt="{c.name}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{c.coverVideoId}" srcset="/api/video/thumbnail/{c.coverVideoId}?w=144 144w, /api/video/thumbnail/{c.coverVideoId}?w=288 288w, /api/video/thumbnail/{c.coverVideoId}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="{c.name}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     {#else}
                         <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
                             <i class="pi pi-th-large" style="font-size:2.5rem;opacity:0.4;"></i>

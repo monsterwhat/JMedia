@@ -65,7 +65,7 @@
             {#for item in newReleases}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
                 <img class="card-image is-skeleton" 
-                     src="/api/video/thumbnail/{item.id}" 
+                     src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                      alt="{item.title ?: item.seriesTitle}"
                      loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
@@ -111,7 +111,7 @@
             {#for item in continueWatching}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
                 <img class="card-image is-skeleton" 
-                     src="/api/video/thumbnail/{item.id}" 
+                     src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                      alt="{item.title ?: item.seriesTitle}"
                      loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
@@ -160,7 +160,7 @@
             {#for item in trending}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
                 <img class="card-image is-skeleton" 
-                     src="/api/video/thumbnail/{item.id}" 
+                     src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                      alt="{item.title ?: item.seriesTitle}"
                      loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
@@ -206,7 +206,7 @@
             {#for item in movies}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
                 <img class="card-image is-skeleton" 
-                     src="/api/video/thumbnail/{item.id}" 
+                     src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                      alt="{item.title ?: item.seriesTitle}"
                      loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
@@ -252,7 +252,7 @@
             {#for item in tvShows}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
                 <img class="card-image is-skeleton" 
-                     src="/api/video/thumbnail/{item.id}" 
+                     src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                      alt="{item.seriesTitle}"
                      loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"

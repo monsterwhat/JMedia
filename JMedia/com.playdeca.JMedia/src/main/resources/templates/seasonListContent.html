@@ -56,7 +56,7 @@
                  onclick="window.switchSection('episodes', \{seriesTitle: '{encodedSeriesTitle}', seasonNumber: {season.seasonNumber}\})">
                 <div class="standard-card-poster">
                     {#if season.sampleVideoId}
-                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{season.sampleVideoId}" alt="Season {season.seasonNumber}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{season.sampleVideoId}" srcset="/api/video/thumbnail/{season.sampleVideoId}?w=144 144w, /api/video/thumbnail/{season.sampleVideoId}?w=288 288w, /api/video/thumbnail/{season.sampleVideoId}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="Season {season.seasonNumber}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     {#else}
                         <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
                             <i class="pi pi-image"></i>

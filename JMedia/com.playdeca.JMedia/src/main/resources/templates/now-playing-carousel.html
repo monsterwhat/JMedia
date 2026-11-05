@@ -17,7 +17,7 @@
           {#if item.mediaType == 'external'}
           <div class="underplayer-card-gradient">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
           {#else}
-          <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'; this.classList.remove('is-skeleton')">
+          <img src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" alt="" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'; this.classList.remove('is-skeleton')">
           <div class="underplayer-card-gradient" style="display:none">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
           {/if}
           {#if item.isCurrent}

@@ -45,7 +45,7 @@
                  style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden; cursor: pointer;">
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
-                    <img src="/api/video/thumbnail/{show.representativeId}" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                    <img src="/api/video/thumbnail/{show.representativeId}" srcset="/api/video/thumbnail/{show.representativeId}?w=144 144w, /api/video/thumbnail/{show.representativeId}?w=288 288w, /api/video/thumbnail/{show.representativeId}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         SHOW
                     </div>
@@ -71,7 +71,7 @@
                  style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden;">
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
-                    <img src="/api/video/thumbnail/{video.id}" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                    <img src="/api/video/thumbnail/{video.id}" srcset="/api/video/thumbnail/{video.id}?w=144 144w, /api/video/thumbnail/{video.id}?w=288 288w, /api/video/thumbnail/{video.id}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         {video.type.toUpperCase()}
                     </div>

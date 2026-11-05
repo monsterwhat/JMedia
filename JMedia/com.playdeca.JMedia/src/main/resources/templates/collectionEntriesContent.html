@@ -1,4 +1,4 @@
-<div class="collection-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(10,10,10,1)), url('{#if heroImageId}/api/video/thumbnail/{heroImageId}{/if}'); margin: 0 2rem 2rem 2rem; border-radius: 16px; height: 40vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1a1a1a; background-size: cover; background-position: center 20%; position: relative; display: flex; align-items: flex-end; overflow: hidden;">
+<div class="collection-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(10,10,10,1)), url('{#if heroImageId}/api/video/thumbnail/{heroImageId}{/if}?w=780'); margin: 0 2rem 2rem 2rem; border-radius: 16px; height: 40vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1a1a1a; background-size: cover; background-position: center 20%; position: relative; display: flex; align-items: flex-end; overflow: hidden;">
     <div class="series-hero-content">
         <div class="mb-2" onclick="videoSPA.goBack()" style="cursor: pointer; display: inline-block; color: rgba(255,255,255,0.6); font-weight: 700; text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; transition: color 0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
             <i class="pi pi-chevron-left mr-1" style="font-size: 0.7rem;"></i> Collections
@@ -61,7 +61,7 @@
                     <div class="entry-order-badge">{entry.orderIndex}</div>
                     {#if entry.video}
                     <div class="entry-thumbnail" onclick="window.selectItem({entry.video.id}, 'details')">
-                        <img src="/api/video/thumbnail/{entry.video.id}" alt="{entry.video.title}" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img src="/api/video/thumbnail/{entry.video.id}" srcset="/api/video/thumbnail/{entry.video.id}?w=144 144w, /api/video/thumbnail/{entry.video.id}?w=288 288w, /api/video/thumbnail/{entry.video.id}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" alt="{entry.video.title}" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     </div>
                     <div class="entry-info" onclick="window.selectItem({entry.video.id}, 'details')">
                         <div class="entry-title entry-title-text">{entry.video.title ?: entry.video.seriesTitle}</div>
@@ -163,7 +163,7 @@
             {#else}
             <div class="standard-card add-card" data-search="{m.title} movie" data-media-type="video" data-media-id="{m.id}" data-entry-id="{m.entryId}" data-in-collection="{m.inCollection}" onclick="toggleCollectionEntry({m.id}, {m.entryId}, {m.inCollection}, 'video')">
                 <div class="standard-card-poster">
-                    <img class="poster-img is-skeleton" src="/api/video/thumbnail/{m.id}" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                    <img class="poster-img is-skeleton" src="/api/video/thumbnail/{m.id}" srcset="/api/video/thumbnail/{m.id}?w=144 144w, /api/video/thumbnail/{m.id}?w=288 288w, /api/video/thumbnail/{m.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     <div class="standard-card-overlay">
                         {#if m.inCollection}
                         <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({m.entryId})"><i class="pi pi-times"></i></div>
@@ -192,7 +192,7 @@
             {#for s in seriesList}
             <div class="standard-card" onclick="tvShowSelectSeries({s_index})" data-index="{s_index}">
                 <div class="standard-card-poster">
-                    <img class="poster-img is-skeleton" src="/api/video/thumbnail/{s.thumbnailId}" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                    <img class="poster-img is-skeleton" src="/api/video/thumbnail/{s.thumbnailId}" srcset="/api/video/thumbnail/{s.thumbnailId}?w=144 144w, /api/video/thumbnail/{s.thumbnailId}?w=288 288w, /api/video/thumbnail/{s.thumbnailId}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                 </div>
                 <div class="standard-card-info">
                     <div class="standard-card-title">{s.seriesTitle}</div>
@@ -212,7 +212,7 @@
                 {#for season in s.seasons}
                 <div class="standard-card" onclick="tvShowSelectSeason({s_index}, {season_index})" data-series-index="{s_index}" data-season-index="{season_index}">
                     <div class="standard-card-poster">
-                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{season.thumbnailId}" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{season.thumbnailId}" srcset="/api/video/thumbnail/{season.thumbnailId}?w=144 144w, /api/video/thumbnail/{season.thumbnailId}?w=288 288w, /api/video/thumbnail/{season.thumbnailId}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     </div>
                     <div class="standard-card-info">
                         <div class="standard-card-title">Season {season.seasonNumber}</div>
@@ -263,7 +263,7 @@
                 {#else}
                 <div class="standard-card add-card" data-search="{ep.title} {ep.seriesTitle} episode" data-media-type="video" data-media-id="{ep.id}" data-entry-id="{ep.entryId}" data-in-collection="{ep.inCollection}" onclick="toggleCollectionEntry({ep.id}, {ep.entryId}, {ep.inCollection}, 'video')">
                     <div class="standard-card-poster">
-                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{ep.id}" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{ep.id}" srcset="/api/video/thumbnail/{ep.id}?w=144 144w, /api/video/thumbnail/{ep.id}?w=288 288w, /api/video/thumbnail/{ep.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                         <div class="standard-card-overlay">
                             {#if ep.inCollection}
                             <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({ep.entryId})"><i class="pi pi-times"></i></div>
@@ -329,7 +329,7 @@
                 {#if entry.video}
                 <div class="standard-card" onclick="window.submitChangeCover({entry.video.id})" data-video-id="{entry.video.id}" style="cursor: pointer;">
                     <div class="standard-card-poster">
-                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{entry.video.id}" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{entry.video.id}" srcset="/api/video/thumbnail/{entry.video.id}?w=144 144w, /api/video/thumbnail/{entry.video.id}?w=288 288w, /api/video/thumbnail/{entry.video.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                         <div class="standard-card-overlay">
                             <div class="standard-play-btn" style="background: var(--standard-accent);"><i class="pi pi-check"></i></div>
                         </div>

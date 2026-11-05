@@ -33,7 +33,7 @@
     <!-- Poster Section -->
     <div class="poster-section">
         <img class="poster-image is-skeleton" 
-             src="/api/video/thumbnail/{item.id}" 
+             src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
              alt="{item.title ?: item.seriesTitle ?: 'Video'}"
              onload="this.classList.remove('is-skeleton')"
              onerror="this.classList.remove('is-skeleton')">

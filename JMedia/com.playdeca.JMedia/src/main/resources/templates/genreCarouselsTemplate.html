@@ -3,7 +3,7 @@
 {#if featured.size > 0}
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url('/api/video/thumbnail/{featured[0].id}');"></div>
+        <div class="hero-background" style="background-image: url('/api/video/thumbnail/{featured[0].id}?w=780');"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
@@ -68,7 +68,7 @@
                      onclick="window.selectItem({json.apply(item)}, 'details')">
                     <div class="card-image-container">
                         <img class="card-image is-skeleton" 
-                              src="/api/video/thumbnail/{item.id}"
+                              src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px"
                              alt="{item.title ?: item.seriesTitle}"
                              onload="this.classList.remove('is-skeleton')"
                              onerror="this.classList.remove('is-skeleton')">
@@ -139,7 +139,7 @@
             <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
                 <div class="card-image-container">
                     <img class="card-image is-skeleton" 
-                         src="/api/video/thumbnail/{item.id}" 
+                         src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                          alt="{item.title ?: item.seriesTitle}"
                          onload="this.classList.remove('is-skeleton')"
                          onerror="this.classList.remove('is-skeleton')">
@@ -188,7 +188,7 @@
             <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
                 <div class="card-image-container">
                     <img class="card-image is-skeleton" 
-                         src="/api/video/thumbnail/{item.id}" 
+                         src="/api/video/thumbnail/{item.id}" srcset="/api/video/thumbnail/{item.id}?w=144 144w, /api/video/thumbnail/{item.id}?w=288 288w, /api/video/thumbnail/{item.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" 
                          alt="{item.title ?: item.seriesTitle}"
                          onload="this.classList.remove('is-skeleton')"
                          onerror="this.classList.remove('is-skeleton')">

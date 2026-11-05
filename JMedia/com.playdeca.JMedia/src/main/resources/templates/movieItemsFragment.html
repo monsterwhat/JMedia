@@ -1,7 +1,7 @@
 {#for movie in movies}
 <div class="standard-card{#if movie.watched} is-watched{/if}" data-video-id="{movie.id}" data-watch-progress="{movie.watchProgressPercent ?: 0}" data-watched="{movie.watched ?: false}" onclick="window.selectItem({movie.id}, 'details')">
     <div class="standard-card-poster">
-        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{movie.id}" alt="{movie.title}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
+        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{movie.id}" srcset="/api/video/thumbnail/{movie.id}?w=144 144w, /api/video/thumbnail/{movie.id}?w=288 288w, /api/video/thumbnail/{movie.id}?w=400 400w" sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px" alt="{movie.title}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         <div class="standard-card-overlay">
             <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({movie.id}, 'play')">
                 <i class="pi pi-play"></i>
