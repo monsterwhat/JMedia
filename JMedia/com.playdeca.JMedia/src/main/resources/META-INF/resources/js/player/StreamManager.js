@@ -606,6 +606,15 @@
                 const v = p.video;
                 const started = v && !v.paused && v.readyState >= 2 && v.currentTime > 0.1;
                 if (started) return;
+                if (v && v.readyState >= 2) {
+                    // The stream decoded fine; the element is simply paused, usually
+                    // because a deep link opened it without a user gesture and Chrome
+                    // blocked autoplay. Reloading here aborts a healthy stream and
+                    // produces "play() interrupted by a new load request" in a loop.
+                    console.log('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
+                    if (typeof p._hideLoading === 'function') p._hideLoading();
+                    return;
+                }
                 console.warn('[SimplePlayer] Playback did not start within ' + ms + 'ms (' + label + '); escalating to H.264');
                 onTimeout();
             }, ms || 15000);
