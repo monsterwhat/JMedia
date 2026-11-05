@@ -361,8 +361,13 @@ public class VideoStreamResource {
         // Match the EXACT probe only. A startsWith("bytes=0-1") check also matched real
         // requests such as "bytes=0-131071" and answered them with Content-Length: 0,
         // which left Chrome with no init segment (black player, "preparing video").
+        // The empty-206 probe response is for iOS Safari ONLY. Chromium's media
+        // stack also opens with Range: bytes=0-1; answering that with an empty
+        // body leaves Chrome with no init segment (readyState 0, "preparing
+        // your video" forever). Non-Safari clients must receive the real bytes.
         boolean tinyRangeProbe = rangeHeader != null
-                && rangeHeader.trim().matches("(?i)bytes=0-[01]");
+                && rangeHeader.trim().matches("(?i)bytes=0-[01]")
+                && transcodingService.isIOSClient(userAgent);
         if (tinyRangeProbe) {
             // Safari rejects changing totals: probe reports the same total + ETag the follow-up
             // range request will use — the segment's byte-relative total when one covers the seek.
