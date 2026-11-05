@@ -13,7 +13,7 @@
       data-season-number="{item.seasonNumber ?: 1}"
       data-episode-number="{item.episodeNumber ?: 0}"
       data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
-      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
+      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} â€¢ {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
       data-start-time="{resumeTime}"
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
@@ -44,7 +44,7 @@
 <script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js"></script>
-<script src="/js/player/StreamManager.js?v=11"></script>
+<script src="/js/player/StreamManager.js?v=12"></script>
 <script src="/js/player/UIBuilder.js?v=5"></script>
 <script src="/js/player/ControlsManager.js"></script>
 <script src="/js/player/FullscreenManager.js"></script>
@@ -58,7 +58,7 @@
 <script src="/js/player/ProgressReporter.js"></script>
 <script src="/js/player/NavigationManager.js?v=2"></script>
 <script src="/js/hls-loader.js"></script>
-<script src="/js/simple-player.js?v=3"></script>
+<script src="/js/simple-player.js?v=4"></script>
 <script>
     (function() {
         if (window.ConversionGate) window.ConversionGate.init();

@@ -303,7 +303,7 @@ class VideoSPA {
 
             <script src="/js/player/Utils.js?v=3"><\/script>
             <script src="/js/player/StateManager.js"><\/script>
-            <script src="/js/player/StreamManager.js?v=11"><\/script>
+            <script src="/js/player/StreamManager.js?v=12"><\/script>
             <script src="/js/player/UIBuilder.js?v=5"><\/script>
             <script src="/js/player/ControlsManager.js"><\/script>
             <script src="/js/player/FullscreenManager.js"><\/script>
@@ -317,7 +317,7 @@ class VideoSPA {
             <script src="/js/player/ProgressReporter.js"><\/script>
             <script src="/js/player/NavigationManager.js"><\/script>
             <script src="/js/hls-loader.js"><\/script>
-            <script src="/js/simple-player.js?v=3"><\/script>
+            <script src="/js/simple-player.js?v=4"><\/script>
             <script>
                 (function() {
                     var requiredModules = [

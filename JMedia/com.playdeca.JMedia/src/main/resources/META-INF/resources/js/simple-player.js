@@ -263,6 +263,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                         // escalate to H.264 if playback has not started in time.
                         this.streamMgr._armPlaybackWatchdog('transcode', () => {
                             if (this._destroyed || this._userPaused) return;
+                            this.streamMgr.disableClientCodecs();
                             this.video.src = this.streamMgr.buildStreamUrl(target, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                             this.video.load();
                             this.video.play().catch(function(e) {
@@ -307,6 +308,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                 // never raises a `video` error on some Windows Chromium builds.
                 this.streamMgr._armPlaybackWatchdog('copy', () => {
                     if (this._destroyed || this._userPaused) return;
+                    // The copy attempt just failed to decode; never advertise the
+                    // codec again or the server will copy the same unplayable stream.
+                    this.streamMgr.disableClientCodecs();
                     this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                     this.video.load();
                     this.video.play().catch(function(e) {
@@ -326,6 +330,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                             self.streamStartOffset = 0;
                             // Escalate, don't repeat: the copy/remux already failed once,
                             // so drop any native-codec bypass and force a server transcode.
+                            self.streamMgr.disableClientCodecs();
                             self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                             self.video.load();
                             self.video.play().catch(function() {});

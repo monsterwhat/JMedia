@@ -59,6 +59,15 @@
         }
 
         /**
+         * Stop advertising client codec support after a failed stream. Every later
+         * request then resolves to a server transcode instead of another copy that
+         * the browser cannot decode (the HEVC black-player case).
+         */
+        disableClientCodecs() {
+            this._clientCodecs = [];
+        }
+
+        /**
          * Capability payload for the server's output-codec selection
          * (`?codecs=hevc,av1`). Probed once per page and cached: the server trusts
          * a non-empty list over its User-Agent heuristics, so a browser that can
@@ -185,13 +194,28 @@
             if (ua.indexOf('firefox') !== -1 || ua.indexOf('fxios') !== -1 || ua.indexOf('gecko/') !== -1) {
                 return false;
             }
-            if (typeof MediaSource === 'undefined' || typeof MediaSource.isTypeSupported !== 'function') {
+            // canPlayType is the only reliable signal for a progressive <video> src.
+            // MediaSource.isTypeSupported() was previously OR'd in here and reports
+            // HEVC as supported in Chromium builds that cannot actually decode it
+            // (no OS codec / no HEVC extension). The server then copied HEVC instead
+            // of transcoding and Chrome showed a black player. Require an explicit
+            // "probably" (Chrome says that only when the decoder really exists).
+            // Chromium's canPlayType is optimistic: it reports "probably" for HEVC
+            // even when no decoder is installed (no OS codec / HEVC extension), and
+            // the element then renders a black frame. MSE.isTypeSupported lies the
+            // same way. So a Chromium UA never "proves" HEVC here; it gets the
+            // server transcode instead. Safari/WebKit genuinely decodes HEVC.
+            if (ua.indexOf('chrome') !== -1 || ua.indexOf('chromium') !== -1 || ua.indexOf('crios') !== -1) {
                 return false;
             }
-            var video = document.createElement('video');
-            return MediaSource.isTypeSupported('video/mp4; codecs="hev1.2.4.L123.B0"') ||
-                MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.4.L123.B0"') ||
-                video.canPlayType('video/mp4; codecs="hev1.2.4.L123.B0"') === 'probably';
+            try {
+                var video = document.createElement('video');
+                return video.canPlayType('video/mp4; codecs="hvc1.2.4.L123.B0"') === 'probably'
+                    || video.canPlayType('video/mp4; codecs="hev1.2.4.L123.B0"') === 'probably';
+            } catch (err) {
+                console.warn('[SimplePlayer] HEVC capability probe failed:', err);
+                return false;
+            }
         }
 
         /**
@@ -357,8 +381,9 @@
             // without ever firing a `video` error. Escalate to a forced H.264
             // transcode when playback has not started in time.
             this._armPlaybackWatchdog('direct', () => {
-                if (p._destroyed || p._userPaused) return;
                 const resumeAt = p.lastKnownGoodPosition > 0 ? p.lastKnownGoodPosition : 0;
+                if (p._destroyed || p._userPaused) return;
+                this.disableClientCodecs();
                 p.video.src = this.buildStreamUrl(resumeAt, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                 p.video.load();
                 p.video.play().catch(function(e) { console.error('[SimplePlayer] Watchdog retry play failed', e); });
@@ -699,6 +724,7 @@
                 // Escalate, don't repeat: a fallback means the copy/HLS path already
                 // failed to play, so force a server transcode instead of re-serving
                 // the same unplayable bytes (previously an infinite fail loop).
+                this.disableClientCodecs();
                 p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=1'], audioCodecs: '' });
                 p.video.load();
                 this._armPlaybackWatchdog('fallback', () => {
