@@ -69,10 +69,25 @@
     (function() {
         if (window.ConversionGate) window.ConversionGate.init();
         if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
+        // The fragment can be executed more than once (modal re-open, script
+        // re-creation, deep-link retry). A second SimplePlayer on the same element
+        // aborts the first one's stream load ("play() interrupted by a new load
+        // request") and leaves a black player, so only mount when no live player
+        // owns this container.
+        const existing = window.currentPlayerInstance;
+        if (existing && existing.container && document.body.contains(existing.container)) {
+            console.log("[Playback] SimplePlayer already mounted - skipping duplicate init");
+            return;
+        }
         console.log("[Playback] Initializing SimplePlayer...");
         const tryInit = () => {
             if (window.ConversionGate) window.ConversionGate.init();
             if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
+            const live = window.currentPlayerInstance;
+            if (live && live.container && document.body.contains(live.container)) {
+                console.log("[Playback] SimplePlayer mounted while waiting - skipping duplicate init");
+                return;
+            }
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
                     containerId: 'customPlayer',

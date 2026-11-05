@@ -63,10 +63,22 @@
     (function() {
         if (window.ConversionGate) window.ConversionGate.init();
         if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
+        // See playbackFragmentCinema.html: never mount a second player over a live
+        // one, or the new load aborts the first stream and the player stays black.
+        const existing = window.currentPlayerInstance;
+        if (existing && existing.container && document.body.contains(existing.container)) {
+            console.log("[Playback] SimplePlayer already mounted - skipping duplicate init");
+            return;
+        }
         console.log("[Playback] Initializing SimplePlayer...");
         const tryInit = () => {
             if (window.ConversionGate) window.ConversionGate.init();
             if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
+            const live = window.currentPlayerInstance;
+            if (live && live.container && document.body.contains(live.container)) {
+                console.log("[Playback] SimplePlayer mounted while waiting - skipping duplicate init");
+                return;
+            }
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
                     containerId: 'customPlayer',

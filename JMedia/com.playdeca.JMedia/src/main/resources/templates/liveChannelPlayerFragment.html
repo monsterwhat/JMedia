@@ -32,8 +32,18 @@
 <script src="/js/simple-player.js?v=4"></script>
 <script>
     (function() {
+        var existing = window.currentPlayerInstance;
+        if (existing && existing.container && document.body.contains(existing.container)) {
+            console.log("[Playback] SimplePlayer already mounted - skipping duplicate live init");
+            return;
+        }
         console.log("[Playback] Initializing SimplePlayer for live channel...");
         var tryInit = function() {
+            var live = window.currentPlayerInstance;
+            if (live && live.container && document.body.contains(live.container)) {
+                console.log("[Playback] SimplePlayer mounted while waiting - skipping duplicate live init");
+                return;
+            }
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
                     containerId: 'customPlayer',
