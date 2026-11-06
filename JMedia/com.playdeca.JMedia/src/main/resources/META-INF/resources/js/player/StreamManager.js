@@ -1165,10 +1165,19 @@
             const p = this.player;
             console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
 
-            // Local HLS session: recreate the session at the target position (the
-            // server encoder starts at 0; resume is a client-side seek after
-            // MANIFEST_PARSED, so a fresh session at ?start=time is the seek).
+            // Local HLS session: prefer a cheap client-side seek when the target is
+            // already buffered, so small skips (back/forward a few seconds) do not
+            // tear down and rebuild the whole encoder. Only fall back to a full
+            // session recreate when the target lies beyond what is buffered.
             if (p._hlsSessionId || p._hlsSessionPending) {
+                const bufLen = p.video.buffered ? p.video.buffered.length : 0;
+                const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
+                if (p.video.readyState > 0 && time >= 0 && time <= bufferedEnd + 1) {
+                    console.log([SimplePlayer] HLS in-buffer seek to s (buffered to s));
+                    try { p.video.currentTime = time; } catch (e) {}
+                    p.video.play().catch(function() {});
+                    return;
+                }
                 this.recreateLocalHlsSession(time);
                 return;
             }
