@@ -493,6 +493,7 @@ public class HlsService {
         try {
             launchAndMonitorVariantEncoder(session, variant, profileId, false);
         } catch (IOException e) {
+            session.state = SessionState.FAILED;
             LOG.error("Failed to start software encoder for session {} variant {}: {}", session.sessionId, variant.name, e.getMessage());
         }
     }
@@ -2037,8 +2038,11 @@ public class HlsService {
     }
 
     private static final long SESSION_IDLE_TTL_MS = 60 * 1000L; // 60s — stop segment generation ~1 min after the player closes
-    /** A brand-new session has no registered FFmpeg process for a moment; never reap it during startup. */
-    private static final long SESSION_STARTUP_GRACE_MS = 30 * 1000L;
+    /** Explicit startup window; a STARTING session is not reaped before this deadline. */
+    private static final long SESSION_STARTUP_DEADLINE_MS = 30 * 1000L;
+
+    /** Session lifecycle: cleanup may only reap ACTIVE (dead/idle) or FAILED sessions. */
+    public enum SessionState { STARTING, ACTIVE, FAILED }
 
     private final ScheduledExecutorService hwRetryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "hls-hw-retry");
@@ -2075,37 +2079,11 @@ public class HlsService {
         
         for (Map.Entry<String, HlsSession> entry : activeSessions.entrySet()) {
             HlsSession session = entry.getValue();
-            if ((now - session.createdAt) < SESSION_STARTUP_GRACE_MS) {
-                // The FFmpeg process is still registering; a just-created session
-                // has no alive process yet and must not be reaped as abandoned.
-                LOG.debug("HLS session {} is still starting, skipping cleanup", session.sessionId);
-                continue;
-            }
-            boolean shouldRemove = false;
-            
-            // Add grace period: don't clean up if restarted less than 2 minutes ago
-            // Check this BEFORE allProcessesDead to prevent cleanup during restart window
             boolean recentlyRestarted = session.lastRestartTimes.values().stream().anyMatch(t -> (now - t) < 120000L);
-            
-            if (recentlyRestarted) {
-                LOG.debug("HLS session {} recently restarted, skipping cleanup for now.", session.sessionId);
-            } else if (session.processes.values().stream().noneMatch(Process::isAlive)) {
-                // No running ffmpeg: for a normally-completed VOD the files are valid
-                // and the client may still be reading them (each segment request refreshes
-                // lastAccessed) — only reap once truly idle past the TTL.
-                if (session.completedNormally && (now - session.lastAccessed) <= SESSION_IDLE_TTL_MS) {
-                    LOG.debug("HLS session {} finished but client still reading, keeping files", session.sessionId);
-                } else {
-                    LOG.debug("HLS session {} has no alive processes, marking for cleanup", session.sessionId);
-                    shouldRemove = true;
-                }
-            } else if ((now - session.lastAccessed) > SESSION_IDLE_TTL_MS) {
-                LOG.info("HLS session {} idle for {} minutes, marking for cleanup", 
-                    session.sessionId, (now - session.lastAccessed) / 60000);
-                shouldRemove = true;
-            }
-            
-            if (shouldRemove) {
+            boolean hasAliveProcess = session.processes.values().stream().anyMatch(Process::isAlive);
+            if (shouldReapSession(session.state, session.createdAt, session.lastAccessed,
+                    session.completedNormally, hasAliveProcess, recentlyRestarted, now)) {
+                LOG.debug("HLS session {} marked for cleanup (state={})", session.sessionId, session.state);
                 toRemove.add(entry.getKey());
             }
         }
@@ -2119,6 +2097,29 @@ public class HlsService {
         if (!toRemove.isEmpty()) {
             LOG.info("Cleaned up {} abandoned HLS sessions", toRemove.size());
         }
+    }
+
+    /**
+     * Cleanup invariant: a STARTING session is never reaped for "no process yet";
+     * only the explicit startup deadline or a FAILED state may remove it. ACTIVE
+     * sessions follow the normal dead-process/idle rules.
+     */
+    static boolean shouldReapSession(SessionState state, long createdAt, long lastAccessed,
+                                     boolean completedNormally, boolean hasAliveProcess,
+                                     boolean recentlyRestarted, long now) {
+        if (state == SessionState.STARTING) {
+            return (now - createdAt) >= SESSION_STARTUP_DEADLINE_MS;
+        }
+        if (state == SessionState.FAILED) {
+            return true;
+        }
+        if (recentlyRestarted) {
+            return false;
+        }
+        if (!hasAliveProcess) {
+            return !(completedNormally && (now - lastAccessed) <= SESSION_IDLE_TTL_MS);
+        }
+        return (now - lastAccessed) > SESSION_IDLE_TTL_MS;
     }
 
     public static class HlsSession {
@@ -2139,6 +2140,13 @@ public class HlsService {
 
         public volatile boolean stopped = false;
         public volatile boolean completedNormally = false;
+
+        /**
+         * STARTING sessions have no registered encoder yet and must never be
+         * reaped as abandoned; only the explicit startup deadline or a failed
+         * encoder may move them out of STARTING.
+         */
+        public volatile SessionState state = SessionState.STARTING;
 
         public volatile String deviceToken;
 
@@ -2172,6 +2180,9 @@ public class HlsService {
 
         public void addProcess(String variantName, Process process) {
             processes.put(variantName, process);
+            // First registered encoder: the session is now genuinely active and
+            // may be reaped by the normal dead-process/idle rules.
+            state = SessionState.ACTIVE;
         }
 
         public void removeProcess(String variantName) {
