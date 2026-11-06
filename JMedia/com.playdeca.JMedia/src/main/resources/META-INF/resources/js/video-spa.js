@@ -303,21 +303,21 @@ class VideoSPA {
 
             <script src="/js/player/Utils.js?v=3"><\/script>
             <script src="/js/player/StateManager.js"><\/script>
-            <script src="/js/player/StreamManager.js?v=13"><\/script>
+            <script src="/js/player/StreamManager.js?v=21"><\/script>
             <script src="/js/player/UIBuilder.js?v=5"><\/script>
             <script src="/js/player/ControlsManager.js"><\/script>
             <script src="/js/player/FullscreenManager.js"><\/script>
-            <script src="/js/player/SubtitleController.js"><\/script>
+            <script src="/js/player/SubtitleController.js?v=2"><\/script>
             <script src="/js/player/AudioTrackSelector.js"><\/script>
             <script src="/js/player/SubtitleSettingsUI.js"><\/script>
             <script src="/js/player/StoryboardManager.js"><\/script>
-            <script src="/js/player/EventBinder.js?v=4"><\/script>
+            <script src="/js/player/EventBinder.js?v=5"><\/script>
             <script src="/js/player/KeyboardShortcuts.js"><\/script>
             <script src="/js/player/SkipController.js"><\/script>
             <script src="/js/player/ProgressReporter.js"><\/script>
             <script src="/js/player/NavigationManager.js"><\/script>
-            <script src="/js/hls-loader.js"><\/script>
-            <script src="/js/simple-player.js?v=4"><\/script>
+            <script src="/js/hls-loader.js?v=2"><\/script>
+            <script src="/js/simple-player.js?v=9"><\/script>
             <script>
                 (function() {
                     var requiredModules = [
