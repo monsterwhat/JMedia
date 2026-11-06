@@ -226,6 +226,20 @@ if (typeof window.SimplePlayer === 'undefined') {
             console.log('[SimplePlayer] Route ' + (wantsHls ? 'HLS/MSE' : 'direct') +
                 ' (needsTranscode=' + this.needsTranscode + ', audioCodec=' + (audioCodec || 'unknown') +
                 ', hlsEnabled=' + this.dataHlsEnabled + ')');
+            // Some browser/OS combinations (Windows N without the Media Feature
+            // Pack, or Chromium builds without proprietary codecs) cannot decode
+            // H.264 in MSE at all — only AV1/Opus. In that case every HLS
+            // variant fails with manifestIncompatibleCodecsError and the direct
+            // fallback also stalls, producing an infinite retry loop. Detect it
+            // up front and tell the user how to fix their environment instead.
+            const hasH264Mse = (typeof MediaSource !== 'undefined') &&
+                MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
+            if (wantsHls && !hasH264Mse) {
+                console.error('[SimplePlayer] H.264 MSE unsupported on this browser/OS; aborting playback');
+                p._showLoading('Playback unavailable: this browser/OS cannot decode H.264. ' +
+                    'On Windows N, install the Media Feature Pack; otherwise use Chrome stable.');
+                return;
+            }
             if (wantsHls && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
                 try {
                     await window.ensureHlsLoaded();
