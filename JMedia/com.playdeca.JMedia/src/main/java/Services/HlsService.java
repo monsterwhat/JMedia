@@ -2023,7 +2023,7 @@ public class HlsService {
                 Set<String> alreadyListed = parseSegmentNames(content);
                 String partial = buildPartialPlaylist(session, variantName, alreadyListed);
                 if (!partial.isEmpty()) {
-                    return ensureEventPlaylistType(content + partial);
+                    return ensureEventPlaylistType(mergePlaylistContent(content, partial));
                 }
                 return content;
             }
@@ -2032,6 +2032,25 @@ public class HlsService {
             LOG.warn("Error reading playlist {}: {}", playlistFile, e.getMessage());
             return buildPartialPlaylist(session, variantName, Collections.emptySet());
         }
+    }
+
+    /**
+     * Joins the encoder-written playlist with locally appended segments.
+     *
+     * <p>Structural invariant: every line of the result is complete. The rewrite
+     * step drops the file's trailing newline ({@code String.split} discards it),
+     * so a naive concatenation glues the last segment URI to the first
+     * {@code #EXTINF} ({@code ...m4s#EXTINF:...}) and hls.js rejects every
+     * refresh with {@code levelParsingError}.
+     */
+    static String mergePlaylistContent(String content, String partial) {
+        if (content == null || content.isEmpty()) {
+            return partial;
+        }
+        if (partial == null || partial.isEmpty()) {
+            return content;
+        }
+        return content.endsWith("\n") ? content + partial : content + "\n" + partial;
     }
 
     private Set<String> parseSegmentNames(String playlist) {
@@ -2131,7 +2150,9 @@ public class HlsService {
             sb.append("#EXT-X-PLAYLIST-TYPE:EVENT\n");
             sb.append("#EXT-X-TARGETDURATION:").append((int)Math.ceil(targetDuration)).append("\n");
             if (USE_FMP4_HLS && !variantName.startsWith("sub_")) {
-                sb.append("#EXT-X-MAP:URI=\"/api/hls/media/" + session.sessionId + "/" + variantName + "/init.mp4\"\n");
+                // Must match the encoder's -hls_fmp4_init_filename ({variant}_init.mp4);
+                // a wrong name 404s the init segment and hls.js aborts the variant.
+                sb.append("#EXT-X-MAP:URI=\"/api/hls/media/" + session.sessionId + "/" + variantName + "/" + variantName + "_init.mp4\"\n");
             }
             sb.append("#EXT-X-MEDIA-SEQUENCE:").append(parseSegmentNumber(segments[0].getName())).append("\n");
             if (session.lastRestartTimes.containsKey(variantName) && 

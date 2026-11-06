@@ -251,7 +251,6 @@
                                         track.label = t.displayName || 'Subtitle';
                                         track.default = true;
                                         track.id = 'subtitle-track-' + t.id;
-                                        track.crossOrigin = 'anonymous';
                                         p.video.appendChild(track);
 
                                         const setupTrack = () => {

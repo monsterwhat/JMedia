@@ -92,6 +92,43 @@ class HlsServiceTest {
     }
 
     @Test
+    void mergedPlaylistNeverGluesLines() {
+        // Regression: rewriteRelativeSegmentPaths drops the file's trailing newline
+        // (String.split discards it), so content + partial glued the last segment
+        // URI to the first #EXTINF (...m4s#EXTINF:...) and hls.js rejected every
+        // variant refresh with levelParsingError. This is the exact response shape
+        // captured from a live copy-mode session.
+        String content = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-MEDIA-SEQUENCE:0\n"
+                + "#EXTINF:8.008000,\n"
+                + "/api/hls/media/sid/video_stream/video_stream_0004.m4s";
+        String partial = "#EXTINF:4.004,\n"
+                + "/api/hls/media/sid/video_stream/video_stream_0005.m4s\n";
+        String merged = HlsService.mergePlaylistContent(content, partial);
+        for (String line : merged.split("\n")) {
+            assertFalse(line.contains(".m4s#"),
+                    "glued line would fail hls.js parsing: " + line);
+        }
+        assertTrue(merged.contains("video_stream_0004.m4s\n#EXTINF:4.004,"),
+                "segment and appended EXTINF must be on separate lines:\n" + merged);
+        // Every non-header line must be preceded by its own EXTINF.
+        String[] lines = merged.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (!line.isEmpty() && !line.startsWith("#") && line.endsWith(".m4s")) {
+                assertTrue(i > 0 && lines[i - 1].trim().startsWith("#EXTINF:"),
+                        "segment without preceding EXTINF: " + line);
+            }
+        }
+    }
+
+    @Test
+    void mergedPlaylistKeepsWellFormedContentUntouched() {
+        String content = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-ENDLIST\n";
+        String merged = HlsService.mergePlaylistContent(content, "");
+        assertEquals(content, merged);
+        assertEquals(content, HlsService.mergePlaylistContent(content, null));
+    }
+    @Test
     void frameRateAttributeIsExact() {
         // HLS FRAME-RATE is decimal-floating-point; the DB has frameRate=0 for
         // this row, so the value must come from the probed bitstream.
