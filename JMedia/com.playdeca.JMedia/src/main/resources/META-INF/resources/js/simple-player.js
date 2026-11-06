@@ -190,6 +190,21 @@ if (typeof window.SimplePlayer === 'undefined') {
                 opened = true;
                 this._openStream();
             };
+            // Start hls.js in parallel with audio-track resolution for the HLS
+            // route. It is ~542 KB and used to load serially right before the
+            // session POST, adding ~0.5-0.7s to time-to-first-frame. Firefox plays
+            // the direct fMP4 path, so skip the download there. ensureHlsLoaded()
+            // is cached, so the later call inside _openStream reuses this request.
+            const audioCodec = (this.container.dataset.audioCodec || '').toLowerCase();
+            const audioNeedsHls = audioCodec !== '' && !/(aac|mp3|opus|flac|vorbis)/.test(audioCodec);
+            const isFirefox = /Firefox\//i.test(navigator.userAgent || '');
+            if (!isFirefox && !window.Hls && typeof window.ensureHlsLoaded === 'function'
+                && (this.needsTranscode || audioNeedsHls
+                    || this.dataHlsEnabled || this.container.dataset.hlsForced === 'true')) {
+                window.ensureHlsLoaded().catch(function () {
+                    // hls-loader already logs the failure; _openStream falls back.
+                });
+            }
             const selector = this.audioTrackSelector;
             if (!selector || typeof selector.init !== 'function') {
                 open();

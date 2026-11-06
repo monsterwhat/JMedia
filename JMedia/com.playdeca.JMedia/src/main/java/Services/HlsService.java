@@ -402,34 +402,11 @@ public class HlsService {
 
     private void launchAndMonitorVariantEncoder(HlsSession session, VariantConfig variant, Long profileId, boolean useHardware) throws IOException {
         Process process = startVariantEncoderProcess(session, variant, profileId, useHardware);
-
-        // Check for early crash (first 2 seconds)
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        if (!process.isAlive()) {
-            int exitCode = process.exitValue();
-            String err = readProcessOutput(process);
-            LOG.debug("HLS encoder for session {} variant {} exited early (code {}): {}", session.sessionId, variant.name, exitCode, err);
-            if (exitCode != 0) {
-                if (useHardware && isHardwareError(err)) {
-                    throw new IOException("HW encoder failed early with exit code " + exitCode);
-                }
-                throw new IOException("FFmpeg exited with code " + exitCode + ": " + err);
-            }
-        }
-
+        // Register and monitor immediately. startEncoderMonitor owns the early-exit
+        // handling (retry with backoff, hardware→software fallback) and normal
+        // completion (finalize). The old 2s sleep serialized this work onto the
+        // session-creation request for no benefit.
         session.addProcess(variant.name, process);
-
-        if (!process.isAlive()) {
-            LOG.info("HLS encoder for session {} variant {} finished normally, stream complete", session.sessionId, variant.name);
-            finalizePlaylist(session, variant.name);
-            return;
-        }
-
         startEncoderMonitor(session, variant, profileId, process, useHardware);
         LOG.info("Started HLS encoder for session {} variant {} ({}acceleration)", session.sessionId, variant.name, useHardware ? "HW " : "software ");
     }
@@ -445,40 +422,10 @@ public class HlsService {
 
         try {
             Process process = startVariantEncoderProcess(session, variant, profileId, true);
-
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-
-            if (!process.isAlive()) {
-                int exitCode = process.exitValue();
-                String output = readProcessOutput(process);
-                session.removeProcess(vName);
-                session.lastRestartTimes.put(vName, System.currentTimeMillis());
-
-                // Exit code 0 means the encoder finished the whole stream (VOD
-                // end-of-file): finalize the playlist and stop — do NOT restart.
-                if (exitCode == 0) {
-                    LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
-                    finalizePlaylist(session, vName);
-                    return;
-                }
-
-                int attempt = session.getRestartCount(vName) + 1;
-                session.incrementRestartCount(vName);
-                if (attempt >= HW_ENCODER_MAX_RETRIES) {
-                    LOG.warn("HW encoder for {} exited early (code {}), {} consecutive failures, falling back to software. Last output: {}", vName, exitCode, attempt, truncateForLog(output));
-                    fallBackToSoftwareEncoder(session, variant, profileId);
-                } else {
-                    LOG.warn("HW encoder for {} exited early (code {}), will retry in 10s (attempt {}/{}). Output: {}", vName, exitCode, attempt, HW_ENCODER_MAX_RETRIES, truncateForLog(output));
-                    scheduleHwRetry(session, variant, profileId);
-                }
-                return;
-            }
-
+            // Register and monitor immediately. The monitor already handles an
+            // early exit (crash → retry/fallback, code 0 → finalize). Blocking the
+            // session-creation request here for 2s only delayed the client's first
+            // playlist fetch; the encoder runs in the background either way.
             session.addProcess(vName, process);
             startHwMonitor(session, variant, profileId, process);
         } catch (IOException e) {
