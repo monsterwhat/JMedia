@@ -2837,6 +2837,26 @@ function createProfile() {
 // ============================================================
 // Actions
 // ============================================================
+/**
+ * Toggle the SPA between the browse chrome and the dedicated player view.
+ * The player is a full-page view, not a floating dialog: while it is open the
+ * hero / browse sections / dock are hidden so nothing from the library shows
+ * behind it, and they are restored when playback closes.
+ */
+function setPlayerViewActive(active) {
+  document.body.classList.toggle('player-view-active', active);
+  const hero = document.getElementById('cinema-hero');
+  const content = document.querySelector('.cinema-content');
+  const dynamic = document.getElementById('section-dynamic');
+  const dock = document.querySelector('.cinema-dock');
+  const nav = document.querySelector('.cinema-nav');
+  if (hero) hero.style.display = active ? 'none' : '';
+  if (content) content.style.display = active ? 'none' : '';
+  if (dynamic) dynamic.style.display = active ? 'none' : (dynamic.dataset.section ? '' : 'none');
+  if (dock) dock.style.display = active ? 'none' : '';
+  if (nav) nav.style.display = active ? 'none' : '';
+}
+
 async function openPlayerModal(videoId, collectionId) {
   // B11: teardown before innerHTML — destroys the ghost from the previous episode
   if (typeof currentPlayerInstance !== 'undefined' && currentPlayerInstance) {
@@ -2857,6 +2877,7 @@ async function openPlayerModal(videoId, collectionId) {
   // can still collapse it back to the windowed size.
   modal.classList.add('is-expanded');
   document.body.style.overflow = 'hidden';
+  setPlayerViewActive(true);
 
   // Shareable player URL: /video/watch/{imdb|tmdb}[/s01e02]
   _pushWatchUrlForVideo(videoId);
@@ -2950,11 +2971,7 @@ function closePlayerModal() {
   }
   if (backdrop) backdrop.classList.remove('active');
   document.body.style.overflow = '';
-
-  const expandIcon = document.getElementById('player-expand-icon');
-  if (expandIcon) {
-    expandIcon.className = 'fa-solid fa-expand';
-  }
+  setPlayerViewActive(false);
 
   closeEpisodeSidebar();
   closeSubtitleSearchSidebar();
