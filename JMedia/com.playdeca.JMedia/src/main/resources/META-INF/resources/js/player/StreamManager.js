@@ -567,7 +567,11 @@
                 if (p.lastKnownGoodPosition <= 0) p.lastKnownGoodPosition = savedTime;
                 this._initHlsExternalStream(data.playlistUrl, savedTime, {
                     fallbackToDirect: true,
-                    loadingMessage: 'Loading HLS stream...'
+                    loadingMessage: 'Loading HLS stream...',
+                    // Local library sessions are growing VOD, not live TV: without
+                    // this hls.js applies liveSyncDurationCount and starts at the
+                    // encoder's latest segment instead of 0:00.
+                    live: false
                 });
             } catch (err) {
                 console.error('[SimplePlayer] HLS session creation failed:', err);
@@ -672,12 +676,17 @@
                 p._hlsInstance = null;
             }
 
-            const hls = new Hls({
-                // Start near the live edge for live channels; harmless for VOD.
-                liveSyncDurationCount: 3,
-                liveMaxLatencyDurationCount: 6,
-                maxLiveSyncPlaybackRate: 1.5
-            });
+            // Live-edge sync is only for live channels. A local library session is
+            // a growing VOD EVENT playlist; applying live sync made it start at the
+            // latest encoded segment and appear to skip.
+            const hlsConfig = (opts && opts.live === false)
+                ? {}
+                : {
+                    liveSyncDurationCount: 3,
+                    liveMaxLatencyDurationCount: 6,
+                    maxLiveSyncPlaybackRate: 1.5
+                };
+            const hls = new Hls(hlsConfig);
             p._hlsInstance = hls;
             p._hlsNetworkRetries = 0;
 

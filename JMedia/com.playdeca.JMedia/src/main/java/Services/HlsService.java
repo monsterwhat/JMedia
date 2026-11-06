@@ -1734,11 +1734,12 @@ public class HlsService {
         try {
             String content = Files.readString(playlistFile);
             content = rewriteRelativeSegmentPaths(content, session.sessionId, variantName);
+            content = ensureEventPlaylistType(content);
             if (!content.contains("#EXT-X-ENDLIST")) {
                 Set<String> alreadyListed = parseSegmentNames(content);
                 String partial = buildPartialPlaylist(session, variantName, alreadyListed);
                 if (!partial.isEmpty()) {
-                    return content + partial;
+                    return ensureEventPlaylistType(content + partial);
                 }
                 return content;
             }
@@ -1788,6 +1789,26 @@ public class HlsService {
         return sb.toString();
     }
 
+    /**
+     * Mark a growing local-library playlist as an EVENT, not a live stream.
+     * Without this, hls.js treats the growing VOD playlist as live, applies
+     * liveSyncDurationCount, and starts at the encoder's latest segment instead
+     * of at 0:00.
+     */
+    private static String ensureEventPlaylistType(String content) {
+        if (content == null || content.contains("#EXT-X-PLAYLIST-TYPE:")) return content;
+        int version = content.indexOf("#EXT-X-VERSION:");
+        if (version >= 0) {
+            int lineEnd = content.indexOf('\n', version);
+            if (lineEnd >= 0) {
+                return content.substring(0, lineEnd + 1)
+                        + "#EXT-X-PLAYLIST-TYPE:EVENT\n"
+                        + content.substring(lineEnd + 1);
+            }
+        }
+        return "#EXT-X-PLAYLIST-TYPE:EVENT\n" + content;
+    }
+
     private String buildPartialPlaylist(HlsSession session, String variantName, Set<String> alreadyListed) {
         StringBuilder sb = new StringBuilder();
 
@@ -1802,6 +1823,7 @@ public class HlsService {
                 sb.append("#EXTM3U\n");
                 sb.append("#EXT-X-VERSION:").append(USE_FMP4_HLS ? 7 : 3).append("\n");
                 sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
+                sb.append("#EXT-X-PLAYLIST-TYPE:EVENT\n");
                 sb.append("#EXT-X-TARGETDURATION:6\n");
                 sb.append("#EXT-X-MEDIA-SEQUENCE:0\n");
             }
@@ -1822,6 +1844,7 @@ public class HlsService {
             sb.append("#EXTM3U\n");
             sb.append("#EXT-X-VERSION:").append(USE_FMP4_HLS ? 7 : 3).append("\n");
             sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
+            sb.append("#EXT-X-PLAYLIST-TYPE:EVENT\n");
             sb.append("#EXT-X-TARGETDURATION:").append((int)Math.ceil(targetDuration)).append("\n");
             if (USE_FMP4_HLS && !variantName.startsWith("sub_")) {
                 sb.append("#EXT-X-MAP:URI=\"/api/hls/media/" + session.sessionId + "/" + variantName + "/init.mp4\"\n");
