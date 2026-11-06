@@ -713,12 +713,25 @@
             // Live-edge sync is only for live channels. A local library session is
             // a growing VOD EVENT playlist; applying live sync made it start at the
             // latest encoded segment and appear to skip.
+            // Chrome/Chromium (134+) and other browsers started exposing
+            // `ManagedMediaSource`, and hls.js 1.6.x defaults
+            // `preferManagedMediaSource` to true. ManagedMediaSource.isTypeSupported
+            // rejects codecs that regular MediaSource accepts (e.g. avc1.640020),
+            // so every variant gets filtered out and hls.js emits
+            // manifestIncompatibleCodecsError even though the bytes are playable.
+            // ManagedMediaSource is really a Safari/AirPlay feature, so only use
+            // it there; everywhere else use MediaSource directly.
+            const preferManagedMediaSource =
+                (typeof window.ManagedMediaSource !== 'undefined') &&
+                /Safari/.test(navigator.userAgent || '') &&
+                !/Chrome|Chromium|Edg|OPR|Firefox/.test(navigator.userAgent || '');
             const hlsConfig = (opts && opts.live === false)
-                ? {}
+                ? { preferManagedMediaSource: preferManagedMediaSource }
                 : {
                     liveSyncDurationCount: 3,
                     liveMaxLatencyDurationCount: 6,
-                    maxLiveSyncPlaybackRate: 1.5
+                    maxLiveSyncPlaybackRate: 1.5,
+                    preferManagedMediaSource: preferManagedMediaSource
                 };
             const hls = new Hls(hlsConfig);
             p._hlsInstance = hls;
@@ -773,7 +786,7 @@
                 if (!data.fatal) return;
                 console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
                 if (data.details === 'manifestIncompatibleCodecsError') {
-                    console.error('[SimplePlayer] HLS rejected the manifest codecs:', data.reason || '(no reason)', this._codecSupportReport());
+                    console.error('[SimplePlayer] HLS rejected the manifest codecs:', data.reason || '(no reason)', JSON.stringify(this._codecSupportReport()));
                 }
                 this._clearPlaybackWatchdog();
                 if (p._userPaused) {
