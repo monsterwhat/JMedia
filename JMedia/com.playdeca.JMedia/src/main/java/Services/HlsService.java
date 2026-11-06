@@ -894,7 +894,11 @@ public class HlsService {
                         addedGpuFmtFilter = true;
                     }
                 }
-                if (!addedGpuFmtFilter) {
+                // Never set a software pixel format on hardware frames: it forces an
+                // auto-inserted swscale after the vendor filter and fails with
+                // "Impossible to convert between ... qsv -> yuv420p". The vendor
+                // scale/format filter below performs P010 -> NV12 on the GPU.
+                if (!addedGpuFmtFilter && !hwFramesOnDevice) {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
@@ -913,8 +917,14 @@ public class HlsService {
                     sourceH = Integer.parseInt(session.video.resolution.split("x")[1]);
                 }
             } catch (Exception ignored) {}
-            if (variant.height < sourceH) {
-                String scaleFilter = buildScaleFilter(hwDecoder, hwEncoder, variant.height, session.video.resolution);
+            // Hardware frames must always go through the vendor filter so the
+            // decoder's native format (P010 for 10-bit HEVC) is converted to the
+            // encoder's NV12 input. When no downscale is needed, use the source
+            // height purely for that format conversion.
+            boolean wantScale = variant.height < sourceH;
+            if (wantScale || hwFramesOnDevice) {
+                int filterHeight = wantScale ? variant.height : sourceH;
+                String scaleFilter = buildScaleFilter(hwDecoder, hwEncoder, filterHeight, session.video.resolution);
                 if (scaleFilter != null) {
                     command.add("-vf");
                     command.add(scaleFilter);
