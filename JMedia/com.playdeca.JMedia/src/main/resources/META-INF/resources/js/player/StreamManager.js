@@ -981,8 +981,9 @@
             }, 10000);
 
             p.video.pause();
-            p.video.src = "";
-            p.video.load();
+            p.video.pause();
+            try { p.video.removeAttribute('src'); } catch (e) {}
+            try { p.video.load(); } catch (e) {}
 
             if (p.needsTranscode) {
                 p.streamStartOffset = Math.max(0, savedTime);
@@ -1118,8 +1119,9 @@
             }, 10000);
 
             p.video.pause();
-            p.video.src = "";
-            p.video.load();
+            p.video.pause();
+            try { p.video.removeAttribute('src'); } catch (e) {}
+            try { p.video.load(); } catch (e) {}
 
             // HLS keeps a 0-based element timeline (streamStartOffset stays 0 so
             // subtitle ?start= and the absolute clock both match the master
@@ -1154,8 +1156,9 @@
                 p._hlsInstance = null;
             }
             this.destroyLocalHlsSession();
-            p.video.src = "";
-            p.video.load();
+            p.video.pause();
+            try { p.video.removeAttribute('src'); } catch (e) {}
+            try { p.video.load(); } catch (e) {}
         }
 
         performServerSeek(time) {
@@ -1359,8 +1362,9 @@
 
             const resumeAfterSeek = !p.video.paused && !p.video.ended;
             p.video.pause();
-            p.video.src = "";
-            p.video.load();
+            p.video.pause();
+            try { p.video.removeAttribute('src'); } catch (e) {}
+            try { p.video.load(); } catch (e) {}
 
             p.streamStartOffset = Math.max(0, time);
             // F7: Reset stall-detection state (mirror switchAudioTrack)

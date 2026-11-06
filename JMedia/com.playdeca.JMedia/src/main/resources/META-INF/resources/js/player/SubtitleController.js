@@ -97,6 +97,8 @@
         async _initAssSubtitleInner(trackId) {
             const p = this.player;
             console.log('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
+            // Clear any stale Firefox overlay so a previous native-track cue can't linger.
+            try { const ov = document.getElementById('firefox-subtitle-overlay'); if (ov) { ov.innerHTML = ''; ov.classList.remove('active'); } } catch (e) {}
             await this.loadJassub();
             // Inline teardown: this already runs inside the serialized chain, so
             // awaiting the previous renderer here guarantees it is fully gone
@@ -126,14 +128,18 @@
                     content = this.applyStyleToAssContent(content, savedStyle);
                 }
 
-                let canvas = document.getElementById('assCanvas');
-                if (!canvas) {
-                    const wrapper = p.container.querySelector('.video-wrapper');
-                    canvas = document.createElement('canvas');
-                    canvas.id = 'assCanvas';
-                    canvas.className = 'ass-canvas';
-                    (wrapper || p.container).appendChild(canvas);
+                // Drop any stale canvas so a previously rendered language can never linger
+                // under the new renderer (Firefox in particular kept the old frame).
+                const staleCanvas = document.getElementById('assCanvas');
+                if (staleCanvas) {
+                    try { const ctx = staleCanvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, staleCanvas.width, staleCanvas.height); } catch (e) {}
+                    staleCanvas.remove();
                 }
+                const wrapper = p.container.querySelector('.video-wrapper');
+                const canvas = document.createElement('canvas');
+                canvas.id = 'assCanvas';
+                canvas.className = 'ass-canvas';
+                (wrapper || p.container).appendChild(canvas);
 
                 const userCorrection = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
                 const totalOffset = (p.streamStartOffset || 0) + userCorrection;
