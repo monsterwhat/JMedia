@@ -788,6 +788,13 @@
                 if (data.details === 'manifestIncompatibleCodecsError') {
                     console.error('[SimplePlayer] HLS rejected the manifest codecs:', data.reason || '(no reason)', JSON.stringify(this._codecSupportReport()));
                 }
+                if (data.details === 'bufferAppendError') {
+                    // Name the underlying cause (MSE exception + fragment) instead
+                    // of leaving a bare label that cannot be diagnosed.
+                    console.error('[SimplePlayer] HLS append failure detail:',
+                        (data.error && data.error.message) || data.reason || '(no detail)',
+                        data.frag ? ('frag sn ' + data.frag.sn + ' ' + String(data.frag.url || '').slice(-70)) : '(no frag)');
+                }
                 this._clearPlaybackWatchdog();
                 if (p._userPaused) {
                     console.log('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');

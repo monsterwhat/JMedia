@@ -46,13 +46,30 @@
             }
         }
 
+        /**
+         * Serialized ASS teardown. JASSUB.destroy() is asynchronous: it waits for
+         * the worker, terminates it and removes the shared canvas. Starting a new
+         * renderer before the previous teardown finishes leaves two workers drawing
+         * into one canvas (the previously selected language stays visible) and lets
+         * the stale teardown remove the canvas out from under the new renderer (no
+         * subtitles at all). Every teardown and every init runs through one chain,
+         * so a destroy always fully completes before the next renderer is created.
+         */
         destroyAssSubtitle() {
             const p = this.player;
-            if (p.jassubRenderer) {
-                console.log('[SimplePlayer] Destroying ASS subtitle renderer');
-                p.jassubRenderer.destroy();
+            const run = async () => {
+                const stale = p.jassubRenderer;
                 p.jassubRenderer = null;
-            }
+                if (!stale) return;
+                console.log('[SimplePlayer] Destroying ASS subtitle renderer');
+                try {
+                    await stale.destroy();
+                } catch (e) {
+                    console.warn('[SimplePlayer] ASS destroy failed:', e);
+                }
+            };
+            p._assChain = (p._assChain || Promise.resolve()).then(run, run);
+            return p._assChain;
         }
 
         async loadJassub() {
@@ -68,9 +85,33 @@
 
         async initAssSubtitle(trackId) {
             const p = this.player;
+            // Atomic with teardown: rapid re-selection (EN -> RU -> EN) chains
+            // behind any in-flight destroy instead of interleaving with it.
+            // The teardown runs inline (not via destroyAssSubtitle, which would
+            // wait on this same chain and deadlock).
+            const run = () => this._initAssSubtitleInner(trackId);
+            p._assChain = (p._assChain || Promise.resolve()).then(run, run);
+            return p._assChain;
+        }
+
+        async _initAssSubtitleInner(trackId) {
+            const p = this.player;
             console.log('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
             await this.loadJassub();
-            this.destroyAssSubtitle();
+            // Inline teardown: this already runs inside the serialized chain, so
+            // awaiting the previous renderer here guarantees it is fully gone
+            // (worker terminated, canvas released) before the new one starts.
+            const stale = p.jassubRenderer;
+            p.jassubRenderer = null;
+            if (stale) {
+                try {
+                    await stale.destroy();
+                } catch (e) {
+                    console.warn('[SimplePlayer] ASS destroy failed:', e);
+                }
+            }
+            // A chained destroyAssSubtitle() queued while this init was fetching
+            // may have cleared the slot; the chain order guarantees it already ran.
             try {
                 const res = await fetch(`/api/video/subtitles/track/${trackId}/raw`);
                 if (!res.ok) {
