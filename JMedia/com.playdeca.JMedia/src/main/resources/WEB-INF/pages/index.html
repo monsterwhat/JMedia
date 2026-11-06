@@ -87,7 +87,7 @@
                 background: #ffffff;
                 transition: opacity 0.35s ease;
             }
-            html[data-theme="dark"] #jmedia-splash { background: #0a0a0a; }
+            #jmedia-splash.is-dark { background: #0a0a0a; }
             #jmedia-splash.is-hidden { opacity: 0; pointer-events: none; }
             #jmedia-splash img { width: 120px; height: 120px; object-fit: contain; }
             #jmedia-splash .jmedia-splash-spinner {
@@ -113,25 +113,44 @@
             (function () {
                 var splash = document.getElementById('jmedia-splash');
                 if (!splash) return;
+
+                // Match the theme the user will actually see: the explicit page theme,
+                // else the system preference. The cinema/video area is dark regardless
+                // of the music-page theme, so force dark there.
+                var theme = document.documentElement.getAttribute('data-theme');
+                var dark;
+                if (theme === 'dark') dark = true;
+                else if (theme === 'light') dark = false;
+                else dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (/^\/video(\/|$)/.test(window.location.pathname)) dark = true;
+                if (dark) splash.classList.add('is-dark');
+
                 var shownAt = Date.now();
                 var MIN_MS = 400;
-                var hidden = false;
+                var visible = true;
+                var hideToken = 0;
 
                 function hide() {
-                    if (hidden) return;
-                    hidden = true;
+                    if (!visible) return;
+                    var token = ++hideToken;
                     var wait = Math.max(0, MIN_MS - (Date.now() - shownAt));
                     setTimeout(function () {
+                        if (token !== hideToken) return;
+                        visible = false;
                         splash.classList.add('is-hidden');
-                        setTimeout(function () {
-                            if (splash.parentNode) splash.parentNode.removeChild(splash);
-                        }, 400);
                     }, wait);
                 }
 
-                window.JMediaSplash = { hide: hide };
+                function show() {
+                    hideToken++;
+                    shownAt = Date.now();
+                    visible = true;
+                    splash.classList.remove('is-hidden');
+                }
+
+                window.JMediaSplash = { show: show, hide: hide };
                 window.addEventListener('load', hide);
-                // Never leave the splash stuck if something never finishes loading.
+                // Never leave the splash stuck if the first load never completes.
                 setTimeout(hide, 15000);
             })();
         </script>

@@ -104,6 +104,11 @@ var _notInLibrary = false;
 // URL again, so the history entry the user arrived with stays untouched.
 var _suppressUrlWrite = false;
 
+// True when the current /video/watch URL was pushed by us (as opposed to the user
+// opening a shareable link directly). Lets the player's close button go "back" to
+// the view the user came from instead of always landing on the library home.
+var _watchUrlPushed = false;
+
 function _pushInfoUrl(token) {
   if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
   const url = VideoRoutes.infoUrl(token);
@@ -121,6 +126,7 @@ function _pushWatchUrl(token, season, episode) {
   if (!url || window.location.pathname === url) return;
   try {
     history.pushState({ video: { area: 'watch', token: token } }, '', url);
+    _watchUrlPushed = true;
   } catch (e) {
     console.warn('[cinema] pushState watch failed', e);
   }
@@ -147,6 +153,7 @@ async function _pushWatchUrlForVideo(videoId) {
       if (data && data.found && data.watch) {
         if (window.location.pathname !== data.watch) {
           history.pushState({ video: { area: 'watch', token: data.token } }, '', data.watch);
+          _watchUrlPushed = true;
         }
         return;
       }
@@ -1048,6 +1055,7 @@ async function showSection(section) {
 
   // Handle dynamic sections (liveTv, collections, nowPlaying)
   if (section === 'liveTv' || section === 'collections' || section === 'nowPlaying') {
+    splashShow(true);
     // Hide all static sections
     allSections.forEach(s => { s.style.display = 'none'; });
     document.querySelectorAll('.cinema-section-header[id]').forEach(h => h.style.display = 'none');
@@ -1063,9 +1071,9 @@ async function showSection(section) {
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
 
     if (section === 'liveTv') {
-      renderLiveTvSection(container);
+      Promise.resolve(renderLiveTvSection(container)).finally(splashHide);
     } else if (section === 'collections') {
-      renderCollectionsSection(container);
+      Promise.resolve(renderCollectionsSection(container)).finally(splashHide);
     } else if (section === 'nowPlaying') {
       // Keep fragment approach for nowPlaying (mobile-only)
       try {
@@ -1080,6 +1088,7 @@ async function showSection(section) {
       } catch(e) {
         container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading now playing.</div>';
       }
+      splashHide();
     }
 
     return;
@@ -2837,6 +2846,17 @@ function createProfile() {
 // ============================================================
 // Actions
 // ============================================================
+/** Show/hide the global first-paint splash when navigating inside the SPA. */
+function splashShow(dark) {
+  if (!window.JMediaSplash) return;
+  var el = document.getElementById('jmedia-splash');
+  if (el && dark !== false) el.classList.add('is-dark');
+  window.JMediaSplash.show();
+}
+function splashHide() {
+  if (window.JMediaSplash) window.JMediaSplash.hide();
+}
+
 /**
  * Toggle the SPA between the browse chrome and the dedicated player view.
  * The player is a full-page view, not a floating dialog: while it is open the
@@ -2878,8 +2898,10 @@ async function openPlayerModal(videoId, collectionId) {
   modal.classList.add('is-expanded');
   document.body.style.overflow = 'hidden';
   setPlayerViewActive(true);
+  splashShow(true);
 
   // Shareable player URL: /video/watch/{imdb|tmdb}[/s01e02]
+  _watchUrlPushed = false;
   _pushWatchUrlForVideo(videoId);
 
   try {
@@ -2925,14 +2947,16 @@ async function openPlayerModal(videoId, collectionId) {
     // Init episode sidebar after player fragment is loaded
     initEpisodeSidebar();
     initSubtitleSearchSidebar();
+    splashHide();
   } catch (err) {
     console.error('[player-modal] failed to load playback fragment', err);
     content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load player</div>`;
+    splashHide();
   }
 }
 
-function closePlayerModal() {
-  if (window.location.pathname.indexOf('/video/watch/') === 0) _resetUrlToBrowse();
+function closePlayerModal(reason) {
+  const wasWatchUrl = window.location.pathname.indexOf('/video/watch/') === 0;
   const backdrop = document.getElementById('player-modal-backdrop');
   const modal = document.getElementById('player-modal');
   const content = document.getElementById('player-modal-content');
@@ -2975,6 +2999,26 @@ function closePlayerModal() {
 
   closeEpisodeSidebar();
   closeSubtitleSearchSidebar();
+
+  // reason === 'view': the user closed the player (X / backdrop / Escape). If we
+  // pushed the watch URL, go back to the view they came from so it behaves like a
+  // real routed page; otherwise fall back to the library. 'back' means popstate
+  // already moved the URL. Anything else is an internal close (episode switch) and
+  // keeps the legacy reset so the next open can write the new watch URL.
+  if (reason === 'view') {
+    if (wasWatchUrl && _watchUrlPushed && window.history.length > 1) {
+      _watchUrlPushed = false;
+      history.back();
+    } else if (wasWatchUrl) {
+      _resetUrlToBrowse();
+    }
+  } else if (reason !== 'back' && wasWatchUrl) {
+    _resetUrlToBrowse();
+  }
+}
+
+function closePlayerView() {
+  closePlayerModal('view');
 }
 
 // ============================================================
@@ -3983,7 +4027,7 @@ window.addEventListener('popstate', () => {
   }
   // Left a deep link: close whatever was open and show the browse section.
   const playerModal = document.getElementById('player-modal');
-  if (playerModal && playerModal.classList.contains('active')) closePlayerModal();
+  if (playerModal && playerModal.classList.contains('active')) closePlayerModal('back');
   const cinemaModal = document.getElementById('cinema-modal');
   if (cinemaModal && cinemaModal.classList.contains('active')) closeModal();
   const p = new URLSearchParams(window.location.search);
@@ -4132,11 +4176,7 @@ document.addEventListener('keydown', (e) => {
     if (dock && dock.classList.contains('searching')) {
       closeSearch();
     } else if (playerModal?.classList.contains('active')) {
-      if (playerModal.classList.contains('is-expanded')) {
-        togglePlayerExpand();
-      } else {
-        closePlayerModal();
-      }
+      closePlayerView();
     } else {
       const settingsModal = document.getElementById('settings-modal');
       const detailsModal = document.getElementById('cinema-modal');

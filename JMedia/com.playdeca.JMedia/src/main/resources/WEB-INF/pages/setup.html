@@ -96,7 +96,7 @@
         <!-- First-paint splash (inline so it renders before external assets). -->
         <style>
             #jmedia-splash { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; background: #ffffff; transition: opacity 0.35s ease; }
-            html[data-theme="dark"] #jmedia-splash { background: #0a0a0a; }
+            #jmedia-splash.is-dark { background: #0a0a0a; }
             #jmedia-splash.is-hidden { opacity: 0; pointer-events: none; }
             #jmedia-splash img { width: 120px; height: 120px; object-fit: contain; }
             #jmedia-splash .jmedia-splash-spinner { width: 38px; height: 38px; border-radius: 50%; border: 3px solid rgba(72, 199, 116, 0.25); border-top-color: #48c774; animation: jmedia-splash-spin 0.8s linear infinite; }
@@ -113,17 +113,30 @@
             (function () {
                 var splash = document.getElementById('jmedia-splash');
                 if (!splash) return;
-                var shownAt = Date.now(), MIN_MS = 400, hidden = false;
+                var theme = document.documentElement.getAttribute('data-theme');
+                var dark;
+                if (theme === 'dark') dark = true;
+                else if (theme === 'light') dark = false;
+                else dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (dark) splash.classList.add('is-dark');
+                var shownAt = Date.now(), MIN_MS = 400, visible = true, hideToken = 0;
                 function hide() {
-                    if (hidden) return;
-                    hidden = true;
+                    if (!visible) return;
+                    var token = ++hideToken;
                     var wait = Math.max(0, MIN_MS - (Date.now() - shownAt));
                     setTimeout(function () {
+                        if (token !== hideToken) return;
+                        visible = false;
                         splash.classList.add('is-hidden');
-                        setTimeout(function () { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 400);
                     }, wait);
                 }
-                window.JMediaSplash = { hide: hide };
+                function show() {
+                    hideToken++;
+                    shownAt = Date.now();
+                    visible = true;
+                    splash.classList.remove('is-hidden');
+                }
+                window.JMediaSplash = { show: show, hide: hide };
                 window.addEventListener('load', hide);
                 setTimeout(hide, 15000);
             })();
