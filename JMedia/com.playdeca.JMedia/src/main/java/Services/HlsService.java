@@ -698,8 +698,14 @@ public class HlsService {
             }
             copyCommand.add(variant.name + ".m3u8");
 
-            LOG.info("[HLS] session={} variant={} encoder=copy height={} hw=false audio={}",
-                session.sessionId, variant.name, variant.height, copyAllAudio ? "copy" : "aac");
+            String copyAudioCodec = session.audioTracks.isEmpty() ? "none" : session.audioTracks.get(0).codec;
+            LOG.info("[HLS] session={} variant={} encoder=copy height={} hw=false audio={}({})",
+                session.sessionId, variant.name, variant.height,
+                copyAllAudio ? "copy" : "aac", copyAudioCodec);
+            if (copyAllAudio && copyAudioCodec != null && !copyAudioCodec.toLowerCase().contains("aac")) {
+                LOG.warn("[HLS] session={} master declares AAC but copies non-AAC audio {}; hls.js/MSE will reject it",
+                    session.sessionId, copyAudioCodec);
+            }
             LOG.info("Starting HLS copy-mode encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", copyCommand));
 
             ProcessBuilder pb = new ProcessBuilder(copyCommand);
@@ -898,7 +904,7 @@ public class HlsService {
                 // auto-inserted swscale after the vendor filter and fails with
                 // "Impossible to convert between ... qsv -> yuv420p". The vendor
                 // scale/format filter below performs P010 -> NV12 on the GPU.
-                if (!addedGpuFmtFilter && !hwFramesOnDevice) {
+                if (shouldWriteSoftwarePixFmt(addedGpuFmtFilter, hwFramesOnDevice)) {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
@@ -922,7 +928,7 @@ public class HlsService {
             // encoder's NV12 input. When no downscale is needed, use the source
             // height purely for that format conversion.
             boolean wantScale = variant.height < sourceH;
-            if (wantScale || hwFramesOnDevice) {
+            if (shouldUseVendorFormatFilter(wantScale, hwFramesOnDevice)) {
                 int filterHeight = wantScale ? variant.height : sourceH;
                 String scaleFilter = buildScaleFilter(hwDecoder, hwEncoder, filterHeight, session.video.resolution);
                 if (scaleFilter != null) {
@@ -954,9 +960,14 @@ public class HlsService {
         command.add(variant.name + ".m3u8");
         
         String hlsEncoder = useHardware && !"libx264".equals(hwEncoder) ? hwEncoder : "libx264";
-        LOG.info("[HLS] session={} variant={} encoder={} height={} hw={} audio={}",
-            session.sessionId, variant.name, hlsEncoder, variant.height, useHardware,
-            command.contains("copy") ? "copy" : "aac");
+        String audioCodec = session.audioTracks.isEmpty() ? "none" : session.audioTracks.get(0).codec;
+        String audioMode = (audioCodec != null && audioCodec.toLowerCase().contains("aac")) ? "copy" : "aac";
+        LOG.info("[HLS] session={} variant={} encoder={} height={} hw={} audio={}({})",
+            session.sessionId, variant.name, hlsEncoder, variant.height, useHardware, audioMode, audioCodec);
+        if ("copy".equals(audioMode) && audioCodec != null && !audioCodec.toLowerCase().contains("aac")) {
+            LOG.warn("[HLS] session={} master declares AAC but copies non-AAC audio {}; hls.js/MSE will reject it",
+                session.sessionId, audioCodec);
+        }
 
         LOG.info("Starting HLS encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", command));
 
@@ -1354,11 +1365,12 @@ public class HlsService {
      * transcodes that track to AAC.
      */
     private boolean isCopyableAudioForSession(HlsSession session, String codec) {
-        if (!isCopyableCodec(codec)) return false;
-        String lower = codec.toLowerCase();
-        boolean gated = lower.contains("ac3") || lower.contains("eac3") || lower.contains("ec-3");
-        if (!gated) return true;
-        return transcodingService.canCopyAudioCodecForClient(codec, session.userAgent, session.audioCodecsParam);
+        if (codec == null) return false;
+        // The HLS master playlist declares AAC (mp4a.40.2). Copying AC-3/E-AC-3/
+        // DTS into the segments would make that declaration a lie and hls.js/MSE
+        // rejects the audio samples. HLS therefore always transcodes non-AAC audio
+        // to AAC; the direct (non-HLS) path still uses the client-aware copy rule.
+        return codec.toLowerCase().contains("aac");
     }
 
     private boolean isEligibleForCopyMode(HlsSession session, VariantConfig variant) {
@@ -1395,6 +1407,25 @@ public class HlsService {
      * Builds the scale filter string based on decoder and encoder vendor matching.
      * Uses vendor-matched zero-copy pipelines where possible, falls back to CPU.
      */
+    /**
+     * A software pixel format must never be written when frames stay on the GPU:
+     * it forces an auto-inserted swscale after the vendor filter and fails with
+     * "Impossible to convert between ... qsv -> yuv420p". The vendor filter
+     * performs the P010 -> NV12 conversion instead.
+     */
+    static boolean shouldWriteSoftwarePixFmt(boolean addedGpuFmtFilter, boolean hwFramesOnDevice) {
+        return !addedGpuFmtFilter && !hwFramesOnDevice;
+    }
+
+    /**
+     * Hardware-frame pipelines always need the vendor format filter, even when
+     * no downscale is needed: 10-bit sources arrive as P010 and 8-bit H.264
+     * encoders require NV12.
+     */
+    static boolean shouldUseVendorFormatFilter(boolean wantScale, boolean hwFramesOnDevice) {
+        return wantScale || hwFramesOnDevice;
+    }
+
     private String buildScaleFilter(String hardwareDecoder, String videoEncoder, int qualityHeight, String resolution) {
         if (qualityHeight <= 0) return null;
         
