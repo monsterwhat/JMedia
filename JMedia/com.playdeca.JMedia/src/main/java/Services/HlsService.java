@@ -1556,7 +1556,7 @@ public class HlsService {
         String sourceResolution = video != null ? video.resolution : null;
         int height = outputHeight > 0 ? outputHeight : parseResolutionHeight(sourceResolution);
         int width = deriveOutputWidth(sourceResolution, height);
-        return deriveAvc1ForDimensions(width, height, 30.0) + "," + audioCodecStr;
+        return deriveAvc1ForDimensions(width, height, effectiveFps(video)) + "," + audioCodecStr;
     }
 
     // H.264 level table (High profile): idc, max frame size (MBs), max MB/s.
@@ -1570,6 +1570,14 @@ public class HlsService {
     /** avc1.PPCCLL for H.264 High profile at a level that covers the frame. */
     private static String deriveAvc1ForDimensions(int width, int height, double fps) {
         return "avc1.6400" + deriveAvcLevelIdc(width, height, fps);
+    }
+
+    /** Source frame rate, or 30 fps when unknown. */
+    private static double effectiveFps(Video video) {
+        if (video != null && video.frameRate != null && video.frameRate > 0) {
+            return video.frameRate;
+        }
+        return 30.0;
     }
 
     /** Lowest level whose frame-size and macroblock-rate limits cover the output. */
@@ -2029,6 +2037,9 @@ public class HlsService {
     }
 
     private static final long SESSION_IDLE_TTL_MS = 60 * 1000L; // 60s — stop segment generation ~1 min after the player closes
+    /** A brand-new session has no registered FFmpeg process for a moment; never reap it during startup. */
+    private static final long SESSION_STARTUP_GRACE_MS = 30 * 1000L;
+
     private final ScheduledExecutorService hwRetryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "hls-hw-retry");
         t.setDaemon(true);
@@ -2064,6 +2075,12 @@ public class HlsService {
         
         for (Map.Entry<String, HlsSession> entry : activeSessions.entrySet()) {
             HlsSession session = entry.getValue();
+            if ((now - session.createdAt) < SESSION_STARTUP_GRACE_MS) {
+                // The FFmpeg process is still registering; a just-created session
+                // has no alive process yet and must not be reaped as abandoned.
+                LOG.debug("HLS session {} is still starting, skipping cleanup", session.sessionId);
+                continue;
+            }
             boolean shouldRemove = false;
             
             // Add grace period: don't clean up if restarted less than 2 minutes ago
