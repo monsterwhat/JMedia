@@ -109,6 +109,12 @@ var _suppressUrlWrite = false;
 // the view the user came from instead of always landing on the library home.
 var _watchUrlPushed = false;
 
+// Set immediately before history.back() from the player's close button. The view
+// behind the player (details modal / library) is already correct, so the resulting
+// popstate must not re-open it (which resets the skeleton and causes the logo/title
+// swap the user sees when returning from playback).
+var _skipNextPopstateOpen = false;
+
 function _pushInfoUrl(token) {
   if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
   const url = VideoRoutes.infoUrl(token);
@@ -3008,6 +3014,10 @@ function closePlayerModal(reason) {
   if (reason === 'view') {
     if (wasWatchUrl && _watchUrlPushed && window.history.length > 1) {
       _watchUrlPushed = false;
+      // The view underneath is still intact: skip the deep-link re-open on the
+      // popstate this triggers so the details logo/title don't re-animate.
+      _skipNextPopstateOpen = true;
+      setTimeout(function () { _skipNextPopstateOpen = false; }, 1200);
       history.back();
     } else if (wasWatchUrl) {
       _resetUrlToBrowse();
@@ -4020,8 +4030,23 @@ if (homeDockBtn) {
 }
 // Browser back/forward — deep links first, then the dock sections
 window.addEventListener('popstate', () => {
+  // The player's own close button already restored the view before going back;
+  // do not re-open it (avoids the details logo/title skeleton swap).
+  if (_skipNextPopstateOpen) {
+    _skipNextPopstateOpen = false;
+    return;
+  }
   const parsed = _parseVideoUrl();
   if (_isDeepLink(parsed)) {
+    // Returning from playback to an already-open details modal: just reveal it.
+    if (parsed.area === 'info') {
+      const openDetailsModal = document.getElementById('cinema-modal');
+      if (openDetailsModal && openDetailsModal.classList.contains('active')) {
+        const playerModal = document.getElementById('player-modal');
+        if (playerModal && playerModal.classList.contains('active')) closePlayerModal('back');
+        return;
+      }
+    }
     _openFromUrl(parsed);
     return;
   }

@@ -148,6 +148,15 @@
             const container = document.getElementById('app-content');
 
             this._loadingView = viewName;
+            // Show the global loading overlay while the target view fetches and
+            // injects, so client-side navigation feels like a page change.
+            if (window.JMediaSplash) {
+                var splashEl = document.getElementById('jmedia-splash');
+                var targetDark = viewName === 'video' || viewName === 'video-classic'
+                    || document.documentElement.getAttribute('data-theme') === 'dark';
+                if (splashEl) splashEl.classList.toggle('is-dark', targetDark);
+                window.JMediaSplash.show();
+            }
             container.innerHTML = this.getViewSkeleton(viewName);
 
             try {
@@ -259,6 +268,7 @@
                 container.innerHTML = `<div class="notification is-danger">Failed to load view: ${error.message}</div>`;
             } finally {
                 if (this._loadingView === viewName) this._loadingView = null;
+                if (window.JMediaSplash) window.JMediaSplash.hide();
             }
         }
 
