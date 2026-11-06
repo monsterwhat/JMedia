@@ -2856,8 +2856,6 @@ async function openPlayerModal(videoId, collectionId) {
   // player fills the viewport. The topbar still auto-hides and the expand button
   // can still collapse it back to the windowed size.
   modal.classList.add('is-expanded');
-  const initialExpandIcon = document.getElementById('player-expand-icon');
-  if (initialExpandIcon) initialExpandIcon.className = 'fa-solid fa-compress';
   document.body.style.overflow = 'hidden';
 
   // Shareable player URL: /video/watch/{imdb|tmdb}[/s01e02]
