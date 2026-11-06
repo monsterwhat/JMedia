@@ -63,10 +63,22 @@ class HlsServiceTest {
 
     @Test
     void avc1LevelFollowsOutputHeight() {
-        assertEquals("avc1.64001E,mp4a.40.2", service.deriveCodecsString(
+        // 480p at 30 fps needs level 3.1 (level 3.0's MB/s ceiling is too low).
+        assertEquals("avc1.64001F,mp4a.40.2", service.deriveCodecsString(
                 video("hevc", "aac", "1920x1080"), TranscodingService.CODEC_H264, 480));
         assertEquals("avc1.640033,mp4a.40.2", service.deriveCodecsString(
                 video("hevc", "aac", "3840x2160"), TranscodingService.CODEC_H264, 2160));
+    }
+
+    @Test
+    void avc1LevelUsesOutputWidthNotJustHeight() {
+        // The real regression: 2592x1080 -> 1728x720 is "720p" but exceeds
+        // level 3.1's 1280x720 frame limit, so hls.js rejected avc1.64001F.
+        assertEquals("avc1.640020,mp4a.40.2", service.deriveCodecsString(
+                video("hevc", "eac3", "2592x1080"), TranscodingService.CODEC_H264, 720));
+        // Ultra-wide 1080p also exceeds level 4.0's 1920x1080 limit.
+        assertEquals("avc1.640032,mp4a.40.2", service.deriveCodecsString(
+                video("hevc", "eac3", "2592x1080"), TranscodingService.CODEC_H264, 1080));
     }
 
     @Test

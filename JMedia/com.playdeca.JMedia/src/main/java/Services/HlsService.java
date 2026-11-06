@@ -1553,19 +1553,37 @@ public class HlsService {
         }
 
         // Transcode: video is H.264 High profile, audio is always AAC-LC.
-        int height = outputHeight > 0 ? outputHeight : parseResolutionHeight(video != null ? video.resolution : null);
-        return deriveAvc1ForHeight(height) + "," + audioCodecStr;
+        String sourceResolution = video != null ? video.resolution : null;
+        int height = outputHeight > 0 ? outputHeight : parseResolutionHeight(sourceResolution);
+        int width = deriveOutputWidth(sourceResolution, height);
+        return deriveAvc1ForDimensions(width, height, 30.0) + "," + audioCodecStr;
     }
 
-    /** avc1.PPCCLL for H.264 High profile at a level that covers {@code height}. */
-    private static String deriveAvc1ForHeight(int height) {
-        String level;
-        if (height > 2160) level = "3C";       // 6.0
-        else if (height > 1080) level = "33";  // 5.1
-        else if (height > 720) level = "28";   // 4.0
-        else if (height > 480) level = "1F";   // 3.1
-        else level = "1E";                     // 3.0
-        return "avc1.6400" + level;
+    // H.264 level table (High profile): idc, max frame size (MBs), max MB/s.
+    // The level must cover the actual output dimensions, not just the height:
+    // 1728x720 exceeds level 3.1 even though it is "720p", and hls.js rejects
+    // a manifest whose declared level is too low.
+    private static final String[] LEVEL_IDC = {"1E", "1F", "20", "28", "2A", "32", "33", "34", "3C"};
+    private static final long[] LEVEL_MAX_FS = {1620, 3600, 5120, 8192, 8704, 22080, 36864, 36864, 139264};
+    private static final long[] LEVEL_MAX_MBPS = {40500, 108000, 216000, 245760, 522240, 589824, 983040, 2073600, 4177920};
+
+    /** avc1.PPCCLL for H.264 High profile at a level that covers the frame. */
+    private static String deriveAvc1ForDimensions(int width, int height, double fps) {
+        return "avc1.6400" + deriveAvcLevelIdc(width, height, fps);
+    }
+
+    /** Lowest level whose frame-size and macroblock-rate limits cover the output. */
+    static String deriveAvcLevelIdc(int width, int height, double fps) {
+        int w = Math.max(16, width);
+        int h = Math.max(16, height);
+        long mbFrame = (long) ((w + 15) / 16) * ((h + 15) / 16);
+        long mbRate = Math.round(mbFrame * fps);
+        for (int i = 0; i < LEVEL_IDC.length; i++) {
+            if (mbFrame <= LEVEL_MAX_FS[i] && mbRate <= LEVEL_MAX_MBPS[i]) {
+                return LEVEL_IDC[i];
+            }
+        }
+        return LEVEL_IDC[LEVEL_IDC.length - 1];
     }
 
     private static int parseResolutionHeight(String resolution) {
@@ -1579,6 +1597,23 @@ public class HlsService {
         }
     }
 
+    /** Output width at {@code height}, preserving the source aspect (16:9 fallback). */
+    private static int deriveOutputWidth(String resolution, int height) {
+        int targetHeight = height > 0 ? height : 1080;
+        int srcW = 16, srcH = 9;
+        try {
+            if (resolution != null && resolution.contains("x")) {
+                String[] parts = resolution.split("x");
+                srcW = Integer.parseInt(parts[0]);
+                srcH = Integer.parseInt(parts[1]);
+            }
+        } catch (Exception ignored) {}
+        if (srcW <= 0 || srcH <= 0) { srcW = 16; srcH = 9; }
+        int width = (int) Math.round(targetHeight * (double) srcW / srcH);
+        if (width % 2 != 0) width--;
+        return Math.max(2, width);
+    }
+
     private String deriveAvc1Codec(Video video) {
         String profile = "6400";
         if (video.videoProfile != null) {
@@ -1590,20 +1625,9 @@ public class HlsService {
             }
         }
 
-        String level = "1F";
-        if (video.resolution != null) {
-            try {
-                String[] parts = video.resolution.split("x");
-                int height = Integer.parseInt(parts[1]);
-                if (height > 2160) level = "34";
-                else if (height > 1080) level = "32";
-                else if (height > 720) level = "28";
-                else if (height > 480) level = "1F";
-                else if (height > 360) level = "1C";
-                else level = "0F";
-            } catch (Exception ignored) {}
-        }
-
+        int height = parseResolutionHeight(video.resolution);
+        int width = deriveOutputWidth(video.resolution, height > 0 ? height : 1080);
+        String level = deriveAvcLevelIdc(width, height > 0 ? height : 1080, 30.0);
         return "avc1." + profile + level;
     }
 
