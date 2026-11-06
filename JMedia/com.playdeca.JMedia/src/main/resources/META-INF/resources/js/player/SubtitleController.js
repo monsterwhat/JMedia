@@ -160,6 +160,22 @@
                 });
 
                 console.log('[SimplePlayer] JASSUB renderer initialized');
+                // Force an initial render even when the video is paused (autoplay blocked):
+                // requestVideoFrameCallback only fires during playback, so without this
+                // subtitles stay invisible until the user interacts (seek/play).\
+                try {
+                    p.jassubRenderer.ready.then(() => {
+                        if (p._destroyed || !p.jassubRenderer) return;
+                        const data = { mediaTime: p.video.currentTime || 0,
+                            width: p.video.videoWidth || 1280,
+                            height: p.video.videoHeight || 720 };
+                        try { p.jassubRenderer.manualRender(data); } catch (e) {
+                            console.warn('[SimplePlayer] initial JASSUB render failed:', e);
+                        }
+                    });
+                } catch (e) {
+                    console.warn('[SimplePlayer] JASSUB ready hook failed:', e);
+                }
                 p.lastSelectedTrackId = trackId;
             } catch (e) {
                 console.error('[SimplePlayer] ASS subtitle init failed:', e);

@@ -6,6 +6,8 @@
     <title>JMedia Player</title>
     <link rel="stylesheet" href="/css/player.css"/>
     <link rel="stylesheet" href="/css/subtitle-styling.css"/>
+    <link rel="stylesheet" href="/css/episode-sidebar.css"/>
+    <link rel="stylesheet" href="/css/subtitle-search-sidebar.css"/>
     <link rel="stylesheet" href="/lib/primeicons.css"/>
     <link rel="stylesheet" href="/lib/font-awesome/all.min.css"/>
     <style>
@@ -92,11 +94,14 @@
 <body>
     <div class="player-page">
         <div class="player-header">
-            <button class="back-btn" onclick="window.history.back()" title="Back">←</button>
+            <button class="back-btn" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '/'; }" title="Back">&#8592;</button>
             <div class="media-info">
                 <div class="media-title" id="mediaTitle">Loading...</div>
                 <div class="media-meta" id="mediaMeta"></div>
             </div>
+            <button class="episode-sidebar-toggle-btn" id="subtitle-search-toggle" data-click="toggleSubtitleSearchSidebar" title="Subtitles" style="display:none;">
+                <i class="fa-solid fa-closed-captioning"></i>
+            </button>
         </div>
         <div class="player-body">
             <div class="player-container paused" id="customPlayer" style="display:none;">
@@ -117,6 +122,8 @@
         </div>
     </div>
 
+    <div id="subtitle-search-sidebar-root"></div>
+
     <script src="/js/player/ConversionGate.js"></script>
     <script src="/js/player/Utils.js?v=3"></script>
     <script src="/js/player/StateManager.js"></script>
@@ -124,7 +131,7 @@
     <script src="/js/player/UIBuilder.js?v=5"></script>
     <script src="/js/player/ControlsManager.js"></script>
     <script src="/js/player/FullscreenManager.js"></script>
-    <script src="/js/player/SubtitleController.js?v=3"></script>
+    <script src="/js/player/SubtitleController.js?v=4"></script>
     <script src="/js/player/AudioTrackSelector.js"></script>
     <script src="/js/player/SubtitleSettingsUI.js"></script>
     <script src="/js/player/StoryboardManager.js"></script>
@@ -135,6 +142,8 @@
     <script src="/js/player/NavigationManager.js?v=2"></script>
     <script src="/js/hls-loader.js?v=2"></script>
     <script src="/js/simple-player.js?v=9"></script>
+    <script src="/js/createSubtitleSearchSidebar.js"></script>
+    <script src="/js/subtitle-search-sidebar.js"></script>
     <script>
         (function() {
             const params = new URLSearchParams(window.location.search);
@@ -157,9 +166,9 @@
             // Fetch video metadata and populate container data attributes
             fetch(`/api/video/${videoId}`, { credentials: 'include' })
                 .then(r => {
+                    if (r.status === 401 || r.status === 403) { window.location.href = '/login.html?redirect=' + encodeURIComponent('/views/video-player.html?videoId=' + videoId); throw new Error('Not authenticated'); }
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();
-                })
                 .then(data => {
                     const v = data.data || data;
                     if (!v || !v.id) throw new Error('Video not found');
@@ -216,6 +225,8 @@
                     // Show player and hide loading
                     container.style.display = '';
                     loadingMsg.style.display = 'none';
+
+                    if (window.initSubtitleSearchSidebar) window.initSubtitleSearchSidebar();
 
                     // Initialize SimplePlayer
                     if (window.ConversionGate) window.ConversionGate.init();
