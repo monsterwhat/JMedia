@@ -95,6 +95,7 @@
     <div class="player-page">
         <div class="player-header">
             <button class="back-btn" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '/'; }" title="Back">&#8592;</button>
+            <button class="back-btn" onclick="var el=document.getElementById('customPlayer'); if (document.fullscreenElement) { document.exitFullscreen(); } else if (el && el.requestFullscreen) { el.requestFullscreen().catch(function(){ document.body.classList.toggle('is-css-fullscreen'); }); } else { document.body.classList.toggle('is-css-fullscreen'); }" title="Fullscreen">&#9974;</button>
             <div class="media-info">
                 <div class="media-title" id="mediaTitle">Loading...</div>
                 <div class="media-meta" id="mediaMeta"></div>
