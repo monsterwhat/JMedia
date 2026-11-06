@@ -236,7 +236,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
             if (wantsHls && !hasH264Mse) {
                 console.error('[SimplePlayer] H.264 MSE unsupported on this browser/OS; aborting playback');
-                p._showLoading('Playback unavailable: this browser/OS cannot decode H.264. ' +
+                this._showLoading('Playback unavailable: this browser/OS cannot decode H.264. ' +
                     'On Windows N, install the Media Feature Pack; otherwise use Chrome stable.');
                 return;
             }
