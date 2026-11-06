@@ -1853,6 +1853,18 @@ public class HlsService {
         return 186;
     }
 
+    /** HLS FRAME-RATE is a decimal-floating-point: 24 -> "24.0", 23.976 -> "23.976". */
+    static String formatFrameRate(double fps) {
+        if (fps <= 0) {
+            return "30.0";
+        }
+        double rounded = Math.round(fps * 1000.0) / 1000.0;
+        if (Math.abs(rounded - Math.rint(rounded)) < 0.0005) {
+            return (long) Math.rint(rounded) + ".0";
+        }
+        return String.format(Locale.ROOT, "%.3f", rounded);
+    }
+
     private String deriveResolutionString(Video video) {
         if (video != null && video.resolution != null && !video.resolution.isBlank()) {
             return video.resolution;
@@ -1911,7 +1923,11 @@ public class HlsService {
                     source != null ? source.level : null,
                     session.userAgent);
         }
-        int fps = session.video.frameRate != null && session.video.frameRate > 0 ? session.video.frameRate : 30;
+        double fps = source != null && source.fps > 0
+                ? source.fps
+                : (session.video.frameRate != null && session.video.frameRate > 0
+                        ? session.video.frameRate : 30);
+        String frameRate = formatFrameRate(fps);
         List<SubtitleTrack> servableSubs = servableSubtitleTracks(session);
         String subsAttr = servableSubs.isEmpty() ? "" : ",SUBTITLES=\"subs\"";
         
@@ -1948,22 +1964,34 @@ public class HlsService {
         
         List<VariantConfig> variants = session.variants;
         if (variants == null || variants.isEmpty()) {
-            String resolution = deriveResolutionString(session.video);
+            String resolution = (source != null && source.width != null && source.height != null
+                    && source.width > 0 && source.height > 0)
+                    ? source.width + "x" + source.height
+                    : deriveResolutionString(session.video);
             if (session.audioTracks.size() > 1) {
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\",AUDIO=\"audio\"" + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\",AUDIO=\"audio\"" + subsAttr + ",FRAME-RATE=" + frameRate + "\n");
             } else {
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\"" + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=" + resolution + ",CODECS=\"" + codecs + "\"" + subsAttr + ",FRAME-RATE=" + frameRate + "\n");
             }
             sb.append("/api/hls/playlist/" + session.sessionId + "/" + VIDEO_VARIANT + ".m3u8\n");
         } else {
             int w = 1920, h = 1080;
-            try {
-                if (session.video.resolution != null && session.video.resolution.contains("x")) {
-                    String[] p = session.video.resolution.split("x");
-                    w = Integer.parseInt(p[0]);
-                    h = Integer.parseInt(p[1]);
+            if (source != null && source.width != null && source.height != null
+                    && source.width > 0 && source.height > 0) {
+                w = source.width;
+                h = source.height;
+            } else {
+                try {
+                    if (session.video.resolution != null && session.video.resolution.contains("x")) {
+                        String[] p = session.video.resolution.split("x");
+                        w = Integer.parseInt(p[0]);
+                        h = Integer.parseInt(p[1]);
+                    }
+                } catch (NumberFormatException e) {
+                    LOG.debug("Could not parse resolution '{}' for master playlist; using {}x{}",
+                            session.video.resolution, w, h);
                 }
-            } catch (Exception ignored) {}
+            }
             double aspect = (double) w / h;
             
             for (VariantConfig v : variants) {
@@ -1972,7 +2000,7 @@ public class HlsService {
                 int vH = v.height;
                 if (vH % 2 != 0) vH--;
                 String audioAttr = (session.audioTracks.size() > 1) ? ",AUDIO=\"audio\"" : "";
-                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=" + v.bandwidth + ",RESOLUTION=" + vW + "x" + vH + ",CODECS=\"" + codecs + "\"" + audioAttr + subsAttr + ",FRAME-RATE=" + fps + ".0\n");
+                sb.append("#EXT-X-STREAM-INF:BANDWIDTH=" + v.bandwidth + ",RESOLUTION=" + vW + "x" + vH + ",CODECS=\"" + codecs + "\"" + audioAttr + subsAttr + ",FRAME-RATE=" + frameRate + "\n");
                 sb.append("/api/hls/playlist/" + session.sessionId + "/" + v.name + ".m3u8\n");
             }
         }

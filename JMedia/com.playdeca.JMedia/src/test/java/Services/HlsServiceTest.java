@@ -92,6 +92,15 @@ class HlsServiceTest {
     }
 
     @Test
+    void frameRateAttributeIsExact() {
+        // HLS FRAME-RATE is decimal-floating-point; the DB has frameRate=0 for
+        // this row, so the value must come from the probed bitstream.
+        assertEquals("30.0", HlsService.formatFrameRate(30));
+        assertEquals("24.0", HlsService.formatFrameRate(24));
+        assertEquals("23.976", HlsService.formatFrameRate(24000.0 / 1001.0));
+    }
+
+    @Test
     void transcodeUsesProbedAspectAndFrameRateWhenMetadataIsEmpty() {
         // ffprobe says 2592x1080 at 23.976 -> 1728x720 needs H.264 level 3.2.
         Video stale = video("hevc", "eac3", null);
