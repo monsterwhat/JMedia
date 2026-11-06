@@ -47,28 +47,6 @@ public class NavigationController {
         return servePage("index.html", "Video page (SPA)");
     }
 
-    /**
-     * Clean standalone-player URL: /video/watch/{imdbId}/s02e05 serves the
-     * dedicated player page (keeping the URL clean) instead of the SPA.
-     */
-    @GET
-    @Path("/video/watch/{imdb}/{ref}")
-    public Response serveVideoWatch(@jakarta.ws.rs.PathParam("imdb") String imdb,
-                                   @jakarta.ws.rs.PathParam("ref") String ref) {
-        try (InputStream is = Thread.currentThread().getContextClassLoader()
-                .getResourceAsStream("META-INF/resources/views/video-player.html")) {
-            if (is == null) {
-                logger.error("video-player.html resource not found");
-                return Response.status(Response.Status.NOT_FOUND).entity("Not found").build();
-            }
-            byte[] bytes = is.readAllBytes();
-            return Response.ok(bytes).type("text/html").build();
-        } catch (Exception e) {
-            logger.error("Error serving video player page: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Server error").build();
-        }
-    }
-    
     @GET
     @Path("/video-test")
     public Response serveVideoTest() {
