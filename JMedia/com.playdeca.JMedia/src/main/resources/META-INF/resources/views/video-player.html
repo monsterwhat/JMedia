@@ -146,9 +146,36 @@
     <script src="/js/createSubtitleSearchSidebar.js"></script>
     <script src="/js/subtitle-search-sidebar.js"></script>
     <script>
-        (function() {
+        (async function() {
             const params = new URLSearchParams(window.location.search);
-            const videoId = params.get('videoId');
+            let videoId = params.get('videoId');
+
+            // Support clean URLs: /video/watch/{imdbId}/s{season}e{episode}
+            if (!videoId) {
+                const m = window.location.pathname.match(/^\/video\/watch\/([^\/]+)\/s(\d+)e(\d+)/i);
+                if (m) {
+                    const imdb = m[1];
+                    const season = parseInt(m[2], 10);
+                    const episode = parseInt(m[3], 10);
+                    try {
+                        const r = await fetch(`/api/video/resolve/${encodeURIComponent(imdb)}/${season}/${episode}`, { credentials: 'include' });
+                        if (r.status === 401 || r.status === 403) {
+                            window.location.href = '/login.html?redirect=' + encodeURIComponent(window.location.pathname);
+                            return;
+                        }
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        const data = await r.json();
+                        const resolved = (data && data.data) ? data.data.id : (data.id || null);
+                        if (!resolved) throw new Error('Video not found');
+                        videoId = resolved;
+                    } catch (e) {
+                        document.getElementById('loadingMsg').style.display = 'none';
+                        document.getElementById('errorMsg').style.display = 'block';
+                        document.getElementById('errorDetail').textContent = e.message || 'Unknown error';
+                        return;
+                    }
+                }
+            }
 
             if (!videoId) {
                 document.getElementById('loadingMsg').style.display = 'none';

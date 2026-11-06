@@ -136,6 +136,38 @@ public class VideoAPI {
     }
 
     @GET
+    @Path("/resolve/{imdb}/{season}/{episode}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response resolveVideoByRef(@PathParam("imdb") String imdb,
+                                      @PathParam("season") int season,
+                                      @PathParam("episode") int episode) {
+        try {
+            Models.Video.Video video = Models.Video.Video.find(
+                    "showImdbId = ?1 and seasonNumber = ?2 and episodeNumber = ?3", imdb, season, episode)
+                    .firstResult();
+            if (video == null) {
+                // Fallback: try imdbId field and movie (no season/episode)
+                video = Models.Video.Video.find("imdbId = ?1", imdb).firstResult();
+            }
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(API.ApiResponse.error("Video not found for " + imdb + " S" + season + "E" + episode))
+                        .build();
+            }
+            Map<String, Object> data = new java.util.HashMap<>();
+            data.put("id", video.id);
+            data.put("title", video.title);
+            data.put("seriesTitle", video.seriesTitle);
+            return Response.ok(API.ApiResponse.success(data)).build();
+        } catch (Exception e) {
+            LOG.error("Failed to resolve video by ref: {}", e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(API.ApiResponse.error("Resolve failed"))
+                    .build();
+        }
+    }
+
+    @GET
     @Path("/thumbnail/{videoId}")
     @Produces("image/jpeg")
     public Response getThumbnail(@PathParam("videoId") Long videoId,
