@@ -1173,7 +1173,7 @@
                 const bufLen = p.video.buffered ? p.video.buffered.length : 0;
                 const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
                 if (p.video.readyState > 0 && time >= 0 && time <= bufferedEnd + 1) {
-                    console.log([SimplePlayer] HLS in-buffer seek to s (buffered to s));
+                    console.log(`[SimplePlayer] HLS in-buffer seek to ${time}s (buffered to ${bufferedEnd}s)`);
                     try { p.video.currentTime = time; } catch (e) {}
                     p.video.play().catch(function() {});
                     return;
