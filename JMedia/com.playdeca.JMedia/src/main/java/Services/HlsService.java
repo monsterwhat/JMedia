@@ -1529,22 +1529,32 @@ public class HlsService {
      * @param outputHeight variant height the encoder targets (0 = unknown)
      */
     String deriveCodecsString(Video video, String outputCodec, int outputHeight) {
+        return deriveCodecsString(video, outputCodec, outputHeight, null);
+    }
+
+    /**
+     * RFC 6381 CODECS attribute for the master playlist.
+     *
+     * @param source authoritative stream facts read from the bitstream, or
+     *               {@code null} when ffprobe could not be consulted
+     */
+    String deriveCodecsString(Video video, String outputCodec, int outputHeight, SourceVideoInfo source) {
         String videoCodecStr;
         String audioCodecStr = "mp4a.40.2";
 
         if (TranscodingService.CODEC_COPY.equals(outputCodec)) {
-            // Pass-through: describe the source stream.
-            videoCodecStr = "avc1.64001f";
+            // Pass-through: describe the source bitstream, not the encoder target.
+            videoCodecStr = "avc1.64001F";
             if (video != null && video.videoCodec != null) {
-                String vc = video.videoCodec.toLowerCase();
+                String vc = video.videoCodec.toLowerCase(Locale.ROOT);
                 if (vc.contains("hevc") || vc.contains("h265")) {
-                    videoCodecStr = deriveHvcCodec(video);
+                    videoCodecStr = deriveHvcCodec(video, source);
                 } else if (vc.contains("h264") || vc.contains("avc")) {
-                    videoCodecStr = deriveAvc1Codec(video);
+                    videoCodecStr = deriveAvc1Codec(video, source);
                 }
             }
             if (video != null && video.audioCodec != null) {
-                String ac = video.audioCodec.toLowerCase();
+                String ac = video.audioCodec.toLowerCase(Locale.ROOT);
                 if (ac.contains("mp3")) {
                     audioCodecStr = "mp4a.40.34";
                 }
@@ -1553,10 +1563,134 @@ public class HlsService {
         }
 
         // Transcode: video is H.264 High profile, audio is always AAC-LC.
+        // The output aspect and frame rate come from the bitstream when known:
+        // database metadata can be missing (profile/frameRate null) on rows
+        // scanned before those fields were populated.
         String sourceResolution = video != null ? video.resolution : null;
+        if (source != null && source.width != null && source.height != null
+                && source.width > 0 && source.height > 0) {
+            sourceResolution = source.width + "x" + source.height;
+        }
         int height = outputHeight > 0 ? outputHeight : parseResolutionHeight(sourceResolution);
         int width = deriveOutputWidth(sourceResolution, height);
-        return deriveAvc1ForDimensions(width, height, effectiveFps(video)) + "," + audioCodecStr;
+        double fps = source != null && source.fps > 0 ? source.fps : effectiveFps(video);
+        return deriveAvc1ForDimensions(width, height, fps) + "," + audioCodecStr;
+    }
+
+    /** Authoritative video parameters read from the source bitstream. */
+    static final class SourceVideoInfo {
+        final String profile;
+        final Integer level;
+        final Integer width;
+        final Integer height;
+        final double fps;
+
+        SourceVideoInfo(String profile, Integer level, Integer width, Integer height, double fps) {
+            this.profile = profile;
+            this.level = level;
+            this.width = width;
+            this.height = height;
+            this.fps = fps;
+        }
+    }
+
+    /**
+     * Reads profile/level/dimensions/frame rate from the source bitstream.
+     *
+     * <p>Copy mode hands the source bytes through unchanged, so the master
+     * CODECS must describe the bitstream. Stored metadata is not authoritative:
+     * a row scanned before these fields were populated can still have
+     * {@code videoProfile == null} and {@code frameRate == 0}, which would
+     * mis-declare a Main 10 stream as Main. ffprobe is the source of truth.
+     */
+    private SourceVideoInfo probeSourceVideo(Video video) {
+        if (video == null || video.path == null || video.path.isBlank()) {
+            return null;
+        }
+        String ffprobe = ffmpegDiscoveryService != null
+                ? ffmpegDiscoveryService.findFFprobeExecutable() : null;
+        if (ffprobe == null || ffprobe.isBlank()) {
+            LOG.warn("ffprobe not available; falling back to stored metadata for video {}", video.id);
+            return null;
+        }
+        String sourcePath = resolveVideoPath(video.path);
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(ffprobe,
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=profile,level,width,height,r_frame_rate",
+                    "-of", "default=nw=1",
+                    sourcePath);
+            pb.redirectErrorStream(true);
+            process = pb.start();
+            Map<String, String> values = new HashMap<>();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    int eq = line.indexOf('=');
+                    if (eq > 0) {
+                        values.put(line.substring(0, eq).trim(), line.substring(eq + 1).trim());
+                    }
+                }
+            }
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                LOG.warn("ffprobe timed out reading stream parameters for video {}", video.id);
+                return null;
+            }
+            if (process.exitValue() != 0) {
+                LOG.warn("ffprobe exited {} reading stream parameters for video {}",
+                        process.exitValue(), video.id);
+                return null;
+            }
+            SourceVideoInfo info = new SourceVideoInfo(
+                    values.get("profile"),
+                    parseOptionalInt(values.get("level")),
+                    parseOptionalInt(values.get("width")),
+                    parseOptionalInt(values.get("height")),
+                    parseFrameRate(values.get("r_frame_rate")));
+            LOG.debug("Probed source video {}: profile={}, level={}, {}x{}, fps={}",
+                    video.id, info.profile, info.level, info.width, info.height, info.fps);
+            return info;
+        } catch (Exception e) {
+            LOG.warn("Source probe failed for video {}", video.id, e);
+            return null;
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    private static Integer parseOptionalInt(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            LOG.debug("Ignoring non-numeric ffprobe value '{}'", value);
+            return null;
+        }
+    }
+
+    private static double parseFrameRate(String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            int slash = value.indexOf('/');
+            if (slash > 0) {
+                double num = Double.parseDouble(value.substring(0, slash).trim());
+                double den = Double.parseDouble(value.substring(slash + 1).trim());
+                return den > 0 ? num / den : 0;
+            }
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            LOG.debug("Ignoring non-numeric ffprobe frame rate '{}'", value);
+            return 0;
+        }
     }
 
     // H.264 level table (High profile): idc, max frame size (MBs), max MB/s.
@@ -1622,47 +1756,79 @@ public class HlsService {
         return Math.max(2, width);
     }
 
-    private String deriveAvc1Codec(Video video) {
-        String profile = "6400";
-        if (video.videoProfile != null) {
-            String vp = video.videoProfile.toLowerCase();
+    private String deriveAvc1Codec(Video video, SourceVideoInfo source) {
+        String profileName = source != null && source.profile != null ? source.profile
+                : (video != null ? video.videoProfile : null);
+        String profile = "6400"; // High
+        if (profileName != null) {
+            String vp = profileName.toLowerCase(Locale.ROOT);
             if (vp.contains("baseline")) {
                 profile = "4200";
-            } else if (vp.contains("main")) {
+            } else if (vp.contains("main") && !vp.contains("high")) {
                 profile = "4D00";
             }
         }
 
-        int height = parseResolutionHeight(video.resolution);
-        int width = deriveOutputWidth(video.resolution, height > 0 ? height : 1080);
-        String level = deriveAvcLevelIdc(width, height > 0 ? height : 1080, 30.0);
-        return "avc1." + profile + level;
+        int levelIdc;
+        if (source != null && source.level != null && source.level > 0) {
+            // Copied bitstream: its own level_idc is authoritative.
+            levelIdc = source.level;
+        } else {
+            String resolution = video != null ? video.resolution : null;
+            int height = parseResolutionHeight(resolution);
+            int width = deriveOutputWidth(resolution, height > 0 ? height : 1080);
+            double fps = source != null && source.fps > 0 ? source.fps : effectiveFps(video);
+            levelIdc = Integer.parseInt(
+                    deriveAvcLevelIdc(width, height > 0 ? height : 1080, fps), 16);
+        }
+        return "avc1." + profile + String.format(Locale.ROOT, "%02X", levelIdc);
     }
 
-    /** hvc1 codec string with the source profile (Main/Main 10) and a level that covers the frame. */
-    private String deriveHvcCodec(Video video) {
+    /**
+     * hvc1 codec string describing the copied bitstream: its real profile
+     * (Main/Main 10/Main Still) and its own general_level_idc. Falling back to
+     * a derived level only when the bitstream did not report one.
+     */
+    private String deriveHvcCodec(Video video, SourceVideoInfo source) {
+        String profileName = source != null && source.profile != null ? source.profile
+                : (video != null ? video.videoProfile : null);
         String profile = "1"; // Main
-        if (video != null && video.videoProfile != null) {
-            String vp = video.videoProfile.toLowerCase();
-            if (vp.contains("10")) profile = "2";       // Main 10
-            else if (vp.contains("still")) profile = "3"; // Main Still Picture
+        if (profileName != null) {
+            String vp = profileName.toLowerCase(Locale.ROOT);
+            if (vp.contains("10")) profile = "2";         // Main 10
+            else if (vp.contains("still")) profile = "3";  // Main Still Picture
         }
-        return "hvc1." + profile + ".4.L" + deriveHvcLevel(video) + ".B0";
+        int level = source != null && source.level != null && source.level > 0
+                ? source.level : 0;
+        if (level <= 0) {
+            level = deriveHvcLevel(video, source);
+        }
+        return "hvc1." + profile + ".4.L" + level + ".B0";
     }
 
     /** Lowest HEVC level whose luma picture size and sample rate cover width x height x fps. */
-    private String deriveHvcLevel(Video video) {
+    private int deriveHvcLevel(Video video, SourceVideoInfo source) {
         int w = 1920, h = 1080;
-        String resolution = video != null ? video.resolution : null;
-        try {
-            if (resolution != null && resolution.contains("x")) {
-                String[] parts = resolution.split("x");
-                w = Integer.parseInt(parts[0]);
-                h = Integer.parseInt(parts[1]);
+        if (source != null && source.width != null && source.height != null
+                && source.width > 0 && source.height > 0) {
+            w = source.width;
+            h = source.height;
+        } else {
+            String resolution = video != null ? video.resolution : null;
+            try {
+                if (resolution != null && resolution.contains("x")) {
+                    String[] parts = resolution.split("x");
+                    w = Integer.parseInt(parts[0]);
+                    h = Integer.parseInt(parts[1]);
+                }
+            } catch (NumberFormatException e) {
+                LOG.debug("Could not parse resolution '{}' for HEVC level; using {}x{}",
+                        resolution, w, h);
             }
-        } catch (Exception ignored) {}
+        }
+        double fps = source != null && source.fps > 0 ? source.fps : effectiveFps(video);
         long samples = (long) w * h;
-        long rate = Math.round(samples * effectiveFps(video));
+        long rate = Math.round(samples * fps);
         // {level_idc, max luma picture size, max luma sample rate}
         long[][] levels = {
                 {30, 36864L, 552960L},
@@ -1681,10 +1847,10 @@ public class HlsService {
         };
         for (long[] level : levels) {
             if (samples <= level[1] && rate <= level[2]) {
-                return String.valueOf(level[0]);
+                return (int) level[0];
             }
         }
-        return "186";
+        return 186;
     }
 
     private String deriveResolutionString(Video video) {
@@ -1710,6 +1876,19 @@ public class HlsService {
         return videoPath;
     }
 
+    /** Lazily probes (and caches) the source bitstream parameters for a session. */
+    private SourceVideoInfo sourceVideoInfo(HlsSession session) {
+        if (!session.sourceInfoProbed) {
+            synchronized (session) {
+                if (!session.sourceInfoProbed) {
+                    session.sourceInfo = probeSourceVideo(session.video);
+                    session.sourceInfoProbed = true;
+                }
+            }
+        }
+        return session.sourceInfo;
+    }
+
     public String getMasterPlaylist(String sessionId) {
         HlsSession session = activeSessions.get(sessionId);
         if (session == null) return null;
@@ -1720,13 +1899,17 @@ public class HlsService {
         sb.append("#EXT-X-INDEPENDENT-SEGMENTS\n");
         int masterVariantHeight = session.variants != null && !session.variants.isEmpty()
                 ? session.variants.get(0).height : 0;
-        String codecs = deriveCodecsString(session.video, session.outputCodec, masterVariantHeight);
+        SourceVideoInfo source = sourceVideoInfo(session);
+        String codecs = deriveCodecsString(session.video, session.outputCodec, masterVariantHeight, source);
         // Evidence for client-side codec rejections (manifestIncompatibleCodecsError):
         // record exactly what this session advertised, once per session.
         if (!session.masterCodecsLogged) {
             session.masterCodecsLogged = true;
-            LOG.info("HLS master {} declares CODECS=\"{}\" (outputCodec={}, variantHeight={}, ua={})",
-                    sessionId, codecs, session.outputCodec, masterVariantHeight, session.userAgent);
+            LOG.info("HLS master {} declares CODECS=\"{}\" (outputCodec={}, variantHeight={}, sourceProfile={}, sourceLevel={}, ua={})",
+                    sessionId, codecs, session.outputCodec, masterVariantHeight,
+                    source != null ? source.profile : null,
+                    source != null ? source.level : null,
+                    session.userAgent);
         }
         int fps = session.video.frameRate != null && session.video.frameRate > 0 ? session.video.frameRate : 30;
         List<SubtitleTrack> servableSubs = servableSubtitleTracks(session);
@@ -2202,6 +2385,10 @@ public class HlsService {
 
         /** True once the master CODECS line has been logged, to keep it one line per session. */
         public volatile boolean masterCodecsLogged = false;
+
+        /** Cached bitstream parameters (copy-mode CODECS); probed once per session. */
+        public volatile SourceVideoInfo sourceInfo;
+        public volatile boolean sourceInfoProbed = false;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;

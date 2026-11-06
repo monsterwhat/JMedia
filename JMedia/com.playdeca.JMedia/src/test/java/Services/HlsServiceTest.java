@@ -60,6 +60,48 @@ class HlsServiceTest {
     }
 
     @Test
+    void copyModeTrustsTheBitstreamOverStaleMetadata() {
+        // The real regression: this row has videoProfile=null and frameRate=0 in
+        // the DB, while the bitstream is Main 10 at level 5.0. Deriving from the
+        // metadata announced Main, which does not describe the copied stream.
+        Video stale = video("hevc", "eac3", "2592x1080"); // no profile, no frameRate
+        HlsService.SourceVideoInfo probed = new HlsService.SourceVideoInfo(
+                "Main 10", 150, 2592, 1080, 24000.0 / 1001.0);
+        assertEquals("hvc1.2.4.L150.B0,mp4a.40.2", service.deriveCodecsString(
+                stale, TranscodingService.CODEC_COPY, 1080, probed));
+    }
+
+    @Test
+    void copyModeDeclaresTheSourcesOwnLevelWhenHigherThanTheMinimum() {
+        // A copied bitstream may be encoded at a higher level than its frame
+        // needs; the manifest must not under-declare it.
+        Video v = video("hevc", "aac", "1920x1080");
+        HlsService.SourceVideoInfo probed = new HlsService.SourceVideoInfo(
+                "Main 10", 153, 1920, 1080, 24);
+        assertEquals("hvc1.2.4.L153.B0,mp4a.40.2", service.deriveCodecsString(
+                v, TranscodingService.CODEC_COPY, 1080, probed));
+    }
+
+    @Test
+    void copyModeDeclaresTheProbedAvcLevel() {
+        Video v = video("h264", "aac", "1920x1080");
+        HlsService.SourceVideoInfo probed = new HlsService.SourceVideoInfo(
+                "High", 41, 1920, 1080, 24);
+        assertEquals("avc1.640029,mp4a.40.2", service.deriveCodecsString(
+                v, TranscodingService.CODEC_COPY, 1080, probed));
+    }
+
+    @Test
+    void transcodeUsesProbedAspectAndFrameRateWhenMetadataIsEmpty() {
+        // ffprobe says 2592x1080 at 23.976 -> 1728x720 needs H.264 level 3.2.
+        Video stale = video("hevc", "eac3", null);
+        HlsService.SourceVideoInfo probed = new HlsService.SourceVideoInfo(
+                "Main 10", 150, 2592, 1080, 24000.0 / 1001.0);
+        assertEquals("avc1.640020,mp4a.40.2", service.deriveCodecsString(
+                stale, TranscodingService.CODEC_H264, 720, probed));
+    }
+
+    @Test
     void copyModeDeclaresSourceH264() {
         String codecs = service.deriveCodecsString(
                 video("h264", "aac", "1920x1080"), TranscodingService.CODEC_COPY, 1080);
