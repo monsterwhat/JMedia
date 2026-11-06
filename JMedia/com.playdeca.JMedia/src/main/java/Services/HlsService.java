@@ -276,8 +276,8 @@ public class HlsService {
         session.outputCodec = outputCodec;
         session.audioCodecsParam = audioCodecsParam;
         session.userAgent = userAgent;
-        LOG.info("HLS session {} output codec: {} (source {}, client codecs {}, client audio codecs {})",
-                sessionId, outputCodec, video.videoCodec, clientCodecs, audioCodecsParam);
+        LOG.info("HLS session {} output codec: {} (source {}, client codecs {}, client audio codecs {}, ua={})",
+                sessionId, outputCodec, video.videoCodec, clientCodecs, audioCodecsParam, userAgent);
 
         // Destroy a previous session for the same video/device/profile/codec so a
         // re-create never spawns a duplicate transcode or orphans an FFmpeg process.
@@ -1538,8 +1538,7 @@ public class HlsService {
             if (video != null && video.videoCodec != null) {
                 String vc = video.videoCodec.toLowerCase();
                 if (vc.contains("hevc") || vc.contains("h265")) {
-                    String level = deriveHvcLevel(video.resolution);
-                    videoCodecStr = "hvc1.1.4.L" + level + ".B0";
+                    videoCodecStr = deriveHvcCodec(video);
                 } else if (vc.contains("h264") || vc.contains("avc")) {
                     videoCodecStr = deriveAvc1Codec(video);
                 }
@@ -1640,18 +1639,52 @@ public class HlsService {
         return "avc1." + profile + level;
     }
 
-    private String deriveHvcLevel(String resolution) {
-        if (resolution != null) {
-            try {
-                String[] parts = resolution.split("x");
-                int height = Integer.parseInt(parts[1]);
-                if (height > 2160) return "180";
-                else if (height > 1080) return "150";
-                else if (height > 720) return "123";
-                else return "93";
-            } catch (Exception ignored) {}
+    /** hvc1 codec string with the source profile (Main/Main 10) and a level that covers the frame. */
+    private String deriveHvcCodec(Video video) {
+        String profile = "1"; // Main
+        if (video != null && video.videoProfile != null) {
+            String vp = video.videoProfile.toLowerCase();
+            if (vp.contains("10")) profile = "2";       // Main 10
+            else if (vp.contains("still")) profile = "3"; // Main Still Picture
         }
-        return "93";
+        return "hvc1." + profile + ".4.L" + deriveHvcLevel(video) + ".B0";
+    }
+
+    /** Lowest HEVC level whose luma picture size and sample rate cover width x height x fps. */
+    private String deriveHvcLevel(Video video) {
+        int w = 1920, h = 1080;
+        String resolution = video != null ? video.resolution : null;
+        try {
+            if (resolution != null && resolution.contains("x")) {
+                String[] parts = resolution.split("x");
+                w = Integer.parseInt(parts[0]);
+                h = Integer.parseInt(parts[1]);
+            }
+        } catch (Exception ignored) {}
+        long samples = (long) w * h;
+        long rate = Math.round(samples * effectiveFps(video));
+        // {level_idc, max luma picture size, max luma sample rate}
+        long[][] levels = {
+                {30, 36864L, 552960L},
+                {60, 122880L, 3686400L},
+                {63, 245760L, 7372800L},
+                {90, 552960L, 16588800L},
+                {93, 983040L, 33177600L},
+                {120, 2228224L, 66846720L},
+                {123, 2228224L, 133693440L},
+                {150, 8912896L, 267386880L},
+                {153, 8912896L, 534773760L},
+                {156, 8912896L, 1069547520L},
+                {180, 35651584L, 1069547520L},
+                {183, 35651584L, 2139095040L},
+                {186, 35651584L, 4278190080L}
+        };
+        for (long[] level : levels) {
+            if (samples <= level[1] && rate <= level[2]) {
+                return String.valueOf(level[0]);
+            }
+        }
+        return "186";
     }
 
     private String deriveResolutionString(Video video) {
@@ -1688,6 +1721,13 @@ public class HlsService {
         int masterVariantHeight = session.variants != null && !session.variants.isEmpty()
                 ? session.variants.get(0).height : 0;
         String codecs = deriveCodecsString(session.video, session.outputCodec, masterVariantHeight);
+        // Evidence for client-side codec rejections (manifestIncompatibleCodecsError):
+        // record exactly what this session advertised, once per session.
+        if (!session.masterCodecsLogged) {
+            session.masterCodecsLogged = true;
+            LOG.info("HLS master {} declares CODECS=\"{}\" (outputCodec={}, variantHeight={}, ua={})",
+                    sessionId, codecs, session.outputCodec, masterVariantHeight, session.userAgent);
+        }
         int fps = session.video.frameRate != null && session.video.frameRate > 0 ? session.video.frameRate : 30;
         List<SubtitleTrack> servableSubs = servableSubtitleTracks(session);
         String subsAttr = servableSubs.isEmpty() ? "" : ",SUBTITLES=\"subs\"";
@@ -2159,6 +2199,9 @@ public class HlsService {
         public volatile String audioCodecsParam;
         /** Request UA, used for the legacy audio-capability fallback. */
         public volatile String userAgent;
+
+        /** True once the master CODECS line has been logged, to keep it one line per session. */
+        public volatile boolean masterCodecsLogged = false;
 
         public int qualityHeight = 0;
         public List<VariantConfig> variants = null;

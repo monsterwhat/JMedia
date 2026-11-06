@@ -20,7 +20,7 @@
 
         loadPromise = new Promise(function (resolve, reject) {
             var script = document.createElement('script');
-            script.src = '/lib/hls.min.js';
+            script.src = '/lib/hls.min.js?v=1.6.15';
             script.async = true;
             script.onload = function () {
                 if (!window.Hls) {
@@ -36,7 +36,7 @@
             };
             script.onerror = function () {
                 loadPromise = null;
-                var err = new Error('Failed to load /lib/hls.min.js');
+                var err = new Error('Failed to load /lib/hls.min.js?v=1.6.15');
                 console.error('[hls-loader] hls.js failed to load', err);
                 reject(err);
             };

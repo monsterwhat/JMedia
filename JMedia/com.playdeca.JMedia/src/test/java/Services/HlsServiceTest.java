@@ -36,6 +36,30 @@ class HlsServiceTest {
     }
 
     @Test
+    void copyModeDeclaresHevcProfileAndMeasuredLevel() {
+        // The HEVC level must cover the actual luma picture size and sample rate.
+        // 2592x1080 exceeds level 4.1's 2,228,224 luma samples -> level 5.0.
+        assertEquals("hvc1.2.4.L150.B0,mp4a.40.2", service.deriveCodecsString(
+                hevc("2592x1080", "Main 10", 24), TranscodingService.CODEC_COPY, 1080));
+        // 1080p Main 10 at 24 fps fits level 4.0.
+        assertEquals("hvc1.2.4.L120.B0,mp4a.40.2", service.deriveCodecsString(
+                hevc("1920x1080", "Main 10", 24), TranscodingService.CODEC_COPY, 1080));
+        // 4K60 exceeds level 5.0's sample rate -> level 5.1.
+        assertEquals("hvc1.2.4.L153.B0,mp4a.40.2", service.deriveCodecsString(
+                hevc("3840x2160", "Main 10", 60), TranscodingService.CODEC_COPY, 2160));
+        // Main profile keeps profile_idc 1.
+        assertEquals("hvc1.1.4.L120.B0,mp4a.40.2", service.deriveCodecsString(
+                hevc("1920x1080", "Main", 24), TranscodingService.CODEC_COPY, 1080));
+    }
+
+    private static Video hevc(String resolution, String profile, int fps) {
+        Video v = video("hevc", "eac3", resolution);
+        v.videoProfile = profile;
+        v.frameRate = fps;
+        return v;
+    }
+
+    @Test
     void copyModeDeclaresSourceH264() {
         String codecs = service.deriveCodecsString(
                 video("h264", "aac", "1920x1080"), TranscodingService.CODEC_COPY, 1080);

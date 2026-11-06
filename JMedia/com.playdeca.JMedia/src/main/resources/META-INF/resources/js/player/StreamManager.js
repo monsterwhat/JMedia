@@ -662,6 +662,40 @@
             arm(this._bufferedEnd(p.video));
         }
 
+        /**
+         * Snapshot of this browser's MSE codec support for the codecs JMedia
+         * can declare. Logged with a codec rejection so a
+         * `manifestIncompatibleCodecsError` carries the actual reason instead of
+         * being a dead end.
+         */
+        _codecSupportReport() {
+            const probes = [
+                ['video', 'avc1.64001F'],
+                ['video', 'avc1.640020'],
+                ['video', 'hvc1.2.4.L150.B0'],
+                ['video', 'av01.0.08M.08'],
+                ['audio', 'mp4a.40.2'],
+                ['audio', 'ec-3']
+            ];
+            const support = {};
+            for (const [type, codec] of probes) {
+                try {
+                    support[codec] = typeof MediaSource !== 'undefined'
+                        ? MediaSource.isTypeSupported(type + '/mp4; codecs="' + codec + '"')
+                        : 'no-MediaSource';
+                } catch (e) {
+                    support[codec] = 'error';
+                }
+            }
+            return {
+                ua: navigator.userAgent,
+                hlsVersion: (window.Hls && window.Hls.version) || 'unknown',
+                mediaSource: typeof MediaSource !== 'undefined',
+                managedMediaSource: typeof window.ManagedMediaSource !== 'undefined',
+                support: support
+            };
+        }
+
         // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
         // opts.fallbackToDirect: fall back to the direct stream on fatal error
         // (local HLS sessions) instead of the external-stream 'Playback error'
@@ -691,6 +725,18 @@
             p._hlsNetworkRetries = 0;
 
             p._showLoading(loadingMessage);
+            hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
+                if (!data || !Array.isArray(data.levels)) return;
+                console.log('[SimplePlayer] HLS manifest levels (raw):', data.levels.map(function(l) {
+                    return {
+                        codecs: l.attrs && l.attrs.CODECS,
+                        videoCodec: l.videoCodec,
+                        audioCodec: l.audioCodec,
+                        unknownCodecs: l.unknownCodecs,
+                        resolution: l.attrs && l.attrs.RESOLUTION
+                    };
+                }));
+            });
             hls.loadSource(url);
             hls.attachMedia(p.video);
 
@@ -726,6 +772,9 @@
                 if (!data || p._destroyed || p._hlsInstance !== hls) return;
                 if (!data.fatal) return;
                 console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
+                if (data.details === 'manifestIncompatibleCodecsError') {
+                    console.error('[SimplePlayer] HLS rejected the manifest codecs:', data.reason || '(no reason)', this._codecSupportReport());
+                }
                 this._clearPlaybackWatchdog();
                 if (p._userPaused) {
                     console.log('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
