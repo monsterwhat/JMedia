@@ -1190,9 +1190,11 @@
                 const bufLen = p.video.buffered ? p.video.buffered.length : 0;
                 const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
                 // `time` is absolute content time; the element timeline is relative to
-                // the session's content offset.
-                const relTime = Math.max(0, time - (p.streamStartOffset || 0));
-                if (p.video.readyState > 0 && relTime <= bufferedEnd + 1) {
+                // the session's content offset. A target BEFORE the session start has
+                // no encoded media in this session, so it must rebuild the encoder at
+                // that earlier position (the server now honours start=).
+                const relTime = time - (p.streamStartOffset || 0);
+                if (p.video.readyState > 0 && relTime >= 0 && relTime <= bufferedEnd + 1) {
                     console.log(`[SimplePlayer] HLS in-buffer seek to ${time}s (relative ${relTime}s, buffered to ${bufferedEnd}s)`);
                     try { p.video.currentTime = relTime; } catch (e) {}
                     p.video.play().catch(function() {});

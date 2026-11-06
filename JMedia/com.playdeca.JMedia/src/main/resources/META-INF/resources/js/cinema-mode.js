@@ -152,22 +152,21 @@ function _resetUrlToBrowse() {
 async function _pushWatchUrlForVideo(videoId) {
   if (_suppressUrlWrite || !window.VideoRoutes || !videoId) return;
   if (window.location.pathname.indexOf('/video/watch/') === 0) return;
+  // Push an internal dbN entry synchronously so Back always has an in-app entry to
+  // return to, even when the canonical resolve is slow or the user closes quickly.
+  // The canonical token URL is upgraded in place once the resolver responds.
+  _pushWatchUrl('db' + videoId);
   try {
     const res = await fetch('/api/video/resolve/db' + videoId, { credentials: 'include' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.found && data.watch) {
-        if (window.location.pathname !== data.watch) {
-          history.pushState({ video: { area: 'watch', token: data.token } }, '', data.watch);
-          _watchUrlPushed = true;
-        }
-        return;
-      }
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.found && data.watch
+        && window.location.pathname.indexOf('/video/watch/') === 0) {
+      history.replaceState({ video: { area: 'watch', token: data.token } }, '', data.watch);
     }
   } catch (e) {
     console.warn('[cinema] watch url resolve failed', e);
   }
-  _pushWatchUrl('db' + videoId);
 }
 
 function _parseVideoUrl() {
@@ -200,15 +199,38 @@ async function _openFromUrl(parsed) {
     }
     // watch
     const episodeId = resolved.episode && resolved.episode.found ? resolved.episode.videoId : null;
+
+    // A shareable watch URL opened directly has no in-app entry behind it, so
+    // Back would leave the site and the player would never be closed. Replace the
+    // initial entry with the show's info URL and push the watch URL on top, so
+    // Back returns to the details page.
+    let deepLinkEntry = false;
+    if (window.location.pathname.indexOf('/video/watch/') === 0) {
+      const currentPath = window.location.pathname + window.location.search;
+      const infoUrl = resolved.info
+        || (resolved.token ? '/video/info/' + encodeURIComponent(resolved.token) : '/video');
+      try {
+        history.replaceState({ video: { area: 'info', token: resolved.token } }, '', infoUrl);
+        history.pushState({ video: { area: 'watch', token: resolved.token } }, '', currentPath);
+        deepLinkEntry = true;
+      } catch (e) {
+        console.warn('[cinema] deep-link history init failed', e);
+      }
+    }
+
+    let openedPlayer = false;
     if (episodeId) {
       await openPlayerModal(episodeId);
+      openedPlayer = true;
     } else if (resolved.type === 'series') {
       // No episode in the URL: open the show so the user can pick one (the modal's
       // Play button resumes, same as clicking the card).
       await openSeriesDetail(resolved.title);
     } else if (resolved.id) {
       await openPlayerModal(resolved.id);
+      openedPlayer = true;
     }
+    if (deepLinkEntry && openedPlayer) _watchUrlPushed = true;
     return true;
   } finally {
     _suppressUrlWrite = false;
@@ -3014,10 +3036,14 @@ function closePlayerModal(reason) {
   if (reason === 'view') {
     if (wasWatchUrl && _watchUrlPushed && window.history.length > 1) {
       _watchUrlPushed = false;
-      // The view underneath is still intact: skip the deep-link re-open on the
-      // popstate this triggers so the details logo/title don't re-animate.
-      _skipNextPopstateOpen = true;
-      setTimeout(function () { _skipNextPopstateOpen = false; }, 1200);
+      // If a details modal is already underneath, the view is intact: skip the
+      // popstate re-open so the logo/title don't re-animate. Otherwise let the
+      // popstate open the details page the watch URL sits on top of.
+      const detailsOpen = document.getElementById('cinema-modal');
+      if (detailsOpen && detailsOpen.classList.contains('active')) {
+        _skipNextPopstateOpen = true;
+        setTimeout(function () { _skipNextPopstateOpen = false; }, 1200);
+      }
       history.back();
     } else if (wasWatchUrl) {
       _resetUrlToBrowse();
@@ -4039,13 +4065,12 @@ window.addEventListener('popstate', () => {
   const parsed = _parseVideoUrl();
   if (_isDeepLink(parsed)) {
     // Returning from playback to an already-open details modal: just reveal it.
+    // Always close the player first so it cannot stay on top of the details view.
     if (parsed.area === 'info') {
+      const playerModal = document.getElementById('player-modal');
+      if (playerModal && playerModal.classList.contains('active')) closePlayerModal('back');
       const openDetailsModal = document.getElementById('cinema-modal');
-      if (openDetailsModal && openDetailsModal.classList.contains('active')) {
-        const playerModal = document.getElementById('player-modal');
-        if (playerModal && playerModal.classList.contains('active')) closePlayerModal('back');
-        return;
-      }
+      if (openDetailsModal && openDetailsModal.classList.contains('active')) return;
     }
     _openFromUrl(parsed);
     return;
