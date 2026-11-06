@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMedia Player - Video.js</title>
+    <link rel="stylesheet" href="/css/player.css"/>
+    <link rel="stylesheet" href="/css/subtitle-styling.css"/>
+    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet"/>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0a0a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+        }
+        .player-page {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+        }
+        .player-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            z-index: 10;
+        }
+        .back-btn {
+            background: none;
+            border: none;
+            color: #48c774;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .back-btn:hover { background: rgba(72,199,116,0.15); }
+        .media-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .media-title {
+            font-size: 16px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .media-meta {
+            font-size: 12px;
+            color: #aaa;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .player-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-height: 0;
+        }
+        .video-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        .video-js {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .video-js .vjs-big-play-button {
+            background-color: rgba(72,199,116,0.8);
+            border: none;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            line-height: 80px;
+            font-size: 40px;
+        }
+        .video-js .vjs-control-bar {
+            background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+        }
+        .video-js .vjs-play-progress,
+        .video-js .vjs-volume-level {
+            background-color: #48c774;
+        }
+        .video-js .vjs-slider {
+            background-color: rgba(255,255,255,0.2);
+        }
+        .video-js .vjs-mute-control:hover .vjs-volume-level,
+        .video-js .vjs-volume-control:hover .vjs-volume-level {
+            background-color: #48c774;
+        }
+        .no-video-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #aaa;
+            font-size: 18px;
+        }
+        .no-video-msg h2 { color: #48c774; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <div class="player-page">
+        <div class="player-header">
+            <button class="back-btn" onclick="window.history.back()" title="Back">←</button>
+            <div class="media-info">
+                <div class="media-title" id="mediaTitle">Loading...</div>
+                <div class="media-meta" id="mediaMeta"></div>
+            </div>
+        </div>
+        <div class="player-body">
+            <div class="video-wrapper" id="videoWrapper">
+                <video id="videoElement" class="video-js vjs-default-skin vjs-big-play-centered" controls preload="auto" playsinline></video>
+                <div class="no-video-msg" id="noVideoMsg" style="display:none;">
+                    <h2>No video specified</h2>
+                    <p>Add ?videoId=XXX to the URL</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const videoId = params.get('videoId');
+            const videoEl = document.getElementById('videoElement');
+            const titleEl = document.getElementById('mediaTitle');
+            const metaEl = document.getElementById('mediaMeta');
+            const noVideoMsg = document.getElementById('noVideoMsg');
+
+            if (!videoId) {
+                noVideoMsg.style.display = 'block';
+                videoEl.style.display = 'none';
+                return;
+            }
+
+            const streamUrl = `/api/video/stream/${videoId}.mp4`;
+            const player = videojs(videoEl, {
+                controls: true,
+                autoplay: false,
+                preload: 'auto',
+                fluid: true,
+                playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+                controlBar: {
+                    children: [
+                        'playToggle',
+                        'skipBackward',
+                        'skipForward',
+                        'volumePanel',
+                        'currentTimeDisplay',
+                        'timeDivider',
+                        'durationDisplay',
+                        'progressControl',
+                        'playbackRateMenuButton',
+                        'fullscreenToggle'
+                    ]
+                }
+            });
+
+            player.src({ type: 'video/mp4', src: streamUrl });
+
+            // Fetch video metadata
+            fetch(`/api/video/${videoId}`, { credentials: 'include' })
+                .then(r => r.json())
+                .then(data => {
+                    const v = data.data || data;
+                    if (v && v.title) titleEl.textContent = v.title;
+                    if (v && v.seriesTitle) metaEl.textContent = v.seriesTitle + (v.seasonNumber ? ` S${v.seasonNumber}E${v.episodeNumber}` : '');
+                    else if (v && v.releaseYear) metaEl.textContent = v.releaseYear;
+                })
+                .catch(() => { titleEl.textContent = 'Video ' + videoId; });
+
+            // Skip buttons
+            player.getChild('controlBar').addChild('button', {}, 2).el().innerHTML = '<span style="font-size:14px;">⏪10s</span>';
+            // Note: Video.js skip buttons need custom implementation
+            // Add keyboard shortcuts
+            player.on('keydown', (e) => {
+                if (e.key === ' ' || e.key === 'k') { e.preventDefault(); player.paused() ? player.play() : player.pause(); }
+                if (e.key === 'ArrowLeft') { player.currentTime(Math.max(0, player.currentTime() - 10)); }
+                if (e.key === 'ArrowRight') { player.currentTime(Math.min(player.duration(), player.currentTime() + 10)); }
+                if (e.key === 'f') { player.isFullscreen() ? player.exitFullscreen() : player.requestFullscreen(); }
+                if (e.key === 'm') { player.muted(!player.muted()); }
+            });
+        })();
+    </script>
+</body>
+</html>
