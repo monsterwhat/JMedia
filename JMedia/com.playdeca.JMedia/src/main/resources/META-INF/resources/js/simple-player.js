@@ -209,11 +209,23 @@ if (typeof window.SimplePlayer === 'undefined') {
         async _openStream() {
             this._streamOpened = true;
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            // hls.js is ~542 KB and is only needed when this profile actually uses
-            // HLS. Load it here, at the first point where the answer is known,
-            // instead of shipping it in every playback fragment.
-            const wantsHls = this.dataHlsEnabled &&
-                (this.needsTranscode || this.container.dataset.hlsForced === 'true');
+            // Hybrid routing:
+            //  - faststart H.264/AAC MP4 -> progressive <video src> (works everywhere)
+            //  - anything that must be remuxed/transcoded -> HLS + hls.js (MSE),
+            //    because Chrome's progressive demuxer does not start on the
+            //    empty_moov fragmented MP4 the server produces for live transcodes.
+            // An audio track that needs transcoding also produces fMP4, so it
+            // takes the HLS path too. The profile flag still forces HLS on.
+            const audioCodec = (this.container.dataset.audioCodec || '').toLowerCase();
+            const audioNeedsHls = audioCodec !== '' && !/(aac|mp3|opus|flac|vorbis)/.test(audioCodec);
+            const wantsHls = this.needsTranscode || audioNeedsHls
+                || this.dataHlsEnabled || this.container.dataset.hlsForced === 'true';
+            // hls.js is ~542 KB and is only needed for the HLS route. Load it here,
+            // at the first point where the answer is known, instead of shipping it
+            // in every playback fragment.
+            console.log('[SimplePlayer] Route ' + (wantsHls ? 'HLS/MSE' : 'direct') +
+                ' (needsTranscode=' + this.needsTranscode + ', audioCodec=' + (audioCodec || 'unknown') +
+                ', hlsEnabled=' + this.dataHlsEnabled + ')');
             if (wantsHls && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
                 try {
                     await window.ensureHlsLoaded();
