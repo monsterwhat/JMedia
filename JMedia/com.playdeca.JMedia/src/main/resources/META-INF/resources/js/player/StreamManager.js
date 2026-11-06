@@ -563,11 +563,18 @@
                 p._hlsSessionId = data.sessionId;
                 p._hlsSessionPending = false;
                 // Seed the fallback position: fallbackToDirectStream ignores its
-                // savedTime param and derives absTime from lastKnownGoodPosition.
-                if (p.lastKnownGoodPosition <= 0) p.lastKnownGoodPosition = savedTime;
+                // savedTime param and derives absTime from lastKnownGoodPosition. Only
+                // seed when there is no content offset, otherwise the offset would be
+                // counted twice (lastKnownGoodPosition + streamStartOffset).
+                if (p.lastKnownGoodPosition <= 0 && !(p.streamStartOffset > 0)) {
+                    p.lastKnownGoodPosition = savedTime;
+                }
                 this._initHlsExternalStream(data.playlistUrl, savedTime, {
                     fallbackToDirect: true,
                     loadingMessage: 'Loading HLS stream...',
+                    // The encoder starts at this seek origin (server `-ss`), so the
+                    // element is 0-based relative to it.
+                    contentOffset: savedTime,
                     // Local library sessions are growing VOD, not live TV: without
                     // this hls.js applies liveSyncDurationCount and starts at the
                     // encoder's latest segment instead of 0:00.
@@ -704,6 +711,12 @@
             const p = this.player;
             const fallbackToDirect = !!(opts && opts.fallbackToDirect);
             const loadingMessage = (opts && opts.loadingMessage) || 'Loading live stream...';
+            // Local library sessions can start the encoder at a seek origin. In that
+            // case element time 0 = content `contentOffset`, so the absolute clock and
+            // subtitle ?start= must use that offset and the element seeks to 0.
+            const contentOffset = (opts && opts.contentOffset != null)
+                ? Math.max(0, opts.contentOffset) : null;
+            if (contentOffset != null) p.streamStartOffset = contentOffset;
 
             if (p._hlsInstance) {
                 p._hlsInstance.destroy();
@@ -768,14 +781,18 @@
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 if (p._destroyed || p._hlsInstance !== hls) return;
+                // A server session that started at a seek origin is already at the
+                // requested content time at element 0; otherwise the element starts at
+                // 0:00 and the resume position is a client seek.
+                const initialSeek = contentOffset != null ? 0 : savedTime;
                 if (p._userPaused) {
                     console.log('[SimplePlayer] HLS manifest parsed — user pause active, skipping auto-play');
-                    if (savedTime > 0) p.video.currentTime = savedTime;
+                    if (initialSeek > 0) p.video.currentTime = initialSeek;
                     p.applyInitialState();
                     return;
                 }
                 console.log('[SimplePlayer] HLS manifest parsed, starting playback');
-                if (savedTime > 0) p.video.currentTime = savedTime;
+                if (initialSeek > 0) p.video.currentTime = initialSeek;
                 p.applyInitialState();
                 console.log('[SimplePlayer] HLS auto-play()');
                 p.video.play().catch(function(e) { console.error('[SimplePlayer] HLS play failed', e); });
@@ -1123,10 +1140,10 @@
             try { p.video.removeAttribute('src'); } catch (e) {}
             try { p.video.load(); } catch (e) {}
 
-            // HLS keeps a 0-based element timeline (streamStartOffset stays 0 so
-            // subtitle ?start= and the absolute clock both match the master
-            // playlist); reset the stall/fallback bookkeeping like _doServerSeek.
-            p.streamStartOffset = 0;
+            // The new session's encoder starts at `time`, so element time 0 is that
+            // content position: the absolute clock and subtitle ?start= use it as the
+            // offset. Reset the stall/fallback bookkeeping like _doServerSeek.
+            p.streamStartOffset = Math.max(0, time);
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
             if (p._stallTimer) {
@@ -1172,9 +1189,12 @@
             if (p._hlsSessionId || p._hlsSessionPending) {
                 const bufLen = p.video.buffered ? p.video.buffered.length : 0;
                 const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
-                if (p.video.readyState > 0 && time >= 0 && time <= bufferedEnd + 1) {
-                    console.log(`[SimplePlayer] HLS in-buffer seek to ${time}s (buffered to ${bufferedEnd}s)`);
-                    try { p.video.currentTime = time; } catch (e) {}
+                // `time` is absolute content time; the element timeline is relative to
+                // the session's content offset.
+                const relTime = Math.max(0, time - (p.streamStartOffset || 0));
+                if (p.video.readyState > 0 && relTime <= bufferedEnd + 1) {
+                    console.log(`[SimplePlayer] HLS in-buffer seek to ${time}s (relative ${relTime}s, buffered to ${bufferedEnd}s)`);
+                    try { p.video.currentTime = relTime; } catch (e) {}
                     p.video.play().catch(function() {});
                     return;
                 }

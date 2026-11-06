@@ -643,7 +643,7 @@ public class HlsService {
             copyCommand.add(ffmpegPath);
             copyCommand.add("-v"); copyCommand.add("error");
             copyCommand.add("-hide_banner");
-            copyCommand.add("-ss"); copyCommand.add("0");
+            copyCommand.add("-ss"); copyCommand.add(startAtArg(session.startSeconds));
             copyCommand.add("-i"); copyCommand.add(resolvedPath);
             copyCommand.add("-map"); copyCommand.add("0:v:0");
             copyCommand.add("-c:v"); copyCommand.add("copy");
@@ -805,7 +805,7 @@ public class HlsService {
         // Starting from an offset produces a sub-clip which causes bufferSeekOverHole errors
         // and confuses the player with mismatched stream duration vs real duration.
         command.add("-ss");
-        command.add("0");
+        command.add(startAtArg(session.startSeconds));
         command.add("-i");
         command.add(resolvedPath);
 
@@ -1126,7 +1126,7 @@ public class HlsService {
                 command.add(ffmpegDiscoveryService.findFFmpegExecutable());
                 // Audio encoder always starts from 0 (same as video — HLS seek is handled natively)
                 command.add("-ss");
-                command.add("0");
+                command.add(startAtArg(session.startSeconds));
                 command.add("-i");
                 command.add(resolvedPath);
                 command.add("-map");
@@ -1223,9 +1223,10 @@ public class HlsService {
             try {
                 List<String> command = new ArrayList<>();
                 command.add(ffmpegDiscoveryService.findFFmpegExecutable());
-                // Subtitle encoder always starts from 0 (same as video/audio — HLS seek is handled natively)
+                // Start at the session's seek origin so the subtitle timeline matches
+                // the video/audio encoders (which also start there).
                 command.add("-ss");
-                command.add("0");
+                command.add(startAtArg(session.startSeconds));
                 command.add("-i");
                 command.add(inputPath);
                 command.add("-map");
@@ -1661,6 +1662,16 @@ public class HlsService {
                 process.destroyForcibly();
             }
         }
+    }
+
+    /**
+     * ffmpeg {@code -ss} argument for the session's seek origin. Encoders used to
+     * hardcode 0, which made every HLS seek restart the whole session at 0:00 and
+     * then clamp the player to the first encoded segment window.
+     */
+    private static String startAtArg(double startSeconds) {
+        double safe = Double.isFinite(startSeconds) ? Math.max(0.0, startSeconds) : 0.0;
+        return String.format(java.util.Locale.ROOT, "%.3f", safe);
     }
 
     private static Integer parseOptionalInt(String value) {

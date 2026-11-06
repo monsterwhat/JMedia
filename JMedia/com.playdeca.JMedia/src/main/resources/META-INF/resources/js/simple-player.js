@@ -218,8 +218,15 @@ if (typeof window.SimplePlayer === 'undefined') {
             // takes the HLS path too. The profile flag still forces HLS on.
             const audioCodec = (this.container.dataset.audioCodec || '').toLowerCase();
             const audioNeedsHls = audioCodec !== '' && !/(aac|mp3|opus|flac|vorbis)/.test(audioCodec);
-            const wantsHls = this.needsTranscode || audioNeedsHls
-                || this.dataHlsEnabled || this.container.dataset.hlsForced === 'true';
+            // Firefox plays the server's fragmented-MP4 transcode progressively and
+            // seeks accurately through ?start= (X-Stream-Origin), which starts nearly
+            // instantly and does not rebuild an HLS session per seek. Chromium's
+            // progressive demuxer stalls on our empty_moov fMP4, so it keeps HLS.
+            // Explicit profile HLS (?hls=1) still wins everywhere.
+            const isFirefox = /Firefox\//i.test(navigator.userAgent || '');
+            const wantsHls = this.dataHlsEnabled
+                || this.container.dataset.hlsForced === 'true'
+                || ((this.needsTranscode || audioNeedsHls) && !isFirefox);
             // hls.js is ~542 KB and is only needed for the HLS route. Load it here,
             // at the first point where the answer is known, instead of shipping it
             // in every playback fragment.
@@ -249,14 +256,14 @@ if (typeof window.SimplePlayer === 'undefined') {
                 }
             }
             if (wantsHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                // Local HLS session: the server transcodes to HLS segments; the element
-                // stays 0-based (streamStartOffset 0) so subtitle ?start= and the absolute
-                // clock both match the master playlist. Resume is a client-side seek after
-                // MANIFEST_PARSED (initialResumeTime is set from dataset.startTime).
-                this.streamStartOffset = 0;
+                // Local HLS session: the server starts the encoder at `savedTime`, so
+                // element time 0 is that content position. streamStartOffset carries the
+                // offset so the clock and subtitle ?start= stay absolute; the element is
+                // seeked to 0 after MANIFEST_PARSED (see StreamManager contentOffset).
+                this.streamStartOffset = savedTime > 0 ? savedTime : 0;
                 this.streamMgr.initLocalHlsStream(savedTime);
                 this.subtitleController.loadSubtitles();
-            } else if (this.needsTranscode) {
+            } else if (this.needsTranscode || audioNeedsHls) {
                 const setupStream = () => {
                     const target = savedTime > 0 ? savedTime : null;
                     const streamUrl = this.streamMgr.buildStreamUrl(target);
