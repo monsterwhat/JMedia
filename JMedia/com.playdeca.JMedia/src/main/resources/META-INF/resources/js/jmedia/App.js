@@ -251,6 +251,9 @@
                 if (viewName === 'import' && window.initImportView) window.initImportView();
                 if (viewName === 'music') {
                     const initMusicView = () => {
+                        // The user may have navigated away while the bundle or
+                        // the profile was still resolving.
+                        if (this.currentView !== 'music') return;
                         if (window.loadMobilePlaylists) window.loadMobilePlaylists();
                         if (window.initEventBindings) window.initEventBindings();
                         const urlParams = new URLSearchParams(window.location.search);
@@ -261,6 +264,26 @@
                             window.loadMobilePlaylistSongs(0);
                         }
                     };
+                    const hasProfile = () => !!(window.JMedia && JMedia.Helpers && JMedia.Helpers.getActiveProfileId());
+                    const whenProfileReady = (fn) => {
+                        if (hasProfile()) { fn(); return; }
+                        let done = false;
+                        const run = () => {
+                            if (done) return;
+                            done = true;
+                            document.body.removeEventListener('profileReady', run);
+                            fn();
+                        };
+                        document.body.addEventListener('profileReady', run);
+                        // Safety net: never leave the view uninitialised if the
+                        // event already fired or no profile exists at all.
+                        if (window.profileInitialized) { run(); }
+                        setTimeout(run, 6000);
+                    };
+                    const afterBundle = () => {
+                        if (this.currentView !== 'music') return;
+                        whenProfileReady(initMusicView);
+                    };
                     // The music bundle is injected asynchronously by
                     // music-bundle-loader.js. On a cold load its modules
                     // (MusicIndex.js, MobileApp.js, ...) can finish AFTER this
@@ -268,14 +291,14 @@
                     // loadMobilePlaylistSongs/initEventBindings undefined and
                     // the song list stays on its skeleton forever (the race
                     // only shows on Chromium; Firefox happens to win it).
-                    // Wait for the loader's promise, then initialise.
+                    // Then wait for the profile: MusicIndex builds
+                    // /api/music/ui/mobile-tbody/{profileId}/..., and a null id
+                    // renders nothing.
                     const bundle = window.__musicBundleLoaded;
                     if (bundle && typeof bundle.then === 'function') {
-                        bundle.then(() => {
-                            if (this.currentView === 'music') initMusicView();
-                        });
+                        bundle.then(afterBundle);
                     } else {
-                        initMusicView();
+                        afterBundle();
                     }
                 }
                 if (viewName === 'settings' && typeof window.initSettingsView === 'function') window.initSettingsView();
