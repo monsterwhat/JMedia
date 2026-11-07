@@ -286,6 +286,25 @@
             if (!this.__truthSyncTimer) {
                 this.__truthSyncTimer = setInterval(reconcile, 2000);
             }
+
+            // AudioEngine.pause() stops only the ACTIVE element. During a DJ
+            // crossfade the other element can still be playing, so a pause
+            // request would leave music audible. A pause must stop both.
+            if (!this.__pauseBothBound) {
+                this.__pauseBothBound = true;
+                window.addEventListener('statePropertyChanged', (e) => {
+                    if (!e.detail || e.detail.property !== 'playing' || e.detail.newValue !== false) return;
+                    [ae.audio, ae.audioNext].forEach(el => {
+                        if (el && !el.paused) {
+                            try {
+                                el.pause();
+                            } catch (err) {
+                                console.error('[MusicBarInit] pause-both failed', err);
+                            }
+                        }
+                    });
+                });
+            }
         },
 
         startAudioEngine: function() {
