@@ -3,7 +3,21 @@
 // Cinema Mode: force-fix SPA shell for scrollable cinema content
 // ============================================================
 (function() {
+  // The video view is re-injected on every SPA visit, so this script runs
+  // again each time. Tear down the previous instance (observer + timers)
+  // before installing a new one, otherwise they accumulate.
+  if (typeof window.__cinemaModeCleanup === 'function') {
+    try { window.__cinemaModeCleanup(); } catch (e) { console.error('[cinema-mode] previous cleanup failed', e); }
+  }
+
   function applyCinemaOverrides() {
+    // SPA route guard: the observer below stays alive across client-side
+    // navigations, so a music-view mutation used to re-apply these overrides
+    // and hide the sidebar/player. Only cinema routes may apply them.
+    if (window.location.pathname.indexOf('/video') !== 0) {
+      clearCinemaOverrides();
+      return;
+    }
     document.body.classList.add('cinema-mode');
     var sidebar = document.getElementById('standard-sidebar');
     if (sidebar) sidebar.style.display = 'none';
@@ -37,6 +51,49 @@
   }
 
   var _observer = null;
+
+  /**
+   * Undo the inline styles applyCinemaOverrides() writes. The music shell
+   * (sidebar + persistent player) is hidden by inline styles, not only by the
+   * body.cinema-mode class, so both must be cleared when leaving /video.
+   */
+  function clearCinemaOverrides() {
+    document.body.classList.remove('cinema-mode');
+    document.body.classList.remove('video-active');
+    document.body.setAttribute('data-video-active', 'false');
+    var sidebar = document.getElementById('standard-sidebar');
+    if (sidebar) sidebar.style.removeProperty('display');
+    var player = document.getElementById('musicPlayerContainer');
+    if (player) {
+      player.style.removeProperty('display');
+      // player.css also hides it through these classes, not only inline styles
+      player.classList.remove('video-active', 'video-playing');
+    }
+    var stdLayout = document.getElementById('standard-layout');
+    if (stdLayout) {
+      stdLayout.style.removeProperty('display');
+      stdLayout.style.removeProperty('height');
+      stdLayout.style.removeProperty('overflow');
+      stdLayout.style.removeProperty('position');
+      stdLayout.style.removeProperty('margin-left');
+    }
+    var stdMain = document.querySelector('.standard-main');
+    if (stdMain) {
+      stdMain.style.removeProperty('display');
+      stdMain.style.removeProperty('height');
+      stdMain.style.removeProperty('overflow');
+      stdMain.style.removeProperty('flex');
+      stdMain.style.removeProperty('margin-left');
+    }
+    var appContent = document.getElementById('app-content');
+    if (appContent) {
+      appContent.style.removeProperty('display');
+      appContent.style.removeProperty('height');
+      appContent.style.removeProperty('overflow-y');
+      appContent.style.removeProperty('overflow-x');
+      appContent.style.removeProperty('flex');
+    }
+  }
   function _startObserver() {
     if (_observer) _observer.disconnect();
     _observer = new MutationObserver(function() {
@@ -59,7 +116,13 @@
       _observer = null;
       window._cinemaObserver = null;
     }
+    if (heroTimer) {
+      clearInterval(heroTimer);
+      heroTimer = null;
+    }
+    clearCinemaOverrides();
   };
+  window.__cinemaModeCleanup = window._cleanupCinemaMode;
 
   window.addEventListener('pagehide', window._cleanupCinemaMode);
   window.addEventListener('beforeunload', window._cleanupCinemaMode);
@@ -547,6 +610,9 @@ function extractAndApplyModalColor(imgUrl, posterUrl) {
 // ============================================================
 function updateHero(index) {
   if (!heroItems.length || index >= heroItems.length) return;
+  // A pending rotation timer can fire after the SPA left /video; the hero
+  // elements no longer exist then (this used to throw at hero-play-btn).
+  if (!document.getElementById('hero-play-btn')) return;
   currentHeroIndex = index;
   const item = heroItems[index];
 

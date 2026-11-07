@@ -172,6 +172,16 @@
                 if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
 
                 const isVideoPage = viewName === 'video' || viewName === 'video-classic';
+                // cinema-mode.js hides the music shell with inline styles and
+                // keeps a MutationObserver alive; leaving /video must undo both
+                // (otherwise the music sidebar/player stay hidden).
+                if (!isVideoPage && typeof window._cleanupCinemaMode === 'function') {
+                    try {
+                        window._cleanupCinemaMode();
+                    } catch (e) {
+                        console.error('[App] cinema-mode cleanup failed', e);
+                    }
+                }
                 if (window.VideoModeCoordinator) {
                     window.VideoModeCoordinator.setVideoMode(isVideoPage, 'App.loadView:' + viewName);
                     if (isVideoPage) {
