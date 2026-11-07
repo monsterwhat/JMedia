@@ -232,6 +232,60 @@
             if (window.DjTransitionManager) {
                 window.DjTransitionManager.init();
             }
+            this.syncPlaybackButtonWithAudio();
+        },
+
+        /**
+         * Keep the play/pause button truthful about the audio elements.
+         *
+         * Playback can start or stop outside PlaybackController (song change,
+         * DJ crossfade, stall/buffer recovery, Media Session, the video
+         * coordinator suspend/resume). UIUpdater only repaints the icon from
+         * StateManager.playing, and it skips updates while video is active, so
+         * the button could show "paused" while audio was actually playing (or
+         * the reverse after leaving the video view). Reconcile the icon and the
+         * playing flag against the two real <audio> elements.
+         */
+        syncPlaybackButtonWithAudio: function() {
+            if (!window.AudioEngine || !window.StateManager) return;
+            const ae = window.AudioEngine;
+
+            const reconcile = () => {
+                try {
+                    if (window.videoPlaying) return;                       // video owns the player
+                    if (document.body.classList.contains('cinema-mode')) return;
+                    const a = ae.audio, b = ae.audioNext;
+                    if (!a && !b) return;
+                    const playing = !!((a && !a.paused) || (b && !b.paused));
+                    const icon = document.getElementById('playPauseIcon');
+                    if (icon) {
+                        const wanted = playing ? 'pi pi-pause' : 'pi pi-play';
+                        if (icon.className !== wanted) icon.className = wanted;
+                    }
+                    if (window.StateManager.getProperty('playing') !== playing) {
+                        window.StateManager.updateState({ playing }, 'audioTruthSync');
+                    }
+                } catch (e) {
+                    console.error('[MusicBarInit] audio/UI sync failed', e);
+                }
+            };
+
+            const bind = () => {
+                [ae.audio, ae.audioNext].forEach(el => {
+                    if (el && !el.__truthSyncBound) {
+                        el.__truthSyncBound = true;
+                        el.addEventListener('play', reconcile);
+                        el.addEventListener('pause', reconcile);
+                    }
+                });
+            };
+
+            bind();
+            // The element may be created slightly after init (or re-created).
+            setTimeout(bind, 1000);
+            if (!this.__truthSyncTimer) {
+                this.__truthSyncTimer = setInterval(reconcile, 2000);
+            }
         },
 
         startAudioEngine: function() {
