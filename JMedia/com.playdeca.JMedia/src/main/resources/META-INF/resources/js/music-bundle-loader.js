@@ -83,36 +83,41 @@
 
     window.__musicBundleSkipped = false;
     window.__musicBundleLoaded = new Promise(function (resolve) {
-        var next = 0;
+        // Fetch the whole bundle in parallel: dynamically inserted scripts with
+        // async=false download concurrently but still EXECUTE in insertion
+        // order, which is exactly the ordering guarantee the old onload chain
+        // provided. Serialising the downloads cost one round trip per module
+        // (~235 ms each, ~8 s before the last module ran) and is what made the
+        // music view miss its init on Chromium.
+        var remaining = MUSIC_SCRIPTS.length;
 
-        function injectNext() {
-            if (next >= MUSIC_SCRIPTS.length) {
+        function oneDone() {
+            if (--remaining === 0) {
                 resolve(true);
-                return;
             }
-            var src = MUSIC_SCRIPTS[next++];
+        }
+
+        MUSIC_SCRIPTS.forEach(function (src) {
             try {
                 var el = document.createElement('script');
                 el.src = src;
                 // async=false keeps dynamic scripts in insertion order even if
                 // the loader pipes them faster than they resolve.
                 el.async = false;
-                el.onload = injectNext;
+                el.onload = oneDone;
                 el.onerror = function () {
-                    // A failed music script must not kill the chain: every
+                    // A failed music script must not kill the bundle: every
                     // module that follows re-checks its dependencies itself
                     // (MusicBarInit.verifyModules logs missing modules) and
                     // all shell call sites are guarded with existence checks.
                     console.error('[music-bundle-loader] failed to load ' + src);
-                    injectNext();
+                    oneDone();
                 };
                 (document.head || document.documentElement).appendChild(el);
             } catch (err) {
                 console.error('[music-bundle-loader] injection threw for ' + src, err);
-                injectNext();
+                oneDone();
             }
-        }
-
-        injectNext();
+        });
     });
 })(window);

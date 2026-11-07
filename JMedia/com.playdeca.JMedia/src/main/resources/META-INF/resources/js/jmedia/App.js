@@ -250,14 +250,32 @@
                 if (viewName === 'video-classic' && window.videoSPA) window.videoSPA.init();
                 if (viewName === 'import' && window.initImportView) window.initImportView();
                 if (viewName === 'music') {
-                    if (window.loadMobilePlaylists) window.loadMobilePlaylists();
-                    if (window.initEventBindings) window.initEventBindings();
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const tab = urlParams.get('tab');
-                    if (tab && window.switchToTab) {
-                        window.switchToTab(tab);
-                    } else if (window.loadMobilePlaylistSongs) {
-                        window.loadMobilePlaylistSongs(0);
+                    const initMusicView = () => {
+                        if (window.loadMobilePlaylists) window.loadMobilePlaylists();
+                        if (window.initEventBindings) window.initEventBindings();
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const tab = urlParams.get('tab');
+                        if (tab && window.switchToTab) {
+                            window.switchToTab(tab);
+                        } else if (window.loadMobilePlaylistSongs) {
+                            window.loadMobilePlaylistSongs(0);
+                        }
+                    };
+                    // The music bundle is injected asynchronously by
+                    // music-bundle-loader.js. On a cold load its modules
+                    // (MusicIndex.js, MobileApp.js, ...) can finish AFTER this
+                    // view has been injected, so an immediate init finds
+                    // loadMobilePlaylistSongs/initEventBindings undefined and
+                    // the song list stays on its skeleton forever (the race
+                    // only shows on Chromium; Firefox happens to win it).
+                    // Wait for the loader's promise, then initialise.
+                    const bundle = window.__musicBundleLoaded;
+                    if (bundle && typeof bundle.then === 'function') {
+                        bundle.then(() => {
+                            if (this.currentView === 'music') initMusicView();
+                        });
+                    } else {
+                        initMusicView();
                     }
                 }
                 if (viewName === 'settings' && typeof window.initSettingsView === 'function') window.initSettingsView();
