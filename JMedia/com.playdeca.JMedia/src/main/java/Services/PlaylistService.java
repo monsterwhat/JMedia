@@ -448,7 +448,7 @@ public class PlaylistService {
             List<Long> hiddenIds = activeProfile.getHiddenPlaylistIds();
             if (hiddenIds != null && !hiddenIds.isEmpty()) {
                 playlists = playlists.stream()
-                        .filter(p -> !hiddenIds.contains((Long) p[0]))
+                        .filter(p -> !hiddenIds.contains(((Number) p[0]).longValue()))
                         .toList();
             }
 

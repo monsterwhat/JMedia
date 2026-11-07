@@ -1752,6 +1752,14 @@ public class MusicUiApi {
 
     // ── Playlist Grid (mobile) ──
 
+    /**
+     * JPQL returns Integer for entity ids and SIZE(), but Long for COUNT().
+     * Casting straight to Long throws ClassCastException — accept any Number.
+     */
+    private static long num(Object value) {
+        return value == null ? 0L : ((Number) value).longValue();
+    }
+
     public record PlaylistCard(Long id, String name, long songCount, Long firstSongId) {}
 
     @GET
@@ -1765,7 +1773,7 @@ public class MusicUiApi {
 
         PlaylistService.PaginatedPlaylists result = playlistService.findPlaylists(page, limit, search);
         List<PlaylistCard> cards = result.playlists().stream()
-            .map(row -> new PlaylistCard((Long) row[0], (String) row[1], (Long) row[2], playlistService.findFirstSongId((Long) row[0])))
+            .map(row -> new PlaylistCard(num(row[0]), (String) row[1], num(row[2]), playlistService.findFirstSongId(num(row[0]))))
             .toList();
 
         boolean hasMore = (long) page * limit < result.totalCount();
@@ -1795,7 +1803,7 @@ public class MusicUiApi {
             return "<div class='scroll-end'>— end —</div>";
         }
         List<PlaylistCard> cards = result.playlists().stream()
-            .map(row -> new PlaylistCard((Long) row[0], (String) row[1], (Long) row[2], playlistService.findFirstSongId((Long) row[0])))
+            .map(row -> new PlaylistCard(num(row[0]), (String) row[1], num(row[2]), playlistService.findFirstSongId(num(row[0]))))
             .toList();
 
         boolean hasMore = (long) page * limit < result.totalCount();
