@@ -108,7 +108,7 @@
             //
             // Trade-off: on Android/Chrome an AudioContext can be suspended when the tab
             // is backgrounded. The resume handlers below (click/keydown/touchstart/
-            // visibilitychange) stay attached for the app's lifetime to recover it � and
+            // visibilitychange) stay attached for the app's lifetime to recover it ï¿½ and
             // play() also forces a resume, so returning to the tab restores audio.
             try {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -142,8 +142,8 @@
                 
                 // Gain nodes are the SINGLE volume stage: keep the underlying <audio>
                 // elements pinned at 1.0. Setting both element.volume AND gain.gain
-                // double-attenuates (vol^2) and � on iOS, where element.volume is
-                // ignored � using the element as a second stage breaks fading entirely.
+                // double-attenuates (vol^2) and ï¿½ on iOS, where element.volume is
+                // ignored ï¿½ using the element as a second stage breaks fading entirely.
                 this.audio.volume = 1.0;
                 this.audioNext.volume = 1.0;
                 this.nodes.g1.gain.value = initialVol;
@@ -415,6 +415,12 @@
 
             this._setAudioSessionPlayback();
 
+            // Record the attempt, not just success: the stale websocket frame
+            // that pauses the element usually arrives while play() is still
+            // pending, so waiting for the promise to resolve leaves the guard
+            // disarmed exactly when it is needed.
+            this._lastLocalPlayAt = Date.now();
+
             return this._ensureContextRunning(label).then(() => {
                 const p = el.play();
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
@@ -440,7 +446,7 @@
          */
         isRecentLocalPlay: function(windowMs) {
             if (!this._lastLocalPlayAt) return false;
-            return (Date.now() - this._lastLocalPlayAt) < (windowMs || 3000);
+            return (Date.now() - this._lastLocalPlayAt) < (windowMs || 5000);
         },
 
         _showAutoplayBlockedToast: function() {
@@ -583,7 +589,7 @@
                 // still proceed with a warning rather than getting stuck
                 this._nextPreloadTimer = setTimeout(() => {
                     this._nextPreloadFailed = true;
-                    window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
+                    window.Helpers.log('[AudioEngine] âš ï¸ Preload timed out for ' + songId + ' after 8s');
                 }, 8000);
                 
                 nextPlayer._currentSongId = songId;
@@ -596,19 +602,19 @@
                     nextPlayer.currentTime = startTime;
                 };
             } else {
-                // Already has the source — consider it ready
+                // Already has the source â€” consider it ready
                 this._nextPreloadReady = true;
             }
         },
 
         crossfadeTo: function(songId, entryTime, duration) {
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo � video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo ï¿½ video is active');
                 this._isCrossfading = false;
                 return;
             }
 
-            // iOS: single-element direct swap � dual-player crossfade is
+            // iOS: single-element direct swap ï¿½ dual-player crossfade is
             // unreliable/silent on iOS because only one audio stream can play.
             if (this.isIOS()) {
                 const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
@@ -659,7 +665,7 @@
             const nextGain = this.getInactiveGain();
             // Cap the crossfade window: a 6-12s fade reads as dead air / broken playback
             // on phone speakers (web-audio-kit recommends 400-700ms). The backend may
-            // still send BPM-based durations up to 12s � protect the client here.
+            // still send BPM-based durations up to 12s ï¿½ protect the client here.
             const fadeTime = Math.min(duration || 2, 2);
             
             // Swap active player immediately so getActivePlayer() returns the
@@ -877,7 +883,7 @@
                             window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
                         }
                         
-                        // Apply final volume — use pending volume if user changed it during crossfade
+                        // Apply final volume â€” use pending volume if user changed it during crossfade
                         var finalVolume = targetVolume;
                         if (this._pendingVolume !== null) {
                             finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
@@ -886,7 +892,7 @@
                         }
                         
                         // MUST set the gain node AND keep the HTML5 audio element pinned
-                        // at 1.0 � the gain node is the single volume stage. Setting the
+                        // at 1.0 ï¿½ the gain node is the single volume stage. Setting the
                         // element volume too double-attenuates (finalVolume^2).
                         if (this.ctx) {
                             // Get current time first to cancel all future events
@@ -933,7 +939,7 @@
                 });
             };
 
-            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA — enough buffered to play
+            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA â€” enough buffered to play
                 startPlayback();
             } else {
                 var crossfadeTimeout = setTimeout(() => {
@@ -955,7 +961,7 @@
         setVolume: function(volume, source = 'unknown') {
             // During crossfade, don't apply the volume change to gain nodes
             // (they have active ramps that would be corrupted).
-            // Instead, save it as pending — it will be applied after the crossfade completes.
+            // Instead, save it as pending â€” it will be applied after the crossfade completes.
             if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) {
                 this._pendingVolume = volume;
                 // Update UI immediately so the slider responds
@@ -1005,7 +1011,7 @@
         // Rest of the wrapper methods use getActivePlayer()
         play: function() {
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[AudioEngine] Blocked play() — video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked play() â€” video is active');
                 return Promise.resolve();
             }
             return this._startPlayback(this.getActivePlayer(), 'play');
@@ -1040,7 +1046,7 @@
                 // SKIP VOLUME RESTORE DURING CROSSFADE - gain nodes are controlled by crossfade curves
                 // Setting volume during an active curve throws "Can't add events during a curve event"
                 if (!window.SynchronizationManager || !window.SynchronizationManager.getFlag('isCrossfading')) {
-                    // RESTORE VOLUME ON LOAD � single active volume stage: the gain node
+                    // RESTORE VOLUME ON LOAD ï¿½ single active volume stage: the gain node
                     // when Web Audio exists, else the element volume.
                     let currentVol = 0.8;
                     if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
@@ -1140,7 +1146,7 @@
 
         setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0, retryCount = 0) {
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[AudioEngine] Blocked setSource — video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked setSource â€” video is active');
                 return false;
             }
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
@@ -1179,7 +1185,7 @@
             });
 
             if (result === false && retryCount < 10) {
-                // Audio lock was held by another operation — retry instead of silently
+                // Audio lock was held by another operation â€” retry instead of silently
                 // dropping. A dropped setSource left the UI state ahead of the audio
                 // element ("skip doesn't work"), then the stale element's 'ended'
                 // echoed another next and skipped past the song.
@@ -1246,8 +1252,8 @@
             for (let i = 0; i < samples; i++) {
                 const t = i / samples;
                 // Use sine-based curves for natural constant power crossfade
-                // Fade out: cos(π/2 * t) goes from 1 to 0
-                // Fade in: sin(π/2 * t) goes from 0 to 1
+                // Fade out: cos(Ï€/2 * t) goes from 1 to 0
+                // Fade in: sin(Ï€/2 * t) goes from 0 to 1
                 if (type === 'out') {
                     curve[i] = startVol * Math.cos((Math.PI / 2) * t);
                 } else {

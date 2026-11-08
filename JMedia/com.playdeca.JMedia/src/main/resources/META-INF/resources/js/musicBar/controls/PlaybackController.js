@@ -69,13 +69,13 @@
          */
         togglePlayPause: function(profileId) {
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
-                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause — video is active (coordinator)');
-                window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active (coordinator)');
+                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause â€” video is active (coordinator)');
+                window.Helpers.log('PlaybackController: Blocked togglePlayPause â€” video is active (coordinator)');
                 return false;
             }
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause — video is active');
-                window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active');
+                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause â€” video is active');
+                window.Helpers.log('PlaybackController: Blocked togglePlayPause â€” video is active');
                 return false;
             }
             if (!window.ActionTracker || !window.StateManager || !window.AudioEngine) {
@@ -227,18 +227,18 @@
           */
         toggleDjMode: function(profileId) {
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isDjLocked && window.VideoModeCoordinator.isDjLocked()) {
-                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — DJ locked by VideoModeCoordinator');
-                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — DJ locked (video active)');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode â€” DJ locked by VideoModeCoordinator');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle â€” DJ locked (video active)');
                 return;
             }
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
-                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — video is active (coordinator)');
-                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active (coordinator)');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode â€” video is active (coordinator)');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle â€” video is active (coordinator)');
                 return;
             }
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — video is active');
-                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode â€” video is active');
+                window.Helpers.log('PlaybackController: Blocked DJ Mode toggle â€” video is active');
                 return;
             }
             const currentState = window.StateManager.getState();
@@ -324,7 +324,7 @@
                     // A websocket "paused" frame can be a stale echo from before
                     // this page started playing. Acting on it pauses the element
                     // that just started ("play() ... interrupted by pause()").
-                    if (source === 'websocket' && window.AudioEngine.isRecentLocalPlay(3000)) {
+                    if (source === 'websocket' && window.AudioEngine.isRecentLocalPlay(5000)) {
                         window.Helpers?.log?.('PlaybackController: ignoring stale websocket pause right after local play');
                         return;
                     }

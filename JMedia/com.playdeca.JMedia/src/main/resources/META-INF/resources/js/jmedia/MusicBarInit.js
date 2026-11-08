@@ -312,7 +312,7 @@
                     // from just before this page started playing.
                     if (e.detail.source === 'websocket' &&
                         window.AudioEngine && window.AudioEngine.isRecentLocalPlay &&
-                        window.AudioEngine.isRecentLocalPlay(3000)) {
+                        window.AudioEngine.isRecentLocalPlay(5000)) {
                         window.Helpers?.log?.('[MusicBarInit] ignoring stale websocket pause right after local play');
                         return;
                     }
