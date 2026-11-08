@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AudioEngine - Audio element management with atomic operations
  * Handles audio element initialization, source management, and playback control
  */
@@ -35,6 +35,13 @@
         // iOS autoplay-policy unlock state
         _iosUnlocked: false,
         _iosUnlockArmed: false,
+        _iosUnlockFired: false,
+        _iosSilentEl: null,
+
+        // Set when the device must stay on the native media path (iOS). Once a
+        // media element has been routed through createMediaElementSource there
+        // is no way back, so the decision has to be made before the first call.
+        _webAudioDisabled: false,
         
         init: function() {
             if (this.initialized) return;
@@ -63,7 +70,31 @@
         },
 
         initWebAudio: function() {
-            if (this.ctx) return;
+            if (this.ctx || this._webAudioDisabled) return;
+
+            // iOS: keep the <audio> element on the native media (playback) path.
+            //
+            // Routing it through createMediaElementSource() makes WebKit treat the
+            // output as Web Audio, which is the documented cause of "plays for a
+            // few seconds, then goes silent" (WebKit #221334, #211394) and makes
+            // playback follow the ringer/silent switch and die in the background.
+            // Every player that works on iOS either plays the element directly or
+            // feeds Web Audio from decodeAudioData instead of tapping the element.
+            //
+            // The routing is irreversible at runtime: once createMediaElementSource
+            // has returned, the element's samples only exist inside the graph, so
+            // there is no native fallback to switch to later. That is why this is
+            // a decision made up-front rather than a recovery path.
+            //
+            // Trade-off: iOS ignores HTMLMediaElement.volume, so the in-app volume
+            // slider becomes a no-op there. Hardware volume still works. This is
+            // the same trade every native-element player on iOS makes.
+            if (this.isIOS() && !window.JMEDIA_FORCE_WEB_AUDIO_IOS) {
+                this._webAudioDisabled = true;
+                this.ctx = null;
+                window.Helpers.log('AudioEngine: iOS native audio path (Web Audio routing disabled)');
+                return;
+            }
 
             // Web Audio is enabled on ALL devices, including mobile/iOS. Skipping it on
             // mobile previously left iOS with NO functional volume control (element.volume
@@ -72,7 +103,7 @@
             //
             // Trade-off: on Android/Chrome an AudioContext can be suspended when the tab
             // is backgrounded. The resume handlers below (click/keydown/touchstart/
-            // visibilitychange) stay attached for the app's lifetime to recover it — and
+            // visibilitychange) stay attached for the app's lifetime to recover it � and
             // play() also forces a resume, so returning to the tab restores audio.
             try {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -106,8 +137,8 @@
                 
                 // Gain nodes are the SINGLE volume stage: keep the underlying <audio>
                 // elements pinned at 1.0. Setting both element.volume AND gain.gain
-                // double-attenuates (vol^2) and — on iOS, where element.volume is
-                // ignored — using the element as a second stage breaks fading entirely.
+                // double-attenuates (vol^2) and � on iOS, where element.volume is
+                // ignored � using the element as a second stage breaks fading entirely.
                 this.audio.volume = 1.0;
                 this.audioNext.volume = 1.0;
                 this.nodes.g1.gain.value = initialVol;
@@ -115,21 +146,38 @@
                 
                 window.Helpers.log('AudioEngine: Web Audio nodes connected successfully with initial volume ' + initialVol);
                 
-                // Resume on user interaction. Contexts start suspended (autoplay policy)
-                // and can be suspended again when the page is backgrounded, so keep the
-                // handlers attached for the app's lifetime instead of removing them
-                // after the first successful resume.
+                // Resume on user interaction. Contexts start suspended (autoplay
+                // policy) and can be suspended or interrupted again when the page
+                // is backgrounded, so keep the handlers attached for the app's
+                // lifetime instead of removing them after the first success.
                 const resume = () => {
-                    if (this.ctx && this.ctx.state === 'suspended') {
-                        this.ctx.resume().catch((err) => {
-                            console.error('AudioEngine: AudioContext resume failed', err);
-                        });
-                    }
+                    this._ensureContextRunning('user-interaction');
                 };
                 document.addEventListener('click', resume);
                 document.addEventListener('keydown', resume);
                 document.addEventListener('touchstart', resume, { passive: true });
-                document.addEventListener('visibilitychange', resume);
+                document.addEventListener('visibilitychange', () => {
+                    this._ensureContextRunning('visibilitychange');
+                    if (!document.hidden) {
+                        // iOS 18 can silently drop the page back to the "ambient"
+                        // category after the GPU process restarts; re-assert the
+                        // playback type whenever we come back into the foreground.
+                        this._setAudioSessionPlayback();
+                    }
+                });
+
+                // WebKit exposes a fourth state, "interrupted", when the OS takes
+                // the audio away (call, alarm, screen lock, tab backgrounded).
+                // The old guards only checked "suspended", so every resume path
+                // was a no-op in exactly the case it was meant to recover from.
+                this.ctx.onstatechange = () => {
+                    if (!this.ctx) return;
+                    const state = this.ctx.state;
+                    window.Helpers.log('AudioEngine: AudioContext state -> ' + state);
+                    if (state === 'interrupted' && !document.hidden) {
+                        this._ensureContextRunning('statechange:interrupted');
+                    }
+                };
             } catch (e) {
                 console.error('AudioEngine: Web Audio API initialization failed', e);
                 this.ctx = null; // Fall back to element-volume-only paths
@@ -173,46 +221,53 @@
         },
 
         /**
-         * iOS unlock: AudioContext + both <audio> elements must be touched by a
-         * user gesture before any play() produces sound. Arms one-time gesture
-         * handlers that resume the context and muted play()->pause() both
-         * elements synchronously inside the gesture (no setTimeout/async gap).
-         * Re-arms when the context re-suspends (e.g. tab backgrounded).
+         * iOS unlock: the audio output has to be activated from inside a user
+         * gesture before any programmatic play() produces sound.
+         *
+         * This used to prime the REAL <audio> elements with play()->pause().
+         * That was actively harmful: the prime runs after the row's own click
+         * handler (document listeners bubble), and touchend + click both fire,
+         * so the second prime could pause a song that had just started. Worse,
+         * the pause event feeds the state reconciler, which flips the whole
+         * player to "paused".
+         *
+         * Instead we activate the output with a dedicated silent element that
+         * loops forever. It never touches playback state and keeps the media
+         * session warm while the app is in the foreground.
          */
         _unlockIOSAudio: function() {
             if (!this.isIOS() || this._iosUnlockArmed) return;
             this._iosUnlockArmed = true;
 
             const unlock = () => {
-                // Resume FIRST and prime only after the context is running:
-                // priming play() while still suspended leaves the element
-                // playing silently on iOS with no later recovery.
-                const prime = () => {
-                    [this.audio, this.audioNext].forEach((el) => {
-                        if (!el) return;
-                        const wasMuted = el.muted;
-                        el.muted = true;
-                        const p = el.play();
-                        if (p && typeof p.catch === 'function') {
-                            p.then(() => {
-                                el.pause();
-                                el.muted = wasMuted;
-                            }).catch((err) => {
-                                console.warn('AudioEngine: iOS unlock prime failed on ' + el.id, err);
-                                el.muted = wasMuted;
-                            });
-                        }
-                    });
+                if (this._iosUnlockFired) return;
+                this._iosUnlockFired = true;
+
+                try {
+                    this._setAudioSessionPlayback();
+                    if (!this._iosSilentEl) {
+                        this._iosSilentEl = this._createSilentAudioElement();
+                    }
+                    const p = this._iosSilentEl.play();
+                    if (p && typeof p.then === 'function') {
+                        p.then(() => {
+                            window.Helpers.log('AudioEngine: iOS audio output unlocked');
+                        }).catch((err) => {
+                            console.warn('AudioEngine: iOS silent unlock failed', err);
+                            this._iosUnlockFired = false;
+                        });
+                    }
                     this._iosUnlocked = true;
-                };
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this.ctx.resume().then(prime).catch((err) => {
-                        console.warn('AudioEngine: iOS AudioContext resume failed', err);
-                        prime();
-                    });
-                } else {
-                    prime();
+                } catch (err) {
+                    console.error('AudioEngine: iOS unlock failed', err);
+                    this._iosUnlockFired = false;
                 }
+
+                this._ensureContextRunning('ios-unlock');
+
+                // The play() above has to happen inside the gesture; give the
+                // activation a moment before stepping aside for real playback.
+                setTimeout(syncKeepAlive, 500);
             };
 
             const arm = () => {
@@ -222,11 +277,150 @@
             };
 
             arm();
-            document.addEventListener('visibilitychange', () => {
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this._iosUnlocked = false;
-                    arm();
+
+            // The silent element exists only to activate the audio output and keep
+            // the media session warm. While real audio is playing it must step
+            // aside, otherwise iOS can promote the silent loop to the lock-screen /
+            // Media Session item instead of the actual song.
+            const syncKeepAlive = () => {
+                const el = this._iosSilentEl;
+                if (!el) return;
+                const anyPlaying = (this.audio && !this.audio.paused) ||
+                                   (this.audioNext && !this.audioNext.paused);
+                if (anyPlaying) {
+                    if (!el.paused) el.pause();
+                    return;
                 }
+                if (el.paused) {
+                    const p = el.play();
+                    if (p && typeof p.catch === 'function') {
+                        p.catch((err) => {
+                            console.warn('AudioEngine: iOS silent keep-alive resume failed', err);
+                        });
+                    }
+                }
+            };
+            [this.audio, this.audioNext].forEach((el) => {
+                if (!el) return;
+                el.addEventListener('play', syncKeepAlive);
+                el.addEventListener('pause', syncKeepAlive);
+            });
+
+            // A single tap fires touchend and click; both are registered, but the
+            // shared _iosUnlockFired flag makes the work happen exactly once.
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) return;
+                this._setAudioSessionPlayback();
+                this._ensureContextRunning('visibilitychange:ios-unlock');
+                setTimeout(syncKeepAlive, 0);
+            });
+        },
+
+        /**
+         * Build a looping, genuinely silent WAV element used only to activate
+         * iOS audio output inside a gesture. Generated in memory so no asset or
+         * data URI is needed.
+         */
+        _createSilentAudioElement: function() {
+            const sampleRate = 8000;
+            const frames = 2000; // 0.25s at 8kHz, 8-bit mono
+            const buffer = new ArrayBuffer(44 + frames);
+            const view = new DataView(buffer);
+            const writeString = (offset, text) => {
+                for (let i = 0; i < text.length; i++) {
+                    view.setUint8(offset + i, text.charCodeAt(i));
+                }
+            };
+
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + frames, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);          // PCM chunk size
+            view.setUint16(20, 1, true);           // PCM
+            view.setUint16(22, 1, true);           // mono
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate, true);  // byte rate (8-bit mono)
+            view.setUint16(32, 1, true);           // block align
+            view.setUint16(34, 8, true);           // bits per sample
+            writeString(36, 'data');
+            view.setUint32(40, frames, true);
+            new Uint8Array(buffer, 44).fill(0x80); // 8-bit PCM silence
+
+            const el = document.createElement('audio');
+            el.id = 'audioPlayerUnlock';
+            el.preload = 'auto';
+            el.loop = true;
+            el.setAttribute('playsinline', '');
+            el.setAttribute('webkit-playsinline', '');
+            el.src = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+            document.body.appendChild(el);
+            return el;
+        },
+
+        /**
+         * Ask iOS for the "playback" audio session. Without this the page stays
+         * on "ambient", which follows the ringer switch and can be muted even
+         * while AudioContext.state reports "running". Feature-detected: the API
+         * only exists in some Safari versions, and setting it is a no-op
+         * elsewhere.
+         */
+        _setAudioSessionPlayback: function() {
+            try {
+                if (!navigator.audioSession) return;
+                if (navigator.audioSession.type === 'playback') return;
+                navigator.audioSession.type = 'playback';
+                window.Helpers.log('AudioEngine: audio session type -> playback');
+            } catch (err) {
+                console.warn('AudioEngine: failed to set audio session type', err);
+            }
+        },
+
+        /**
+         * Resume the AudioContext from either "suspended" or WebKit's
+         * non-standard "interrupted" state. Never rejects: callers are
+         * fire-and-forget and resume can legitimately fail outside a gesture.
+         */
+        _ensureContextRunning: function(reason) {
+            if (!this.ctx) return Promise.resolve();
+            const state = this.ctx.state;
+            if (state !== 'suspended' && state !== 'interrupted') return Promise.resolve();
+
+            const label = reason || 'unknown';
+            return this.ctx.resume().then(() => {
+                window.Helpers.log('AudioEngine: AudioContext resumed (' + label + ', was ' + state + ')');
+            }).catch((err) => {
+                console.warn('AudioEngine: AudioContext resume failed (' + label + ', state ' + state + ')', err);
+            });
+        },
+
+        /**
+         * Single play path for every caller: sets the audio session, makes sure
+         * the context is running, then starts the element. Swallows failures
+         * after logging and arming the tap-to-resume fallback, so no caller can
+         * end up with an unhandled rejection on iOS.
+         */
+        _startPlayback: function(player, reason) {
+            const el = player || this.getActivePlayer();
+            const label = reason || 'unknown';
+            if (!el) {
+                console.warn('AudioEngine: play() requested with no audio element (' + label + ')');
+                return Promise.resolve();
+            }
+
+            this._setAudioSessionPlayback();
+
+            return this._ensureContextRunning(label).then(() => {
+                const p = el.play();
+                return (p && typeof p.catch === 'function') ? p : Promise.resolve();
+            }).then(() => true).catch((err) => {
+                console.warn('AudioEngine: play() failed (' + label + ')', err);
+                if (err && err.name === 'NotAllowedError') {
+                    this.autoplayBlocked = true;
+                    this._showAutoplayBlockedToast();
+                    this._armAutoplayRetry(el);
+                }
+                return false;
             });
         },
 
@@ -240,15 +434,8 @@
             const retry = () => {
                 if (!this.autoplayBlocked) return;
                 this.autoplayBlocked = false; // prevent double-fire from touchend+click
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this.ctx.resume().catch((err) => {
-                        console.warn('AudioEngine: AudioContext resume failed during autoplay retry', err);
-                    });
-                }
-                player.play().then(() => {
-                    this.resetAutoplayState();
-                }).catch((err) => {
-                    console.warn('AudioEngine: Autoplay retry play() failed', err);
+                this._startPlayback(player, 'autoplay-retry').then((ok) => {
+                    if (ok) this.resetAutoplayState();
                 });
             };
             document.addEventListener('touchend', retry, { once: true, passive: true });
@@ -263,7 +450,7 @@
                     // The song keeps playing after crossfade starts, but we don't want
                     // its natural end to trigger another 'next' call
                     if (el._djTransitioned) {
-                        console.log('[AudioEngine] Skipping auto-next - song already transitioned via DJ');
+                        window.Helpers?.log?.('[AudioEngine] Skipping auto-next - song already transitioned via DJ');
                         el._djTransitioned = false; // Reset for reuse
                         return;
                     }
@@ -333,7 +520,7 @@
             
             // Don't attempt to load if profileId is not valid - wait for it
             if (!profileId || profileId === 'undefined') {
-                console.log('[AudioEngine preload] Waiting for valid profileId...');
+                window.Helpers?.log?.('[AudioEngine preload] Waiting for valid profileId...');
                 const self = this;
                 setTimeout(function() {
                     self.preload(songId, startTime);
@@ -343,7 +530,7 @@
             
             // Don't attempt to load if songId is not valid
             if (!songId || songId === 'null' || songId === 'undefined') {
-                console.log('[AudioEngine preload] Invalid songId, skipping preload');
+                window.Helpers?.log?.('[AudioEngine preload] Invalid songId, skipping preload');
                 return;
             }
             
@@ -377,7 +564,7 @@
                 // still proceed with a warning rather than getting stuck
                 this._nextPreloadTimer = setTimeout(() => {
                     this._nextPreloadFailed = true;
-                    window.Helpers.log('[AudioEngine] âš ï¸ Preload timed out for ' + songId + ' after 8s');
+                    window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
                 }, 8000);
                 
                 nextPlayer._currentSongId = songId;
@@ -390,34 +577,34 @@
                     nextPlayer.currentTime = startTime;
                 };
             } else {
-                // Already has the source â€” consider it ready
+                // Already has the source — consider it ready
                 this._nextPreloadReady = true;
             }
         },
 
         crossfadeTo: function(songId, entryTime, duration) {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked crossfadeTo — video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo � video is active');
                 this._isCrossfading = false;
                 return;
             }
 
-            // iOS: single-element direct swap — dual-player crossfade is
+            // iOS: single-element direct swap � dual-player crossfade is
             // unreliable/silent on iOS because only one audio stream can play.
             if (this.isIOS()) {
                 const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 if (!iosProfileId || iosProfileId === 'undefined') {
-                    console.log('[AudioEngine crossfadeTo] Waiting for valid profileId...');
+                    window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
                     const self = this;
                     setTimeout(function() { self.crossfadeTo(songId, entryTime, duration); }, 200);
                     return;
                 }
                 if (!songId || songId === 'null' || songId === 'undefined') {
-                    console.log('[AudioEngine crossfadeTo] Invalid songId, skipping');
+                    window.Helpers?.log?.('[AudioEngine crossfadeTo] Invalid songId, skipping');
                     return;
                 }
                 if (this._isCrossfading) {
-                    console.log('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
+                    window.Helpers?.log?.('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
                     return;
                 }
                 this._isCrossfading = true;
@@ -429,22 +616,18 @@
                 player.load();
                 player.onloadedmetadata = () => {
                     player.currentTime = entryTime || 0;
-                    player.play().then(() => {
+                    const finish = (ok) => {
                         this._isCrossfading = false;
                         if (window.SynchronizationManager) {
                             window.SynchronizationManager.setFlag('isCrossfading', false);
                         }
-                    }).catch((err) => {
-                        console.warn('AudioEngine: iOS direct-swap play() failed', err);
-                        if (err && err.name === 'NotAllowedError') {
-                            this.autoplayBlocked = true;
-                            this._showAutoplayBlockedToast();
-                            this._armAutoplayRetry(player);
+                        if (!ok) {
+                            console.warn('AudioEngine: iOS direct-swap did not start playback for ' + songId);
                         }
-                        this._isCrossfading = false;
-                        if (window.SynchronizationManager) {
-                            window.SynchronizationManager.setFlag('isCrossfading', false);
-                        }
+                    };
+                    this._startPlayback(player, 'crossfadeTo:ios').then(finish).catch((err) => {
+                        console.error('AudioEngine: iOS direct-swap cleanup failed', err);
+                        finish(false);
                     });
                 };
                 window.Helpers.log('AudioEngine: iOS direct swap to ' + songId + ' at ' + (entryTime || 0) + 's');
@@ -457,7 +640,7 @@
             const nextGain = this.getInactiveGain();
             // Cap the crossfade window: a 6-12s fade reads as dead air / broken playback
             // on phone speakers (web-audio-kit recommends 400-700ms). The backend may
-            // still send BPM-based durations up to 12s — protect the client here.
+            // still send BPM-based durations up to 12s � protect the client here.
             const fadeTime = Math.min(duration || 2, 2);
             
             // Swap active player immediately so getActivePlayer() returns the
@@ -476,7 +659,7 @@
             
             // Don't proceed if profileId is not valid
             if (!profileId || profileId === 'undefined') {
-                console.log('[AudioEngine crossfadeTo] Waiting for valid profileId...');
+                window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
                 const self = this;
                 setTimeout(function() {
                     self.crossfadeTo(songId, entryTime, duration);
@@ -486,13 +669,13 @@
             
             // Don't proceed if songId is not valid
             if (!songId || songId === 'null' || songId === 'undefined') {
-                console.log('[AudioEngine crossfadeTo] Invalid songId, skipping');
+                window.Helpers?.log?.('[AudioEngine crossfadeTo] Invalid songId, skipping');
                 return;
             }
             
             // Guard against re-entrant crossfade (Bug E fix)
             if (this._isCrossfading) {
-                console.log('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
+                window.Helpers?.log?.('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
                 return;
             }
             this._isCrossfading = true;
@@ -517,13 +700,13 @@
             let targetVolume = 0.3; // Safe low default - user can increase if needed
             if (window.StateManager) {
                 const stateVol = window.StateManager.getProperty('volume');
-                console.log('[AudioEngine crossfade] StateManager.volume =', stateVol, 'type:', typeof stateVol);
+                window.Helpers?.log?.('[AudioEngine crossfade] StateManager.volume =', stateVol, 'type:', typeof stateVol);
                 if (typeof stateVol === 'number' && stateVol > 0 && stateVol <= 1) {
                     targetVolume = stateVol;
                 }
             }
             
-            console.log('[AudioEngine crossfade] targetVolume from user setting:', targetVolume);
+            window.Helpers?.log?.('[AudioEngine crossfade] targetVolume from user setting:', targetVolume);
 
             window.Helpers.log('AudioEngine: Starting crossfade (' + fadeTime + 's) to entry ' + entryTime + 's');
 
@@ -550,8 +733,8 @@
                 if (self.ctx) {
                     const now = self.ctx.currentTime;
                     
-                    console.log('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
-                    console.log('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
+                    window.Helpers?.log?.('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
+                    window.Helpers?.log?.('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
                     
                     // TRUE CROSSFADE: the outgoing song ramps DOWN from its current level
                     // while the incoming song ramps UP from 0 to targetVolume, both over
@@ -574,8 +757,8 @@
                     nextGain.gain.setValueAtTime(0, now);
                     nextGain.gain.linearRampToValueAtTime(targetVolume, now + fadeTime);
                     
-                    console.log('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', true crossfade over ' + fadeTime + 's');
-                    console.log('[AudioEngine crossfade] Schedule: currentGain ' + currentLevel.toFixed(3) + ' -> 0, nextGain 0 -> ' + targetVolume);
+                    window.Helpers?.log?.('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', true crossfade over ' + fadeTime + 's');
+                    window.Helpers?.log?.('[AudioEngine crossfade] Schedule: currentGain ' + currentLevel.toFixed(3) + ' -> 0, nextGain 0 -> ' + targetVolume);
                 } else {
                     // Fallback: HTML5 Volume Fading (only when Web Audio is unavailable)
                     // TRUE crossfade: outgoing fades from its current volume to 0 while
@@ -621,7 +804,7 @@
                 // Verify entry time is set correctly before playing
                 const actualTime = nextPlayer.currentTime || 0;
                 if (Math.abs(actualTime - seekTime) > 1) {
-                    console.log('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
+                    window.Helpers?.log?.('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
                     nextPlayer.currentTime = seekTime;
                 }
                 
@@ -675,7 +858,7 @@
                             window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
                         }
                         
-                        // Apply final volume â€” use pending volume if user changed it during crossfade
+                        // Apply final volume — use pending volume if user changed it during crossfade
                         var finalVolume = targetVolume;
                         if (this._pendingVolume !== null) {
                             finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
@@ -684,7 +867,7 @@
                         }
                         
                         // MUST set the gain node AND keep the HTML5 audio element pinned
-                        // at 1.0 — the gain node is the single volume stage. Setting the
+                        // at 1.0 � the gain node is the single volume stage. Setting the
                         // element volume too double-attenuates (finalVolume^2).
                         if (this.ctx) {
                             // Get current time first to cancel all future events
@@ -731,7 +914,7 @@
                 });
             };
 
-            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA â€” enough buffered to play
+            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA — enough buffered to play
                 startPlayback();
             } else {
                 var crossfadeTimeout = setTimeout(() => {
@@ -753,7 +936,7 @@
         setVolume: function(volume, source = 'unknown') {
             // During crossfade, don't apply the volume change to gain nodes
             // (they have active ramps that would be corrupted).
-            // Instead, save it as pending â€” it will be applied after the crossfade completes.
+            // Instead, save it as pending — it will be applied after the crossfade completes.
             if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) {
                 this._pendingVolume = volume;
                 // Update UI immediately so the slider responds
@@ -803,36 +986,17 @@
         // Rest of the wrapper methods use getActivePlayer()
         play: function() {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked play() â€” video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked play() — video is active');
                 return Promise.resolve();
             }
-            const player = this.getActivePlayer();
-            // Start the element only once the context is running: on iOS an
-            // element routed through a suspended context plays silently.
-            const startPlayback = () => player.play().catch((err) => {
-                console.warn('AudioEngine: play() failed', err);
-                if (err && err.name === 'NotAllowedError') {
-                    this.autoplayBlocked = true;
-                    this._showAutoplayBlockedToast();
-                    this._armAutoplayRetry(player);
-                    return; // handled via tap-to-resume flow
-                }
-                throw err;
-            });
-            if (this.ctx && this.ctx.state === 'suspended') {
-                return this.ctx.resume().then(startPlayback).catch((err) => {
-                    console.warn('AudioEngine: context resume failed, playing anyway', err);
-                    return startPlayback();
-                });
-            }
-            return startPlayback();
+            return this._startPlayback(this.getActivePlayer(), 'play');
         },
         
         pause: function() {
             const player = this.getActivePlayer();
-            console.log('[AudioEngine pause] Calling pause on player:', player.id, 'currently playing:', !player.paused);
+            window.Helpers?.log?.('[AudioEngine pause] Calling pause on player:', player.id, 'currently playing:', !player.paused);
             player.pause();
-            console.log('[AudioEngine pause] After pause, isPaused:', player.paused);
+            window.Helpers?.log?.('[AudioEngine pause] After pause, isPaused:', player.paused);
         },
 
         getCurrentTime: function() { return this.getActivePlayer()?.currentTime || 0; },
@@ -857,7 +1021,7 @@
                 // SKIP VOLUME RESTORE DURING CROSSFADE - gain nodes are controlled by crossfade curves
                 // Setting volume during an active curve throws "Can't add events during a curve event"
                 if (!window.SynchronizationManager || !window.SynchronizationManager.getFlag('isCrossfading')) {
-                    // RESTORE VOLUME ON LOAD — single active volume stage: the gain node
+                    // RESTORE VOLUME ON LOAD � single active volume stage: the gain node
                     // when Web Audio exists, else the element volume.
                     let currentVol = 0.8;
                     if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
@@ -875,7 +1039,7 @@
                     }
                 }
             } else if (play && player.paused) {
-                player.play();
+                this._startPlayback(player, 'performSetSource:same-source');
             }
 
             player.onloadedmetadata = () => {
@@ -900,14 +1064,7 @@
             };
 
             if (play) {
-                player.play().catch((err) => {
-                    console.warn('AudioEngine: play() failed in performSetSource', err);
-                    if (err && err.name === 'NotAllowedError') {
-                        this.autoplayBlocked = true;
-                        this._showAutoplayBlockedToast();
-                        this._armAutoplayRetry(player);
-                    }
-                });
+                this._startPlayback(player, 'performSetSource');
             }
             
             return true;
@@ -928,14 +1085,7 @@
             player.src = url;
             player.onloadedmetadata = () => {
                 player.currentTime = seekTime;
-                player.play().catch((err) => {
-                    console.warn('AudioEngine: play() failed in loadAudioSourceOnly', err);
-                    if (err && err.name === 'NotAllowedError') {
-                        this.autoplayBlocked = true;
-                        this._showAutoplayBlockedToast();
-                        this._armAutoplayRetry(player);
-                    }
-                });
+                this._startPlayback(player, 'loadAudioSourceOnly');
             };
         },
 
@@ -971,7 +1121,7 @@
 
         setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0, retryCount = 0) {
             if (window.videoPlaying) {
-                console.log('[AudioEngine] Blocked setSource â€” video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked setSource — video is active');
                 return false;
             }
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
@@ -1010,7 +1160,7 @@
             });
 
             if (result === false && retryCount < 10) {
-                // Audio lock was held by another operation â€” retry instead of silently
+                // Audio lock was held by another operation — retry instead of silently
                 // dropping. A dropped setSource left the UI state ahead of the audio
                 // element ("skip doesn't work"), then the stale element's 'ended'
                 // echoed another next and skipped past the song.
@@ -1065,15 +1215,20 @@
          * @returns {Float32Array} Audio curve array
          */
         _createFadeCurve: function(startVol, endVol, duration, type) {
-            const sampleRate = this.ctx.sampleRate;
+            if (!this.ctx) {
+                // No AudioContext (iOS native path): fades are not used there, but
+                // keep this callable instead of throwing on a null dereference.
+                console.warn('AudioEngine: _createFadeCurve called without an AudioContext; assuming 44.1kHz');
+            }
+            const sampleRate = this.ctx ? this.ctx.sampleRate : 44100;
             const samples = Math.ceil(duration * sampleRate);
             const curve = new Float32Array(samples);
             
             for (let i = 0; i < samples; i++) {
                 const t = i / samples;
                 // Use sine-based curves for natural constant power crossfade
-                // Fade out: cos(Ï€/2 * t) goes from 1 to 0
-                // Fade in: sin(Ï€/2 * t) goes from 0 to 1
+                // Fade out: cos(π/2 * t) goes from 1 to 0
+                // Fade in: sin(π/2 * t) goes from 0 to 1
                 if (type === 'out') {
                     curve[i] = startVol * Math.cos((Math.PI / 2) * t);
                 } else {

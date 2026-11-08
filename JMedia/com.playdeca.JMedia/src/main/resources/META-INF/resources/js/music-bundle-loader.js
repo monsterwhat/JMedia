@@ -32,7 +32,7 @@
         '/js/musicBar/data/SongContextCache.js?v=2',
         '/js/musicBar/data/QueueManager.js?v=2',
         '/lib/howler.min.js',
-        '/js/musicBar/core/AudioEngine.js?v=2',
+        '/js/musicBar/core/AudioEngine.js?v=3',
         '/js/musicBar/core/DjTransitionManager.js?v=1',
         '/js/musicBar/core/WebSocketManager.js?v=2',
         '/js/musicBar/controls/PlaybackController.js?v=2',
