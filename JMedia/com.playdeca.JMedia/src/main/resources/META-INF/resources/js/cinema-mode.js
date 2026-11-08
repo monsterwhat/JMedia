@@ -4164,8 +4164,16 @@ window.addEventListener('popstate', () => {
 // which replaces the DOM the first attempt rendered into. Retry briefly, guarded
 // by the URL so a handled link is never opened twice.
 (function bootVideoDeepLink() {
+  // Only the URL that was present when this view booted may be auto-opened.
+  // Opening a series writes /video/info/<id> into the history; the retry timer
+  // kept re-parsing whatever URL was current, so a normal click could be
+  // reopened as a "deep link" a few hundred ms later. When the resolver maps
+  // that id to a duplicate/stale series with no episodes, the modal is replaced
+  // by "No episodes found" and closed.
+  const bootKey = window.location.pathname + window.location.search;
   let attempts = 0;
   const tryOpen = function() {
+    if (window.location.pathname + window.location.search !== bootKey) return;
     const parsed = _parseVideoUrl();
     // VideoRoutes may not be evaluated yet on the first pass (the SPA injects the
     // view scripts asynchronously, in order), so re-check instead of giving up.
