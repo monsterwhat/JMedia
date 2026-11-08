@@ -4746,3 +4746,38 @@ input[type="range"]::-webkit-slider-thumb {
         height: 10px !important;
     }
 }
+
+/* Pin the bar to the viewport on phones. On index.html the container has no
+   position at all (music-dock.css, which does the pinning, is only loaded by
+   music-dock.html), so the player sits in normal flow and iOS 26 WebKit lets
+   it drift "mid-screen" while scrolling. translateZ(0) promotes it to its own
+   compositor layer, which is the documented workaround for that WebKit bug.
+   right: 50px leaves the collapsed sidebar rail uncovered. */
+@media (max-width: 768px) {
+    #musicPlayerContainer.persistent-music-player {
+        position: fixed !important;
+        left: 0 !important;
+        right: 50px !important;
+        bottom: 0 !important;
+        top: auto !important;
+        width: auto !important;
+        transform: translateZ(0);
+        will-change: transform;
+    }
+
+    /* .mobile-player uses position: inherit, so a fixed container turns it into
+       a fixed, out-of-flow box with height 0 and every absolutely-positioned
+       child (info pill, controls, progress) floats away from the bar. Pin the
+       inner box explicitly so it is always the containing block. */
+    #musicPlayerContainer.persistent-music-player .mobile-player {
+        position: relative !important;
+        height: 100% !important;
+        width: 100% !important;
+    }
+
+    /* Keep the last cards reachable above the pinned bar. */
+    #app-content {
+        padding-bottom: calc(126px + env(safe-area-inset-bottom, 0px)) !important;
+        box-sizing: border-box !important;
+    }
+}

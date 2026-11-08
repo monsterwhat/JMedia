@@ -1,5 +1,5 @@
 /**
- * music-bundle-loader.js — route-split loader for the music experience.
+ * music-bundle-loader.js â€” route-split loader for the music experience.
  *
  * The music bar engine (/js/musicBar/*) and the jmedia audio/music modules are
  * only used outside /video: on /video the music engine is fully suspended by
@@ -7,9 +7,9 @@
  *
  * Bootstrap rules:
  *   - pathname starting with /video (cinema views, /video-classic, deep links)
- *       → bundle is skipped entirely. window.__musicBundleSkipped = true.
+ *       â†’ bundle is skipped entirely. window.__musicBundleSkipped = true.
  *   - any other route (/music, /settings, /import, ...)
- *       → bundle is injected immediately, one <script> at a time, in the exact
+ *       â†’ bundle is injected immediately, one <script> at a time, in the exact
  *         order index.html used to declare them, so module construction order
  *         inside the bundle is unchanged.
  *
@@ -32,10 +32,10 @@
         '/js/musicBar/data/SongContextCache.js?v=2',
         '/js/musicBar/data/QueueManager.js?v=2',
         '/lib/howler.min.js',
-        '/js/musicBar/core/AudioEngine.js?v=3',
+        '/js/musicBar/core/AudioEngine.js?v=4',
         '/js/musicBar/core/DjTransitionManager.js?v=1',
         '/js/musicBar/core/WebSocketManager.js?v=2',
-        '/js/musicBar/controls/PlaybackController.js?v=2',
+        '/js/musicBar/controls/PlaybackController.js?v=3',
         '/js/musicBar/controls/TimeController.js?v=2',
         '/js/musicBar/controls/VolumeController.js?v=2',
         '/js/musicBar/ui/UIUpdater.js?v=2',
@@ -52,7 +52,7 @@
         '/js/jmedia/SongCache.js',
         '/js/jmedia/MusicIndex.js',
         '/js/jmedia/MobileContextMenu.js',
-        '/js/jmedia/MusicBarInit.js?v=3',
+        '/js/jmedia/MusicBarInit.js?v=4',
         '/js/jmedia/MediaSession.js',
         '/js/jmedia/HistoryManager.js',
         '/js/jmedia/PlaylistBar.js',

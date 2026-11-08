@@ -69,12 +69,12 @@
          */
         togglePlayPause: function(profileId) {
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
-                console.log('[PlaybackController] Blocked togglePlayPause — video is active (coordinator)');
+                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause — video is active (coordinator)');
                 window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active (coordinator)');
                 return false;
             }
             if (window.videoPlaying) {
-                console.log('[PlaybackController] Blocked togglePlayPause — video is active');
+                window.Helpers?.log?.('[PlaybackController] Blocked togglePlayPause — video is active');
                 window.Helpers.log('PlaybackController: Blocked togglePlayPause — video is active');
                 return false;
             }
@@ -227,17 +227,17 @@
           */
         toggleDjMode: function(profileId) {
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isDjLocked && window.VideoModeCoordinator.isDjLocked()) {
-                console.log('[DJ] Blocked toggleDjMode — DJ locked by VideoModeCoordinator');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — DJ locked by VideoModeCoordinator');
                 window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — DJ locked (video active)');
                 return;
             }
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive && window.VideoModeCoordinator.isVideoActive()) {
-                console.log('[DJ] Blocked toggleDjMode — video is active (coordinator)');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — video is active (coordinator)');
                 window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active (coordinator)');
                 return;
             }
             if (window.videoPlaying) {
-                console.log('[DJ] Blocked toggleDjMode — video is active');
+                window.Helpers?.log?.('[DJ] Blocked toggleDjMode — video is active');
                 window.Helpers.log('PlaybackController: Blocked DJ Mode toggle — video is active');
                 return;
             }
@@ -248,7 +248,7 @@
                 window.ActionTracker.recordAction('djMode');
             }
             
-            console.log('[DJ] toggleDjMode called, changing:', currentState.djModeActive, '->', newMode);
+            window.Helpers?.log?.('[DJ] toggleDjMode called, changing:', currentState.djModeActive, '->', newMode);
             window.StateManager.updateState({ djModeActive: newMode }, 'playbackController');
             
             if (window.showToast) {
@@ -310,9 +310,9 @@
          * @param {Object} oldState - Previous state
          * @param {Object} newState - Current state
          */
-        handleAudioStateChange: function(oldState, newState) {
+        handleAudioStateChange: function(oldState, newState, source) {
             const playingChanged = newState.playing !== oldState.playing;
-            
+
             if (playingChanged) {
                 if (newState.playing && window.AudioEngine.isPaused()) {
                     if (window.videoPlaying) return;
@@ -321,6 +321,13 @@
                     }
                     this.pauseStartTime = null;
                 } else if (!newState.playing && !window.AudioEngine.isPaused()) {
+                    // A websocket "paused" frame can be a stale echo from before
+                    // this page started playing. Acting on it pauses the element
+                    // that just started ("play() ... interrupted by pause()").
+                    if (source === 'websocket' && window.AudioEngine.isRecentLocalPlay(3000)) {
+                        window.Helpers?.log?.('PlaybackController: ignoring stale websocket pause right after local play');
+                        return;
+                    }
                     this.pauseStartTime = Date.now();
                     window.AudioEngine.pause();
                 }

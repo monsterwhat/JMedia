@@ -308,6 +308,14 @@
                     // "play() ... interrupted by a call to pause()" (AbortError)
                     // and leaves the player silent until the next tap.
                     if (e.detail.source === 'audioTruthSync') return;
+                    // Same reason: a websocket frame can echo the "paused" state
+                    // from just before this page started playing.
+                    if (e.detail.source === 'websocket' &&
+                        window.AudioEngine && window.AudioEngine.isRecentLocalPlay &&
+                        window.AudioEngine.isRecentLocalPlay(3000)) {
+                        window.Helpers?.log?.('[MusicBarInit] ignoring stale websocket pause right after local play');
+                        return;
+                    }
                     [ae.audio, ae.audioNext].forEach(el => {
                         if (el && !el.paused) {
                             try {

@@ -42,6 +42,11 @@
         // media element has been routed through createMediaElementSource there
         // is no way back, so the decision has to be made before the first call.
         _webAudioDisabled: false,
+
+        // Timestamp of the last playback this page started successfully. Used
+        // to ignore "paused" state echoes that describe the state from before
+        // the play and would otherwise stop it again (see isRecentLocalPlay).
+        _lastLocalPlayAt: 0,
         
         init: function() {
             if (this.initialized) return;
@@ -413,7 +418,10 @@
             return this._ensureContextRunning(label).then(() => {
                 const p = el.play();
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
-            }).then(() => true).catch((err) => {
+            }).then(() => {
+                this._lastLocalPlayAt = Date.now();
+                return true;
+            }).catch((err) => {
                 console.warn('AudioEngine: play() failed (' + label + ')', err);
                 if (err && err.name === 'NotAllowedError') {
                     this.autoplayBlocked = true;
@@ -422,6 +430,17 @@
                 }
                 return false;
             });
+        },
+
+        /**
+         * True when this page started playback very recently. A websocket frame
+         * saying "paused" is often a stale echo of the state from just before
+         * that play; applying it as a command stops the track and shows up as
+         * "AbortError: The play() request was interrupted by a call to pause()".
+         */
+        isRecentLocalPlay: function(windowMs) {
+            if (!this._lastLocalPlayAt) return false;
+            return (Date.now() - this._lastLocalPlayAt) < (windowMs || 3000);
         },
 
         _showAutoplayBlockedToast: function() {
