@@ -4626,66 +4626,123 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* =====================================================================
-   MOBILE / iOS SHELL FIXES (player bar + sidebar rail)
-   The player's info and controls were absolutely positioned, so on phone
-   widths long titles ran under the transport buttons. The collapsed
-   sidebar also left a 50px rail on top of the content/player, and the
-   shell used 100vh without the iOS safe area.
+   MOBILE / iOS SHELL FIXES (sidebar rail + safe area)
+   The collapsed sidebar left a 50px rail on top of the content, and the
+   shell used 100vh without the iOS safe area. The player bar itself is
+   styled by music-dock.css and is deliberately not overridden here.
    ===================================================================== */
-@media (max-width: 900px) {
-    .persistent-music-player {
-        height: calc(100px + env(safe-area-inset-bottom, 0px));
-        padding-bottom: env(safe-area-inset-bottom, 0px) !important;
-    }
-    .persistent-music-player .mobile-player {
-        display: flex !important;
-        align-items: center !important;
-        gap: .4rem !important;
-        padding: 0 .55rem !important;
-    }
-    .persistent-music-player .mobile-player-info {
-        position: static !important;
-        flex: 1 1 auto !important;
-        min-width: 0 !important;
-        gap: .55rem !important;
-        overflow: hidden;
-    }
-    .persistent-music-player .mobile-player-details {
-        min-width: 0;
-        overflow: hidden;
-    }
-    .persistent-music-player .mobile-player-title,
-    .persistent-music-player .mobile-player-artist {
-        display: block;
-        max-width: 100%;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .persistent-music-player .mobile-player-controls {
-        position: static !important;
-        left: auto !important;
-        top: auto !important;
-        transform: none !important;
-        flex: 0 0 auto;
-        gap: .15rem !important;
-    }
-    .persistent-music-player .mobile-btn { padding: .45rem; }
-    .persistent-music-player .mobile-btn-primary { min-width: 40px; min-height: 40px; }
-}
-
-@media (max-width: 600px) {
-    .persistent-music-player #shuffleBtn,
-    .persistent-music-player #djModeBtn,
-    .persistent-music-player #repeatBtn { display: none !important; }
-    .persistent-music-player .mobile-player-artwork { width: 44px !important; height: 44px !important; }
-    .persistent-music-player .mobile-player-controls { gap: 0 !important; }
-}
-
 @media (max-width: 768px) {
     .standard-layout, .standard-main { height: 100vh; height: 100dvh; }
     .standard-layout.collapsed.sidebar-right .standard-main { padding-right: 50px; }
     .standard-layout.collapsed:not(.sidebar-right) .standard-main { padding-left: 50px; }
     .standard-layout:not(.collapsed).sidebar-right .standard-main { padding-right: 0; }
     .standard-layout:not(.collapsed):not(.sidebar-right) .standard-main { padding-left: 0; }
+}
+
+/* =====================================================================
+   MOBILE PLAYER (phones): stacked dock + hairline progress
+   music-dock.css puts the now-playing pill and the control pill side by
+   side. With six controls (shuffle, DJ, prev, play, next, repeat) that pill
+   is ~302px wide and cannot fit next to the track info: it overflows the
+   player and the buttons run under the sidebar rail. Stack the pills, keep
+   every button, and shrink the progress bar to a hairline.
+   ===================================================================== */
+@media (max-width: 768px) {
+    #musicPlayerContainer.persistent-music-player {
+        height: calc(126px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
+        left: .5rem !important;
+        right: .5rem !important;
+        bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+        max-width: none !important;
+        width: auto !important;
+        padding: .2rem .55rem .2rem .25rem !important;
+        gap: .5rem !important;
+        overflow: hidden !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-details {
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-title,
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-artist {
+        display: block !important;
+        max-width: 100% !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-controls {
+        left: .5rem !important;
+        right: .5rem !important;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+        transform: none !important;
+        height: 3rem !important;
+        padding: 0 .35rem !important;
+        gap: .1rem !important;
+        justify-content: space-between !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-btn {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        font-size: 1rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-btn-primary {
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        font-size: 1.3rem !important;
+        margin: 0 !important;
+    }
+
+    #musicPlayerContainer .mobile-progress-container {
+        height: 10px !important;
+        padding: 0 !important;
+    }
+
+    #musicPlayerContainer #musicCurrentTime,
+    #musicPlayerContainer #musicTotalTime {
+        display: none !important;
+    }
+
+    #musicPlayerContainer #musicProgressBar {
+        height: 10px !important;
+        /* ResponsivePlayer sets an inline min-height: 44px touch target on this
+           input, which is why the "hairline" rendered as a 44px block with a
+           giant thumb. min-height: 0 is required to beat the inline style. */
+        min-height: 0 !important;
+        max-height: 10px !important;
+        top: auto !important;
+        bottom: 0 !important;
+        transform: none !important;
+    }
+
+    #musicPlayerContainer #musicProgressBar::-webkit-slider-runnable-track {
+        height: 3px !important;
+    }
+
+    #musicPlayerContainer #musicProgressBar::-webkit-slider-thumb {
+        width: 10px !important;
+        height: 10px !important;
+        margin-top: -3.5px !important;
+    }
+
+    #musicPlayerContainer #musicProgressBar::-moz-range-track {
+        height: 3px !important;
+    }
+
+    #musicPlayerContainer #musicProgressBar::-moz-range-thumb {
+        width: 10px !important;
+        height: 10px !important;
+    }
 }
