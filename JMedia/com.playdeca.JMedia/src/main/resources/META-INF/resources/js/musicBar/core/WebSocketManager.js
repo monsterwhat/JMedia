@@ -244,7 +244,7 @@
          * @param {Object} message - Parsed message
          */
         processMessage: function(message) {
-            window.Helpers.log('WebSocketManager processing message:', message.type, message.payload);
+            window.Helpers.log('WebSocketManager processing message:', message.type);
             
             switch (message.type) {
                 case 'state':
@@ -325,6 +325,23 @@
                 crossfadeDuration: state.crossfadeDuration
             };
 
+            // A recent local shuffle/repeat change wins over the server echo.
+            // Without this the next state broadcast reverts the category to the
+            // server's old value (SMART_SHUFFLE -> OFF, OFF -> SHUFFLE).
+            if (window.PlaybackController && window.PlaybackController.modeGuardUntil
+                    && Date.now() < window.PlaybackController.modeGuardUntil && currentState) {
+                if (stateUpdates.shuffleMode !== currentState.shuffleMode) {
+                    window.Helpers.log('WebSocketManager: holding local shuffleMode ' + currentState.shuffleMode +
+                        ' over server ' + stateUpdates.shuffleMode);
+                }
+                if (stateUpdates.repeatMode !== currentState.repeatMode) {
+                    window.Helpers.log('WebSocketManager: holding local repeatMode ' + currentState.repeatMode +
+                        ' over server ' + stateUpdates.repeatMode);
+                }
+                stateUpdates.shuffleMode = currentState.shuffleMode;
+                stateUpdates.repeatMode = currentState.repeatMode;
+            }
+
             // A recent local DJ toggle wins over a stale server broadcast,
             // mirroring the play/pause guard above.
             if (currentState && state.djModeActive !== currentState.djModeActive
@@ -338,7 +355,7 @@
             // drive UIUpdater + AudioEngine Blocked setSource spam.
             if (window.videoPlaying) {
                 window.Helpers.log('WebSocketManager: Video active — blocking DJ/music state churn');
-                console.log('[WebSocketManager] Video active — blocking DJ/music state churn');
+                window.Helpers?.log?.('[WebSocketManager] Video active — blocking DJ/music state churn');
                 if (currentState) {
                     stateUpdates.djModeActive = currentState.djModeActive;
                     stateUpdates.djNextSongId = currentState.djNextSongId;
@@ -351,7 +368,7 @@
                     // Block song/image churn that fires [UIUpdater] Updating images for song while video plays
                     if (state.currentSongId !== currentState.currentSongId) {
                         window.Helpers.log('WebSocketManager: Video active — blocking song change ' + currentState.currentSongId + ' -> ' + state.currentSongId);
-                        console.log('[WebSocketManager] Blocked song change while video active:', currentState.currentSongId, '->', state.currentSongId);
+                        window.Helpers?.log?.('[WebSocketManager] Blocked song change while video active:', currentState.currentSongId, '->', state.currentSongId);
                         stateUpdates.currentSongId = currentState.currentSongId;
                         stateUpdates.artist = currentState.artist;
                         stateUpdates.songName = currentState.songName;

@@ -8,6 +8,10 @@
     window.PlaybackController = {
         // Pause start time for buffer management
         pauseStartTime: null,
+
+        // While this timestamp is in the future, server state broadcasts must
+        // not overwrite shuffleMode/repeatMode (a click made locally wins).
+        modeGuardUntil: 0,
         
         // Buffer warm duration
         BUFFER_WARM_DURATION: 5000,
@@ -190,6 +194,33 @@
          * Cycle shuffle mode
          * @param {string} profileId - Profile ID
          */
+        /**
+         * Explicitly set shuffle/repeat on the server.
+         *
+         * The old endpoints *cycled* the server's own value, so a client and
+         * server that disagreed by one step ended in different modes, and the
+         * next state broadcast silently reverted the click. Sending the target
+         * mode makes both sides converge.
+         */
+        setModeOnServer: function(kind, mode, profileId) {
+            const id = profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            if (!id || id === 'undefined') {
+                window.Helpers.log('PlaybackController: cannot set ' + kind + ' - no profileId');
+                return;
+            }
+            const url = '/api/music/playback/' + kind + '-set/' + id + '/' + encodeURIComponent(mode);
+            this.modeGuardUntil = Date.now() + 4000;
+            fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+                .then((res) => {
+                    if (!res.ok) {
+                        window.Helpers.log('PlaybackController: ' + kind + '-set failed with status ' + res.status);
+                    }
+                })
+                .catch((err) => {
+                    window.Helpers.log('PlaybackController: ' + kind + '-set request failed', err);
+                });
+        },
+
         cycleShuffleMode: function(profileId) {
             const currentState = window.StateManager.getState();
             let newMode;
@@ -214,11 +245,9 @@
                 window.showToast('Shuffle: ' + newMode, 'success', 2000);
             }
             
-            // Send to backend (using standard toggle endpoint as it cycles on the server)
-            this.apiCall('shuffle', profileId)
-                .catch(error => {
-                    window.Helpers.log('PlaybackController: Failed to update shuffle mode:', error);
-                });
+            // Send the explicit target mode instead of asking the server to
+            // cycle its own value (see setModeOnServer).
+            this.setModeOnServer('shuffle', newMode, profileId);
         },
         
         /**
@@ -298,11 +327,9 @@
                 window.showToast('Repeat: ' + newMode, 'success', 2000);
             }
             
-            // Send to backend (using standard toggle endpoint as it cycles on the server)
-            this.apiCall('repeat', profileId)
-                .catch(error => {
-                    window.Helpers.log('PlaybackController: Failed to update repeat mode:', error);
-                });
+            // Send the explicit target mode instead of asking the server to
+            // cycle its own value (see setModeOnServer).
+            this.setModeOnServer('repeat', newMode, profileId);
         },
         
         /**

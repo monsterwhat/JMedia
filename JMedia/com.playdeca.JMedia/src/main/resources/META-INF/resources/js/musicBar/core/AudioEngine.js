@@ -400,6 +400,38 @@
         },
 
         /**
+         * Resolve once the element can actually start, so play() is not issued
+         * while a load is still in flight. Calling play() immediately after
+         * `src = …; load()` made every skip log
+         * "AbortError: interrupted by a new load request" when the next skip
+         * replaced the source before the promise settled.
+         */
+        _waitForPlayable: function(el, timeoutMs) {
+            if (!el) return Promise.resolve();
+            if (el.readyState >= 2) return Promise.resolve();
+            if (typeof el.addEventListener !== 'function') return Promise.resolve();
+
+            return new Promise((resolve) => {
+                let settled = false;
+                const finish = (why) => {
+                    if (settled) return;
+                    settled = true;
+                    el.removeEventListener('canplay', onReady);
+                    el.removeEventListener('loadedmetadata', onReady);
+                    clearTimeout(timer);
+                    if (why === 'timeout') {
+                        window.Helpers.log('AudioEngine: element not playable after ' + (timeoutMs || 8000) + 'ms, playing anyway');
+                    }
+                    resolve();
+                };
+                const onReady = () => finish('ready');
+                const timer = setTimeout(() => finish('timeout'), timeoutMs || 8000);
+                el.addEventListener('canplay', onReady);
+                el.addEventListener('loadedmetadata', onReady);
+            });
+        },
+
+        /**
          * Single play path for every caller: sets the audio session, makes sure
          * the context is running, then starts the element. Swallows failures
          * after logging and arming the tap-to-resume fallback, so no caller can
@@ -422,6 +454,8 @@
             this._lastLocalPlayAt = Date.now();
 
             return this._ensureContextRunning(label).then(() => {
+                return this._waitForPlayable(el);
+            }).then(() => {
                 const p = el.play();
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
             }).then(() => {

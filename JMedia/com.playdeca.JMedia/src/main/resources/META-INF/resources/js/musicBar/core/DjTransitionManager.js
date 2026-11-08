@@ -72,19 +72,19 @@
             // prevents the false->true->false flap observed during video playback.
             if (window.videoPlaying) {
                 if (oldState.djModeActive !== newState.djModeActive) {
-                    console.log('[DJ] Blocked DJ Mode change while video is active:', oldState.djModeActive, '->', newState.djModeActive);
+                    window.Helpers?.log?.('[DJ] Blocked DJ Mode change while video is active:', oldState.djModeActive, '->', newState.djModeActive);
                     window.Helpers.log('[DJ] Blocked DJ Mode change while video is active: ' + oldState.djModeActive + ' -> ' + newState.djModeActive);
                 }
                 const djFlapped = oldState.djModeActive !== newState.djModeActive;
                 const djTransitionFlapped = (oldState.djTransitionPlanned !== newState.djTransitionPlanned) ||
                     (newState.djTransitionPlanned === true && oldState.djNextSongId !== newState.djNextSongId);
                 if (djFlapped || djTransitionFlapped || this.transitionPrepared || this.isTransitioning) {
-                    console.log('[DJ] Video active — forcing DJ indicator to none and cancelling transition');
+                    window.Helpers?.log?.('[DJ] Video active — forcing DJ indicator to none and cancelling transition');
                     this.cancelTransition();
                     this.updateDjIndicator('none');
                 } else if (newState.djModeActive === true) {
                     // Even without a flap, never show active while video is active
-                    console.log('[DJ] Video active — suppressing DJ active indicator');
+                    window.Helpers?.log?.('[DJ] Video active — suppressing DJ active indicator');
                     this.updateDjIndicator('none');
                 }
                 // Skip all DJ transition preparation while video is active
@@ -99,10 +99,10 @@
             // Only process transition if DJ Mode is actually active
             if (djPlannedChanged && newState.djTransitionPlanned === true && newState.djModeActive === true) {
                 window.Helpers.log('[DJ] Transition planned, preparing');
-                console.log('[DJ] >>> Transition planned! Preparing...');
+                window.Helpers?.log?.('[DJ] >>> Transition planned! Preparing...');
                 this.prepareTransition(newState);
             } else if (djPlannedChanged && newState.djTransitionPlanned === true && newState.djModeActive !== true) {
-                console.log('[DJ] Transition planned but DJ Mode not active, ignoring');
+                window.Helpers?.log?.('[DJ] Transition planned but DJ Mode not active, ignoring');
             }
             
             if (djPlannedChanged && newState.djTransitionPlanned === false && this.transitionPrepared) {
@@ -112,19 +112,19 @@
             
             // DJ Mode changed - debug log
             if (oldState.djModeActive !== newState.djModeActive) {
-                console.log('[DJ] DJ Mode change:', oldState.djModeActive, '->', newState.djModeActive);
+                window.Helpers?.log?.('[DJ] DJ Mode change:', oldState.djModeActive, '->', newState.djModeActive);
             }
             
             // DJ Mode turned OFF - hide indicator
             if (oldState.djModeActive !== newState.djModeActive && newState.djModeActive === false) {
-                console.log('[DJ] DJ Mode turned OFF - hiding indicator');
+                window.Helpers?.log?.('[DJ] DJ Mode turned OFF - hiding indicator');
                 this.cancelTransition();
                 this.updateDjIndicator('none');
             }
             
             // DJ Mode turned ON (including from restored state) - show indicator
             if (oldState.djModeActive !== newState.djModeActive && newState.djModeActive === true) {
-                console.log('[DJ] DJ Mode turned ON - showing indicator');
+                window.Helpers?.log?.('[DJ] DJ Mode turned ON - showing indicator');
                 this.updateDjIndicator('active');
             }
         },
@@ -135,7 +135,7 @@
         prepareTransition: function(state) {
             // Don't prepare transitions while video is active
             if (window.videoPlaying) {
-                console.log('[DJ] Video active, skipping transition preparation');
+                window.Helpers?.log?.('[DJ] Video active, skipping transition preparation');
                 return;
             }
             if (!state || !state.djNextSongId) {
@@ -169,7 +169,7 @@
             
             // Don't proceed if profileId is not valid
             if (!profileId || profileId === 'undefined') {
-                console.log('[DJ] Waiting for valid profileId before preparing transition...');
+                window.Helpers?.log?.('[DJ] Waiting for valid profileId before preparing transition...');
                 const self = this;
                 setTimeout(function() {
                     self.prepareTransition(state);
@@ -178,12 +178,22 @@
             }
             
             const nextSongId = state.djNextSongId;
-            const entryTime = state.djEntryTime || 0;
+            // The server picks a beat-aligned entry point, which can land deep
+            // into the next track (53s observed for a 3-4 minute song). Starting
+            // that far in means the listener misses most of it, so keep the mix
+            // point near the start and fall back to 0 when it is excessive.
+            const rawEntryTime = state.djEntryTime || 0;
+            const MAX_DJ_ENTRY_SECONDS = 30;
+            const entryTime = rawEntryTime > MAX_DJ_ENTRY_SECONDS ? 0 : rawEntryTime;
+            if (entryTime !== rawEntryTime) {
+                window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (max ' +
+                    MAX_DJ_ENTRY_SECONDS + 's)');
+            }
             const exitTime = state.djExitTime || 0;
             
             // Don't prepare transition if we don't have a valid next song ID
             if (!nextSongId || nextSongId === 'null') {
-                console.log('[DJ] No valid next song ID in transition data, skipping');
+                window.Helpers?.log?.('[DJ] No valid next song ID in transition data, skipping');
                 return;
             }
             
@@ -205,7 +215,7 @@
             this.transitionPrepared = true;
             
             window.Helpers.log('[DJ] Transition ready: exit at ' + exitTime + 's → entry at ' + entryTime + 's');
-            console.log('[DJ] Transition ready: exit=' + exitTime + 's, entry=' + entryTime + 's, nextSong=' + nextSongId);
+            window.Helpers?.log?.('[DJ] Transition ready: exit=' + exitTime + 's, entry=' + entryTime + 's, nextSong=' + nextSongId);
             
             this.updateDjIndicator('preparing');
             this.startMonitoring();
@@ -264,7 +274,7 @@
                         }
                     }
 
-                    console.log('[DJ] >>> EXIT TIME REACHED! Switching to next song at ' + self.transitionData.entryTime + 's');
+                    window.Helpers?.log?.('[DJ] >>> EXIT TIME REACHED! Switching to next song at ' + self.transitionData.entryTime + 's');
                     window.Helpers.log('[DJ] Exit time reached, switching to next song');
                     self.executeTransition();
                 }
@@ -309,7 +319,7 @@
                 var currentTime = window.AudioEngine ? window.AudioEngine.getCurrentTime() : 0;
                 var exitTime = self.transitionData.exitTime;
                 if (exitTime > 0 && currentTime >= exitTime) {
-                    console.log('[DJ] >>> EXIT TIME REACHED (on tab return)! Switching to next song');
+                    window.Helpers?.log?.('[DJ] >>> EXIT TIME REACHED (on tab return)! Switching to next song');
                     self.executeTransition();
                 }
             };
@@ -409,7 +419,7 @@ const artworkUrl = res.data.id
             var entryTime = this.transitionData.entryTime;
             var streamUrl = this.transitionData.streamUrl;
             
-            console.log('[DJ] Switching audio source to: ' + streamUrl + ' at ' + entryTime + 's');
+            window.Helpers?.log?.('[DJ] Switching audio source to: ' + streamUrl + ' at ' + entryTime + 's');
             window.Helpers.log('[DJ] Switching to next song at entry=' + entryTime + 's');
             
             this.updateDjIndicator('switching');
@@ -428,10 +438,10 @@ const artworkUrl = res.data.id
                 
                 // When ready, seek to entry time and play
                 primaryAudio.onloadedmetadata = function() {
-                    console.log('[DJ] Metadata loaded, seeking to ' + entryTime + 's');
+                    window.Helpers?.log?.('[DJ] Metadata loaded, seeking to ' + entryTime + 's');
                     primaryAudio.currentTime = entryTime;
                     primaryAudio.play().then(function() {
-                        console.log('[DJ] Next song playing from ' + entryTime + 's');
+                        window.Helpers?.log?.('[DJ] Next song playing from ' + entryTime + 's');
                         window.Helpers.log('[DJ] Transition complete - now playing next song');
                         
                         // Restore volume
@@ -494,7 +504,7 @@ const artworkUrl = res.data.id
             var entryTime = this.transitionData.entryTime;
             var streamUrl = this.transitionData.streamUrl;
             
-            console.log('[DJ] iOS direct swap: switching active player to ' + streamUrl + ' at ' + entryTime + 's');
+            window.Helpers?.log?.('[DJ] iOS direct swap: switching active player to ' + streamUrl + ' at ' + entryTime + 's');
             window.Helpers.log('[DJ] iOS direct swap to next song at entry=' + entryTime + 's');
             
             this.updateDjIndicator('switching');
@@ -507,10 +517,10 @@ const artworkUrl = res.data.id
             primaryAudio.load();
             
             primaryAudio.onloadedmetadata = function() {
-                console.log('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
+                window.Helpers?.log?.('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
                 primaryAudio.currentTime = entryTime;
                 primaryAudio.play().then(function() {
-                    console.log('[DJ] iOS next song playing from ' + entryTime + 's');
+                    window.Helpers?.log?.('[DJ] iOS next song playing from ' + entryTime + 's');
                     window.Helpers.log('[DJ] iOS transition complete - now playing next song');
                     
                     // Restore volume
@@ -628,7 +638,7 @@ const artworkUrl = res.data.id
          */
         suspendForVideo: function() {
             if (this.monitorTimer || this.transitionPrepared || this.isTransitioning) {
-                console.log('[DJ] Suspending for video');
+                window.Helpers?.log?.('[DJ] Suspending for video');
                 this.cancelTransition();
             }
         },
@@ -637,9 +647,9 @@ const artworkUrl = res.data.id
           * Update DJ Mode visual indicator in the UI
           */
         updateDjIndicator: function(state) {
-            console.log('[DJ] updateDjIndicator called with state:', state);
+            window.Helpers?.log?.('[DJ] updateDjIndicator called with state:', state);
             if (window.videoPlaying && state !== 'none') {
-                console.log('[DJ] Blocked updateDjIndicator(' + state + ') — video is active, forcing none');
+                window.Helpers?.log?.('[DJ] Blocked updateDjIndicator(' + state + ') — video is active, forcing none');
                 window.Helpers.log('[DJ] Blocked updateDjIndicator(' + state + ') — video is active');
                 state = 'none';
             }
@@ -654,7 +664,7 @@ const artworkUrl = res.data.id
             
             if (!indicator) {
                 if (state !== 'none') {
-                    console.log('[DJ] Indicator not found, scheduling delayed update');
+                    window.Helpers?.log?.('[DJ] Indicator not found, scheduling delayed update');
                     setTimeout(() => this.updateDjIndicator(state), 200);
                 }
                 return;

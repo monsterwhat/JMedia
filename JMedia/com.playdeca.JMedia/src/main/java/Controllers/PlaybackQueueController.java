@@ -72,6 +72,16 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return null;
         }
 
+        // Recover a lost cue index: if playback is on a song that is still in the
+        // queue but cueIndex is -1 (e.g. after a DJ rebuild), re-locate it so a
+        // natural advance removes the finished song instead of replaying the head.
+        if (state.getCueIndex() < 0 && state.getCurrentSongId() != null) {
+            int found = state.getCue().indexOf(state.getCurrentSongId());
+            if (found >= 0) {
+                state.setCueIndex(found);
+            }
+        }
+
         // Degenerate-pool guard: size==1 must respect RepeatMode.
         // Repeat OFF consumes the last song and stops (see handleSingleSongCue).
         // DJ widening below is gated on RepeatMode.ALL only.
@@ -164,6 +174,18 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             // Fresh or refilled queue with no active position: play the head
             // instead of consuming it (a bare reset to 0 here would remove
             // cue.get(0) in the RepeatMode.OFF path below, skipping a song).
+            // Never replay the currently-playing song as the "next" track.
+            if (!cue.isEmpty() && cue.get(0).equals(state.getCurrentSongId())) {
+                cue.remove(0);
+                if (cue.isEmpty()) {
+                    state.setCueIndex(-1);
+                    return advance(state, true, skippedEarly, manualAdvance, profileId);
+                }
+            }
+            if (cue.isEmpty()) {
+                state.setCueIndex(-1);
+                return null;
+            }
             state.setCueIndex(0);
             return resolveNextDjSong(state, cue, 0, cue.get(0));
         }
@@ -526,6 +548,13 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
 
     public void togglePlay(PlaybackState state, Long profileId) {
         state.setPlaying(!state.isPlaying());
+    }
+
+    public void setRepeat(PlaybackState state, PlaybackState.RepeatMode mode, Long profileId) {
+        if (mode == null) {
+            mode = PlaybackState.RepeatMode.OFF;
+        }
+        state.setRepeatMode(mode);
     }
 
     public void toggleRepeat(PlaybackState state, Long profileId) {

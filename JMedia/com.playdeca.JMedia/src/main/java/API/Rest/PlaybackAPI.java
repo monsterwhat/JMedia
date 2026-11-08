@@ -169,6 +169,22 @@ public class PlaybackAPI {
     }
 
     @POST
+    @Path("/repeat-set/{profileId}/{mode}")
+    public Response setRepeat(@PathParam("profileId") Long profileId, @PathParam("mode") String mode, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        try {
+            PlaybackState.RepeatMode repeatMode = PlaybackState.RepeatMode.valueOf(mode.toUpperCase());
+            playbackController.setRepeat(userProfile.id, repeatMode);
+            return Response.ok(ApiResponse.success("Repeat mode set to " + repeatMode)).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid repeat mode: " + mode))
+                    .build();
+        }
+    }
+
+    @POST
     @Path("/dj-mode/{profileId}")
     public Response toggleDjMode(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);

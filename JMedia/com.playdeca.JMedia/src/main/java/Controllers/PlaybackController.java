@@ -588,6 +588,7 @@ public class PlaybackController {
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0);
             st.setPlaying(true);
+            st.setDjEntryTime(null);
             updateState(profileId, st, true);
             return;
         }
@@ -646,6 +647,19 @@ public class PlaybackController {
                 return;
             }
 
+            // Guard against re-emitting the same song on a natural track end: a finished
+            // track must advance exactly once. If the queue handed back the current song
+            // id, skip it and stop/retry rather than restarting the same song.
+            if (fromSongEnd && nextSongId.equals(st.getCurrentSongId()) && st.getRepeatMode() != PlaybackState.RepeatMode.ALL) {
+                LOGGER.warning("advanceSong resolved to the current song on natural end; forcing stop to avoid double restart.");
+                stopPlaybackTimer(profileId);
+                st.setPlaying(false);
+                st.setCurrentSongId(null);
+                st.setDjEntryTime(null);
+                updateState(profileId, st, true);
+                return;
+            }
+
             Song newSong = findSong(nextSongId);
             if (newSong != null) {
                 // Found a valid song!
@@ -666,6 +680,7 @@ public class PlaybackController {
                 // Use DJ entry time if planned, otherwise start at 0
                 Double entryTime = st.getDjEntryTime();
                 st.setCurrentTime(entryTime != null ? entryTime : 0.0);
+                st.setDjEntryTime(null);
                 
                 // Plan DJ Mode transition if active (independent of Smart Shuffle)
                 if (Boolean.TRUE.equals(st.getDjModeActive())) {
@@ -734,18 +749,37 @@ public class PlaybackController {
         // DJ Mode is INDEPENDENT of Smart Shuffle - do NOT disable it on previous
         PlaybackState st = getState(profileId);
         clearDjTransitionPlan(st);
-        
+
         LOGGER.info("Skipped to previous song.");
 
-        // 1. If song has been playing for more than 3 seconds, just restart it.
+        List<Long> cue = st.getCue();
+        int cueIndex = st.getCueIndex();
+        boolean hasPreviousTrack = false;
+        if (cue != null && !cue.isEmpty()) {
+            if (cueIndex > 0) {
+                hasPreviousTrack = true;
+            } else if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL && cue.size() > 1) {
+                // Repeat ALL wraps around to the last track in the queue.
+                hasPreviousTrack = true;
+            }
+        }
+
+        // 1. If song has been playing for more than 3 seconds, restart it.
         if (st.getCurrentTime() > 3) {
             st.setCurrentTime(0);
             updateState(profileId, st, true);
             return;
         }
 
-        // 2. Try to go to previous in current queue (primary or secondary)
-        advanceSong(false, false, profileId);
+        // 2. Go to the previous track in the queue when one exists.
+        if (hasPreviousTrack) {
+            advanceSong(false, false, profileId);
+            return;
+        }
+
+        // 3. No previous track in the queue: restart the current track at 0.
+        st.setCurrentTime(0);
+        updateState(profileId, st, true);
     }
 
     public synchronized void handleTransitionStarted(Long profileId) {
@@ -1155,6 +1189,20 @@ public class PlaybackController {
         PlaybackState state = getState(profileId);
         playbackQueueController.toggleRepeat(state, profileId);
         LOGGER.info("Repeat mode toggled to: " + state.getRepeatMode());
+        updateState(profileId, state, true);
+    }
+
+    /**
+     * Sets the repeat mode explicitly (not a toggle).
+     * Used by the frontend to keep its repeat state in sync with the server.
+     */
+    public synchronized void setRepeat(Long profileId, PlaybackState.RepeatMode mode) {
+        if (mode == null) {
+            mode = PlaybackState.RepeatMode.OFF;
+        }
+        PlaybackState state = getState(profileId);
+        playbackQueueController.setRepeat(state, mode, profileId);
+        LOGGER.info("Repeat mode set to: " + mode);
         updateState(profileId, state, true);
     }
 
