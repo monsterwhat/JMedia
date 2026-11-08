@@ -12,6 +12,11 @@
         // While this timestamp is in the future, server state broadcasts must
         // not overwrite shuffleMode/repeatMode (a click made locally wins).
         modeGuardUntil: 0,
+
+        // Songs this page actually played, oldest first. previous() uses it when
+        // the server queue has no earlier entry (list-select + shuffle pick).
+        _songHistory: [],
+        _navigatingBack: false,
         
         // Buffer warm duration
         BUFFER_WARM_DURATION: 5000,
@@ -157,18 +162,57 @@
          * @param {string} profileId - Profile ID
          */
         previousSong: function(profileId) {
-            // Immediate optimistic feedback
-            if (window.showToast) {
-                window.showToast('Previous song!', 'success', 2000);
-            }
-            
-            // Background API call with error handling
-            this.apiCall('previous', profileId)
-                .catch(error => {
-                    if (window.showToast) {
-                        window.showToast('Failed to go to previous song', 'error');
-                    }
+            const ae = window.AudioEngine;
+            const ct = ae && typeof ae.getCurrentTime === 'function' ? ae.getCurrentTime() : 0;
+
+            // The websocket state handler deliberately does not apply currentTime
+            // (the element is the source of truth for the position), so the
+            // server's "restarted the current track" answer never reached the
+            // element and previous looked like a no-op. Restart locally.
+            if (ct > 3 && ae && typeof ae.getActivePlayer === 'function') {
+                const player = ae.getActivePlayer();
+                if (player) {
+                    player.currentTime = 0;
+                    window.Helpers?.log?.('[PlaybackController] previous: restarted current track at 0');
+                }
+                if (window.StateManager) {
+                    window.StateManager.updateState({ currentTime: 0 }, 'playbackController');
+                }
+                if (window.showToast) window.showToast('Previous song!', 'success', 2000);
+                this.apiCall('previous', profileId).catch((error) => {
+                    window.Helpers.log('PlaybackController: previous failed', error);
                 });
+                return;
+            }
+
+            // Under 3s: go back to the track that was actually playing before.
+            // The server queue after a list-select + shuffle pick often has no
+            // earlier entry, so rely on the local history when we have one.
+            const prevId = this._songHistory.pop();
+            if (prevId) {
+                this._navigatingBack = true;
+                const id = profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+                if (window.showToast) window.showToast('Previous song!', 'success', 2000);
+                fetch('/api/music/playback/select/' + id + '/' + prevId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                }).then((res) => {
+                    if (!res.ok) {
+                        window.Helpers.log('PlaybackController: previous select failed with status ' + res.status);
+                        this._navigatingBack = false;
+                    }
+                }).catch((err) => {
+                    window.Helpers.log('PlaybackController: previous select failed', err);
+                    this._navigatingBack = false;
+                });
+                return;
+            }
+
+            // No local history: let the server decide (queue history or restart).
+            if (window.showToast) window.showToast('Previous song!', 'success', 2000);
+            this.apiCall('previous', profileId).catch((error) => {
+                window.Helpers.log('PlaybackController: previous failed', error);
+            });
         },
         
         /**
@@ -194,6 +238,20 @@
          * Cycle shuffle mode
          * @param {string} profileId - Profile ID
          */
+        /**
+         * Remember the song that was playing before a change, so previous can
+         * return to it even when the server queue has no earlier entry.
+         */
+        recordSongHistory: function(oldValue, newValue) {
+            if (!oldValue || !newValue || String(oldValue) === String(newValue)) return;
+            if (this._navigatingBack) {
+                this._navigatingBack = false;
+                return;
+            }
+            this._songHistory.push(String(oldValue));
+            if (this._songHistory.length > 25) this._songHistory.shift();
+        },
+
         /**
          * Explicitly set shuffle/repeat on the server.
          *
@@ -429,6 +487,12 @@
         window.PlaybackController.init();
         
         // Listen for audio state changes
+        window.addEventListener('statePropertyChanged', (e) => {
+            if (e.detail && e.detail.property === 'currentSongId') {
+                window.PlaybackController.recordSongHistory(e.detail.oldValue, e.detail.newValue);
+            }
+        });
+
         window.addEventListener('statePropertyChanged', (e) => {
             if (e.detail.property === 'playing') {
                 if (window.videoPlaying && e.detail.newValue) return;

@@ -1,5 +1,5 @@
 /**
- * music-bundle-loader.js ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â route-split loader for the music experience.
+ * music-bundle-loader.js ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â route-split loader for the music experience.
  *
  * The music bar engine (/js/musicBar/*) and the jmedia audio/music modules are
  * only used outside /video: on /video the music engine is fully suspended by
@@ -7,9 +7,9 @@
  *
  * Bootstrap rules:
  *   - pathname starting with /video (cinema views, /video-classic, deep links)
- *       ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ bundle is skipped entirely. window.__musicBundleSkipped = true.
+ *       ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ bundle is skipped entirely. window.__musicBundleSkipped = true.
  *   - any other route (/music, /settings, /import, ...)
- *       ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ bundle is injected immediately, one <script> at a time, in the exact
+ *       ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ bundle is injected immediately, one <script> at a time, in the exact
  *         order index.html used to declare them, so module construction order
  *         inside the bundle is unchanged.
  *
@@ -35,7 +35,7 @@
         '/js/musicBar/core/AudioEngine.js?v=6',
         '/js/musicBar/core/DjTransitionManager.js?v=2',
         '/js/musicBar/core/WebSocketManager.js?v=3',
-        '/js/musicBar/controls/PlaybackController.js?v=6',
+        '/js/musicBar/controls/PlaybackController.js?v=7',
         '/js/musicBar/controls/TimeController.js?v=2',
         '/js/musicBar/controls/VolumeController.js?v=2',
         '/js/musicBar/ui/UIUpdater.js?v=2',
