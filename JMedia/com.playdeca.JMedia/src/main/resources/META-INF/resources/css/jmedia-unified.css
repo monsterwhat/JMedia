@@ -4624,3 +4624,68 @@ input[type="range"]::-webkit-slider-thumb {
 .video-group-body.collapsed {
     display: none;
 }
+
+/* =====================================================================
+   MOBILE / iOS SHELL FIXES (player bar + sidebar rail)
+   The player's info and controls were absolutely positioned, so on phone
+   widths long titles ran under the transport buttons. The collapsed
+   sidebar also left a 50px rail on top of the content/player, and the
+   shell used 100vh without the iOS safe area.
+   ===================================================================== */
+@media (max-width: 900px) {
+    .persistent-music-player {
+        height: calc(100px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    }
+    .persistent-music-player .mobile-player {
+        display: flex !important;
+        align-items: center !important;
+        gap: .4rem !important;
+        padding: 0 .55rem !important;
+    }
+    .persistent-music-player .mobile-player-info {
+        position: static !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        gap: .55rem !important;
+        overflow: hidden;
+    }
+    .persistent-music-player .mobile-player-details {
+        min-width: 0;
+        overflow: hidden;
+    }
+    .persistent-music-player .mobile-player-title,
+    .persistent-music-player .mobile-player-artist {
+        display: block;
+        max-width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .persistent-music-player .mobile-player-controls {
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        transform: none !important;
+        flex: 0 0 auto;
+        gap: .15rem !important;
+    }
+    .persistent-music-player .mobile-btn { padding: .45rem; }
+    .persistent-music-player .mobile-btn-primary { min-width: 40px; min-height: 40px; }
+}
+
+@media (max-width: 600px) {
+    .persistent-music-player #shuffleBtn,
+    .persistent-music-player #djModeBtn,
+    .persistent-music-player #repeatBtn { display: none !important; }
+    .persistent-music-player .mobile-player-artwork { width: 44px !important; height: 44px !important; }
+    .persistent-music-player .mobile-player-controls { gap: 0 !important; }
+}
+
+@media (max-width: 768px) {
+    .standard-layout, .standard-main { height: 100vh; height: 100dvh; }
+    .standard-layout.collapsed.sidebar-right .standard-main { padding-right: 50px; }
+    .standard-layout.collapsed:not(.sidebar-right) .standard-main { padding-left: 50px; }
+    .standard-layout:not(.collapsed).sidebar-right .standard-main { padding-right: 0; }
+    .standard-layout:not(.collapsed):not(.sidebar-right) .standard-main { padding-left: 0; }
+}
