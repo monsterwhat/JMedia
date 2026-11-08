@@ -254,6 +254,13 @@
                 try {
                     if (window.videoPlaying) return;                       // video owns the player
                     if (document.body.classList.contains('cinema-mode')) return;
+                    // Never derive "paused" while a source swap or fade is in
+                    // flight: the element is legitimately paused for a moment
+                    // there, and publishing that as truth pauses the element that
+                    // is about to start (feedback loop, see pause-both below).
+                    if (window.SynchronizationManager &&
+                        (window.SynchronizationManager.getFlag('isUpdatingAudioSource') ||
+                         window.SynchronizationManager.getFlag('isCrossfading'))) return;
                     const a = ae.audio, b = ae.audioNext;
                     if (!a && !b) return;
                     const playing = !!((a && !a.paused) || (b && !b.paused));
@@ -294,6 +301,13 @@
                 this.__pauseBothBound = true;
                 window.addEventListener('statePropertyChanged', (e) => {
                     if (!e.detail || e.detail.property !== 'playing' || e.detail.newValue !== false) return;
+                    // "audioTruthSync" is derived FROM the elements. Pausing in
+                    // response to it creates a feedback loop: a transient pause
+                    // during a source swap publishes playing=false, which pauses
+                    // the element that was just started, which surfaces as
+                    // "play() ... interrupted by a call to pause()" (AbortError)
+                    // and leaves the player silent until the next tap.
+                    if (e.detail.source === 'audioTruthSync') return;
                     [ae.audio, ae.audioNext].forEach(el => {
                         if (el && !el.paused) {
                             try {
