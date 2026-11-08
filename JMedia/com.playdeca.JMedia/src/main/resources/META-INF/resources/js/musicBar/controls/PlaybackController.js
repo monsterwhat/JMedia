@@ -407,7 +407,8 @@
                 if (window.videoPlaying && e.detail.newValue) return;
                 window.PlaybackController.handleAudioStateChange(
                     { playing: !e.detail.newValue },
-                    { playing: e.detail.newValue }
+                    { playing: e.detail.newValue },
+                    e.detail.source
                 );
             }
         });
