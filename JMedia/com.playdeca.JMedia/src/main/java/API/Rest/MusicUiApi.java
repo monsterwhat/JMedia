@@ -52,6 +52,9 @@ public class MusicUiApi {
     SongService songService;
 
     @Inject
+    Services.MusicGenreBackfillService genreBackfillService;
+
+    @Inject
     private PlaylistService playlistService;
 
     @Inject
@@ -1142,6 +1145,18 @@ public class MusicUiApi {
     public Response getDistinctGenres() {
         List<String> genres = songService.getDistinctGenres();
         return Response.ok(genres).build();
+    }
+
+    /**
+     * Re-resolve every song's genre links after a normalizer rule change.
+     * Background job; poll {@code /genres} to see the result.
+     */
+    @POST
+    @Path("/genres/rebuild")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response rebuildGenres() {
+        java.util.concurrent.CompletableFuture.runAsync(() -> genreBackfillService.rebuildAll());
+        return Response.accepted(java.util.Map.of("success", true, "message", "Genre rebuild started")).build();
     }
 
     @GET

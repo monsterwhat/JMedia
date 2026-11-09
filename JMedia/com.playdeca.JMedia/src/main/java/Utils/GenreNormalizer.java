@@ -28,7 +28,15 @@ public final class GenreNormalizer {
     private static final Set<String> SENTINELS = Set.of(
             "", "unknown", "unknown genre", "unidentified", "unclassified",
             "uncategorized", "n a", "na", "none", "no genre", "not tagged",
-            "other", "misc", "miscellaneous", "various"
+            "other", "misc", "miscellaneous", "various",
+            // Non-English "unknown / other" tags seen in real libraries.
+            "sconosciuto", "sconosciuta", "sconosciuti", "sconosciute",
+            "desconocido", "desconocida", "desconocidos", "sin genero",
+            "inconnu", "inconnue", "unbekannt", "onbekend",
+            "altro", "altra", "altri", "altre",
+            "otro", "otra", "otros", "otras",
+            "autre", "autres", "andere", "outro", "outra", "outros", "outras",
+            "nieznany", "neznan", "ei tiedossa"
     );
 
     private static final Map<String, String> ALIASES = new LinkedHashMap<>();
@@ -70,6 +78,20 @@ public final class GenreNormalizer {
         alias("xmas", "Holiday");
         alias("ac dc", "AC/DC");
         alias("acdc", "AC/DC");
+        // Spanish / Portuguese / Italian tags that duplicate an English genre.
+        alias("acustico", "Acoustic");
+        alias("acustica", "Acoustic");
+        alias("gospel", "Gospel");
+        alias("clasica", "Classical");
+        alias("clasico", "Classical");
+        alias("musica clasica", "Classical");
+        alias("electronica", "Electronic");
+        alias("electronico", "Electronic");
+        alias("folclor", "Folk");
+        alias("folclore", "Folk");
+        alias("rock alternativo", "Alternative Rock");
+        alias("alternativa", "Alternative Rock");
+        alias("alternativo", "Alternative Rock");
     }
 
     private GenreNormalizer() {}
@@ -111,10 +133,13 @@ public final class GenreNormalizer {
             }
         }
 
-        // 4. "&" / "and" only when both sides resolve independently.
+        // 4. "&" / "and" only when both sides resolve independently, and never
+        //    inside an abbreviation like R&B / D&B where "&" sits between two
+        //    single letters — splitting there produced "Alternative R" out of
+        //    "Alternative R&B".
         if (out.isEmpty()) {
             int amp = indexOfAnd(cleaned);
-            if (amp > 0) {
+            if (amp > 0 && !isAmpersandAbbreviation(cleaned, amp)) {
                 String left = cleaned.substring(0, amp);
                 String right = cleaned.substring(amp + (cleaned.regionMatches(true, amp, " and ", 0, 5) ? 5 : 1));
                 Genre l = resolveSingle(left);
@@ -168,7 +193,7 @@ public final class GenreNormalizer {
         if (k.isBlank() || SENTINELS.contains(k)) return null;
         String alias = ALIASES.get(k);
         if (alias != null) return new Genre(key(alias), alias);
-        return new Genre(k, titleCase(cleaned));
+        return new Genre(k, fixAbbreviations(titleCase(cleaned)));
     }
 
     private static String clean(String s) {
@@ -195,6 +220,29 @@ public final class GenreNormalizer {
             if (value.regionMatches(true, i, " and ", 0, 5)) return i;
         }
         return -1;
+    }
+
+    /**
+     * True when the character at {@code index} is "and"/"&" inside a short
+     * abbreviation such as R&B or D&B (a single letter on each side), which must
+     * not be treated as a list separator.
+     */
+    private static boolean isAmpersandAbbreviation(String value, int index) {
+        if (index < 0 || index >= value.length() || value.charAt(index) != '&') return false;
+        if (index < 1 || index + 1 >= value.length()) return false;
+        char before = value.charAt(index - 1);
+        char after = value.charAt(index + 1);
+        if (!Character.isLetter(before) || !Character.isLetter(after)) return false;
+        boolean beforeIsSingle = index < 2 || !Character.isLetter(value.charAt(index - 2));
+        boolean afterIsSingle = index + 2 >= value.length() || !Character.isLetter(value.charAt(index + 2));
+        return beforeIsSingle && afterIsSingle;
+    }
+
+    /** Restore the display form of abbreviations after title-casing. */
+    private static String fixAbbreviations(String value) {
+        return value
+                .replaceAll("(?i)\\br&b\\b", "R&B")
+                .replaceAll("(?i)\\bd&b\\b", "D&B");
     }
 
     private static String stripTrailingGroup(String value) {

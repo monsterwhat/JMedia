@@ -77,6 +77,31 @@ public class MusicGenreBackfillService {
     }
 
     /**
+     * Re-resolve every song's genre links. Needed after the normalizer rules
+     * change, because {@link #backfill()} only fills songs that have no links
+     * at all. Idempotent: songs whose resolved keys already match are skipped
+     * by {@link Song#syncGenresFromRaw()}.
+     */
+    public void rebuildAll() {
+        try {
+            LOG.info("Music genre rebuild started");
+            long lastId = 0L;
+            int batches = 0;
+            while (true) {
+                long nextId = self.backfillBatch(lastId);
+                if (nextId <= lastId) break;
+                lastId = nextId;
+                batches++;
+            }
+            LOG.info("Music genre rebuild complete - {} batch(es), {} song(s) still missing",
+                    batches, self.countMissing());
+            self.migrateDjPools();
+        } catch (Exception e) {
+            LOG.error("Music genre rebuild failed", e);
+        }
+    }
+
+    /**
      * Canonicalize stored DJ genre pools. Existing pools may contain raw labels
      * ("Hip Hop", "rock", "Rock/Pop"); resolve each to canonical names, dedupe,
      * and keep the first-seen order. Idempotent.
