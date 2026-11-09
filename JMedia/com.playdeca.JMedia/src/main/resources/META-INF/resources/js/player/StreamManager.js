@@ -569,6 +569,30 @@
                 if (p.lastKnownGoodPosition <= 0 && !(p.streamStartOffset > 0)) {
                     p.lastKnownGoodPosition = savedTime;
                 }
+                // iOS/WebKit has no usable MSE for our fMP4, but the element plays
+                // HLS natively (HEVC Main 10 and AC-3 included). Hand the master
+                // playlist straight to the element instead of hls.js.
+                if (p.utils.isIOS()) {
+                    console.log('[SimplePlayer] iOS: native HLS playback (no MSE)', data.playlistUrl);
+                    p._hlsNative = true;
+                    p.video.src = data.playlistUrl;
+                    p.video.addEventListener('loadedmetadata', () => {
+                        if (p._destroyed) return;
+                        p.streamStartOffset = savedTime > 0 ? savedTime : 0;
+                        p.applyInitialState();
+                        p._hideLoading();
+                    }, { once: true });
+                    p.video.addEventListener('error', () => {
+                        console.error('[SimplePlayer] Native HLS error:', p.video.error);
+                        p._hlsNative = false;
+                        this.fallbackToDirectStream(savedTime);
+                    }, { once: true });
+                    p.video.addEventListener('playing', () => p._hideLoading(), { once: true });
+                    p.video.play().catch((e) => {
+                        console.log('[SimplePlayer] iOS native HLS play blocked, awaiting gesture:', e);
+                    });
+                    return;
+                }
                 this._initHlsExternalStream(data.playlistUrl, savedTime, {
                     fallbackToDirect: true,
                     loadingMessage: 'Loading HLS stream...',

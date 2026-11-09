@@ -256,13 +256,18 @@ if (typeof window.SimplePlayer === 'undefined') {
             // up front and tell the user how to fix their environment instead.
             const hasH264Mse = (typeof MediaSource !== 'undefined') &&
                 MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
-            if (wantsHls && !hasH264Mse) {
+            // iOS/WebKit (Safari, Firefox, Chrome, Edge on iPhone/iPad) has no
+            // usable MSE for our fMP4 but plays HLS natively, including HEVC
+            // Main 10. Judging it by MSE support aborted playback with a bogus
+            // "cannot decode H.264" dialog.
+            const isIOSRuntime = this.utils.isIOS();
+            if (wantsHls && !hasH264Mse && !isIOSRuntime) {
                 console.error('[SimplePlayer] H.264 MSE unsupported on this browser/OS; aborting playback');
                 this._showLoading('Playback unavailable: this browser/OS cannot decode H.264. ' +
                     'On Windows N, install the Media Feature Pack; otherwise use Chrome stable.');
                 return;
             }
-            if (wantsHls && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
+            if (wantsHls && !isIOSRuntime && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
                 try {
                     await window.ensureHlsLoaded();
                 } catch (e) {
@@ -270,7 +275,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                     console.error('[SimplePlayer] hls.js unavailable, falling back to non-HLS playback', e);
                 }
             }
-            if (wantsHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+            // iOS plays HLS natively (HEVC included) and never through hls.js: it
+            // has no usable MSE for our fMP4, so Hls.isSupported() is false there.
+            if (wantsHls && (isIOSRuntime || (typeof Hls !== 'undefined' && Hls.isSupported()))) {
                 // Local HLS session: the server starts the encoder at `savedTime`, so
                 // element time 0 is that content position. streamStartOffset carries the
                 // offset so the clock and subtitle ?start= stay absolute; the element is
