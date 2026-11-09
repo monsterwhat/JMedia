@@ -4815,13 +4815,20 @@ input[type="range"]::-webkit-slider-thumb {
 #editVideoModal.modal.is-active {
     z-index: 2000 !important;
 }
-/* Bulma's tab strip is nowrap, so on a phone the Manual/AI tabs pushed
-   "Style" and "Upload" off the modal edge and the style settings were
-   unreachable. Let the tabs wrap inside the dialog. */
-#subtitleManagementModal .tabs ul {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: center !important;
+/* Bulma's tab strip is a nowrap flex row inside a 246px scroll container, so on
+   a phone Manual/AI pushed "Style" and "Upload" past the modal edge and the
+   style screen was unreachable. Make the strip a wrapping 2x2 grid. */
+#subtitleManagementModal .tabs {
+    display: block !important;
+    width: 100% !important;
+    overflow: visible !important;
 }
-#subtitleManagementModal .tabs li { flex: 1 1 auto; }
+#subtitleManagementModal .tabs ul {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.25rem !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+#subtitleManagementModal .tabs li { flex: none !important; }
 #subtitleManagementModal .tabs a { white-space: nowrap; }
