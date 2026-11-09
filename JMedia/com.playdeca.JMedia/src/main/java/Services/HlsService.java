@@ -32,7 +32,7 @@ public class HlsService {
     private static final int HW_ENCODER_MAX_RETRIES = 3;
 
     /**
-     * ISO 639-2 (bibliographic) → ISO 639-1 (2-letter) for the SUBTITLES LANGUAGE attribute.
+     * ISO 639-2 (bibliographic) â†’ ISO 639-1 (2-letter) for the SUBTITLES LANGUAGE attribute.
      */
     private static final Map<String, String> ISO_639_2_TO_1 = Map.ofEntries(
         Map.entry("aar", "aa"), Map.entry("abk", "ab"), Map.entry("afr", "af"),
@@ -159,7 +159,7 @@ public class HlsService {
      * Copy eligibility on the {@code Video} entity, mirroring
      * {@link #isEligibleForCopyMode(HlsSession, VariantConfig)} minus the variant-height
      * check (the caller sets the variant to the source height when this returns true).
-     * Incompatible codecs (AV1/VP9 video, PCM/FLAC/TrueHD audio, …) return false and
+     * Incompatible codecs (AV1/VP9 video, PCM/FLAC/TrueHD audio, â€¦) return false and
      * keep the 720p transcode path.
      */
     private boolean isCopyEligibleVideo(Video video) {
@@ -233,7 +233,7 @@ public class HlsService {
         // The random nonce keeps the sessionId unique (Xtream/external clients depend on the
         // vid-{videoId}-{device}-{profile}-{nonce} format), so a plain map lookup can never find
         // a prior session. Instead, deterministically scan for an existing session for the same
-        // video+device+profile and destroy it first — otherwise every re-create spawns a duplicate
+        // video+device+profile and destroy it first â€” otherwise every re-create spawns a duplicate
         // transcode and orphans the previous FFmpeg process. The scan happens below, once the
         // output codec is known, so a device whose capabilities changed also gets a fresh session.
 
@@ -243,7 +243,7 @@ public class HlsService {
         // Re-sync subtitle tracks before snapshotting them into the HLS session so IPTV/Xtream
         // clients playing the master playlist see freshly discovered subtitles (external sidecars,
         // AI-generated, Subs/ subfolders). Discovery is best-effort: if it fails, keep whatever was
-        // already persisted and stream on — never block session creation on subtitle discovery.
+        // already persisted and stream on â€” never block session creation on subtitle discovery.
         if (video.path != null && !video.path.isBlank()) {
             try {
                 subtitleTrackService.refreshSubtitleTracks(video);
@@ -403,7 +403,7 @@ public class HlsService {
     private void launchAndMonitorVariantEncoder(HlsSession session, VariantConfig variant, Long profileId, boolean useHardware) throws IOException {
         Process process = startVariantEncoderProcess(session, variant, profileId, useHardware);
         // Register and monitor immediately. startEncoderMonitor owns the early-exit
-        // handling (retry with backoff, hardware→software fallback) and normal
+        // handling (retry with backoff, hardwareâ†’software fallback) and normal
         // completion (finalize). The old 2s sleep serialized this work onto the
         // session-creation request for no benefit.
         session.addProcess(variant.name, process);
@@ -411,7 +411,7 @@ public class HlsService {
         LOG.info("Started HLS encoder for session {} variant {} ({}acceleration)", session.sessionId, variant.name, useHardware ? "HW " : "software ");
     }
 
-    // ── HW encoder: clean restart with background retry loop ─────────────
+    // â”€â”€ HW encoder: clean restart with background retry loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private void startHwEncoder(HlsSession session, VariantConfig variant, Long profileId) {
         if (session.stopped) return;
@@ -423,7 +423,7 @@ public class HlsService {
         try {
             Process process = startVariantEncoderProcess(session, variant, profileId, true);
             // Register and monitor immediately. The monitor already handles an
-            // early exit (crash → retry/fallback, code 0 → finalize). Blocking the
+            // early exit (crash â†’ retry/fallback, code 0 â†’ finalize). Blocking the
             // session-creation request here for 2s only delayed the client's first
             // playlist fetch; the encoder runs in the background either way.
             session.addProcess(vName, process);
@@ -459,7 +459,7 @@ public class HlsService {
 
     /** Appends #EXT-X-ENDLIST so HLS clients stop at the end of a completed stream. */
     private void finalizePlaylist(HlsSession session, String variantName) {
-        // Encoder exited 0: the variant is a complete, valid VOD — all segments
+        // Encoder exited 0: the variant is a complete, valid VOD â€” all segments
         // on disk, playlist ended. Mark it so cleanup keeps serving files while
         // the client is still reading instead of deleting them as "abandoned".
         session.completedNormally = true;
@@ -502,7 +502,7 @@ public class HlsService {
             session.lastRestartTimes.put(vName, System.currentTimeMillis());
 
             // Exit code 0 means the encoder finished the whole stream (VOD
-            // end-of-file): finalize the playlist and stop — do NOT restart.
+            // end-of-file): finalize the playlist and stop â€” do NOT restart.
             if (exitCode == 0) {
                 LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
                 finalizePlaylist(session, vName);
@@ -579,12 +579,12 @@ public class HlsService {
             if (detected != null) {
                 hwEncoder = detected;
             } else if (TranscodingService.CODEC_HEVC.equals(family)) {
-                LOG.warn("No hardware HEVC encoder for HLS variant {} — software HEVC is never used for live encoding",
+                LOG.warn("No hardware HEVC encoder for HLS variant {} â€” software HEVC is never used for live encoding",
                         variant.name);
             }
         }
 
-        // ── Fast path: direct-stream copy for compatible H.264+AAC/AC3 sources ──
+        // â”€â”€ Fast path: direct-stream copy for compatible H.264+AAC/AC3 sources â”€â”€
         if (isEligibleForCopyMode(session, variant)) {
             List<String> copyCommand = new ArrayList<>();
             copyCommand.add(ffmpegPath);
@@ -964,7 +964,7 @@ public class HlsService {
 
                     if (exitCode == 0) {
                         LOG.info("HLS encoder {} for session {} finished normally, stream complete", vName, session.sessionId);
-                        // Encoder completed normally — finalize playlist and do NOT retry
+                        // Encoder completed normally â€” finalize playlist and do NOT retry
                         finalizePlaylist(session, vName);
                         break;
                     }
@@ -972,7 +972,7 @@ public class HlsService {
                     int attempt = session.getRestartCount(vName);
                     long backoffMs = Math.min(5000 * (1L << Math.min(attempt, 5)), 60000L); // 5s, 10s, 20s, 40s, 60s max
 
-                    LOG.warn("HLS encoder {} died (exit {}, retry {}/∞), restarting in {}ms", vName, exitCode, attempt + 1, backoffMs);
+                    LOG.warn("HLS encoder {} died (exit {}, retry {}/âˆž), restarting in {}ms", vName, exitCode, attempt + 1, backoffMs);
                     session.removeProcess(vName);
                     session.lastRestartTimes.put(vName, System.currentTimeMillis());
 
@@ -1071,7 +1071,7 @@ public class HlsService {
                 String audioName = "audio_" + track.trackIndex;
                 List<String> command = new ArrayList<>();
                 command.add(ffmpegDiscoveryService.findFFmpegExecutable());
-                // Audio encoder always starts from 0 (same as video — HLS seek is handled natively)
+                // Audio encoder always starts from 0 (same as video â€” HLS seek is handled natively)
                 command.add("-ss");
                 command.add(startAtArg(session.startSeconds));
                 command.add("-i");
@@ -1339,7 +1339,7 @@ public class HlsService {
         // Audio does not block video copy: the copy command transcodes any
         // track this client cannot decode (AC-3/E-AC-3) to AAC.
 
-        // No downscale needed — variant height must be >= source height
+        // No downscale needed â€” variant height must be >= source height
         if (variant.height > 0 && session.video.resolution != null && session.video.resolution.contains("x")) {
             try {
                 int sourceH = Integer.parseInt(session.video.resolution.split("x")[1]);
@@ -1408,7 +1408,9 @@ public class HlsService {
         if (decoderIsCuda && encoderIsNvenc) {
             return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsQsv && encoderIsQsv) {
-            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
+            // hwdownload bridges the qsv surface to nv12 for the encoder; a bare
+            // :format=nv12 here breaks the hand-off (see TranscodingService).
+            return "scale_qsv=" + targetW + ":" + targetH + ",hwdownload,format=nv12";
         } else if (decoderIsVaapi && encoderIsVaapi) {
             return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
@@ -1458,7 +1460,7 @@ public class HlsService {
         if (decoderIsCuda && encoderIsNvenc)
             return "scale_cuda=" + w + ":" + h + ":format=nv12";
         if (decoderIsQsv && encoderIsQsv)
-            return "scale_qsv=" + w + ":" + h + ":format=nv12";
+            return "scale_qsv=" + w + ":" + h + ",hwdownload,format=nv12";
         if (decoderIsVaapi && encoderIsVaapi)
             return "scale_vaapi=" + w + ":" + h + ":format=nv12";
         if (decoderIsAmf && encoderIsAmf)
@@ -2189,7 +2191,7 @@ public class HlsService {
     }
 
     // Apple players require X-TIMESTAMP-MAP in HLS WebVTT to sync cues to the
-    // media timeline, but ffmpeg never emits it — without the header, enabling
+    // media timeline, but ffmpeg never emits it â€” without the header, enabling
     // subtitles stalls playback. Cues use absolute media timestamps from 0 and
     // the variant starts at 0, so LOCAL 00:00 maps to MPEGTS 0.
     private static final String VTT_TIMESTAMP_MAP = "X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0";
@@ -2267,7 +2269,7 @@ public class HlsService {
         }
     }
 
-    private static final long SESSION_IDLE_TTL_MS = 60 * 1000L; // 60s — stop segment generation ~1 min after the player closes
+    private static final long SESSION_IDLE_TTL_MS = 60 * 1000L; // 60s â€” stop segment generation ~1 min after the player closes
     /** Explicit startup window; a STARTING session is not reaped before this deadline. */
     private static final long SESSION_STARTUP_DEADLINE_MS = 30 * 1000L;
 
