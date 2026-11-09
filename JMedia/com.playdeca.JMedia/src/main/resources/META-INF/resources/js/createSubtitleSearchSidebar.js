@@ -12,6 +12,9 @@ function createSubtitleSearchSidebarHTML() {
         <i class="fa-solid fa-xmark"></i>\
       </button>\
     </div>\
+    <div class="episode-sidebar-seasons" id="subtitle-search-track-tabs">\
+    </div>\
+    <div class="episode-sidebar-list" id="subtitleSidebarTracks"></div>\
     <div class="episode-sidebar-seasons" id="subtitle-search-tabs">\
       <button class="episode-sidebar-season-btn active" data-click="switchSubtitleSearchTab:local">Local Files</button>\
       <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:upload">Upload</button>\

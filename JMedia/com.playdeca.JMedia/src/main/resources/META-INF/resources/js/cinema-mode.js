@@ -3650,6 +3650,58 @@ function getSubtitleSearchVideoId() {
   return c && c.dataset.videoId ? c.dataset.videoId : null;
 }
 
+/**
+ * Available subtitle tracks for the current video, shown at the top of the
+ * subtitle side panel. Selecting one drives the player's own menu entry so the
+ * <track> element, ?start= offset and lastSelectedTrackId all stay consistent.
+ */
+async function loadSidebarSubtitleTracks() {
+  var list = document.getElementById('subtitleSidebarTracks');
+  if (!list) return;
+  var videoId = getSubtitleSearchVideoId();
+  if (!videoId) { list.innerHTML = ''; return; }
+  try {
+    var resp = await fetch('/api/video/subtitles/' + encodeURIComponent(videoId));
+    if (!resp.ok) { list.innerHTML = ''; return; }
+    var json = await resp.json();
+    var tracks = json.tracks || [];
+    var p = window.player || window.currentPlayerInstance;
+    var activeId = (p && p.lastSelectedTrackId != null) ? String(p.lastSelectedTrackId)
+      : (localStorage.getItem('jmedia_last_track_' + videoId) || '');
+    var rows = ['<button type="button" class="episode-sidebar-item' + ((activeId === 'off' || activeId === '') ? ' active' : '') + '" data-click="selectSidebarSubtitle" data-sub-id="off">' +
+      '<div class="episode-sidebar-info"><div class="episode-sidebar-ep-title">Off</div>' +
+      '<div class="episode-sidebar-ep-description">Hide subtitles</div></div></button>'];
+    tracks.forEach(function (t) {
+      var name = t.displayName || t.languageName || t.filename || ('Track ' + t.id);
+      var isActive = String(t.id) === activeId;
+      rows.push('<button type="button" class="episode-sidebar-item' + (isActive ? ' active' : '') + '" data-click="selectSidebarSubtitle" data-sub-id="' + t.id + '">' +
+        '<div class="subtitle-result-badge">' + escapeHtml((t.languageCode || '').toUpperCase()) + '</div>' +
+        '<div class="episode-sidebar-info"><div class="episode-sidebar-ep-title">' + escapeHtml(name) + '</div>' +
+        '<div class="episode-sidebar-ep-description">' + escapeHtml(t.format || '') + (t.isForced ? ' - forced' : '') + '</div></div></button>');
+    });
+    list.innerHTML = rows.join('');
+  } catch (e) {
+    console.warn('[cinema] sidebar subtitle tracks failed', e);
+    list.innerHTML = '';
+  }
+}
+
+function selectSidebarSubtitle(el) {
+  var id = el && el.getAttribute ? el.getAttribute('data-sub-id') : null;
+  if (!id) return;
+  var opt = document.querySelector('#subtitleList .subtitle-option[data-id="' + id + '"]');
+  if (opt) {
+    opt.click();
+  } else {
+    var ctrl = window.player && window.player.subtitleController;
+    if (ctrl) {
+      if (id === 'off') ctrl.turnOffSubtitles();
+      else if (window.player.selectSubtitle) window.player.selectSubtitle(id);
+    }
+  }
+  setTimeout(loadSidebarSubtitleTracks, 300);
+}
+
 function openSubtitleSearchSidebar() {
   var sidebar = document.getElementById('subtitle-search-sidebar');
   var backdrop = document.getElementById('subtitle-search-backdrop');
@@ -3665,6 +3717,7 @@ function openSubtitleSearchSidebar() {
     return el && getComputedStyle(el).display !== 'none';
   });
   if (visibleTab.length === 0) switchSubtitleSearchTab('local');
+  loadSidebarSubtitleTracks();
   var aiTab = document.getElementById('subtitle-search-ai-tab');
   if (aiTab && aiTab.style.display !== 'none') loadSubtitleAiAudioTracks();
   if (aiTab && aiTab.style.display !== 'none') loadSidebarTranslateTracks();

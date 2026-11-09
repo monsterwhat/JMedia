@@ -2860,16 +2860,37 @@ input[type="range"]::-webkit-slider-thumb {
         padding: 1rem !important;
     }
 
-    /* Adjust mobile-song-list grid based on sidebar state */
-    .standard-layout.collapsed .standard-content .mobile-song-list {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
-        gap: 0.5rem !important;
-        margin: 0.5rem !important;
+    /* Adjust mobile-song-list grid based on sidebar state.
+       Two columns on phones: auto-fill with a 150-160px floor could only ever
+       fit one card in the padded content area, so the library scrolled as a
+       single tall column. The grid also needs width:100% - it was resolving to
+       a fixed 210px box, which no two-track template could fill. */
+    body.music-page #musicContentArea.music-main-wrapper {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
     }
 
+    .standard-layout.collapsed .standard-content .mobile-song-list,
     .standard-layout:not(.collapsed) .standard-content .mobile-song-list {
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
-        gap: 1rem !important;
+        width: 100% !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.6rem !important;
+        margin: 0.5rem 0 !important;
+    }
+
+    /* The library card is a fixed 160x240 box with a 160x160 artwork, which
+       overflowed the two tracks. Let it fill its column and keep the cover
+       square. */
+    .standard-content .mobile-song-list > .mobile-song-item {
+        width: 100% !important;
+        height: auto !important;
+        min-width: 0 !important;
+    }
+
+    .standard-content .mobile-song-list > .mobile-song-item .mobile-song-artwork {
+        width: 100% !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1;
     }
 
     /* Song detail view should not be in a grid */
