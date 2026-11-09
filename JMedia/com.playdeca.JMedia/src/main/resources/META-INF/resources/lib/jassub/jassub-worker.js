@@ -1018,7 +1018,7 @@ async function Module(moduleArg = {}) {
     function initRuntime(wasmExports) { runtimeInitialized = true; PThread.tlsInitFunctions.push(wasmExports["fa"]); if (ENVIRONMENT_IS_PTHREAD)
         return; wasmExports["Y"](); }
     var wasmModule;
-    function loadModule() { assignWasmImports(); var imports = { a: wasmImports }; WebAssembly.instantiateStreaming(fetch("jassub-worker.wasm"), imports).then(output => { var wasmExports = (output.instance || output).exports; wasmModule = output.module || Module["wasm"]; assignWasmExports(wasmExports); callRuntimeCallbacks(onPreRuns); initRuntime(wasmExports); PThread.loadWasmModuleToAllWorkers().then(ready); }); }
+    function loadModule() { assignWasmImports(); var imports = { a: wasmImports }; WebAssembly.instantiateStreaming(fetch("jassub-worker.wasm"), imports).catch((e) => { console.warn("JASSUB: streaming wasm instantiation failed (" + e.message + "), retrying from ArrayBuffer"); return fetch("jassub-worker.wasm").then((r) => r.arrayBuffer()).then((buf) => WebAssembly.instantiate(buf, imports)); }).then(output => { var wasmExports = (output.instance || output).exports; wasmModule = output.module || Module["wasm"]; assignWasmExports(wasmExports); callRuntimeCallbacks(onPreRuns); initRuntime(wasmExports); PThread.loadWasmModuleToAllWorkers().then(ready); }); }
     if (!ENVIRONMENT_IS_PTHREAD) {
         loadModule();
     }

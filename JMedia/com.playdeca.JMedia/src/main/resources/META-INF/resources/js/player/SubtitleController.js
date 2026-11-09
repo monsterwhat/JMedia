@@ -6,7 +6,7 @@
     // both promises stay pending forever. Teardown shares the serialized _assChain
     // with init, so one stuck destroy silently disables every later subtitle
     // selection until the page is reloaded. Bound it and kill the worker ourselves.
-    const ASS_DESTROY_TIMEOUT_MS = 2000;
+    const ASS_DESTROY_TIMEOUT_MS = 800;
 
     window.PlayerSubtitleController = class {
         constructor(player) {
