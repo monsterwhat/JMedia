@@ -3418,6 +3418,27 @@ function renderEpisodeSidebarSeasons(seasonKeys, activeSeasonKey) {
   updateSeasonScrollButtons();
 }
 
+/**
+ * The player re-points itself at the next episode without navigating, so the
+ * container dataset and the open episode sidebar kept the previous episode.
+ * Update both so the highlighted item follows what is actually playing.
+ */
+function syncEpisodeSidebarForVideo(videoId) {
+  const container = getPlayerContainer();
+  if (!container) return;
+  container.dataset.videoId = String(videoId);
+  const sidebar = document.getElementById('episode-sidebar');
+  if (!sidebar || !sidebar.classList.contains('open')) return;
+  const seriesTitle = container.dataset.seriesTitle;
+  const eps = (seriesTitle && typeof _episodesCache !== 'undefined') ? _episodesCache.get(seriesTitle) : null;
+  if (!Array.isArray(eps)) return;
+  const ep = eps.find(function (e) { return String(e.id) === String(videoId); });
+  const sn = ep && ep.seasonNumber != null ? ep.seasonNumber : 1;
+  const ct = ep && ep.contentType ? ep.contentType : 'episode';
+  container.dataset.seasonNumber = String(sn);
+  switchEpisodeSidebarSeason(sn + ':' + ct);
+}
+
 function switchEpisodeSidebarSeason(seasonKey) {
   // Parse the key to get season number and contentType
   const [snStr, ct] = seasonKey.split(':');
@@ -3636,6 +3657,14 @@ function openSubtitleSearchSidebar() {
   if (sidebar) sidebar.classList.add('open');
   if (backdrop) backdrop.classList.add('active');
   if (toggleBtn) toggleBtn.classList.add('active');
+  // All three tab bodies ship with display:none, so without activating one the
+  // panel opens showing only the header and tabs. Default to Local Files (which
+  // also runs the folder scan) unless a tab is already visible.
+  var visibleTab = ['local', 'upload', 'ai'].filter(function (t) {
+    var el = document.getElementById('subtitle-search-' + t + '-tab');
+    return el && getComputedStyle(el).display !== 'none';
+  });
+  if (visibleTab.length === 0) switchSubtitleSearchTab('local');
   var aiTab = document.getElementById('subtitle-search-ai-tab');
   if (aiTab && aiTab.style.display !== 'none') loadSubtitleAiAudioTracks();
   if (aiTab && aiTab.style.display !== 'none') loadSidebarTranslateTracks();

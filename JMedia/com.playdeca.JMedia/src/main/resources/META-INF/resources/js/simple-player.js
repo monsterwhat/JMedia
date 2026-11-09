@@ -549,6 +549,14 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Transcode resumes via server-side ?start= (streamStartOffset carries
                             // the offset); direct files start at 0 and seek client-side below.
                             this.videoId = newId;
+                            // Keep the page chrome in sync: the player re-points itself at
+                            // the next episode without navigating, so anything reading the
+                            // container dataset (episode sidebar highlight, subtitle panel
+                            // video id) still pointed at the previous episode.
+                            this.container.dataset.videoId = String(newId);
+                            if (typeof window.syncEpisodeSidebarForVideo === 'function') {
+                                window.syncEpisodeSidebarForVideo(newId);
+                            }
                             this.streamStartOffset = (this.needsTranscode && newStateTime > 0) ? Math.max(0, newStateTime) : 0;
                             this.lastKnownGoodPosition = 0;
                             this.initialResumeTime = 0;
