@@ -1460,10 +1460,10 @@
                 // ?start= of the previous stream, so its cues stay offset by the seek
                 // delta and nothing shows until the user re-toggles the track.
                 if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off' && p.loadSubtitles) {
-                    p.loadSubtitles(true).then(() => {
-                        const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
-                        if (activeOpt) activeOpt.click();
-                    });
+                    // loadSubtitles() rebuilds the menu and re-clicks the entry for
+                    // p.lastSelectedTrackId, which recreates the <track> with the new
+                    // streamStartOffset.
+                    p.loadSubtitles(true);
                 }
             };
             p.video.addEventListener('loadeddata', onLoadedDataCorrectOffset, { once: true });

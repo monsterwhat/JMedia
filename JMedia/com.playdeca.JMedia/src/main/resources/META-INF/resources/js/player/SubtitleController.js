@@ -438,6 +438,10 @@
                         localStorage.setItem('jmedia_last_track_' + p.videoId, t.id);
 
                         p.currentSubtitleTrackId = t.id;
+                        // The canonical "active track" used by loadSubtitles() to
+                        // re-select on a rebuild (seek/quality) and by the seek path.
+                        // Without this a fresh selection was never restorable.
+                        p.lastSelectedTrackId = t.id;
                     };
                     list.appendChild(opt);
                     if (p.lastSelectedTrackId == t.id) opt.click();
