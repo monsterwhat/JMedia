@@ -1454,12 +1454,16 @@
                 if (Math.abs(base - p.streamStartOffset) > 0.1) {
                     console.log(`[SimplePlayer] Correcting streamStartOffset from ${p.streamStartOffset} to ${base} (keyframe gap: ${ct}s)`);
                     p.streamStartOffset = base;
-                    if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
-                        p.loadSubtitles(true).then(() => {
-                            const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
-                            if (activeOpt) activeOpt.click();
-                        });
-                    }
+                }
+                // Rebuild the active subtitle track after EVERY server seek, not only
+                // when the keyframe correction is large. The <track> element keeps the
+                // ?start= of the previous stream, so its cues stay offset by the seek
+                // delta and nothing shows until the user re-toggles the track.
+                if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off' && p.loadSubtitles) {
+                    p.loadSubtitles(true).then(() => {
+                        const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
+                        if (activeOpt) activeOpt.click();
+                    });
                 }
             };
             p.video.addEventListener('loadeddata', onLoadedDataCorrectOffset, { once: true });
