@@ -42,7 +42,7 @@ public class EnhancedAuthAPI {
     Controllers.SetupController setupController;
 
     @ConfigProperty(name = "jmedia.local-network-cidrs",
-            defaultValue = "192.168.100.0/24,10.50.0.0/24,127.0.0.1/32,::1/128")
+            defaultValue = "192.168.100.0/24,192.168.1.0/24,10.50.0.0/24,127.0.0.1/32,::1/128")
     List<String> localNetworkCidrs;
 
     @POST
