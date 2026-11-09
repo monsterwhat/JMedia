@@ -4832,3 +4832,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 #subtitleManagementModal .tabs li { flex: none !important; }
 #subtitleManagementModal .tabs a { white-space: nowrap; }
+
+/* Video pages hide the sidebar rail (inline display:none) but the shell still
+   reserved its 50px, leaving a dead black strip on the right of every video
+   screen. Keep the reservation only where the rail is actually shown. */
+@media (max-width: 768px) {
+    body.video-page .standard-main,
+    body.video-page .standard-layout.collapsed.sidebar-right .standard-main,
+    body.video-page .standard-layout.sidebar-right .standard-content,
+    body.video-page .standard-content {
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+}
