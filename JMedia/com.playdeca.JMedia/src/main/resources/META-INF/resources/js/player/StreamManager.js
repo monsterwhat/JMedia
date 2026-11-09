@@ -576,14 +576,39 @@
                     console.log('[SimplePlayer] iOS: native HLS playback (no MSE)', data.playlistUrl);
                     p._hlsNative = true;
                     p.video.src = data.playlistUrl;
+                    // Safari advances currentTime on an EVENT playlist even when the
+                    // encoder produced no segments (black frame, no audio, ticking
+                    // clock). If no decodable video appears, fall back to the
+                    // progressive transcode instead of leaving a silent black screen.
+                    let nativeHlsOk = false;
+                    const nativeHlsWatchdog = setTimeout(() => {
+                        if (p._destroyed || nativeHlsOk || !p._hlsNative) return;
+                        const v = p.video;
+                        if (v && v.videoWidth > 0 && v.readyState >= 2) return;
+                        console.warn('[SimplePlayer] iOS native HLS produced no decodable video after 15s (rs=' +
+                            (v && v.readyState) + ', vw=' + (v && v.videoWidth) + '); falling back to direct');
+                        p._hlsNative = false;
+                        try { v.pause(); } catch (e) { /* element already torn down */ }
+                        this.fallbackToDirectStream(savedTime);
+                    }, 15000);
+                    const markNativeHlsOk = () => {
+                        if (p.video && p.video.videoWidth > 0) {
+                            nativeHlsOk = true;
+                            clearTimeout(nativeHlsWatchdog);
+                        }
+                    };
                     p.video.addEventListener('loadedmetadata', () => {
                         if (p._destroyed) return;
                         p.streamStartOffset = savedTime > 0 ? savedTime : 0;
                         p.applyInitialState();
                         p._hideLoading();
+                        markNativeHlsOk();
                     }, { once: true });
+                    p.video.addEventListener('loadeddata', markNativeHlsOk, { once: true });
+                    p.video.addEventListener('playing', markNativeHlsOk);
                     p.video.addEventListener('error', () => {
                         console.error('[SimplePlayer] Native HLS error:', p.video.error);
+                        clearTimeout(nativeHlsWatchdog);
                         p._hlsNative = false;
                         this.fallbackToDirectStream(savedTime);
                     }, { once: true });

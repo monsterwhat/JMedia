@@ -727,12 +727,11 @@ public class TranscodingService {
         if (decoderIsCuda && encoderIsNvenc) {
             return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsQsv && encoderIsQsv) {
-            // hwdownload bridges the qsv surface back to nv12, which is what the
-            // command's "-pix_fmt nv12" asks for. A bare scale_qsv here fails with
-            // "Impossible to convert between the formats supported by
-            // Parsed_scale_qsv_0 and auto_scale_0" (or -38 under -pix_fmt nv12),
-            // and the app then falls back to libx264. Verified on Arc A380.
-            return "scale_qsv=" + targetW + ":" + targetH + ",hwdownload,format=nv12";
+            // Convert to nv12 on the GPU (VPP). hwdownload cannot convert: the
+            // qsv surface keeps the source format, so for 10-bit HEVC (P010)
+            // "hwdownload,format=nv12" fails with "Invalid output format nv12
+            // for hwframe download" and the encoder dies before any output.
+            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVaapi && encoderIsVaapi) {
             return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
@@ -802,9 +801,8 @@ public class TranscodingService {
         if (decoderIsCuda && encoderIsNvenc)
             return "scale_cuda=" + w + ":" + h + ":format=nv12";
         if (decoderIsQsv && encoderIsQsv)
-            // Same reason as buildScaleFilter: the encoder path carries
-            // "-pix_fmt nv12", so the qsv surface must be downloaded to nv12.
-            return "scale_qsv=" + w + ":" + h + ",hwdownload,format=nv12";
+            // GPU-side format conversion; hwdownload fails on 10-bit P010 surfaces.
+            return "scale_qsv=" + w + ":" + h + ":format=nv12";
         if (decoderIsVaapi && encoderIsVaapi)
             return "scale_vaapi=" + w + ":" + h + ":format=nv12";
         if (decoderIsAmf && encoderIsAmf)

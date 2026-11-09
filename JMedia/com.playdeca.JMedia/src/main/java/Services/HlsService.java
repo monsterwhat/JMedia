@@ -1408,9 +1408,12 @@ public class HlsService {
         if (decoderIsCuda && encoderIsNvenc) {
             return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsQsv && encoderIsQsv) {
-            // hwdownload bridges the qsv surface to nv12 for the encoder; a bare
-            // :format=nv12 here breaks the hand-off (see TranscodingService).
-            return "scale_qsv=" + targetW + ":" + targetH + ",hwdownload,format=nv12";
+            // Convert to nv12 on the GPU (VPP) and hand qsv frames straight to
+            // h264_qsv. hwdownload cannot do it: the surface format follows the
+            // source (P010 for 10-bit HEVC), and "hwdownload,format=nv12" then
+            // fails with "Invalid output format nv12 for hwframe download",
+            // killing the encoder before a single segment is written.
+            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVaapi && encoderIsVaapi) {
             return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
@@ -1460,7 +1463,8 @@ public class HlsService {
         if (decoderIsCuda && encoderIsNvenc)
             return "scale_cuda=" + w + ":" + h + ":format=nv12";
         if (decoderIsQsv && encoderIsQsv)
-            return "scale_qsv=" + w + ":" + h + ",hwdownload,format=nv12";
+            // GPU-side format conversion; hwdownload fails on 10-bit P010 surfaces.
+            return "scale_qsv=" + w + ":" + h + ":format=nv12";
         if (decoderIsVaapi && encoderIsVaapi)
             return "scale_vaapi=" + w + ":" + h + ":format=nv12";
         if (decoderIsAmf && encoderIsAmf)
