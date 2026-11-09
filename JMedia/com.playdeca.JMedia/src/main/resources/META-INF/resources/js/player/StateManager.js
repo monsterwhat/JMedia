@@ -9,7 +9,11 @@
         initState() {
             const p = this.player;
 
-            p.profileId = localStorage.getItem('activeProfileId');
+            // Same resolution order as the rest of the app (simple-player swap path
+            // uses dataset -> global -> localStorage). Using only localStorage here
+            // produced a '..._null' key when the profile came from the global, so the
+            // saved volume was read/written under two different keys.
+            p.profileId = p.container.dataset.profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             p.deviceToken = sessionStorage.getItem('jmedia_device_token');
             if (!p.deviceToken) {
                 p.deviceToken = (crypto.randomUUID && crypto.randomUUID()) || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {

@@ -556,8 +556,15 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Restore volume/mute from localStorage
                             const vol = parseFloat(localStorage.getItem('jmedia_video_volume_' + profileId) || '0.7');
                             const mute = localStorage.getItem('jmedia_video_mute_' + profileId) === 'true';
-                            this.video.volume = vol;
+                            // The slider stores the perceptual value and the element takes
+                            // its square (ControlsManager.applyInitialState). Applying the
+                            // raw value here made every episode swap play louder than the
+                            // slider said until the slider was touched again.
+                            this.video.volume = Math.pow(vol, 2);
                             this.video.muted = mute;
+                            this.state.volume = vol;
+                            this.state.muted = mute;
+                            if (this.controlsManager) this.controlsManager.updateVolumeUI();
 
                             // Resume: selectVideo → state.currentTime > 0 → seek the new source there;
                             // advanceVideo → server sets 0 → no seek. Direct files seek client-side;

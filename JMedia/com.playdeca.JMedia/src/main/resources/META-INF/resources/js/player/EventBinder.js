@@ -300,6 +300,9 @@
             p.muteBtn.onclick = (e) => {
                 e.stopPropagation();
                 p.video.muted = !p.video.muted;
+                // Keep state in sync: applyInitialState() (loadedmetadata) re-applies
+                // p.state.muted, which would otherwise undo the toggle on the next load.
+                p.state.muted = p.video.muted;
                 localStorage.setItem(p.muteKey, p.video.muted);
                 p.controlsManager.updateVolumeUI();
             };

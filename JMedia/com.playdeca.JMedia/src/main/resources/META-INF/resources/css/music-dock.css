@@ -162,6 +162,11 @@ body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-play
 
 body.music-page #musicPlayerContainer .mobile-player-details {
     min-width: 0;
+    /* Fill the rest of the info pill: without grow the title/artist column
+       shrinks to its own text (~85px on a 390px phone) and leaves a large
+       empty area inside a 324px pill. */
+    flex: 1 1 auto;
+    max-width: 100%;
 }
 
 /* Base: never wrap, so Helpers.applyMarqueeEffect() can detect overflow and
