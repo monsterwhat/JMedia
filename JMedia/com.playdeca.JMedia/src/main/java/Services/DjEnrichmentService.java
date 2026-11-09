@@ -11,6 +11,7 @@ import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.enterprise.context.control.RequestContextController;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,12 +75,16 @@ public class DjEnrichmentService {
     private final AtomicInteger metadataDone = new AtomicInteger(0);
     private final AtomicInteger analysisDone = new AtomicInteger(0);
 
+    /** Delay before the enrichment queue is filled, so boot is not delayed. */
+    @ConfigProperty(name = "jmedia.startup.defer-seconds", defaultValue = "60")
+    int startupDeferSeconds;
+
     @PostConstruct
     void init() {
         start();
         Thread startupThread = new Thread(() -> {
             try {
-                Thread.sleep(5000);
+                Thread.sleep(Math.max(0, startupDeferSeconds) * 1000L);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;

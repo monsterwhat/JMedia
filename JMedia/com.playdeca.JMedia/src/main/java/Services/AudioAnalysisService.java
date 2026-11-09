@@ -10,6 +10,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,15 @@ public class AudioAnalysisService {
     
     @Inject
     SettingsService settingsService;
-    
+
+    /** Proxy so the deferred call still runs inside a transaction. */
+    @Inject
+    AudioAnalysisService self;
+
+    /** Delay before background work starts, so it never blocks boot/listening. */
+    @ConfigProperty(name = "jmedia.startup.defer-seconds", defaultValue = "60")
+    int startupDeferSeconds;
+
     @PersistenceContext(unitName = "music")
     EntityManager em;
     
@@ -99,13 +108,32 @@ public class AudioAnalysisService {
     }
 
     /**
-     * On application startup, queue all unanalyzed songs for background analysis.
+     * Startup must not wait on analysis. The scan below is deferred to a daemon
+     * thread so the HTTP port opens immediately; it used to run synchronously in
+     * @PostConstruct and lengthened every boot.
+     */
+    @PostConstruct
+    void scheduleStartupQueueing() {
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(Math.max(0, startupDeferSeconds) * 1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            self.queueUnanalyzedSongsOnStartup();
+        }, "AudioAnalysis-startup");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * Queue all unanalyzed songs for background analysis.
      * Only queues up to STARTUP_QUEUE_LIMIT to avoid a CPU spike;
      * the rest will be picked up by AnalysisWorker over time.
      */
-    @PostConstruct
     @Transactional
-    void queueUnanalyzedSongsOnStartup() {
+    public void queueUnanalyzedSongsOnStartup() {
         try {
             // Scan the full song list, but ask the DB only for the SongAnalysis
             // status (one tiny int column) — never the 3 CLOB JSON blobs or the
