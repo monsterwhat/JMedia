@@ -1,6 +1,7 @@
 package Migrations;
 
 import Services.VideoService;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -8,6 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -33,6 +35,10 @@ public class DatabaseMigration {
     @Inject
     VideoService videoService;
 
+    /** Delay before the data backfills run, so they never block the listener. */
+    @ConfigProperty(name = "jmedia.startup.defer-seconds", defaultValue = "60")
+    int startupDeferSeconds;
+
     void onStart(@Observes StartupEvent event) {
         runScript("/db/migrate-migration-state.sql", "Migration state table ready");
         runScript("/db/migrate-profile-session-state.sql", "ProfileSessionState migration applied");
@@ -41,8 +47,25 @@ public class DatabaseMigration {
         runScript("/db/migrate-series-absolute-override.sql", "Series absoluteSeasonLengths override migration applied");
         runScript("/db/migrate-video-manual-season-flags.sql", "Video manual season/episode flags migration applied");
         runScript(settingsEm, "/db/migrate-profile-hls-streaming.sql", "Profile hlsStreaming migration applied");
-        reclassifyImportedExtras();
-        backfillAbsoluteNumbering();
+        // The two data backfills scan the whole video library (12k+ rows) and
+        // used to run on the startup thread, adding ~50s to every boot. They are
+        // idempotent and self-terminating, so defer them off the boot path.
+        deferLibraryBackfills();
+    }
+
+    private void deferLibraryBackfills() {
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(Math.max(0, startupDeferSeconds) * 1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            reclassifyImportedExtras();
+            backfillAbsoluteNumbering();
+        }, "DatabaseMigration-backfills");
+        t.setDaemon(true);
+        t.start();
     }
 
     /**
@@ -113,10 +136,13 @@ public class DatabaseMigration {
 
     void markStepDone(String step) {
         try {
-            em.createNativeQuery(
+            // A native update needs an active transaction; without one H2 threw
+            // "No active transaction for update or delete query", the marker was
+            // never written, and the full-library backfill re-ran on every boot.
+            QuarkusTransaction.requiringNew().run(() -> em.createNativeQuery(
                     "MERGE INTO migration_state (step_name, completed_at) KEY (step_name) VALUES (?1, CURRENT_TIMESTAMP)")
                     .setParameter(1, step)
-                    .executeUpdate();
+                    .executeUpdate());
         } catch (Exception e) {
             LOGGER.warn("Could not record migration step '{}' as done, it will re-run next boot: {}", step, e.getMessage());
         }
