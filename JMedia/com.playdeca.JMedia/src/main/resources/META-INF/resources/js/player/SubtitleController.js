@@ -76,6 +76,15 @@
         }
 
         /**
+         * Whether ASS tracks should be drawn on the JASSUB canvas instead of using
+         * the server-generated WebVTT track. Off by default while the bundled
+         * JASSUB build cannot initialise its worker.
+         */
+        assCanvasEnabled() {
+            return localStorage.getItem('jmedia_ass_renderer') === 'true';
+        }
+
+        /**
          * Tear down one JASSUB instance without ever blocking the chain: waits for
          * destroy() up to ASS_DESTROY_TIMEOUT_MS, then terminates the worker so a
          * dead/blocked worker cannot leak and the next renderer starts clean.
@@ -318,7 +327,17 @@
 
                                 if (t.id !== 'off') {
                                     const isAss = t.format === 'ass' || t.format === 'ssa';
-                                    if (isAss) {
+                                    // ASS canvas rendering depends on the bundled JASSUB
+                                    // worker, which is incomplete in lib/jassub (the
+                                    // worker entry is the raw emscripten module, not the
+                                    // abslink endpoint), so its ready promise never
+                                    // resolves. The server converts ASS/SSA to WebVTT at
+                                    // /api/video/subtitles/track/<id>, which every browser
+                                    // (iOS Safari included) renders natively, so native
+                                    // tracks are the default and the canvas path is
+                                    // opt-in for when a matching JASSUB build is shipped.
+                                    const useAssCanvas = isAss && this.assCanvasEnabled();
+                                    if (useAssCanvas) {
                                         this.initAssSubtitle(t.id);
                                     } else {
                                         // Drop any previous <track> elements first. They hold the OLD
