@@ -88,7 +88,7 @@ public class MusicGenreBackfillService {
             long lastId = 0L;
             int batches = 0;
             while (true) {
-                long nextId = self.backfillBatch(lastId);
+                long nextId = self.rebuildBatch(lastId);
                 if (nextId <= lastId) break;
                 lastId = nextId;
                 batches++;
@@ -99,6 +99,43 @@ public class MusicGenreBackfillService {
         } catch (Exception e) {
             LOG.error("Music genre rebuild failed", e);
         }
+    }
+
+    /**
+     * Rebuild one batch. The old link rows are removed with a bulk delete and
+     * the persistence context is cleared before the songs are re-resolved:
+     * syncGenresFromRaw() clears the collection and re-adds, and Hibernate would
+     * otherwise INSERT the new (song_id, genre_key) row before DELETEing the old
+     * one, violating uk_song_genres_song_key whenever a key survives the change.
+     */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public long rebuildBatch(long lastId) {
+        List<Song> batch = Song.find("id > ?1 order by id", lastId)
+                .page(0, BATCH_SIZE)
+                .list();
+        if (batch.isEmpty()) return lastId;
+
+        long maxId = lastId;
+        List<Long> ids = new ArrayList<>(batch.size());
+        for (Song song : batch) {
+            maxId = Math.max(maxId, song.id);
+            ids.add(song.id);
+        }
+
+        SongGenre.delete("song.id in ?1", ids);
+        em.flush();
+        em.clear();
+
+        List<Song> reloaded = em.createQuery(
+                        "SELECT s FROM Song s WHERE s.id IN :ids ORDER BY s.id", Song.class)
+                .setParameter("ids", ids)
+                .getResultList();
+        for (Song song : reloaded) {
+            song.syncGenresFromRaw();
+        }
+        em.flush();
+        em.clear();
+        return maxId;
     }
 
     /**
