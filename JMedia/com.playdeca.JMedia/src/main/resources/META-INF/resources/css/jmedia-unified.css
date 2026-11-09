@@ -4807,3 +4807,11 @@ input[type="range"]::-webkit-slider-thumb {
         box-sizing: border-box !important;
     }
 }
+/* ==================== SUBTITLE MANAGER MODAL STACKING ==================== */
+/* Bulma's .modal is z-index 40, but the video player modal is 301, so the
+   subtitle manager (manual/AI/style/upload) opened invisibly behind the
+   player even though it was display:flex. Lift it above the player. */
+#subtitleManagementModal.modal.is-active,
+#editVideoModal.modal.is-active {
+    z-index: 2000 !important;
+}
