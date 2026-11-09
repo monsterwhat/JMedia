@@ -4666,6 +4666,11 @@ input[type="range"]::-webkit-slider-thumb {
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-details {
         min-width: 0 !important;
         overflow: hidden !important;
+        /* Fill the rest of the info pill. Without grow the title/artist column
+           shrinks to its own text (~85px inside a 324px pill on a 390px phone)
+           and leaves most of the pill empty. */
+        flex: 1 1 auto !important;
+        max-width: 100% !important;
     }
 
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-title,
