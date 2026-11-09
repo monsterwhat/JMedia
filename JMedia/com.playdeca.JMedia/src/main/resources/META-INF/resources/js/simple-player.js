@@ -239,7 +239,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // progressive demuxer stalls on our empty_moov fMP4, so it keeps HLS.
             // Explicit profile HLS (?hls=1) still wins everywhere.
             const isFirefox = /Firefox\//i.test(navigator.userAgent || '');
-            const wantsHls = this.dataHlsEnabled
+            let wantsHls = this.dataHlsEnabled
                 || this.container.dataset.hlsForced === 'true'
                 || ((this.needsTranscode || audioNeedsHls) && !isFirefox);
             // hls.js is ~542 KB and is only needed for the HLS route. Load it here,
@@ -256,16 +256,32 @@ if (typeof window.SimplePlayer === 'undefined') {
             // up front and tell the user how to fix their environment instead.
             const hasH264Mse = (typeof MediaSource !== 'undefined') &&
                 MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
-            // iOS/WebKit (Safari, Firefox, Chrome, Edge on iPhone/iPad) has no
-            // usable MSE for our fMP4 but plays HLS natively, including HEVC
-            // Main 10. Judging it by MSE support aborted playback with a bogus
-            // "cannot decode H.264" dialog.
+            // MSE support is not the same as decode support. A browser can lack a
+            // working MSE H.264 path (iOS WebKit, Windows N, some Chromium builds)
+            // and still decode H.264 in a plain <video>. Ask the element too, and
+            // only give up when NEITHER path exists - otherwise route around MSE
+            // instead of aborting with a false "cannot decode H.264".
+            let canNativeH264 = false;
+            try {
+                canNativeH264 = document.createElement('video')
+                    .canPlayType('video/mp4; codecs="avc1.42E01E"') !== '';
+            } catch (e) {
+                console.warn('[SimplePlayer] native H.264 probe failed:', e);
+            }
             const isIOSRuntime = this.utils.isIOS();
-            if (wantsHls && !hasH264Mse && !isIOSRuntime) {
+            console.log('[SimplePlayer] codec probe: mseH264=' + hasH264Mse + ' nativeH264=' + canNativeH264 +
+                ' isIOS=' + isIOSRuntime + ' hls=' + wantsHls);
+            if (wantsHls && !hasH264Mse && !isIOSRuntime && !canNativeH264) {
                 console.error('[SimplePlayer] H.264 MSE unsupported on this browser/OS; aborting playback');
                 this._showLoading('Playback unavailable: this browser/OS cannot decode H.264. ' +
                     'On Windows N, install the Media Feature Pack; otherwise use Chrome stable.');
                 return;
+            }
+            if (wantsHls && !hasH264Mse && !isIOSRuntime && canNativeH264) {
+                // No MSE for our fMP4, but the element decodes H.264 itself: use the
+                // progressive/transcode route instead of declaring the device broken.
+                console.warn('[SimplePlayer] no H.264 MSE support; using progressive playback instead of HLS');
+                wantsHls = false;
             }
             if (wantsHls && !isIOSRuntime && typeof window.ensureHlsLoaded === 'function' && !window.Hls) {
                 try {
