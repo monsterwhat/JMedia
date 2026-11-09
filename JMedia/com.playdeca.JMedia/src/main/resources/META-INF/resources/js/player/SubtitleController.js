@@ -1,6 +1,13 @@
 (function(window) {
     'use strict';
 
+    // JASSUB.destroy() ends with `await this.ready` and `await renderer[releaseProxy]()`.
+    // When the worker never answers (it died, was blocked, or never became ready)
+    // both promises stay pending forever. Teardown shares the serialized _assChain
+    // with init, so one stuck destroy silently disables every later subtitle
+    // selection until the page is reloaded. Bound it and kill the worker ourselves.
+    const ASS_DESTROY_TIMEOUT_MS = 2000;
+
     window.PlayerSubtitleController = class {
         constructor(player) {
             this.player = player;
@@ -62,14 +69,41 @@
                 p.jassubRenderer = null;
                 if (!stale) return;
                 console.log('[SimplePlayer] Destroying ASS subtitle renderer');
-                try {
-                    await stale.destroy();
-                } catch (e) {
-                    console.warn('[SimplePlayer] ASS destroy failed:', e);
-                }
+                await this._destroyRenderer(stale, 'teardown');
             };
             p._assChain = (p._assChain || Promise.resolve()).then(run, run);
             return p._assChain;
+        }
+
+        /**
+         * Tear down one JASSUB instance without ever blocking the chain: waits for
+         * destroy() up to ASS_DESTROY_TIMEOUT_MS, then terminates the worker so a
+         * dead/blocked worker cannot leak and the next renderer starts clean.
+         */
+        async _destroyRenderer(renderer, label) {
+            if (!renderer) return;
+            let timer = null;
+            try {
+                await Promise.race([
+                    Promise.resolve(renderer.destroy()).catch((e) => {
+                        console.warn('[SimplePlayer] ASS destroy failed (' + label + '):', e);
+                    }),
+                    new Promise((resolve) => {
+                        timer = setTimeout(() => {
+                            console.warn('[SimplePlayer] ASS destroy timed out after', ASS_DESTROY_TIMEOUT_MS,
+                                'ms (' + label + ') - terminating worker and continuing');
+                            resolve();
+                        }, ASS_DESTROY_TIMEOUT_MS);
+                    })
+                ]);
+            } finally {
+                if (timer) clearTimeout(timer);
+                try {
+                    if (renderer._worker) renderer._worker.terminate();
+                } catch (e) {
+                    console.warn('[SimplePlayer] ASS worker terminate failed (' + label + '):', e);
+                }
+            }
         }
 
         async loadJassub() {
@@ -106,11 +140,7 @@
             const stale = p.jassubRenderer;
             p.jassubRenderer = null;
             if (stale) {
-                try {
-                    await stale.destroy();
-                } catch (e) {
-                    console.warn('[SimplePlayer] ASS destroy failed:', e);
-                }
+                await this._destroyRenderer(stale, 'reinit');
             }
             // A chained destroyAssSubtitle() queued while this init was fetching
             // may have cleared the slot; the chain order guarantees it already ran.
