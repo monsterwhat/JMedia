@@ -298,6 +298,151 @@ public class SegmentCacheService {
      * disconnect segment (complete-with-coverage) is not mistaken for a fully
      * downloaded stream by the existing exact-hash path.
      */
+    /**
+     * ffmpeg's native AAC encoder always writes a 5-byte AudioSpecificConfig whose
+     * last three bytes are the SBR sync extension ({@code 56 e5 00}). Windows Media
+     * Foundation (used by Firefox on Windows) reads that as HE-AAC and plays the
+     * stream with audible crackling, while Chromium's own decoder ignores it.
+     * Zeroing those three bytes leaves a plain AAC-LC config (0x0000 is not a valid
+     * sync extension) and does not change any box size, so every byte offset in the
+     * segment stays valid.
+     */
+    private void normalizeAacConfig(java.nio.file.Path segmentFile) {
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(segmentFile.toFile(), "rw")) {
+            long length = raf.length();
+            long moovStart = -1;
+            int moovSize = 0;
+            long pos = 0;
+            while (pos + 8 <= length) {
+                raf.seek(pos);
+                long size = raf.readInt() & 0xFFFFFFFFL;
+                byte[] tag = new byte[4];
+                raf.readFully(tag);
+                String type = new String(tag, java.nio.charset.StandardCharsets.ISO_8859_1);
+                long hdr = 8;
+                if (size == 1) {
+                    size = raf.readLong();
+                    hdr = 16;
+                } else if (size == 0) {
+                    size = length - pos;
+                }
+                if (size < hdr) {
+                    break;
+                }
+                if ("moov".equals(type)) {
+                    moovStart = pos + hdr;
+                    moovSize = (int) (size - hdr);
+                    break;
+                }
+                pos += size;
+            }
+            if (moovStart < 0 || moovSize <= 0 || moovSize > 4_000_000) {
+                return;
+            }
+            byte[] moov = new byte[moovSize];
+            raf.seek(moovStart);
+            raf.readFully(moov);
+            int cfg = findAacSpecificConfig(moov, 0, moov.length);
+            if (cfg < 0 || cfg + 5 > moov.length) {
+                return;
+            }
+            if ((moov[cfg + 2] & 0xFF) == 0x56 && (moov[cfg + 3] & 0xFF) == 0xE5 && moov[cfg + 4] == 0) {
+                raf.seek(moovStart + cfg + 2);
+                raf.write(new byte[]{0, 0, 0});
+                LOG.info("Cleared SBR sync extension in AAC config of {}", segmentFile.getFileName());
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not normalize AAC config in {}: {}", segmentFile, e.getMessage());
+        }
+    }
+
+    /** Returns the byte offset of the audio DecoderSpecificInfo payload, or -1. */
+    private int findAacSpecificConfig(byte[] b, int start, int end) {
+        int i = start;
+        while (i + 8 <= end) {
+            long size = readU32(b, i);
+            String type = new String(b, i + 4, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
+            int hdr = 8;
+            if (size == 1) {
+                if (i + 16 > end) return -1;
+                size = readU64(b, i + 8);
+                hdr = 16;
+            } else if (size == 0) {
+                size = end - i;
+            }
+            if (size < hdr || i + size > end) {
+                return -1;
+            }
+            int body = i + hdr;
+            int boxEnd = (int) (i + size);
+            if ("trak".equals(type) || "mdia".equals(type) || "minf".equals(type) || "stbl".equals(type)) {
+                int r = findAacSpecificConfig(b, body, boxEnd);
+                if (r >= 0) return r;
+            } else if ("stsd".equals(type)) {
+                int p = body + 8; // version/flags + entry count
+                while (p + 8 <= boxEnd) {
+                    long esize = readU32(b, p);
+                    if (esize < 8 || p + esize > boxEnd) break;
+                    String fmt = new String(b, p + 4, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
+                    if ("mp4a".equals(fmt)) {
+                        // 28 fixed bytes after the 8-byte header, then child boxes.
+                        int r = findEsdsConfig(b, p + 36, (int) (p + esize));
+                        if (r >= 0) return r;
+                    }
+                    p += (int) esize;
+                }
+            }
+            i = boxEnd;
+        }
+        return -1;
+    }
+
+    /** Walks an esds descriptor chain and returns the DecoderSpecificInfo payload offset. */
+    private int findEsdsConfig(byte[] b, int start, int end) {
+        int i = start;
+        while (i + 8 <= end) {
+            long size = readU32(b, i);
+            String type = new String(b, i + 4, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
+            int hdr = 8;
+            if (size == 1) {
+                if (i + 16 > end) return -1;
+                size = readU64(b, i + 8);
+                hdr = 16;
+            }
+            if (size < hdr || i + size > end) return -1;
+            if ("esds".equals(type)) {
+                int p = i + hdr + 4; // version/flags
+                int boxEnd = (int) (i + size);
+                for (int n = 0; n < 8 && p < boxEnd; n++) {
+                    int tag = b[p] & 0xFF;
+                    p++;
+                    int len = 0;
+                    for (int k = 0; k < 4 && p < boxEnd; k++) {
+                        int v = b[p] & 0xFF;
+                        p++;
+                        len = (len << 7) | (v & 0x7F);
+                        if ((v & 0x80) == 0) break;
+                    }
+                    if (tag == 0x05) {
+                        return p;
+                    }
+                    p += len;
+                }
+                return -1;
+            }
+            i += (int) size;
+        }
+        return -1;
+    }
+
+    private static long readU32(byte[] b, int i) {
+        return ((long) (b[i] & 0xFF) << 24) | ((b[i + 1] & 0xFF) << 16) | ((b[i + 2] & 0xFF) << 8) | (b[i + 3] & 0xFF);
+    }
+
+    private static long readU64(byte[] b, int i) {
+        return (readU32(b, i) << 32) | readU32(b, i + 4);
+    }
+
     public void completeSegment(Path segmentFile) {
         if (segmentFile == null || !Files.exists(segmentFile)) {
             return;
@@ -349,6 +494,10 @@ public class SegmentCacheService {
                 }
                 return;
             }
+            // FFmpeg's AAC encoder advertises SBR in the AudioSpecificConfig even for
+            // plain LC output; Firefox (Media Foundation) misreads that. Fix it in
+            // place before the segment is marked complete.
+            normalizeAacConfig(segmentFile);
             sidecar.status = STATUS_COMPLETE;
             writeSidecar(segmentFile, sidecar);
             LOG.info("Completed segment {} (end={}s)", segmentFile.getFileName(), sidecar.endSeconds);

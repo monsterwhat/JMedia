@@ -1708,26 +1708,19 @@ public class TranscodingService {
         // own decoder ignores it. A copied track keeps the source's plain 2-byte
         // ASC, which every decoder agrees on.
         AudioTrack selectedAudio = findAudioTrackBySelector(video, effectiveAudioSelector);
-        boolean canCopySelectedAudio;
-        if (effectiveAudioSelector < 0) {
-            // Default mapping (0:a:0?): keep the previous behaviour - copy when the
-            // file's default audio is decodable by this client.
-            canCopySelectedAudio = canCopyAudio;
-        } else {
-            // AAC stereo is decodable everywhere, so no client probe is needed here.
-            canCopySelectedAudio = selectedAudio != null
-                    && selectedAudio.codec != null
-                    && selectedAudio.codec.toLowerCase(Locale.ROOT).contains("aac")
-                    && (selectedAudio.channels == null || selectedAudio.channels <= 2);
-        }
-        boolean transcodeAudio = !canCopySelectedAudio;
+        boolean transcodeAudio = needsVideoTranscode || effectiveAudioSelector >= 0 || !canCopyAudio;
         if (transcodeAudio && selectedAudio != null) {
-            LOG.info("Audio track {} ({}, {}ch) must be re-encoded for {}; copy not possible",
+            LOG.info("Audio track {} ({}, {}ch) will be re-encoded for {}",
                     selectedAudio.id, selectedAudio.codec, selectedAudio.channels, videoFile.getName());
         }
 
         // When a specific audio track is selected, transcode to AAC for web compatibility
-        // (the selected track may have a different codec than the default track)
+        // (the selected track may have a different codec than the default track).
+        //
+        // NOTE: do not "optimise" this to -c:a copy on seeks. With -ss before -i the
+        // video is trimmed accurately while a copied audio track keeps the keyframe
+        // it was seeked to, so audio ends up ~1-3s ahead of the picture (measured:
+        // video start 2.991s, audio 0.000s). Re-encoding trims both equally.
         if (transcodeAudio) {
             LOG.info("Transcoding audio for {} (selected track, ensuring AAC)", videoFile.getName());
             // Intentional stereo downmix for universal web playback: <video> elements
