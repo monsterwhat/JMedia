@@ -4941,3 +4941,6 @@ input[type="range"]::-webkit-slider-thumb {
     -ms-user-select: none;
     user-select: none;
 }
+/* context menu target filtering */
+.mobile-context-menu li[data-targets][hidden] { display: none !important; }
+

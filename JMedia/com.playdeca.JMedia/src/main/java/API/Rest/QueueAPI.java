@@ -25,6 +25,10 @@ import java.util.ArrayList;
 @Produces(MediaType.APPLICATION_JSON)
 public class QueueAPI {
 
+    public static class AddManyRequest { public List<Long> songIds; }
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(QueueAPI.class);
+
     @Inject
     private PlaybackController playbackController;
 
@@ -126,6 +130,31 @@ public class QueueAPI {
         }
         playbackController.addToQueue(List.of(songId), false, userProfile.id);
         return Response.ok(ApiResponse.success("Song added to queue")).build();
+    }
+
+    @POST
+    @Path("/queue/add-many/{profileId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response addManyToQueue(@PathParam("profileId") Long profileId, AddManyRequest request, @Context HttpHeaders headers) {
+        try {
+            Profile userProfile = getUserProfile(headers);
+            if (userProfile == null) return Response.status(401).build();
+            List<Long> ids = (request == null || request.songIds == null)
+                    ? List.of()
+                    : request.songIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+            if (ids.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("songIds is required"))
+                        .build();
+            }
+            playbackController.addToQueue(ids, false, userProfile.id);
+            return Response.ok(ApiResponse.success("Added " + ids.size() + " songs to queue")).build();
+        } catch (Exception e) {
+            LOG.error("Error adding songs to queue", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error adding songs to queue: " + e.getMessage()))
+                    .build();
+        }
     }
 
     @POST

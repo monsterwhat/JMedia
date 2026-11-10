@@ -882,6 +882,17 @@ public class PlaybackController {
         advanceSong(true, true, profileId); // Automatic advance due to song end
     }
 
+    public java.util.Set<Long> getPlayingProfileIds() {
+        java.util.Set<Long> result = new java.util.HashSet<>();
+        for (Long key : new java.util.ArrayList<>(memoryStates.keySet())) {
+            PlaybackState state = memoryStates.get(key);
+            if (state != null && state.isPlaying()) {
+                result.add(key);
+            }
+        }
+        return result;
+    }
+
     public synchronized void pausePlayback(Long profileId) {
         PlaybackState state = getState(profileId);
         // Remove the isPlaying() check to ensure we always force a stop/pause state

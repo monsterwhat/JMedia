@@ -19,6 +19,7 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
 
 import java.util.ArrayList;
@@ -1145,6 +1146,24 @@ public class MusicUiApi {
     public Response getDistinctGenres() {
         List<String> genres = songService.getDistinctGenres();
         return Response.ok(genres).build();
+    }
+
+    @GET
+    @Path("/collection-song-ids/{profileId}")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getCollectionSongIds(@PathParam("profileId") Long profileId,
+            @QueryParam("type") String type, @QueryParam("value") String value,
+            @QueryParam("albumArtist") String albumArtist) {
+        List<Long> ids;
+        if ("album".equalsIgnoreCase(type)) {
+            ids = songService.findSongIdsByAlbum(value, albumArtist);
+        } else if ("genre".equalsIgnoreCase(type)) {
+            ids = songService.findSongIdsByGenre(value);
+        } else {
+            ids = List.of();
+        }
+        return Response.ok(Map.of("songIds", ids, "count", ids.size())).build();
     }
 
     /**

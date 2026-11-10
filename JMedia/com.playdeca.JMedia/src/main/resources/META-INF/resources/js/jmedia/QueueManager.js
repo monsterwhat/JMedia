@@ -17,6 +17,12 @@
             this.bindClearQueue();
             window.refreshQueue = () => {
                 if (!JMedia.QueueManager.hasInitialLoad) {
+                    if (!JMedia.Helpers.getActiveProfileId()) {
+                        // ProfileManager may not have resolved the profile yet on a
+                        // first visit; fetching now would request /queue-fragment/null.
+                        JMedia.QueueManager.waitForProfileThenQueue();
+                        return;
+                    }
                     JMedia.QueueManager.hasInitialLoad = true;
                     try {
                         JMedia.QueueManager.loadPage(1, undefined, JMedia.QueueManager.searchQuery);
@@ -27,6 +33,25 @@
                 }
             };
             window.refreshQueue();
+        },
+
+        waitForProfileThenQueue: function() {
+            if (this._waitingForProfile) return;
+            this._waitingForProfile = true;
+            let tries = 0;
+            const timer = setInterval(() => {
+                if (JMedia.Helpers.getActiveProfileId()) {
+                    clearInterval(timer);
+                    this._waitingForProfile = false;
+                    window.refreshQueue();
+                    return;
+                }
+                if (++tries >= 20) {
+                    clearInterval(timer);
+                    this._waitingForProfile = false;
+                    console.warn('[QueueManager] No active profile after 10s; queue not loaded');
+                }
+            }, 500);
         },
 
         setupEventListeners: function() {
@@ -113,6 +138,11 @@
             this.isFetching = true;
             this.currentPage = page;
             const profileId = profileIdParam || JMedia.Helpers.getActiveProfileId();
+            if (!profileId) {
+                // Never request /queue-fragment/null; the profile is not resolved yet.
+                this.isFetching = false;
+                return;
+            }
             const search = searchParam !== undefined ? searchParam : this.getSearchQuery();
             this.searchQuery = search;
 

@@ -892,6 +892,38 @@ public class SongService {
         return "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(s.genre,'/',' '),'&',' '),',',' '),';',' '),'|',' '),'  ',' '),'  ',' '))";
     }
 
+    @Transactional
+    public List<Long> findSongIdsByAlbum(String album, String albumArtist) {
+        if (album == null || album.isBlank()) {
+            return List.of();
+        }
+        StringBuilder jpql = new StringBuilder("SELECT s.id FROM Song s WHERE LOWER(s.album) = LOWER(:album)");
+        if (albumArtist != null && !albumArtist.isBlank()) {
+            jpql.append(" AND LOWER(s.albumArtist) = LOWER(:albumArtist)");
+        }
+        jpql.append(" ORDER BY s.discNumber, s.trackNumber, s.title");
+        var q = em.createQuery(jpql.toString(), Long.class).setParameter("album", album);
+        if (albumArtist != null && !albumArtist.isBlank()) {
+            q.setParameter("albumArtist", albumArtist);
+        }
+        return q.getResultList();
+    }
+
+    @Transactional
+    public List<Long> findSongIdsByGenre(String genre) {
+        if (genre == null || genre.isBlank()) {
+            return List.of();
+        }
+        List<Utils.GenreNormalizer.Genre> resolved = Utils.GenreNormalizer.resolveAll(genre);
+        if (resolved == null || resolved.isEmpty()) {
+            return List.of();
+        }
+        String key = resolved.get(0).key();
+        return em.createQuery("SELECT DISTINCT s.id FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key ORDER BY s.title", Long.class)
+                .setParameter("key", key)
+                .getResultList();
+    }
+
     public PaginatedGenres findGenres(int page, int limit, String search) {
         String where = "";
         if (search != null && !search.isBlank()) {

@@ -70,7 +70,11 @@
         },
 
         getActiveProfileId: function() {
-            return window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            const id = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            // A fresh browser may have stored the literal string "null" before
+            // ProfileManager resolved, which produced /queue-fragment/null 404s.
+            if (!id || id === 'null' || id === 'undefined' || id === 'NaN') return null;
+            return id;
         },
 
         buildApiUrl: function(path, params = {}) {

@@ -196,4 +196,24 @@ public class WebSocketManager {
             }
         }
     }
+
+    /**
+     * Count open music WebSocket sessions for the given profile.
+     * Side-effect free: does not mutate any internal state.
+     */
+    public int getMusicSessionCount(Long profileId) {
+        if (profileId == null) {
+            return 0;
+        }
+        int count = 0;
+        for (Session session : musicSessions) {
+            if (session.isOpen()) {
+                Long pid = sessionProfileMap.get(session.getId());
+                if (profileId.equals(pid)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
 }

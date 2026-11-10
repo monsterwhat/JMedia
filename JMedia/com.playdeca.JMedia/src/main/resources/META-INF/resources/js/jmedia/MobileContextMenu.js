@@ -9,8 +9,10 @@
             this.timerId = null;
             this.duration = 500;
             this.currentSongId = null;
+            this.currentTarget = null;
             this.menuJustOpened = false;
             this.mousePosition = null;
+            this._suppressCardClickUntil = 0;
             this.init();
         }
 
@@ -26,6 +28,16 @@
             });
             document.body.addEventListener('contextmenu', this.handleContextMenu.bind(this));
             document.body.addEventListener('click', this.handleOutsideClick.bind(this));
+            document.body.addEventListener('click', (e) => {
+                if (this._suppressCardClickUntil && this._suppressCardClickUntil > Date.now()) {
+                    const card = e.target && e.target.closest ? e.target.closest('.mobile-album-card, .mobile-genre-card') : null;
+                    if (card) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                    }
+                }
+            }, true);
 
             const backdrop = document.querySelector('.mobile-context-backdrop');
             if (backdrop) {
@@ -56,28 +68,79 @@
             });
         }
 
+        buildTarget(el) {
+            if (!el) return null;
+            if (el.classList && el.classList.contains('mobile-album-card')) {
+                return {
+                    type: 'album',
+                    value: el.dataset.albumName,
+                    albumArtist: (el.dataset.albumArtist && el.dataset.albumArtist !== 'null' && el.dataset.albumArtist !== 'undefined') ? el.dataset.albumArtist : '',
+                    firstSongId: (el.dataset.firstSongId && el.dataset.firstSongId !== 'null' && el.dataset.firstSongId !== 'undefined') ? el.dataset.firstSongId : null,
+                    element: el
+                };
+            }
+            if (el.classList && el.classList.contains('mobile-genre-card')) {
+                return {
+                    type: 'genre',
+                    value: el.dataset.genreName,
+                    element: el
+                };
+            }
+            const songId = el.dataset ? el.dataset.songId : null;
+            if (!songId) return null;
+            return {
+                type: 'song',
+                value: songId,
+                songId: songId,
+                element: el
+            };
+        }
+
+        normalizeTarget(target) {
+            if (target == null) return null;
+            if (typeof target === 'string' || typeof target === 'number') {
+                const s = String(target);
+                return { type: 'song', value: s, songId: s, element: null };
+            }
+            if (target.type) return target;
+            if (target.dataset) {
+                return this.buildTarget(target);
+            }
+            if (target.songId) {
+                return { type: 'song', value: target.songId, songId: target.songId, element: target.element || null };
+            }
+            if (target.songIds) {
+                return { type: target.type || 'bulk', value: target.value, songIds: target.songIds, label: target.label, element: target.element || null };
+            }
+            return target;
+        }
+
         handleTouchStart(e) {
             if (e.touches && e.touches.length > 1) return;
-            const target = e.target.closest('.mobile-song-item, tr[data-song-id]');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card');
             if (!target) return;
             this.activeElement = target;
-            const songId = target.dataset.songId;
             target.classList.add('long-press-active');
             this.timerId = setTimeout(() => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.showContextMenu(songId);
+                try { e.preventDefault(); } catch (err) { console.warn('[MobileContextMenu] preventDefault failed', err); }
+                try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+                const t = this.buildTarget(target);
+                if (!t) return;
+                this._suppressCardClickUntil = Date.now() + 800;
+                this.showContextMenu(t);
             }, this.duration);
         }
 
         handleContextMenu(e) {
             e.preventDefault();
-            const target = e.target.closest('.mobile-song-item, tr[data-song-id]');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card');
             if (!target) return;
-            const songId = target.dataset.songId;
-            if (!songId) return;
+            const t = this.buildTarget(target);
+            if (!t) return;
+            if (t.type === 'song' && !t.songId) return;
             this.mousePosition = { x: e.clientX, y: e.clientY };
-            this.showContextMenu(songId, true);
+            this._suppressCardClickUntil = Date.now() + 800;
+            this.showContextMenu(t, true);
         }
 
         handleOutsideClick(e) {
@@ -95,29 +158,44 @@
             }
             if (this.activeElement) {
                 this.activeElement.classList.remove('long-press-active');
+                this.activeElement = null;
             }
             if (this.menuJustOpened && e) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
+                try { e.preventDefault(); } catch (err) { console.warn('[MobileContextMenu] preventDefault failed', err); }
+                try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+                try { e.stopImmediatePropagation(); } catch (err) { console.warn('[MobileContextMenu] stopImmediatePropagation failed', err); }
             }
         }
 
-        showContextMenu(songId, isDesktop = false) {
+        showContextMenu(target, isDesktop = false) {
             const menu = document.getElementById('mobileContextMenu');
             if (!menu) return;
-            // iOS keeps the long-press text selection (and its handles) alive
-            // after the timer fires; clear it so it never paints over the menu.
+            const t = this.normalizeTarget(target);
+            if (!t) {
+                console.warn('[MobileContextMenu] No valid target');
+                return;
+            }
             if (window.getSelection) {
                 const selection = window.getSelection();
                 if (selection && selection.rangeCount) selection.removeAllRanges();
             }
-            // Only one menu may be open: the legacy #customContextMenu used to be
-            // opened by a second long-press handler and both stayed visible.
             const legacy = document.getElementById('customContextMenu');
             if (legacy) legacy.style.display = 'none';
-            this.currentSongId = songId;
-            menu.dataset.songId = songId;
+
+            this.currentTarget = t;
+            if (t.type === 'song') {
+                this.currentSongId = t.songId || t.value;
+                menu.dataset.songId = this.currentSongId;
+            } else {
+                this.currentSongId = null;
+                delete menu.dataset.songId;
+            }
+
+            menu.querySelectorAll('li[data-targets]').forEach(li => {
+                const targets = (li.dataset.targets || '').split(/\s+/).filter(Boolean);
+                li.hidden = !targets.includes(t.type);
+            });
+
             menu.setAttribute('aria-hidden', 'false');
 
             if (isDesktop) {
@@ -172,6 +250,7 @@
             menu.classList.remove('desktop-context');
             delete menu.dataset.songId;
             this.currentSongId = null;
+            this.currentTarget = null;
             menu.style.position = '';
             menu.style.left = '';
             menu.style.top = '';
@@ -188,17 +267,41 @@
             this.mousePosition = null;
         }
 
+        fetchCollectionSongIds(type, value, albumArtist) {
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            const params = new URLSearchParams();
+            params.set('type', type);
+            params.set('value', value == null ? '' : String(value));
+            if (albumArtist) params.set('albumArtist', albumArtist);
+            const url = `/api/music/ui/collection-song-ids/${profileId}?${params.toString()}`;
+            return window.fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && Array.isArray(data.songIds)) return data.songIds;
+                    return [];
+                });
+        }
+
         handleMenuClick(e) {
             const li = e.target.closest('li');
             if (!li) return;
             const action = li.dataset.action;
-            const songId = this.currentSongId;
-            if (!songId) {
-                console.warn('[MobileContextMenu] No valid song ID found');
+            const t = this.currentTarget || (this.currentSongId ? { type: 'song', value: this.currentSongId, songId: this.currentSongId, element: null } : null);
+            if (!t) {
+                console.warn('[MobileContextMenu] No valid target found');
                 return;
             }
+            this.currentTarget = t;
+
+            const isSong = t.type === 'song';
+            const songId = isSong ? (t.songId || t.value) : null;
+
             switch (action) {
                 case 'queue':
+                    if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     if (window.htmx) {
                         const profileId = JMedia.Helpers.getActiveProfileId();
                         htmx.ajax('POST', `/api/music/queue/add/${profileId}/${songId}`, {
@@ -206,27 +309,118 @@
                                 console.log(`Song ${songId} added to queue.`);
                                 if (window.showToast) window.showToast('Song added to queue', 'success');
                                 window.dispatchEvent(new CustomEvent('queueChanged', {
-                                    detail: { queueSize: JMedia.PlaybackApi.getQueueSize(), queueChanged: true, queueLengthChanged: true }
+                                    detail: { queueSize: (JMedia.PlaybackApi && JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0), queueChanged: true, queueLengthChanged: true }
                                 }));
                             }
                         });
                     }
                     break;
                 case 'playlist':
-                    this.openPlaylistSubmenu(songId);
+                    this.openPlaylistSubmenu({ songId: songId });
                     break;
                 case 'rescan':
+                    if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     JMedia.PlaybackApi.rescanSong(songId);
                     break;
                 case 'queue-similar':
+                    if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     JMedia.PlaybackApi.queueSimilar(songId);
                     break;
                 case 'enrich':
+                    if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     JMedia.PlaybackApi.enrichMetadata(songId);
                     break;
                 case 'delete':
+                    if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     JMedia.PlaybackApi.deleteSong(songId);
                     break;
+                case 'play-album': {
+                    if (t.firstSongId) {
+                        if (window.playAlbum) window.playAlbum(t.firstSongId);
+                    } else {
+                        const profileId = JMedia.Helpers.getActiveProfileId();
+                        this.fetchCollectionSongIds('album', t.value, t.albumArtist)
+                            .then(ids => {
+                                if (ids && ids.length) {
+                                    JMedia.PlaybackApi.select(ids[0], profileId);
+                                } else {
+                                    console.warn('[MobileContextMenu] No songs found for album');
+                                }
+                            })
+                            .catch(err => {
+                                console.error('[MobileContextMenu] Failed to play album:', err);
+                                if (window.showToast) window.showToast('Failed to play album', 'error');
+                            });
+                    }
+                    break;
+                }
+                case 'play-genre': {
+                    const profileId = JMedia.Helpers.getActiveProfileId();
+                    this.fetchCollectionSongIds('genre', t.value)
+                        .then(ids => {
+                            if (ids && ids.length) {
+                                JMedia.PlaybackApi.select(ids[0], profileId);
+                            } else {
+                                console.warn('[MobileContextMenu] No songs found for genre');
+                            }
+                        })
+                        .catch(err => {
+                            console.error('[MobileContextMenu] Failed to play genre:', err);
+                            if (window.showToast) window.showToast('Failed to play genre', 'error');
+                        });
+                    break;
+                }
+                case 'queue-album':
+                case 'queue-genre': {
+                    const type = action === 'queue-album' ? 'album' : 'genre';
+                    const albumArtist = type === 'album' ? t.albumArtist : null;
+                    const profileId = JMedia.Helpers.getActiveProfileId();
+                    this.fetchCollectionSongIds(type, t.value, albumArtist)
+                        .then(ids => {
+                            if (!ids || !ids.length) {
+                                console.warn('[MobileContextMenu] No songs found to queue');
+                                return null;
+                            }
+                            return window.fetch(`/api/music/queue/add-many/${profileId}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ songIds: ids })
+                            }).then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res;
+                            });
+                        })
+                        .then(res => {
+                            if (!res) return;
+                            if (window.showToast) window.showToast('Added to queue', 'success');
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: { queueSize: (JMedia.PlaybackApi && JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0), queueChanged: true, queueLengthChanged: true }
+                            }));
+                        })
+                        .catch(err => {
+                            console.error('[MobileContextMenu] Failed to queue collection:', err);
+                            if (window.showToast) window.showToast('Failed to queue', 'error');
+                        });
+                    break;
+                }
+                case 'playlist-album':
+                case 'playlist-genre': {
+                    const type = action === 'playlist-album' ? 'album' : 'genre';
+                    const albumArtist = type === 'album' ? t.albumArtist : null;
+                    this.fetchCollectionSongIds(type, t.value, albumArtist)
+                        .then(ids => {
+                            if (!ids || !ids.length) {
+                                console.warn('[MobileContextMenu] No songs found for playlist');
+                                return;
+                            }
+                            this.openPlaylistSubmenu({ songIds: ids, label: type });
+                        })
+                        .catch(err => {
+                            console.error('[MobileContextMenu] Failed to load collection songs:', err);
+                            if (window.showToast) window.showToast('Failed to load songs', 'error');
+                        });
+                    break;
+                }
                 default:
                     console.warn('[MobileContextMenu] Unknown action:', action);
                     break;
@@ -246,35 +440,48 @@
                 })
                 .then(data => {
                     console.log('[MobileContextMenu] Metadata updated successfully:', data);
-                    if (showToast) showToast('Metadata updated successfully', 'success');
+                    if (window.showToast) window.showToast('Metadata updated successfully', 'success');
                     if (window.jmediaMobile && window.jmediaMobile.loadInitialContent) {
                         window.jmediaMobile.loadInitialContent();
                     }
                 })
                 .catch(error => {
                     console.error('[MobileContextMenu] Error updating metadata:', error);
-                    if (showToast) showToast('Failed to update metadata', 'error');
+                    if (window.showToast) window.showToast('Failed to update metadata', 'error');
                 });
         }
 
-        openPlaylistSubmenu(songId) {
-            console.log('[MobileContextMenu] Opening playlist submenu for song ID:', songId);
+        openPlaylistSubmenu(target) {
+            if (typeof target === 'string' || typeof target === 'number') {
+                target = { songId: String(target) };
+            }
+            target = target || {};
+            console.log('[MobileContextMenu] Opening playlist submenu for target:', target);
             const profileId = JMedia.Helpers.getActiveProfileId();
-            fetch(`/api/music/playlists/${profileId}`)
+            window.fetch(`/api/music/playlists/${profileId}`)
                 .then(response => response.json())
                 .then(data => {
                     const playlists = data.data || data;
-                    this.showPlaylistSelection(playlists, songId);
+                    this.showPlaylistSelection(playlists, target);
                 })
                 .catch(error => {
                     console.error('[MobileContextMenu] Error fetching playlists:', error);
-                    if (showToast) showToast('Failed to load playlists', 'error');
+                    if (window.showToast) window.showToast('Failed to load playlists', 'error');
                 });
         }
 
-        showPlaylistSelection(playlists, songId) {
+        showPlaylistSelection(playlists, target) {
+            if (typeof target === 'string' || typeof target === 'number') {
+                target = { songId: String(target) };
+            }
+            target = target || {};
             const modal = document.createElement('div');
-            modal.dataset.songId = songId;
+            if (target.songId) {
+                modal.dataset.songId = target.songId;
+            }
+            if (target.songIds && target.songIds.length) {
+                modal.dataset.songIds = JSON.stringify(target.songIds);
+            }
             modal.innerHTML = `
                 <div class="mobile-modal-overlay" onclick="this.parentElement.remove()"></div>
                 <div class="mobile-modal-card">
@@ -322,7 +529,7 @@
             modal.querySelectorAll('.mobile-playlist-option').forEach(option => {
                 option.addEventListener('click', () => {
                     const playlistId = option.dataset.playlistId;
-                    this.addSongToPlaylistHandler(playlistId, songId);
+                    this.addTargetToPlaylist(playlistId, target);
                     modal.remove();
                 });
             });
@@ -342,21 +549,51 @@
             modal.classList.add('mobile-modal', 'is-active');
         }
 
+        addTargetToPlaylist(playlistId, target) {
+            if (typeof target === 'string' || typeof target === 'number') {
+                target = { songId: String(target) };
+            }
+            target = target || {};
+            if (target.songIds && Array.isArray(target.songIds) && target.songIds.length) {
+                console.log('[MobileContextMenu] Adding songs to playlist:', playlistId, target.songIds.length);
+                window.fetch(`/api/music/playlists/${playlistId}/songs/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ songIds: target.songIds })
+                })
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return response.json().catch(() => ({}));
+                    })
+                    .then(() => {
+                        console.log('[MobileContextMenu] Songs added to playlist successfully');
+                        if (window.showToast) window.showToast('Songs added to playlist', 'success');
+                    })
+                    .catch(error => {
+                        console.error('[MobileContextMenu] Error adding songs to playlist:', error);
+                        if (window.showToast) window.showToast('Failed to add to playlist', 'error');
+                    });
+            } else {
+                const songId = target.songId || target.value;
+                this.addSongToPlaylistHandler(playlistId, songId);
+            }
+        }
+
         addSongToPlaylistHandler(playlistId, songId) {
             console.log('[MobileContextMenu] Adding song to playlist:', playlistId, songId);
             if (typeof addSongToPlaylist === 'function') {
                 addSongToPlaylist(playlistId, songId)
                     .then(() => {
                         console.log('[MobileContextMenu] Song added to playlist successfully');
-                        if (showToast) showToast('Song added to playlist', 'success');
+                        if (window.showToast) window.showToast('Song added to playlist', 'success');
                     })
                     .catch(error => {
                         console.error('[MobileContextMenu] Error adding song to playlist:', error);
-                        if (showToast) showToast('Failed to add song to playlist', 'error');
+                        if (window.showToast) window.showToast('Failed to add song to playlist', 'error');
                     });
             } else {
                 console.error('[MobileContextMenu] addSongToPlaylist function not available');
-                if (showToast) showToast('Add to playlist not available', 'error');
+                if (window.showToast) window.showToast('Add to playlist not available', 'error');
             }
         }
     }
@@ -382,9 +619,6 @@
         }
 
         handleTouchStart(e) {
-            // No preventDefault here: it would swallow the cover tap that opens
-            // song details. The OS image callout is suppressed by CSS
-            // (-webkit-touch-callout) and by the contextmenu handler below.
             const coverContainer = document.getElementById('songCoverImageContainer');
             if (coverContainer) {
                 coverContainer.classList.add('long-press-active');
@@ -394,7 +628,7 @@
                 if (songId) {
                     this.contextMenu.showContextMenu(songId);
                 } else {
-                    if (showToast) showToast('No song currently playing', 'info');
+                    if (window.showToast) window.showToast('No song currently playing', 'info');
                 }
             }, this.duration);
         }
@@ -403,7 +637,7 @@
             e.preventDefault();
             const songId = JMedia.PlaybackApi.getCurrentSongId();
             if (!songId) {
-                if (showToast) showToast('No song currently playing', 'info');
+                if (window.showToast) window.showToast('No song currently playing', 'info');
                 return;
             }
             this.contextMenu.mousePosition = { x: e.clientX, y: e.clientY };

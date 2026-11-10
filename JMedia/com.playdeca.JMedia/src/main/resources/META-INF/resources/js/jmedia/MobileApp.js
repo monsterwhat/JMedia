@@ -601,7 +601,8 @@
         }
 
         createPlaylistFromAddDialog() {
-            const modal = document.querySelector('.mobile-modal[data-song-id]');
+            const findModal = () => document.querySelector('.mobile-modal[data-song-id], .mobile-modal[data-song-ids]');
+            const modal = findModal();
             const nameInput = modal?.querySelector('#newPlaylistName');
             const playlistName = nameInput?.value.trim();
             if (!playlistName) {
@@ -622,15 +623,35 @@
                     const newPlaylist = data.data || data;
                     const newId = newPlaylist.id;
                     if (!newId) throw new Error('Playlist creation succeeded but no ID returned');
-                    const modal = document.querySelector('.mobile-modal[data-song-id]');
-                    const songId = modal?.dataset?.songId;
+                    const activeModal = findModal();
+                    const songId = activeModal?.dataset?.songId;
+                    let songIds = null;
+                    const rawIds = activeModal?.dataset?.songIds;
+                    if (rawIds) {
+                        try {
+                            songIds = JSON.parse(rawIds);
+                        } catch (parseError) {
+                            console.warn('[MobileApp] Invalid songIds on add-to-playlist modal', parseError);
+                        }
+                    }
+                    // Album/genre picker: add the whole collection in one request.
+                    if (songIds && songIds.length) {
+                        return fetch(`/api/music/playlists/${newId}/songs/bulk`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({songIds: songIds})
+                        }).then(res => {
+                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                            return res.json().catch(() => ({}));
+                        });
+                    }
                     if (!songId) throw new Error('Song ID missing from modal when adding new playlist');
                     return this.addSongToPlaylistHandler(newId, songId);
                 })
                 .then(() => {
-                    if (window.showToast) window.showToast('Playlist created and song added', 'success');
-                    const modal = document.querySelector('.mobile-modal[data-song-id]');
-                    if (modal) modal.remove();
+                    if (window.showToast) window.showToast('Playlist created and music added', 'success');
+                    const activeModal = findModal();
+                    if (activeModal) activeModal.remove();
                     const nameInput = document.getElementById('newPlaylistName');
                     if (nameInput) nameInput.value = '';
                 })
@@ -650,15 +671,15 @@
                 return addSongToPlaylist(playlistId, songId)
                     .then(() => {
                         console.log('[MobileContextMenu] Song added to playlist successfully');
-                        if (showToast) showToast('Song added to playlist', 'success');
+                        if (window.showToast) window.showToast('Song added to playlist', 'success');
                     })
                     .catch(error => {
                         console.error('[MobileContextMenu] Error adding song to playlist:', error);
-                        if (showToast) showToast('Failed to add song to playlist', 'error');
+                        if (window.showToast) window.showToast('Failed to add song to playlist', 'error');
                     });
             } else {
                 console.error('[MobileContextMenu] addSongToPlaylist function not available');
-                if (showToast) showToast('Add to playlist not available', 'error');
+                if (window.showToast) window.showToast('Add to playlist not available', 'error');
                 return Promise.reject('addSongToPlaylist not available');
             }
         }

@@ -44,11 +44,15 @@ public class MusicPlaylistApi {
     /** Frontend sends {"name": "..."} (optionally "description") when renaming. */
     public record UpdatePlaylistRequest(String name, String description) {}
 
+    public static class BulkAddRequest { public List<Long> songIds; }
+
     @Inject
     private PlaybackController playbackController;
 
     @Inject
     private PlaylistService playlistService;
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(MusicPlaylistApi.class);
 
     @Inject
     private ProfileService profileService;
@@ -198,6 +202,43 @@ public class MusicPlaylistApi {
     @Consumes(MediaType.WILDCARD)
     public Response addSongToPlaylistByPath(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
         return addSongToPlaylist(pid, sid);
+    }
+
+    @POST
+    @Path("/{playlistId}/songs/bulk")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response addSongsToPlaylistBulk(@PathParam("playlistId") Long pid, BulkAddRequest request) {
+        try {
+            Playlist p = playlistService.find(pid);
+            if (p == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Playlist not found"))
+                        .build();
+            }
+            if (request == null || request.songIds == null || request.songIds.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("songIds is required"))
+                        .build();
+            }
+            List<Song> songs = request.songIds.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .map(songService::find)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            if (songs.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("songIds is required"))
+                        .build();
+            }
+            playlistService.addSongsToPlaylist(p, songs);
+            return Response.ok(ApiResponse.success("Added " + songs.size() + " songs to playlist")).build();
+        } catch (Exception e) {
+            LOG.error("Error adding songs to playlist in bulk", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error adding songs to playlist: " + e.getMessage()))
+                    .build();
+        }
     }
 
     @DELETE
