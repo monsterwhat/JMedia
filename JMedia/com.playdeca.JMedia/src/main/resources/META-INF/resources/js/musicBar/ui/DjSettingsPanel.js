@@ -33,87 +33,95 @@
         enabled: true
     };
 
-    const PANEL_HTML =
-        '<div class="dj-settings-panel">' +
-            '<div class="dj-settings-header">' +
-                '<span class="dj-settings-title"><i class="pi pi-sliders-h"></i> DJ Settings</span>' +
-                '<button type="button" class="dj-settings-close" data-dj-action="close" title="Close (Esc)"><i class="pi pi-times"></i></button>' +
-            '</div>' +
-            '<div class="dj-settings-body">' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Genre Pool</span>' +
-                    '<input type="text" id="djGenreFilter" class="dj-genre-filter" placeholder="Filter genres..." autocomplete="off" spellcheck="false">' +
-                    '<div class="dj-settings-chips" id="djGenrePoolChips"><span class="dj-chip-loading">Loading genres...</span></div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Songs per Genre</span>' +
-                    '<div class="dj-stepper">' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>' +
-                        '<span class="dj-stepper-value" id="djSongsPerGenreValue">3</span>' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Max Songs per Artist <span class="dj-settings-hint">(0 = off)</span></span>' +
-                    '<div class="dj-stepper">' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>' +
-                        '<span class="dj-stepper-value" id="djMaxConsecutiveByArtistValue">0</span>' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Skips before Genre Change <span class="dj-settings-hint">(0 = off)</span></span>' +
-                    '<div class="dj-stepper">' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>' +
-                        '<span class="dj-stepper-value" id="djSkipsBeforeGenreChangeValue">1</span>' +
-                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Crossfade Override</span>' +
-                    '<div class="dj-segmented" data-dj-field="crossfade">' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="0">0s</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="3">3s</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="5">5s</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="10">10s</button>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Match Strictness</span>' +
-                    '<div class="dj-segmented" data-dj-field="strictness">' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="LOW">Relaxed</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="MEDIUM">Medium</button>' +
-                        '<button type="button" class="dj-seg-btn" data-dj-value="HIGH">Strict</button>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">BPM Range <span class="dj-settings-hint">(0 = auto)</span></span>' +
-                    '<div class="dj-bpm-row">' +
-                        '<input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">' +
-                        '<span class="dj-bpm-sep">&ndash;</span>' +
-                        '<input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">' +
-                    '</div>' +
-                '</div>' +
-                '<div class="dj-settings-section">' +
-                    '<span class="dj-settings-label">Year Range <span class="dj-settings-hint">(0 = any)</span></span>' +
-                    '<div class="dj-bpm-row">' +
-                        '<input type="number" id="djYearMin" class="dj-number-input" min="0" max="2100" placeholder="Min">' +
-                        '<span class="dj-bpm-sep">&ndash;</span>' +
-                        '<input type="number" id="djYearMax" class="dj-number-input" min="0" max="2100" placeholder="Max">' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-            '<div class="dj-settings-footer">' +
-                '<label class="switch dj-settings-switch" title="Enable / disable DJ Mode">' +
-                    '<input type="checkbox" id="djEnabledToggle" checked>' +
-                    '<span class="check"></span>' +
-                '</label>' +
-                '<span class="dj-settings-footer-label" id="djEnabledLabel">Enable DJ Mode</span>' +
-                '<span class="dj-settings-save-state" id="djSettingsSaveState"></span>' +
-                '<button type="button" class="dj-settings-reset" data-dj-action="reset"><i class="pi pi-refresh"></i> Reset</button>' +
-            '</div>' +
-        '</div>';
+    const PANEL_HTML = `
+        <div class="dj-settings-panel">
+            <div class="dj-settings-header">
+                <span class="dj-settings-title"><i class="pi pi-sliders-h"></i> Playback Settings</span>
+                <button type="button" class="dj-settings-close" data-dj-action="close" title="Close (Esc)"><i class="pi pi-times"></i></button>
+            </div>
+            <div class="dj-settings-body">
+                <div class="dj-settings-group">
+                    <span class="dj-settings-group-title">Smart Shuffle</span>
+                    <span class="dj-settings-group-hint">Chooses the next songs and builds the queue</span>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Genre Pool</span>
+                    <input type="text" id="djGenreFilter" class="dj-genre-filter" placeholder="Filter genres..." autocomplete="off" spellcheck="false">
+                    <div class="dj-settings-chips" id="djGenrePoolChips"><span class="dj-chip-loading">Loading genres...</span></div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Songs per Genre</span>
+                    <div class="dj-stepper">
+                        <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                        <span class="dj-stepper-value" id="djSongsPerGenreValue">3</span>
+                        <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                    </div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Max Songs per Artist <span class="dj-settings-hint">(0 = off)</span></span>
+                    <div class="dj-stepper">
+                        <button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                        <span class="dj-stepper-value" id="djMaxConsecutiveByArtistValue">0</span>
+                        <button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                    </div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Skips before Genre Change <span class="dj-settings-hint">(0 = off)</span></span>
+                    <div class="dj-stepper">
+                        <button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                        <span class="dj-stepper-value" id="djSkipsBeforeGenreChangeValue">1</span>
+                        <button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                    </div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">BPM Range <span class="dj-settings-hint">(0 = auto)</span></span>
+                    <div class="dj-bpm-row">
+                        <input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">
+                        <span class="dj-bpm-sep">&ndash;</span>
+                        <input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">
+                    </div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Year Range <span class="dj-settings-hint">(0 = any)</span></span>
+                    <div class="dj-bpm-row">
+                        <input type="number" id="djYearMin" class="dj-number-input" min="0" max="2100" placeholder="Min">
+                        <span class="dj-bpm-sep">&ndash;</span>
+                        <input type="number" id="djYearMax" class="dj-number-input" min="0" max="2100" placeholder="Max">
+                    </div>
+                </div>
+                <div class="dj-settings-group">
+                    <span class="dj-settings-group-title">DJ Mixing</span>
+                    <span class="dj-settings-group-hint">Only crossfades between songs already in the queue</span>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Crossfade Override</span>
+                    <div class="dj-segmented" data-dj-field="crossfade">
+                        <button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="0">0s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="3">3s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="5">5s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="10">10s</button>
+                    </div>
+                </div>
+                <div class="dj-settings-section">
+                    <span class="dj-settings-label">Match Strictness</span>
+                    <div class="dj-segmented" data-dj-field="strictness">
+                        <button type="button" class="dj-seg-btn" data-dj-value="LOW">Relaxed</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="MEDIUM">Medium</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="HIGH">Strict</button>
+                    </div>
+                </div>
+            </div>
+            <div class="dj-settings-footer">
+                <label class="switch dj-settings-switch" title="Enable / disable DJ Mode">
+                    <input type="checkbox" id="djEnabledToggle" checked>
+                    <span class="check"></span>
+                </label>
+                <span class="dj-settings-footer-label" id="djEnabledLabel">Enable DJ Mode</span>
+                <span class="dj-settings-save-state" id="djSettingsSaveState"></span>
+                <button type="button" class="dj-settings-reset" data-dj-action="reset"><i class="pi pi-refresh"></i> Reset</button>
+            </div>
+        </div>`;
 
     const state = {
         open: false,
@@ -442,6 +450,11 @@
         state.genresLoaded = false;
         state.genreFilter = '';
 
+        // The Smart Shuffle entry point can open this panel while DJ is off, in
+        // which case the indicator strip is hidden.
+        indicator.classList.remove('is-hidden');
+        indicator.style.display = '';
+
         ensurePanel();
         indicator.classList.add('expanded');
         render();
@@ -633,6 +646,13 @@
             return;
         }
 
+        if (e.target.closest('#smartShuffleSettingsBtn')) {
+            e.preventDefault();
+            e.stopPropagation();
+            open();
+            return;
+        }
+
         if (e.target.closest('#djModeIndicator')) {
             toggle();
             return;
@@ -749,6 +769,18 @@
                 childList: true
             });
         }
+
+        function updateSmartShuffleButton() {
+            const btn = document.getElementById('smartShuffleSettingsBtn');
+            if (!btn) return;
+            const mode = window.StateManager ? window.StateManager.getProperty('shuffleMode') : null;
+            btn.style.display = mode === 'SMART_SHUFFLE' ? '' : 'none';
+        }
+        window.addEventListener('musicStateChanged', updateSmartShuffleButton);
+        window.addEventListener('statePropertyChanged', function(e) {
+            if (e.detail && e.detail.property === 'shuffleMode') updateSmartShuffleButton();
+        });
+        setTimeout(updateSmartShuffleButton, 1500);
 
         doc.addEventListener('click', onClick, false);
         doc.addEventListener('input', onInput, false);

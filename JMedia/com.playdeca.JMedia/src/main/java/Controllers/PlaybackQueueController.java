@@ -79,8 +79,7 @@ public void enforceQueueWindow(PlaybackState st) {
         // the last one). Refilling 50 songs early discards the remaining ones.
         if (cue.size() - cueIndex > 1) return;
         boolean shouldRefill = st.getRepeatMode() == PlaybackState.RepeatMode.ALL
-                || st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE
-                || Boolean.TRUE.equals(st.getDjModeActive());
+                || st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
         if (!shouldRefill) return;
         Long profileId = st.getProfileId();
         if (profileId == null) return;
@@ -136,9 +135,9 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
 
         // Degenerate-pool guard: size==1 must respect RepeatMode.
         // Repeat OFF consumes the last song and stops (see handleSingleSongCue).
-        // DJ widening below is gated on RepeatMode.ALL only.
+        // Smart Shuffle widening below is gated on RepeatMode.ALL only.
         if (state.getCue().size() == 1) {
-            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)
+            if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE && hasDjRestriction(state)
                     && state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
                 List<Long> unrestricted = songService.findAll().stream()
                         .map(s -> s.id)
@@ -253,20 +252,12 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return resolveNextDjSong(state, cue, 0, cue.get(0));
         }
 
-        // DJ Mode genre-skip/block logic (djSkipsBeforeGenreChange, block-size
-        // rotation, artist cap) lives inside findAndPrepareNextSmartSong. It must
-        // run whenever DJ mode is active — even when shuffle is OFF — so genre
-        // switching is decoupled from SMART_SHUFFLE. findAndPrepareNextSmartSong
-        // already branches on djActive internally (buildSongPool, switchGenreOnSkip,
-        // forceDifferentGenre), so broadening the trigger is safe and never double-calls.
-        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE
-                || Boolean.TRUE.equals(state.getDjModeActive())) {
+        // Smart Shuffle is the only selector. DJ Mode only mixes, so it must not
+        // trigger a smart selection when shuffle is off.
+        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
             findAndPrepareNextSmartSong(state, skippedEarly, profileId);
-            // DJ Mode: re-enforce the max-consecutive-by-artist cap after the smart
-            // song was inserted/moved, so a DJ insertion can't create an over-cap run.
-            if (Boolean.TRUE.equals(state.getDjModeActive())) {
-                enforceMaxConsecutiveByArtistInCue(state, state.getCue());
-            }
+            // Re-enforce the artist cap after the smart pick.
+            enforceMaxConsecutiveByArtistInCue(state, state.getCue());
         }
 
         if (state.getRepeatMode() == PlaybackState.RepeatMode.OFF) {
@@ -390,9 +381,11 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
 
         List<Song> allSongs = songService.findByIds(songPoolIds);
 
-        // DJ Mode: restrict the pool to allowed genres and year range before grouping
-        boolean djActive = Boolean.TRUE.equals(state.getDjModeActive());
-        if (djActive) {
+        // Smart Shuffle: restrict the pool to the configured genre pool and year
+        // range before grouping (these were DJ-scoped settings; selection now
+        // belongs to Smart Shuffle).
+        boolean applySelectionFilters = true;
+        if (applySelectionFilters) {
             allSongs = allSongs.stream()
                     .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
                     .filter(s -> isYearAllowed(state, s.getReleaseDate()))
@@ -424,8 +417,8 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         // 4. Build the new queue with BPM sorting within genre groups
         List<Long> newCue = new ArrayList<>();
 
-        // DJ Mode block size: songsPerGenre > 0 interleaves genres in blocks
-        int blockSize = (djActive && state.getDjSongsPerGenre() != null && state.getDjSongsPerGenre() > 0)
+        // Smart Shuffle block size: songsPerGenre > 0 interleaves genres in blocks
+        int blockSize = (applySelectionFilters && state.getDjSongsPerGenre() != null && state.getDjSongsPerGenre() > 0)
                 ? state.getDjSongsPerGenre() : 0;
 
         java.util.Map<String, List<Song>> sortedByGenre = new java.util.HashMap<>();
@@ -479,7 +472,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             }
         }
 
-        if (djActive) {
+        if (applySelectionFilters) {
             enforceMaxConsecutiveByArtistInCue(state, newCue);
         }
 
@@ -738,10 +731,10 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         Song nextSong = null;
         String targetGenre;
 
-        // DJ Mode block size: after djSongsPerGenre consecutive same-genre songs,
-        // force a different allowed genre
-        boolean djActive = Boolean.TRUE.equals(state.getDjModeActive());
-        boolean forceDifferentGenre = djActive
+        // Smart Shuffle selection settings (formerly DJ-scoped): block size,
+        // skip threshold, BPM tolerance/range and artist cap.
+        boolean applySelectionFilters = true; // this method only runs for SMART_SHUFFLE
+        boolean forceDifferentGenre = applySelectionFilters
                 && state.getDjSongsPerGenre() != null && state.getDjSongsPerGenre() > 0
                 && currentSong.getGenre() != null && !currentSong.getGenre().isBlank()
                 && countConsecutiveSameGenre(state, cue, currentSong) >= state.getDjSongsPerGenre();
@@ -751,7 +744,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         // Nth consecutive skip. Default 1 preserves the legacy switch-every-skip behavior.
         Integer skipsBeforeGenreChange = state.getDjSkipsBeforeGenreChange();
         boolean switchGenreOnSkip = false;
-        if (skippedEarly && djActive && skipsBeforeGenreChange != null && skipsBeforeGenreChange > 0
+        if (skippedEarly && applySelectionFilters && skipsBeforeGenreChange != null && skipsBeforeGenreChange > 0
                 && currentSong.getGenre() != null && !currentSong.getGenre().isBlank()) {
             int skipCount = state.getDjGenreSkipCount() + 1;
             state.setDjGenreSkipCount(skipCount);
@@ -791,8 +784,8 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         if (settingsController != null) {
             bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(targetGenre);
         }
-        // DJ Mode strictness overrides tolerance: LOW=15, MEDIUM=djModeBpmTolerance (default 5), HIGH=3
-        if (djActive) {
+        // Smart Shuffle strictness overrides tolerance: LOW=15, MEDIUM=djModeBpmTolerance (default 5), HIGH=3
+        if (applySelectionFilters) {
             String strictness = state.getDjStrictness();
             if ("LOW".equalsIgnoreCase(strictness)) {
                 bpmTolerance = 15;
@@ -833,8 +826,8 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             );
         }
 
-        // DJ Mode: enforce explicit BPM range (min <= songBpm <= max) when set
-        if (djActive) {
+        // Smart Shuffle: enforce explicit BPM range (min <= songBpm <= max) when set
+        if (applySelectionFilters) {
             int minBpm = state.getDjBpmMin() != null ? state.getDjBpmMin() : 0;
             int maxBpm = state.getDjBpmMax() != null ? state.getDjBpmMax() : 0;
             if (minBpm > 0 || maxBpm > 0) {
@@ -1015,124 +1008,6 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         state.setLastPlayedArtist(nextArtist);
     }
 
-
-    /**
-     * Prepare a DJ Mode transition - find a BPM-matched song and position it as next in queue.
-     * Called from planNextDjTransition() before calculating the beat-aligned crossfade.
-     * Excludes recently played songs to avoid repeats.
-     */
-    @Transactional
-    public void prepareDjModeTransition(PlaybackState state, Long profileId, int djModeBpmTolerance) {
-        Song currentSong = songService.find(state.getCurrentSongId());
-        if (currentSong == null || currentSong.getBpm() <= 0) {
-            return;
-        }
-        
-        List<Long> songPool = buildSongPool(state);
-        if (songPool == null || songPool.isEmpty()) {
-            if (Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
-                songPool = songService.findAll().stream()
-                        .map(s -> s.id)
-                        .collect(java.util.stream.Collectors.toList());
-                if (songPool.isEmpty()) {
-                    return;
-                }
-            } else {
-                return;
-            }
-        }
-        
-        // Exclude recently played songs (last 12) and current song
-        List<Long> recentSongIds = playbackHistoryService.getRecentlyPlayedSongIds(12, profileId);
-        List<Long> exclusions = new ArrayList<>(recentSongIds);
-        if (currentSong.id != null) {
-            exclusions.add(currentSong.id);
-        }
-        
-        Song nextSong = null;
-        
-        // Try genre + BPM match first (only if the current song's genre is within the allowed pool)
-        boolean currentGenreAllowed = currentSong.getGenre() != null && !currentSong.getGenre().isBlank()
-                && (isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, currentSong.getGenre()));
-        if (currentGenreAllowed) {
-            List<Song> candidates = songService.findCandidatesByGenreAndBpm(
-                    currentSong.getGenre(),
-                    currentSong.getBpm(),
-                    djModeBpmTolerance,
-                    exclusions,
-                    songPool,
-                    10
-            );
-            candidates = excludeSameArtistAtCap(state, profileId, candidates, currentSong.getArtist());
-            if (!candidates.isEmpty()) {
-                java.util.Collections.shuffle(candidates);
-                nextSong = candidates.get(0);
-            }
-        }
-        
-        // Fall back to BPM-only search if no genre match
-        if (nextSong == null) {
-            List<Song> allSongs = songService.findByIds(songPool);
-            List<Song> bpmMatched = allSongs.stream()
-                    .filter(s -> s.id != null && !exclusions.contains(s.id))
-                    .filter(s -> s.getBpm() > 0)
-                    .filter(s -> Math.abs(s.getBpm() - currentSong.getBpm()) <= djModeBpmTolerance)
-                    .sorted((a, b) -> {
-                        int diffA = Math.abs(a.getBpm() - currentSong.getBpm());
-                        int diffB = Math.abs(b.getBpm() - currentSong.getBpm());
-                        return Integer.compare(diffA, diffB);
-                    })
-                    .collect(java.util.stream.Collectors.toList());
-            bpmMatched = excludeSameArtistAtCap(state, profileId, bpmMatched, currentSong.getArtist());
-            
-            if (!bpmMatched.isEmpty()) {
-                java.util.Collections.shuffle(bpmMatched);
-                nextSong = bpmMatched.get(0);
-            }
-        }
-        
-        // Final fallback: no BPM match — pick any song from the (pool-restricted) selection pool
-        if (nextSong == null) {
-            List<Song> allSongs = songService.findByIds(songPool);
-            List<Song> available = allSongs.stream()
-                    .filter(s -> s.id != null && !exclusions.contains(s.id))
-                    .collect(java.util.stream.Collectors.toList());
-            available = excludeSameArtistAtCap(state, profileId, available, currentSong.getArtist());
-            if (!available.isEmpty()) {
-                java.util.Collections.shuffle(available);
-                nextSong = available.get(0);
-            }
-        }
-        
-        // Position the chosen song as the next one in the active cue
-        if (nextSong != null) {
-            List<Long> cue = state.getCue();
-            if (cue != null) {
-                int currentSongIndexInCue = state.getCueIndex();
-                int nextSongCurrentIndex = cue.indexOf(nextSong.id);
-                
-                if (nextSongCurrentIndex == -1) {
-                    // Song not in active cue — add it right after current song
-                    int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
-                    cue.add(insertionPoint, nextSong.id);
-                } else if (nextSongCurrentIndex != currentSongIndexInCue + 1) {
-                    // Song is elsewhere in cue — move it to next position.
-                    // Removal shifts the current song left when the moved song sat
-                    // before it, so re-locate it before computing the insertion point
-                    // and persist the corrected index (planNextDjTransition reads it).
-                    Long songToMove = cue.remove(nextSongCurrentIndex);
-                    int refreshedCurrent = cue.indexOf(state.getCurrentSongId());
-                    int anchor = refreshedCurrent != -1 ? refreshedCurrent : currentSongIndexInCue;
-                    int insertionPoint = Math.min(anchor + 1, cue.size());
-                    cue.add(insertionPoint, songToMove);
-                    if (refreshedCurrent != -1) {
-                        state.setCueIndex(refreshedCurrent);
-                    }
-                }
-            }
-        }
-        enforceQueueWindow(state);
-    }
 
     private boolean isDjGenrePoolUnrestricted(PlaybackState state) {
         List<String> allowed = state.getDjGenrePool();
@@ -1365,8 +1240,10 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
 
     private List<Long> buildSongPool(PlaybackState state) {
+        // The genre-pool / year filters are Smart Shuffle selection settings.
+        boolean applyFilters = state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
         return songService.findAll().stream()
-                .filter(s -> !Boolean.TRUE.equals(state.getDjModeActive())
+                .filter(s -> !applyFilters
                         || ((isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
                             && isYearAllowed(state, s.getReleaseDate())))
                 .map(s -> s.id)
@@ -1383,7 +1260,8 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return;
         }
         List<Long> poolIds = buildSongPool(state);
-        if (poolIds.isEmpty() && Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+        boolean smartShuffle = state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
+        if (poolIds.isEmpty() && smartShuffle && hasDjRestriction(state)) {
             poolIds = songService.findAll().stream()
                     .map(s -> s.id)
                     .collect(java.util.stream.Collectors.toList());
@@ -1391,7 +1269,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         if (poolIds.isEmpty()) {
             return;
         }
-        if (poolIds.size() == 1 && Boolean.TRUE.equals(state.getDjModeActive()) && hasDjRestriction(state)) {
+        if (poolIds.size() == 1 && smartShuffle && hasDjRestriction(state)) {
             List<Long> widened = songService.findAll().stream()
                     .map(s -> s.id)
                     .collect(java.util.stream.Collectors.toList());

@@ -5010,3 +5010,24 @@ input[type="range"]::-webkit-slider-thumb {
         white-space: nowrap;
     }
 }
+
+/* ==================== SMART SHUFFLE / DJ SETTINGS GROUPS ==================== */
+.dj-settings-group {
+    margin: 0.35rem 0 0.15rem;
+}
+
+.dj-settings-group-title {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--standard-accent, #48c774);
+}
+
+.dj-settings-group-hint {
+    display: block;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    opacity: 0.65;
+}
