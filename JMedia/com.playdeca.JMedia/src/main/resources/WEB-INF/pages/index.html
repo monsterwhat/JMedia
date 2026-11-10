@@ -397,6 +397,24 @@
                                                     </div>
                                                 </div>
                                                 <div class="dj-settings-section">
+                                                    <span class="dj-settings-label">Max Songs per Artist <span class="dj-settings-hint">(0 = off)</span></span>
+                                                    <div class="dj-stepper">
+                                                        <button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                                                        <span class="dj-stepper-value" id="djMaxConsecutiveByArtistValue">0</span>
+                                                        <button type="button" class="dj-stepper-btn" data-dj-action="stepArtist" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                                                    </div>
+                                                </div>
+
+                                                <div class="dj-settings-section">
+                                                    <span class="dj-settings-label">Skips before Genre Change <span class="dj-settings-hint">(0 = off)</span></span>
+                                                    <div class="dj-stepper">
+                                                        <button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                                                        <span class="dj-stepper-value" id="djSkipsBeforeGenreChangeValue">1</span>
+                                                        <button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                                                    </div>
+                                                </div>
+
+                                                <div class="dj-settings-section">
                                                     <span class="dj-settings-label">BPM Range <span class="dj-settings-hint">(0 = auto)</span></span>
                                                     <div class="dj-bpm-row">
                                                         <input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">
@@ -404,6 +422,15 @@
                                                         <input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">
                                                     </div>
                                                 </div>
+                                                <div class="dj-settings-section">
+                                                    <span class="dj-settings-label">Year Range <span class="dj-settings-hint">(0 = any)</span></span>
+                                                    <div class="dj-bpm-row">
+                                                        <input type="number" id="djYearMin" class="dj-number-input" min="0" max="2100" placeholder="Min">
+                                                        <span class="dj-bpm-sep">&ndash;</span>
+                                                        <input type="number" id="djYearMax" class="dj-number-input" min="0" max="2100" placeholder="Max">
+                                                    </div>
+                                                </div>
+
                                                 <div class="dj-settings-group">
                                                     <span class="dj-settings-group-title">DJ Mixing</span>
                                                     <span class="dj-settings-group-hint">Only crossfades between songs already in the queue</span>
