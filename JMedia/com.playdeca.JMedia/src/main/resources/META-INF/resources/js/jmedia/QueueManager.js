@@ -40,6 +40,12 @@
             });
 
             window.addEventListener('queueChanged', (event) => {
+                // The musicBar state bridge also emits queueChanged. A local card
+                // removal must not turn into a full list reload, so honor the
+                // suppression window here too.
+                if (this._suppressQueueReloadUntil && Date.now() < this._suppressQueueReloadUntil) {
+                    return;
+                }
                 try {
                     this.loadPage(1, undefined, this.searchQuery);
                 } catch (error) {
