@@ -572,6 +572,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Transcode resumes via server-side ?start= (streamStartOffset carries
                             // the offset); direct files start at 0 and seek client-side below.
                             this.videoId = newId;
+                            // New video, new markers: let its own intro/outro skip fire.
+                            this._autoSkipGuard = null;
                             // Keep the page chrome in sync: the player re-points itself at
                             // the next episode without navigating, so anything reading the
                             // container dataset (episode sidebar highlight, subtitle panel

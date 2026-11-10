@@ -42,10 +42,21 @@
 
         _performAutoSkip(section, start, end) {
             const p = this.player;
+            // checkAutoSkip() runs on every timeupdate, so the guard has to be in
+            // place before any path returns - including outro, which used to return
+            // before it was set and therefore called playNextEpisode() on every
+            // timeupdate ("No next episode" toast spam).
+            if (p._autoSkipGuard && p._autoSkipGuard.section === section
+                    && Date.now() < p._autoSkipGuard.until) {
+                return;
+            }
             p._autoSkipUndoTime = start;
             p._autoSkipSection = section;
 
             if (section === 'outro') {
+                // One attempt per playback session: there may be no next episode,
+                // and every failed attempt toasts.
+                p._autoSkipGuard = { section: 'outro', end: end, until: Date.now() + 6 * 60 * 60 * 1000 };
                 p.playNextEpisode();
                 return;
             }
