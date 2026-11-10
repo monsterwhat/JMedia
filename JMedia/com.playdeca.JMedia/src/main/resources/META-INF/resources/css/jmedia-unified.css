@@ -807,6 +807,13 @@ body {
     display: flex;
 }
 
+/* The progress bar container is painted above the controls (z-index 1500) and
+   was swallowing the pointer over the volume popup. Raise the controls only
+   while the volume popup is hovered/open so the slider stays reachable. */
+.mobile-player-controls.volume-raised {
+    z-index: 1600 !important;
+}
+
 /* Bridge the 10px gap between the button and the popup so moving the pointer
    up to the slider does not drop :hover and hide it before you get there. */
 .volume-slider-container::after {

@@ -362,6 +362,22 @@
             // marker and gets bound normally.
             if (volumeBtn.dataset.volumeBound === 'true') return;
             volumeBtn.dataset.volumeBound = 'true';
+
+            // Raise the control strip above the progress bar while the volume
+            // popup is hovered/open; otherwise the progress container (z-index
+            // 1500) sits on top of the popup and eats the pointer.
+            const volumeWrapper = volumeBtn.closest('.mobile-volume-wrapper');
+            const setVolumeRaised = (raised) => {
+                const controls = volumeWrapper && volumeWrapper.closest('.mobile-player-controls');
+                if (controls) controls.classList.toggle('volume-raised', raised);
+            };
+            if (volumeWrapper) {
+                volumeWrapper.addEventListener('mouseenter', () => setVolumeRaised(true));
+                volumeWrapper.addEventListener('mouseleave', () => {
+                    if (!volumeWrapper.classList.contains('volume-open')) setVolumeRaised(false);
+                });
+            }
+            this._setVolumeRaised = setVolumeRaised;
             
             let previousVolume = 0.7;
             let sliderTimeout;
@@ -746,6 +762,7 @@
             if (!volumeSlider) return;
             const wrapper = volumeSlider.closest('.mobile-volume-wrapper');
             if (wrapper) wrapper.classList.add('volume-open');
+            if (this._setVolumeRaised) this._setVolumeRaised(true);
             this.state.volumeSliderVisible = true;
             // Visibility is owned by CSS (.mobile-volume-wrapper.volume-open);
             // a stale inline display kept the slider on screen after closing.
@@ -776,6 +793,7 @@
             const volumeSlider = document.getElementById('musicVolumeProgressBar');
             const wrapper = volumeSlider && volumeSlider.closest('.mobile-volume-wrapper');
             if (wrapper) wrapper.classList.remove('volume-open');
+            if (this._setVolumeRaised) this._setVolumeRaised(false);
             this.state.volumeSliderVisible = false;
         },
         
