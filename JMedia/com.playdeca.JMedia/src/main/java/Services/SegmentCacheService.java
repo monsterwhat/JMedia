@@ -307,9 +307,12 @@ public class SegmentCacheService {
      * sync extension) and does not change any box size, so every byte offset in the
      * segment stays valid.
      */
-    /** Normalizes each segment's AAC config at most once (serve-time safety net). */
-    private final java.util.Set<String> aacConfigNormalized =
-            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * Segment files are rebuilt at the same path after a cache purge, so identity
+     * must include the file itself, not just the path. The file key (inode) changes
+     * when the file is recreated.
+     */
+    private final java.util.Map<String, Object> aacConfigNormalized = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Served segments can still be growing, so the completion hook below may not
@@ -317,18 +320,22 @@ public class SegmentCacheService {
      * the SBR-flagged config, even on a segment that is still being written.
      */
     public void ensureAacConfigNormalized(java.nio.file.Path segmentFile) {
-        if (segmentFile == null) {
+        if (segmentFile == null || !Files.exists(segmentFile)) {
             return;
         }
         String key = segmentFile.toAbsolutePath().toString();
-        if (aacConfigNormalized.contains(key)) {
+        Object fileKey = null;
+        try {
+            fileKey = Files.readAttributes(segmentFile, java.nio.file.attribute.BasicFileAttributes.class).fileKey();
+        } catch (IOException e) {
+            LOG.warn("Cannot read attributes of {} before AAC normalization: {}", segmentFile, e.getMessage());
             return;
         }
-        if (!Files.exists(segmentFile)) {
+        if (fileKey != null && fileKey.equals(aacConfigNormalized.get(key))) {
             return;
         }
-        if (normalizeAacConfig(segmentFile)) {
-            aacConfigNormalized.add(key);
+        if (normalizeAacConfig(segmentFile) && fileKey != null) {
+            aacConfigNormalized.put(key, fileKey);
         }
     }
 
@@ -369,11 +376,18 @@ public class SegmentCacheService {
             byte[] moov = new byte[moovSize];
             raf.seek(moovStart);
             raf.readFully(moov);
-            int cfg = findAacSpecificConfig(moov, 0, moov.length);
-            if (cfg < 0 || cfg + 5 > moov.length) {
-                LOG.warn("AAC config not normalized for {}: no DecoderSpecificInfo found in moov (offset={})",
-                        segmentFile.getFileName(), cfg);
+            int[] dsiLength = new int[1];
+            int cfg = findAacSpecificConfig(moov, 0, moov.length, dsiLength);
+            if (cfg < 0) {
+                LOG.debug("AAC config not normalized for {}: no DecoderSpecificInfo in moov",
+                        segmentFile.getFileName());
                 return false;
+            }
+            // Only ffmpeg's 5-byte variant carries the SBR sync extension; a plain
+            // 2-byte config must not be interpreted (its neighbours are other boxes).
+            if (dsiLength[0] != 5 || cfg + 5 > moov.length) {
+                LOG.debug("AAC config of {} is already plain LC ({} bytes)", segmentFile.getFileName(), dsiLength[0]);
+                return true;
             }
             if ((moov[cfg + 2] & 0xFF) == 0x56 && (moov[cfg + 3] & 0xFF) == 0xE5 && moov[cfg + 4] == 0) {
                 raf.seek(moovStart + cfg + 2);
@@ -388,7 +402,7 @@ public class SegmentCacheService {
     }
 
     /** Returns the byte offset of the audio DecoderSpecificInfo payload, or -1. */
-    private int findAacSpecificConfig(byte[] b, int start, int end) {
+    private int findAacSpecificConfig(byte[] b, int start, int end, int[] dsiLength) {
         int i = start;
         while (i + 8 <= end) {
             long size = readU32(b, i);
@@ -407,7 +421,7 @@ public class SegmentCacheService {
             int body = i + hdr;
             int boxEnd = (int) (i + size);
             if ("trak".equals(type) || "mdia".equals(type) || "minf".equals(type) || "stbl".equals(type)) {
-                int r = findAacSpecificConfig(b, body, boxEnd);
+                int r = findAacSpecificConfig(b, body, boxEnd, dsiLength);
                 if (r >= 0) return r;
             } else if ("stsd".equals(type)) {
                 int p = body + 8; // version/flags + entry count
@@ -417,7 +431,7 @@ public class SegmentCacheService {
                     String fmt = new String(b, p + 4, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
                     if ("mp4a".equals(fmt)) {
                         // 28 fixed bytes after the 8-byte header, then child boxes.
-                        int r = findEsdsConfig(b, p + 36, (int) (p + esize));
+                        int r = findEsdsConfig(b, p + 36, (int) (p + esize), dsiLength);
                         if (r >= 0) return r;
                     }
                     p += (int) esize;
@@ -429,7 +443,7 @@ public class SegmentCacheService {
     }
 
     /** Walks an esds descriptor chain and returns the DecoderSpecificInfo payload offset. */
-    private int findEsdsConfig(byte[] b, int start, int end) {
+    private int findEsdsConfig(byte[] b, int start, int end, int[] dsiLength) {
         int i = start;
         while (i + 8 <= end) {
             long size = readU32(b, i);
@@ -480,6 +494,7 @@ public class SegmentCacheService {
                 p++;
                 p = skipDescriptorLength(b, p, boxEnd, lenOut);
                 if (p < 0 || p + lenOut[0] > boxEnd) return -1;
+                dsiLength[0] = lenOut[0];
                 return p;
             }
             i += (int) size;
