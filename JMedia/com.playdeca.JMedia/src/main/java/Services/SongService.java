@@ -919,7 +919,9 @@ public class SongService {
             return List.of();
         }
         String key = resolved.get(0).key();
-        return em.createQuery("SELECT DISTINCT s.id FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key ORDER BY s.title", Long.class)
+        // No ORDER BY here: H2 rejects ordering by a column that is not part of a
+        // SELECT DISTINCT result list.
+        return em.createQuery("SELECT DISTINCT s.id FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key", Long.class)
                 .setParameter("key", key)
                 .getResultList();
     }
