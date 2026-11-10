@@ -329,8 +329,17 @@ public class PlaybackController {
     }
 
     public synchronized void selectSong(Long id, Long profileId) {
+        if (id == null) {
+            LOGGER.warning("selectSong called with a null song id for profile " + profileId);
+            return;
+        }
         PlaybackState st = getState(profileId);
-        Song current = getCurrentSong(profileId);
+        // Compare against the real selected id, NOT getCurrentSong(): that method
+        // falls back to cue[0] for display, so right after a queue-all it reports
+        // the first queued song as "current" and this method would only toggle
+        // play/pause instead of selecting it (currentSongId stayed null).
+        Long currentId = st.getCurrentSongId();
+        Song current = currentId != null ? findSong(currentId) : null;
 
         // DJ Mode is now INDEPENDENT of Smart Shuffle - do NOT disable it when selecting songs
         // DJ Mode stays in whatever state the user set it

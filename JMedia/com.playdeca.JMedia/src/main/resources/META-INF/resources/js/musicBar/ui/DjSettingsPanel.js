@@ -765,7 +765,10 @@
             if (!e.detail || e.detail.property !== 'shuffleMode') return;
             if (e.detail.source !== 'playbackController') return;
             if (e.detail.newValue === 'SMART_SHUFFLE') {
-                open();
+                // Open after the click finishes: this listener runs while the
+                // shuffle button's click is still bubbling, and the document
+                // click handler below would immediately close the panel again.
+                setTimeout(open, 0);
             }
         });
     }

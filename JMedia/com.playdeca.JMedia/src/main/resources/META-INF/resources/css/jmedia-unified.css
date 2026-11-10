@@ -802,8 +802,20 @@ body {
     padding-bottom: 10px;
 }
 .mobile-volume-wrapper:hover .volume-slider-container,
-.volume-slider-container:hover {
+.volume-slider-container:hover,
+.mobile-volume-wrapper.volume-open .volume-slider-container {
     display: flex;
+}
+
+/* Bridge the 10px gap between the button and the popup so moving the pointer
+   up to the slider does not drop :hover and hide it before you get there. */
+.volume-slider-container::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    height: 10px;
 }
 
 .vertical-volume {
