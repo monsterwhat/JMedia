@@ -932,7 +932,7 @@
                         // Emit queue change event
                         window.dispatchEvent(new CustomEvent('queueChanged', {
                             detail: {
-                                queueSize: window.StateManager?.getState()?.cue?.length || 0,
+                                queueSize: window.StateManager?.getState()?.cueSize || 0,
                                 queueChanged: true,
                                 queueLengthChanged: true
                             }
@@ -958,7 +958,7 @@
                         
                         window.dispatchEvent(new CustomEvent('queueChanged', {
                             detail: {
-                                queueSize: window.StateManager?.getState()?.cue?.length || 0,
+                                queueSize: window.StateManager?.getState()?.cueSize || 0,
                                 queueChanged: true,
                                 queueLengthChanged: true
                             }

@@ -18,6 +18,7 @@
             shuffleMode: "OFF",
             repeatMode: "OFF",
             cue: [],
+            cueSize: 0,
             hasLyrics: false,
             currentSongData: null,
             
@@ -334,6 +335,7 @@
                 shuffleMode: "OFF",
                 repeatMode: "OFF",
                 cue: [],
+                cueSize: 0,
                 hasLyrics: false,
                 currentSongData: null,
                 
@@ -390,7 +392,7 @@
                 volume: this.state.volume,
                 shuffleMode: this.state.shuffleMode,
                 repeatMode: this.state.repeatMode,
-                queueLength: this.state.cue.length,
+                queueLength: this.state.cueSize || 0,
                 hasLyrics: this.state.hasLyrics,
                 isOffline: this.isOffline,
                 listenerCount: this.changeListeners.length,
@@ -441,6 +443,7 @@
                     djYearMin: 0,
                     djYearMax: 0,
                     cue: [],
+                    cueSize: 0,
                     hasLyrics: false,
                     currentSongData: null,
                     

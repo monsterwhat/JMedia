@@ -57,7 +57,14 @@
         setupEventListeners: function() {
             window.addEventListener('statePropertyChanged', (e) => {
                 if (e.detail.property === 'cue') {
-                    this.handleQueueChange(e.detail.oldValue, e.detail.newValue);
+                    // Arrays are no longer sent in the WebSocket state payload;
+                    // this event won't fire for cue anymore. Guard so we never
+                    // treat a non-array (e.g. cueSize) as a queue.
+                    const oldVal = e.detail.oldValue;
+                    const newVal = e.detail.newValue;
+                    if (Array.isArray(oldVal) && Array.isArray(newVal)) {
+                        this.handleQueueChange(oldVal, newVal);
+                    }
                 } else if (e.detail.property === 'currentSongId' && e.detail.newValue) {
                     // Keep the queue's current-song highlight in sync without reloading the list.
                     this.updateCurrentSong(e.detail.newValue);

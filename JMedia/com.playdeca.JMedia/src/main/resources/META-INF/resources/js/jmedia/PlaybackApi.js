@@ -93,7 +93,7 @@
 
         getQueueSize: function() {
             const state = window.StateManager ? window.StateManager.getState() : null;
-            return state && state.cue ? state.cue.length : 0;
+            return state && typeof state.cueSize === 'number' ? state.cueSize : 0;
         },
 
         addSongToPlaylist: function(playlistId, songId) {

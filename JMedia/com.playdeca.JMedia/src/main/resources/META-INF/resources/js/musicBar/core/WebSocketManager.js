@@ -314,7 +314,7 @@
                 duration: state.duration,
                 shuffleMode: state.shuffleMode,
                 repeatMode: state.repeatMode,
-                cue: state.cue,
+                cueSize: state.cueSize,
                 djModeActive: state.djModeActive === true,
                 djNextSongId: state.djNextSongId,
                 djEntryTime: state.djEntryTime,
@@ -375,7 +375,7 @@
                         stateUpdates.duration = currentState.duration;
                         stateUpdates.currentSongData = currentState.currentSongData;
                     }
-                    stateUpdates.cue = currentState.cue;
+                    stateUpdates.cueSize = currentState.cueSize;
                     stateUpdates.shuffleMode = currentState.shuffleMode;
                     stateUpdates.repeatMode = currentState.repeatMode;
                 } else {
@@ -399,13 +399,13 @@
             }));
             
             // Handle queue changes
-            const queueChanged = this.hasQueueChanged(state.cue, currentState?.cue);
-            const queueLengthChanged = (currentState?.cue?.length || 0) !== (state.cue?.length || 0);
+            const queueChanged = state.cueSize !== currentState?.cueSize;
+            const queueLengthChanged = (currentState?.cueSize || 0) !== (state.cueSize || 0);
             
             if (queueChanged || queueLengthChanged) {
                 window.dispatchEvent(new CustomEvent('queueChanged', {
                     detail: {
-                        queueSize: state.cue?.length || 0,
+                        queueSize: state.cueSize || 0,
                         queueChanged: queueChanged,
                         queueLengthChanged: queueLengthChanged
                     }

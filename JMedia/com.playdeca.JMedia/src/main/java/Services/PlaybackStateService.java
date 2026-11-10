@@ -86,14 +86,25 @@ private PlaybackState createDefaultState(Long profileId) {
         existingState.setVolume(newState.getVolume());
         existingState.setShuffleMode(newState.getShuffleMode());
         existingState.setLastUpdateTime(newState.getLastUpdateTime());
-// Create new instances of the collections to avoid shared references
-        existingState.setCue(new ArrayList<>(newState.getCue()));
-        existingState.setLastSongs(new ArrayList<>(newState.getLastSongs()));
-        existingState.setOriginalCue(new ArrayList<>(newState.getOriginalCue()));
+// Saving progress every second must not rewrite the 11k-element collections:
+        // only replace a collection when it actually changed, otherwise Hibernate
+        // deletes and reinserts ~22k rows per second (caused DB bloat/corruption).
+        if (!java.util.Objects.equals(existingState.getCue(), newState.getCue())) {
+            existingState.setCue(newState.getCue() == null ? new ArrayList<>() : new ArrayList<>(newState.getCue()));
+        }
+        if (!java.util.Objects.equals(existingState.getLastSongs(), newState.getLastSongs())) {
+            existingState.setLastSongs(newState.getLastSongs() == null ? new ArrayList<>() : new ArrayList<>(newState.getLastSongs()));
+        }
+        if (!java.util.Objects.equals(existingState.getOriginalCue(), newState.getOriginalCue())) {
+            existingState.setOriginalCue(newState.getOriginalCue() == null ? new ArrayList<>() : new ArrayList<>(newState.getOriginalCue()));
+        }
         existingState.setCueIndex(newState.getCueIndex());
 existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjModeActive(newState.getDjModeActive() != null ? newState.getDjModeActive() : false);
-        existingState.setDjGenrePool(newState.getDjGenrePool() != null ? new ArrayList<>(newState.getDjGenrePool()) : new ArrayList<>());
+        // null-safe: only replace when newState provides a pool (avoid wiping on null)
+        if (newState.getDjGenrePool() != null && !java.util.Objects.equals(existingState.getDjGenrePool(), newState.getDjGenrePool())) {
+            existingState.setDjGenrePool(new ArrayList<>(newState.getDjGenrePool()));
+        }
         existingState.setDjSongsPerGenre(newState.getDjSongsPerGenre() != null ? newState.getDjSongsPerGenre() : 0);
         existingState.setDjCrossfadeOverride(newState.getDjCrossfadeOverride() != null ? newState.getDjCrossfadeOverride() : -1);
         existingState.setDjStrictness(newState.getDjStrictness() != null ? newState.getDjStrictness() : "MEDIUM");

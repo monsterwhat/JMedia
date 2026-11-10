@@ -2,6 +2,7 @@ package Models.Music;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Transient;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.ElementCollection;
@@ -17,7 +18,7 @@ import lombok.EqualsAndHashCode;
 
 @Data
 @Entity
-@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonIgnoreProperties(ignoreUnknown = true, value = {"cue","originalCue","lastSongs"})
 @EqualsAndHashCode(callSuper = false)
 public class PlaybackState extends PanacheEntity {
 
@@ -104,6 +105,15 @@ public class PlaybackState extends PanacheEntity {
     private Boolean djTransitionPlanned; // Whether a transition has been calculated
     private Double djTransitionConfidence; // 0.0-1.0 confidence of the match
     private String djTransitionReason;   // Human-readable explanation of the match
+
+    @JsonProperty("cueSize")
+    public int getCueSize() { return cue == null ? 0 : cue.size(); }
+
+    @JsonProperty("originalCueSize")
+    public int getOriginalCueSize() { return originalCue == null ? 0 : originalCue.size(); }
+
+    @JsonProperty("lastSongsSize")
+    public int getLastSongsSize() { return lastSongs == null ? 0 : lastSongs.size(); }
 
     public enum ShuffleMode {
         OFF,
