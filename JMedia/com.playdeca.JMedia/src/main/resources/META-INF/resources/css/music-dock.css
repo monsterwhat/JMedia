@@ -912,8 +912,10 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
 body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-grid,
 body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-grid {
     display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 1.25rem !important;
+    /* Four fixed columns made each card ~330px on a 1440 desktop. Auto-fill
+       keeps a comfortable card size and adds columns as the window grows. */
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)) !important;
+    gap: 1rem !important;
     padding: 0 !important;
 }
 

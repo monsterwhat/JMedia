@@ -1,6 +1,8 @@
 package Controllers;
 
 import Models.Music.PlaybackState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,6 +19,9 @@ import Utils.GenreNormalizer;
 
 @ApplicationScoped
 public class PlaybackQueueController {
+
+    private static final int MAX_QUEUE_AHEAD = 500;
+    private static final Logger LOG = LoggerFactory.getLogger(PlaybackQueueController.class);
 
     public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId) {
         return playbackHistoryService.getHistory(page, pageSize, profileId);
@@ -36,13 +41,60 @@ public class PlaybackQueueController {
 
 
 
-public void populateCue(PlaybackState state, List<Long> songIds, Long profileId) {
+public void enforceQueueWindow(PlaybackState st) {
+        if (st == null) return;
+        List<Long> cue = st.getCue();
+        if (cue == null) return;
+        int cueIndex = st.getCueIndex();
+        int max = Math.max(0, cueIndex) + 1 + MAX_QUEUE_AHEAD;
+        int beforeCue = cue.size();
+        int beforeOrig = -1;
+        List<Long> orig = st.getOriginalCue();
+        if (orig != null) beforeOrig = orig.size();
+        boolean trimmed = false;
+        if (cue.size() > max) {
+            cue.subList(max, cue.size()).clear();
+            trimmed = true;
+        }
+        if (orig != null && orig.size() > max) {
+            orig.subList(max, orig.size()).clear();
+            trimmed = true;
+        }
+        if (trimmed) {
+            LOG.info("Trimmed playback queue window for profile {}: cueIndex={}, cue {} -> {}, originalCue {} -> {}, max={}",
+                    st.getProfileId(), cueIndex, beforeCue, cue.size(), beforeOrig, (orig != null ? orig.size() : -1), max);
+        }
+    }
+
+    private void ensureQueueWindow(PlaybackState st) {
+        if (st == null) return;
+        List<Long> cue = st.getCue();
+        if (cue == null || cue.isEmpty()) return;
+        // A playlist queue must keep its own order; refillCueFromPool rebuilds
+        // from the library pool and would replace it.
+        if (st.getCurrentPlaylistId() != null) return;
+        int cueIndex = st.getCueIndex();
+        if (cueIndex < 0) return;
+        // Refill only when the window is truly exhausted (the current song is
+        // the last one). Refilling 50 songs early discards the remaining ones.
+        if (cue.size() - cueIndex > 1) return;
+        boolean shouldRefill = st.getRepeatMode() == PlaybackState.RepeatMode.ALL
+                || st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE
+                || Boolean.TRUE.equals(st.getDjModeActive());
+        if (!shouldRefill) return;
+        Long profileId = st.getProfileId();
+        if (profileId == null) return;
+        refillCueFromPool(st, profileId, true);
+    }
+
+    public void populateCue(PlaybackState state, List<Long> songIds, Long profileId) {
         state.setCue(new ArrayList<>(songIds));
         state.setOriginalCue(new ArrayList<>()); // Clear any previously saved original cue
         state.setCueIndex(songIds.isEmpty() ? -1 : 0);
         state.setCurrentSongId(songIds.isEmpty() ? null : songIds.get(0));
         state.setPlaying(!songIds.isEmpty());
         state.setCurrentTime(0);
+        enforceQueueWindow(state);
     }
 
 public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
@@ -108,6 +160,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                         }
                         state.setCueIndex(0);
                     }
+                    enforceQueueWindow(state);
                     if (state.getCue().size() > 1) {
                         return advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
                     }
@@ -116,7 +169,9 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             return handleSingleSongCue(state, forward, skippedEarly, manualAdvance, profileId);
         }
 
-        return advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
+        Long __r = advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
+        enforceQueueWindow(state);
+        return __r;
     }
 
     private Long handleSingleSongCue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
@@ -127,7 +182,8 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
                 state.setCueIndex(0);
                 state.setCurrentSongId(state.getCue().get(0));
-                return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
+                enforceQueueWindow(state);
+            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
             }
             return null;
         }
@@ -135,18 +191,25 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                 || state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
             state.setCueIndex(0);
             state.setCurrentSongId(state.getCue().get(0));
+            enforceQueueWindow(state);
             return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
         }
         state.getCue().remove(0);
         state.setCueIndex(-1);
         if (manualAdvance) {
+            enforceQueueWindow(state);
             return advance(state, true, skippedEarly, true, profileId);
         }
         state.setPlaying(false);
+        enforceQueueWindow(state);
         return null;
     }
 
     private Long advanceInQueue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
+        try {
+        if (forward) {
+            ensureQueueWindow(state);
+        }
         List<Long> cue = state.getCue();
         int cueIndex = state.getCueIndex();
         
@@ -227,6 +290,9 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         int nextIndex = (cueIndex + 1) % cue.size();
         state.setCueIndex(nextIndex);
         return resolveNextDjSong(state, cue, nextIndex, cue.get(nextIndex));
+        } finally {
+            enforceQueueWindow(state);
+        }
     }
 
     /**
@@ -289,6 +355,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             Collections.shuffle(cue);
             state.setCueIndex(0);
         }
+        enforceQueueWindow(state);
     }
 
     public void initSmartShuffle(PlaybackState state, Long profileId) {
@@ -437,6 +504,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         
         // 6. Pre-analyze upcoming songs for DJ Mode transitions
         audioAnalysisService.ensureUpcomingSongsAnalyzed(newCue, 5);
+        enforceQueueWindow(state);
     }
 
     public void clearShuffle(PlaybackState state, Long profileId) {
@@ -458,6 +526,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         } else {
             state.setCueIndex(-1);
         }
+        enforceQueueWindow(state);
     }
 
 public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext, Long profileId) {
@@ -480,6 +549,7 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
                 insertIndex++;
             }
         }
+        enforceQueueWindow(state);
     }
 
     public void removeFromQueue(PlaybackState state, Long songId, Long profileId) {
@@ -504,6 +574,7 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
                 state.setCueIndex(state.getCueIndex() - 1);
             }
         }
+        enforceQueueWindow(state);
     }
 
     public void clear(PlaybackState state, Long profileId) {
@@ -544,6 +615,7 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
         } else if (fromIndex > currentIdx && toIndex <= currentIdx) {
             state.setCueIndex(currentIdx + 1);
         }
+        enforceQueueWindow(state);
     }
 
     public void togglePlay(PlaybackState state, Long profileId) {
@@ -620,6 +692,7 @@ public void songSelected(Long songId, Long profileId) {
         state.setCurrentSongId(newCue.get(0));
         state.setCurrentTime(0);
         state.setPlaying(true);
+        enforceQueueWindow(state);
     }
 
 private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId) {
@@ -823,6 +896,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         if (refreshed != -1) {
             state.setCueIndex(refreshed);
         }
+        enforceQueueWindow(state);
     }
 
     /**
@@ -1057,6 +1131,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 }
             }
         }
+        enforceQueueWindow(state);
     }
 
     private boolean isDjGenrePoolUnrestricted(PlaybackState state) {
@@ -1333,5 +1408,6 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         } else if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
             initSmartShuffle(state, profileId);
         }
+        enforceQueueWindow(state);
     }
 }

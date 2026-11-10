@@ -1,12 +1,15 @@
-/**
- * DjTransitionManager - Handles beat-aligned transitions between songs (EternalJukebox style)
- * 
- * When DJ Mode triggers:
- * 1. Server calculates optimal exit/entry beat pair (matching beat-in-bar position)
- * 2. Server sends djTransitionPlanned=true via WebSocket
- * 3. This module monitors the primary audio element's currentTime
- * 4. At exitTime, seamlessly switches audio source to next song at entryTime
- * 5. Since beats are aligned, the switch is imperceptible
+﻿/**
+ * DjTransitionManager - Mixing-only executor for DJ Mode transitions.
+ *
+ * This module does NOT select, reorder, or advance songs. Song selection (Smart
+ * Shuffle) is owned by the server. The client only executes the audio mix:
+ * 1. Server plans the transition and sends djTransitionPlanned=true + djNextSongId
+ *    via state/WebSocket.
+ * 2. This module monitors the primary audio element's currentTime.
+ * 3. At exitTime, preloads (already buffered) and crossfades to the next track
+ *    at entryTime using the server-provided crossfadeDuration.
+ * 4. POSTs to /api/music/playback/transition-started so the server advances state.
+ * 5. Since beats are aligned, the switch is imperceptible.
  */
 (function(window) {
     'use strict';
@@ -130,7 +133,9 @@
         },
         
         /**
-         * Prepare for transition - store transition data and start monitoring
+         * Prepare for transition - mixing-only executor: store transition data
+         * (next song id, entry/exit times, crossfade duration provided by the
+         * server) and start monitoring. Does not select or reorder songs.
          */
         prepareTransition: function(state) {
             // Don't prepare transitions while video is active
@@ -214,7 +219,7 @@
             
             this.transitionPrepared = true;
             
-            window.Helpers.log('[DJ] Transition ready: exit at ' + exitTime + 's → entry at ' + entryTime + 's');
+            window.Helpers.log('[DJ] Transition ready: exit at ' + exitTime + 's â†’ entry at ' + entryTime + 's');
             window.Helpers?.log?.('[DJ] Transition ready: exit=' + exitTime + 's, entry=' + entryTime + 's, nextSong=' + nextSongId);
             
             this.updateDjIndicator('preparing');
@@ -266,7 +271,7 @@
                     if (window.AudioEngine && !window.AudioEngine._nextPreloadReady) {
                         if (window.AudioEngine._nextPreloadFailed) {
                             // Preload timed out — proceed anyway with a warning
-                            window.Helpers.log('[DJ] ⚠️ Preload timed out, executing transition anyway');
+                            window.Helpers.log('[DJ] âš ï¸ Preload timed out, executing transition anyway');
                         } else {
                             // Still loading — wait for the next tick
                             window.Helpers.log('[DJ] Waiting for preload to complete...');
@@ -341,47 +346,9 @@
                 window.SynchronizationManager.setFlag('isCrossfading', true);
             }
             
-            // IMMEDIATE UI UPDATE: Update song details in UI immediately so user knows what's coming
-            if (window.StateManager && this.transitionData.nextSongId) {
-                const nextId = this.transitionData.nextSongId;
-                const profileId = this.transitionData.profileId;
-                
-                // 1. Fetch the next song metadata to update Title/Artist/Cover
-                if (profileId) {
-                    fetch(`/api/music/playback/nextSong/${profileId}`, { credentials: 'same-origin' })
-                        .then(response => response.json())
-                        .then(res => {
-                            // res.data is the Song object in this API
-                            if (res.success && res.data && String(res.data.id) === String(nextId)) {
-                                 // Store title/artist and id in transitionData for fallback use
-                                 self.transitionData.nextSongTitle = res.data.title;
-                                 self.transitionData.nextSongArtist = res.data.artist;
-                                 self.transitionData.nextSongId = res.data.id;
-                                 
-                                 // Update state FIRST
-                                 window.StateManager.updateState({
-                                     currentSongId: res.data.id,
-                                     songName: res.data.title,
-                                     artist: res.data.artist,
-                                     currentSongData: { ...res.data }
-                                 }, 'djTransitionManager');
-                                
-                                 // 2. Use ImageManager to update cover image, favicon, and page title
-                                 if (window.ImageManager) {
-                                     window.ImageManager.updateImages(res.data, null, null);
-                                 }
-                                 
-                                 // 3. Update Media Session API (for browser media controls, notifications, etc.)
-                                 if (window.updateMediaSessionMetadata) {
-const artworkUrl = res.data.id 
-                                           ? '/api/music/stream/artwork/' + res.data.id 
-                                           : '/logo.png';
-                                     window.updateMediaSessionMetadata(res.data.title, res.data.artist, artworkUrl);
-                                 }
-                            }
-                        }).catch(err => console.error('[DJ] Failed to pre-update song metadata', err));
-                }
-            }
+            // NOTE: Song selection/state advancement is owned by the server. This
+            // executor does not fetch next-song metadata or update currentSongId.
+            // The already-known djNextSongId drives preload/fade below.
 
             // iOS: single-element direct swap — iOS only allows one audio stream,
             // so the dual-player crossfade would be silent. Swap src on the SAME

@@ -227,6 +227,39 @@
 
     window.loadMobilePlaylists = JMedia.MusicIndex.loadPlaylists;
 
+    // Queue the selected playlist and start it (button next to the search Clear).
+    window.playCurrentPlaylist = function() {
+        const playlistId = (window.mobileSongListState && window.mobileSongListState.playlistId) || 0;
+        const profileId = JMedia.Helpers.getActiveProfileId();
+        if (!playlistId) {
+            console.warn('[MusicIndex] Play All: no playlist selected');
+            return;
+        }
+        if (!profileId) {
+            console.warn('[MusicIndex] Play All: no active profile');
+            return;
+        }
+        fetch(`/api/music/ui/playback/queue-all/${profileId}/${playlistId}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json().catch(() => ({}));
+            })
+            .then(() => {
+                if (window.showToast) window.showToast('Playing playlist', 'success');
+                window.dispatchEvent(new CustomEvent('queueChanged', {
+                    detail: {
+                        queueSize: (JMedia.PlaybackApi && JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0),
+                        queueChanged: true,
+                        queueLengthChanged: true
+                    }
+                }));
+            })
+            .catch(error => {
+                console.error('[MusicIndex] Play All failed:', error);
+                if (window.showToast) window.showToast('Failed to play playlist', 'error');
+            });
+    };
+
     window.loadMobilePlaylistSongs = function(id) {
         JMedia.MusicIndex.setupSearch();
         document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
@@ -242,6 +275,10 @@
 
         window.mobileSongListState.playlistId = id;
         window.mobileSongListState.view = 'list';
+
+        // Play All is only meaningful for an actual playlist (id > 0).
+        const playAllBtn = document.getElementById('musicPlayAllBtn');
+        if (playAllBtn) playAllBtn.style.display = id > 0 ? '' : 'none';
 
         const profileId = JMedia.Helpers.getActiveProfileId();
         if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${profileId}/${id}`, { target: '#mobileSongList', swap: 'innerHTML' });

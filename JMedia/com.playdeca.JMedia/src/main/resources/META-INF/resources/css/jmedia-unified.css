@@ -726,7 +726,9 @@ body {
     width: 100% !important;
     height: 32px;
     position: absolute;
-    bottom: 0;
+    /* Top edge of the control hub (was the bottom edge). */
+    top: 0;
+    bottom: auto;
     left: 0;
     right: 0;
     z-index: 1500;
@@ -747,7 +749,9 @@ body {
     -webkit-appearance: none;
     margin: 0;
     position: absolute;
-    bottom: 0;
+    /* Hairline follows the top edge so the times sit just below it. */
+    top: 0;
+    bottom: auto;
     left: 0;
 }
 
@@ -4950,3 +4954,59 @@ input[type="range"]::-webkit-slider-thumb {
 /* context menu target filtering */
 .mobile-context-menu li[data-targets][hidden] { display: none !important; }
 
+
+/* ==================== DESKTOP LIBRARY GRIDS ==================== */
+/* The base album/playlist/genre grids are mobile flex rows (33%/50% cards).
+   music-dock.css contains the desktop restyle, but that file is only loaded on
+   /music-dock — on the main SPA the cards stayed 350-550px wide. Use real
+   responsive grids here so the desktop page is not oversized. */
+@media (min-width: 641px) {
+    .mobile-album-grid,
+    .mobile-playlist-grid {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)) !important;
+        gap: 1rem !important;
+        padding: 0 !important;
+    }
+    .mobile-album-card,
+    .mobile-playlist-card {
+        width: auto !important;
+        min-width: 0;
+        text-align: left;
+    }
+    .mobile-album-name,
+    .mobile-album-artist,
+    .mobile-album-meta,
+    .mobile-playlist-name,
+    .mobile-playlist-count {
+        text-align: left;
+    }
+    .mobile-genre-grid {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+        gap: 0.75rem !important;
+        padding: 0 !important;
+    }
+    .mobile-genre-card {
+        width: auto !important;
+        min-width: 0;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.6rem;
+        padding: 0.7rem 0.9rem !important;
+    }
+    .mobile-genre-icon {
+        font-size: 1rem !important;
+        margin-bottom: 0 !important;
+        flex-shrink: 0;
+    }
+    .mobile-genre-name {
+        flex: 1;
+        text-align: left !important;
+    }
+    .mobile-genre-count {
+        margin-left: auto;
+        margin-top: 0 !important;
+        white-space: nowrap;
+    }
+}

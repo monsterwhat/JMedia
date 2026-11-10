@@ -187,4 +187,17 @@
     window.updateMediaSessionPositionState = JMedia.MediaSession.updatePositionState;
     window.setupMediaSessionHandlers = JMedia.MediaSession.setupHandlers;
 
+    // music-bundle-loader.js loads MusicBarInit.js BEFORE this file, so its
+    // guarded setupMediaSessionHandlers() call can run while this function is
+    // still undefined and no action handlers get registered (metadata still
+    // updated, so the OS shows the song but media keys do nothing). Register
+    // here as well; setActionHandler simply replaces an existing handler.
+    // iOS is skipped on purpose: handlers there suspend background audio.
+    const isIOS = /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+        /iPhone|iPad/i.test(navigator.platform || '');
+    if (!isIOS) {
+        JMedia.MediaSession.setupHandlers(null, null, null);
+    }
+
 })(window);

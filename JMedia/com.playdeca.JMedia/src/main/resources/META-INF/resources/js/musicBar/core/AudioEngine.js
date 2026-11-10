@@ -671,10 +671,20 @@
             const nextPlayer = this.getInactivePlayer();
             const currentGain = this.getActiveGain();
             const nextGain = this.getInactiveGain();
-            // Cap the crossfade window: a 6-12s fade reads as dead air / broken playback
-            // on phone speakers (web-audio-kit recommends 400-700ms). The backend may
-            // still send BPM-based durations up to 12s ï¿½ protect the client here.
-            const fadeTime = Math.min(duration || 2, 2);
+            // Respect the server-provided crossfade duration, clamped to a safe
+            // range. duration <= 0 falls back to 2s. Only warn if the requested
+            // duration exceeds the 12s cap.
+            let fadeTime;
+            if (!duration || duration <= 0) {
+                fadeTime = 2;
+            } else {
+                fadeTime = duration;
+                if (fadeTime < 1) fadeTime = 1;
+                if (fadeTime > 12) {
+                    console.warn('[AudioEngine] Requested crossfade duration ' + duration + 's exceeds 12s cap; clamping');
+                    fadeTime = 12;
+                }
+            }
             
             // Swap active player immediately so getActivePlayer() returns the
             // fading-in player during the crossfade (Bug D fix)

@@ -322,6 +322,11 @@ public class PlaybackController {
             if (state.getDjYearMax() == null) {
                 state.setDjYearMax(0);
             }
+            // Queues created before the window cap can hold the whole library
+            // (e.g. 13k). Trim once on load; the next persist saves the window.
+            if (state.getCue() != null && state.getCue().size() > 502) {
+                playbackQueueController.enforceQueueWindow(state);
+            }
             System.out.println("[PlaybackController] Initial state loaded for profile " + profileId + ": " + safeSummary(state, profileId));
             return state;
         });
