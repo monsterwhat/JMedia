@@ -1,5 +1,5 @@
 {#for p in playlists}
-<div class="mobile-playlist-card" style="--i: {p_index};" data-playlist-id="{p.id}" data-playlist-name="{p.name}" onclick="loadMobilePlaylistSongs({p.id})">
+<div class="mobile-playlist-card" style="--i: {p_index};" data-playlist-id="{p.id}" data-playlist-name="{p.name}" data-song-count="{p.songCount}" onclick="loadMobilePlaylistSongs({p.id})">
     <div class="mobile-playlist-artwork">
         {#if p.firstSongId}
         <img src="/api/music/stream/artwork/{p.firstSongId}" loading="lazy" alt="{p.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">

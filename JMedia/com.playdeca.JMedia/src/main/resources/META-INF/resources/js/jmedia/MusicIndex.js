@@ -405,6 +405,8 @@
 
     window.loadGenreFamily = function(groupKey, groupName) {
         if (!groupKey) return;
+        window.__currentGenreFamilyKey = groupKey;
+        window.__currentGenreFamilyName = groupName || 'Genre group';
         document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-music-genres')?.classList.add('active');
 

@@ -1,5 +1,5 @@
 {#for a in albums}
-<div class="mobile-album-card" style="--i: {a_index};" data-album-name="{a.name}" data-album-artist="{a.artist}" data-first-song-id="{a.firstSongId}" onclick="window.showAlbumPage(this.dataset.albumName)">
+<div class="mobile-album-card" style="--i: {a_index};" data-album-name="{a.name}" data-album-artist="{a.artist}" data-first-song-id="{a.firstSongId}" data-song-count="{a.songCount}" onclick="window.showAlbumPage(this.dataset.albumName)">
     <div class="mobile-album-artwork">
         <img src="/api/music/stream/artwork/{a.firstSongId}" loading="lazy" alt="{a.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
     </div>

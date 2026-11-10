@@ -1122,4 +1122,22 @@ public class SongService {
 
         return new PaginatedSongs(songs, total);
     }
+
+    /**
+     * Assign album metadata to a set of songs. Used by the drag-and-drop
+     * "add to album" / "new album" actions. Albums are a grouping of
+     * (album, albumArtist), so this is the create/merge operation.
+     */
+    @Transactional
+    public int assignAlbum(List<Long> songIds, String album, String albumArtist) {
+        if (songIds == null || songIds.isEmpty() || album == null || album.isBlank()) {
+            return 0;
+        }
+        List<Song> songs = Song.list("id in ?1", songIds);
+        for (Song song : songs) {
+            song.setAlbum(album);
+            song.setAlbumArtist(albumArtist);
+        }
+        return songs.size();
+    }
 }
