@@ -15,7 +15,7 @@
         <div class="mobile-song-artist">{s_with_index.song.artist ?: "Unknown Artist"}</div>
     </div>
     <button class="mobile-queue-remove"
-            onclick="event.stopPropagation(); handleQueueAction('remove', {s_with_index.index}, {profileId})">
+            onclick="event.stopPropagation(); handleQueueAction('remove', this)">
         <i class="pi pi-times"></i>
     </button>
 </div>

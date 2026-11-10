@@ -33,6 +33,9 @@
             window.addEventListener('statePropertyChanged', (e) => {
                 if (e.detail.property === 'cue') {
                     this.handleQueueChange(e.detail.oldValue, e.detail.newValue);
+                } else if (e.detail.property === 'currentSongId' && e.detail.newValue) {
+                    // Keep the queue's current-song highlight in sync without reloading the list.
+                    this.updateCurrentSong(e.detail.newValue);
                 }
             });
 
@@ -51,6 +54,12 @@
 
             if (queueChanged || queueLengthChanged) {
                 this.lastKnownQueue = [...(newQueue || [])];
+                // A local remove already dropped the card from the DOM. The server's
+                // state echo repeats the same change; rebuilding the whole list here
+                // would undo that and make removals feel like a page reload.
+                if (this._suppressQueueReloadUntil && Date.now() < this._suppressQueueReloadUntil) {
+                    return;
+                }
                 window.dispatchEvent(new CustomEvent('queueChanged', {
                     detail: {
                         queueSize: newQueue?.length || 0,
@@ -84,14 +93,13 @@
         },
 
         updateCurrentSong: function(songId) {
-            const allRows = document.querySelectorAll('#songQueueTable tr[data-song-id]');
-            allRows.forEach(row => {
+            const selector = '#songQueueTable tr[data-song-id], .mobile-queue-item[data-song-id]';
+            document.querySelectorAll(selector).forEach(row => {
                 row.classList.remove('current-song-row');
             });
-            const selectedRow = document.querySelector(`#songQueueTable tr[data-song-id="${songId}"]`);
-            if (selectedRow) {
-                selectedRow.classList.add('current-song-row');
-            }
+            document.querySelectorAll(`#songQueueTable tr[data-song-id="${songId}"], .mobile-queue-item[data-song-id="${songId}"]`).forEach(row => {
+                row.classList.add('current-song-row');
+            });
         },
 
         loadPage: function(page = 1, profileIdParam, searchParam) {
@@ -140,8 +148,74 @@
                 });
         },
 
-        handleAction: function(action, index, profileIdParam) {
+        /**
+         * Resolve the queue index from either a number or the clicked element.
+         * Templates call handleQueueAction('remove', this) so the index is read
+         * from the card and never has to be rewritten in inline handlers.
+         */
+        resolveQueueIndex: function(indexOrElement) {
+            if (typeof indexOrElement === 'number') {
+                return indexOrElement;
+            }
+            if (typeof indexOrElement === 'string' && indexOrElement.trim() !== '' && !isNaN(parseInt(indexOrElement, 10))) {
+                return parseInt(indexOrElement, 10);
+            }
+            const el = (indexOrElement && indexOrElement.closest) ? indexOrElement : null;
+            const card = el ? el.closest('[data-queue-index]') : null;
+            if (card) {
+                const n = parseInt(card.getAttribute('data-queue-index'), 10);
+                return isNaN(n) ? null : n;
+            }
+            return null;
+        },
+
+        /**
+         * Remove one queue card locally and shift the indices of later cards so
+         * the next removal still targets the right row.
+         */
+        removeQueueCard: function(index) {
+            const cards = Array.from(document.querySelectorAll(`[data-queue-index="${index}"]`));
+            if (cards.length === 0) {
+                return false;
+            }
+            cards.forEach(card => card.remove());
+            document.querySelectorAll('[data-queue-index]').forEach(card => {
+                const i = parseInt(card.getAttribute('data-queue-index'), 10);
+                if (!isNaN(i) && i > index) {
+                    card.setAttribute('data-queue-index', String(i - 1));
+                }
+            });
+            const items = document.querySelectorAll('.mobile-queue-item');
+            items.forEach((item, i) => item.style.setProperty('--i', i));
+            return true;
+        },
+
+        decrementQueueCount: function() {
+            if (typeof this.totalSize === 'number' && isFinite(this.totalSize)) {
+                this.totalSize = Math.max(0, this.totalSize - 1);
+                this.updateCount(this.totalSize);
+                if (window.updateQueueCount) window.updateQueueCount(this.totalSize);
+                return;
+            }
+            const span = document.getElementById('queueCount');
+            const current = span ? parseInt(span.textContent, 10) : NaN;
+            if (!isNaN(current)) {
+                this.updateCount(Math.max(0, current - 1));
+            }
+        },
+
+        handleAction: function(action, indexOrElement, profileIdParam, element) {
             const profileId = profileIdParam || JMedia.Helpers.getActiveProfileId();
+            if (!profileId) {
+                console.warn('[QueueManager] No active profile, cannot ' + action);
+                return;
+            }
+            const index = this.resolveQueueIndex(indexOrElement);
+            if (index === null) {
+                console.warn('[QueueManager] Could not resolve queue index for ' + action);
+                return;
+            }
+
             let url = '';
             if (action === 'skip') {
                 url = `/api/music/queue/skip-to/${profileId}/${index}`;
@@ -151,33 +225,34 @@
                 return;
             }
 
+            if (action === 'remove') {
+                // The server echoes the new cue over the WebSocket. Suppress the
+                // resulting list rebuild so only the removed card disappears.
+                this._suppressQueueReloadUntil = Date.now() + 3000;
+            }
+
             fetch(url, {
                 method: 'POST',
                 headers: {'Accept': 'application/json'}
             })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    return response.json();
+                    return response.json().catch(() => ({}));
                 })
-                .then(data => {
-                    const tbody = document.querySelector('#songQueueTable tbody');
-                    const mobileQueue = document.getElementById('mobileQueueContent');
-
-                    if (tbody) tbody.innerHTML = data.html;
-                    if (mobileQueue) {
-                        if (data.mobileHtml) {
-                            mobileQueue.innerHTML = data.mobileHtml;
-                        } else if (window.jmediaMobile && window.jmediaMobile.loadMobileQueue) {
-                            window.jmediaMobile.loadMobileQueue(this.currentPage);
+                .then(() => {
+                    if (action === 'remove') {
+                        if (this.removeQueueCard(index)) {
+                            this.decrementQueueCount();
                         } else {
+                            // Card not rendered in this view: resync once.
+                            this._suppressQueueReloadUntil = 0;
                             this.loadPage(this.currentPage);
                         }
-                    }
-
-                    if (data.totalQueueSize !== undefined) {
-                        this.updateCount(data.totalQueueSize);
                     } else {
-                        this.loadPage(1);
+                        const card = (element && element.closest && element.closest('[data-song-id]'))
+                            || document.querySelector(`[data-queue-index="${index}"][data-song-id]`);
+                        const songId = card ? card.getAttribute('data-song-id') : null;
+                        if (songId) this.updateCurrentSong(songId);
                     }
 
                     if (window.Toast) {
@@ -190,9 +265,11 @@
                 })
                 .catch(error => {
                     console.error(`[QueueManager] handleAction failed for ${action}:`, error);
+                    this._suppressQueueReloadUntil = 0;
                     if (window.Toast) {
                         window.Toast.error(`Failed to ${action} song from queue`);
                     }
+                    this.loadPage(this.currentPage);
                 });
         },
 
@@ -213,10 +290,10 @@
                                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                                 return response.json();
                             })
-                            .then(data => {
-                                const tbody = document.querySelector('#songQueueTable tbody');
-                                if (tbody) tbody.innerHTML = data.html;
+                            .then(() => {
                                 if (window.updateQueueCount) window.updateQueueCount(0);
+                                // One fragment render is enough; the old code wrote
+                                // data.html (undefined) and then reloaded separately.
                                 this.loadPage(1);
                             })
                             .catch(error => {
@@ -234,8 +311,8 @@
     window.updateQueueCurrentSong = function(songId) {
         JMedia.QueueManager.updateCurrentSong(songId);
     };
-    window.handleQueueAction = function(action, index, profileIdParam) {
-        JMedia.QueueManager.handleAction(action, index, profileIdParam);
+    window.handleQueueAction = function(action, index, profileIdParam, element) {
+        JMedia.QueueManager.handleAction(action, index, profileIdParam, element);
     };
     window.loadQueuePage = function(page, pid, search) {
         JMedia.QueueManager.loadPage(page, pid, search);
