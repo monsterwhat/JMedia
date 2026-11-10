@@ -1,0 +1,28 @@
+{#if groups.isEmpty}
+<div class="empty-state-container" style="width: 100%;">
+    <i class="pi pi-search-minus empty-state-icon"></i>
+    <p class="empty-state-text">No genre groups found.</p>
+</div>
+{#else}
+<div class="mobile-genre-grid">
+    {#for g in groups}
+    {#if g.key == 'other'}
+    <div class="mobile-genre-card genre-group-card" style="--i: {g_index};"
+         data-group-key="other" data-group-name="{g.name}"
+         onclick="window.switchGenreView('all')">
+        <div class="mobile-genre-icon"><i class="pi pi-th-large"></i></div>
+        <div class="mobile-genre-name">{g.name}</div>
+        <div class="mobile-genre-count">{g.songCount} songs · {g.genreCount} genres</div>
+    </div>
+    {#else}
+    <div class="mobile-genre-card genre-group-card" style="--i: {g_index};"
+         data-group-key="{g.key}" data-group-name="{g.name}"
+         onclick="window.loadGenreFamily(this.dataset.groupKey, this.dataset.groupName)">
+        <div class="mobile-genre-icon"><i class="pi pi-tags"></i></div>
+        <div class="mobile-genre-name">{g.name}</div>
+        <div class="mobile-genre-count">{g.songCount} songs · {g.genreCount} genres</div>
+    </div>
+    {/if}
+    {/for}
+</div>
+{/if}

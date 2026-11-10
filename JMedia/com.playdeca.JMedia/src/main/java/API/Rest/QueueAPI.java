@@ -65,6 +65,41 @@ public class QueueAPI {
     }
 
     @POST
+    @Path("/queue-genre-family/{profileId}/{groupKey}")
+    @Consumes(MediaType.WILDCARD)
+    public Response queueGenreFamily(@PathParam("profileId") Long profileId,
+                                     @PathParam("groupKey") String groupKey,
+                                     @QueryParam("mode") @DefaultValue("play") String mode,
+                                     @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+
+        List<Long> songIds = songService.findSongIdsByGenreFamily(groupKey);
+        if (songIds == null || songIds.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(ApiResponse.error("No songs in this genre group")).build();
+        }
+
+        LOG.info("Queueing genre family {} ({} songs) for profile {} (mode={})",
+                groupKey, songIds.size(), userProfile.id, mode);
+
+        if ("queue".equalsIgnoreCase(mode)) {
+            playbackController.addToQueue(songIds, false, userProfile.id);
+            var state = playbackController.getState(userProfile.id);
+            if (state == null || state.getCurrentSongId() == null) {
+                playbackController.selectSong(songIds.get(0), userProfile.id);
+            }
+            return Response.ok(ApiResponse.success("Genre group added to queue")).build();
+        }
+
+        playbackController.clearQueue(userProfile.id);
+        playbackController.addToQueue(songIds, false, userProfile.id);
+        playbackController.selectSong(songIds.get(0), userProfile.id);
+
+        return Response.ok(ApiResponse.success("Genre group queued and playback started")).build();
+    }
+
+    @POST
     @Path("/playback/queue-all/{profileId}/{id}")
     @Consumes(MediaType.WILDCARD)
     public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {

@@ -145,6 +145,18 @@ public class MusicUiApi {
     Template mobileGenreItemsFragment;
 
     @Inject
+    @io.quarkus.qute.Location("mobileGenreGroupGridFragment.html")
+    Template mobileGenreGroupGridFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileGenreFamilyHeaderFragment.html")
+    Template mobileGenreFamilyHeaderFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileGenreFamilySongsFragment.html")
+    Template mobileGenreFamilySongsFragment;
+
+    @Inject
     @io.quarkus.qute.Location("mobilePlaylistGridFragment.html")
     Template mobilePlaylistGridFragment;
 
@@ -1719,6 +1731,70 @@ public class MusicUiApi {
                 .data("nextPage", nextPage)
                 .data("search", search)
                 .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    // ── Grouped genre view ──
+
+    @GET
+    @Path("/genre-groups/{profileId}")
+    @Blocking
+    public String getGenreGroups(@PathParam("profileId") Long profileId) {
+        List<SongService.GenreFamilyCard> groups = songService.findGenreFamilies();
+        return mobileGenreGroupGridFragment
+                .data("groups", groups)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    @GET
+    @Path("/genre-family/{profileId}")
+    @Blocking
+    public String getGenreFamily(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("group") @jakarta.ws.rs.DefaultValue("") String group,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        SongService.GenreFamilyDetail family = songService.findGenreFamily(group);
+        if (family == null) {
+            return "<div class='empty-state-container' style='width:100%;'><i class='pi pi-search-minus empty-state-icon'></i><p class='empty-state-text'>No songs found for this genre group.</p></div>";
+        }
+
+        String header = mobileGenreFamilyHeaderFragment
+                .data("family", family)
+                .render();
+
+        String songs = renderGenreFamilySongs(profileId, group, page, limit, sortBy, sortDirection);
+        return header + songs;
+    }
+
+    @GET
+    @Path("/mobile-genre-group-songs-more/{profileId}")
+    @Blocking
+    public String getMoreGenreFamilySongs(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("group") @jakarta.ws.rs.DefaultValue("") String group,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+        return renderGenreFamilySongs(profileId, group, page, limit, sortBy, sortDirection);
+    }
+
+    private String renderGenreFamilySongs(Long profileId, String group, int page, int limit,
+                                          String sortBy, String sortDirection) {
+        SongService.PaginatedSongs result = songService.findSongsByGenreFamily(page, limit, group, sortBy, sortDirection);
+        boolean hasMore = (long) page * limit < result.totalCount();
+        return mobileGenreFamilySongsFragment
+                .data("songs", result.songs())
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", page + 1)
+                .data("profileId", String.valueOf(profileId))
+                .data("groupEncoded", java.net.URLEncoder.encode(group, java.nio.charset.StandardCharsets.UTF_8))
                 .render();
     }
 

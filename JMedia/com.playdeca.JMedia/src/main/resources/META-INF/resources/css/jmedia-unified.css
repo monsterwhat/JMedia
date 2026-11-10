@@ -1296,6 +1296,99 @@ tr.is-flac:hover td:first-child figure.image img {
     margin-top: 0.2rem;
 }
 
+/* ==================== GROUPED GENRE VIEW ==================== */
+
+.genre-view-toggle {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    margin: 0 0.75rem 0.75rem;
+    background: var(--mobile-surface);
+    border: 1px solid var(--mobile-border);
+    border-radius: 999px;
+}
+
+.genre-view-btn {
+    border: 0;
+    background: transparent;
+    color: var(--mobile-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.genre-view-btn.is-active {
+    background: var(--standard-accent, #48c78e);
+    color: #fff;
+}
+
+.genre-group-card .mobile-genre-icon {
+    color: var(--standard-accent, #48c78e);
+}
+
+.genre-family-header {
+    padding: 1rem 1rem 0;
+}
+
+.genre-family-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.genre-family-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--mobile-text);
+}
+
+.genre-family-meta {
+    font-size: 0.8rem;
+    color: var(--mobile-text-secondary);
+}
+
+.genre-family-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.genre-family-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.75rem 1rem 0.25rem;
+}
+
+.genre-family-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--mobile-border);
+    background: var(--mobile-surface);
+    color: var(--mobile-text);
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.genre-family-chip:hover {
+    background: var(--mobile-border);
+}
+
+.genre-family-chip-count {
+    font-size: 0.65rem;
+    opacity: 0.7;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 999px;
+    padding: 0.05rem 0.35rem;
+}
+
 /* ==================== MOBILE PLAYLIST GRID ==================== */
 
 .mobile-playlist-grid {

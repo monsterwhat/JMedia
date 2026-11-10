@@ -1,0 +1,24 @@
+<div class="genre-family-header">
+    <div class="genre-family-heading">
+        <h2 class="genre-family-title">{family.name}</h2>
+        <div class="genre-family-meta">{family.songCount} songs · {family.genreCount} genres</div>
+    </div>
+    <div class="genre-family-actions">
+        <button type="button" class="button is-small is-success is-rounded"
+                data-family-play="{family.key}">
+            <i class="pi pi-play"></i> Play all
+        </button>
+        <button type="button" class="button is-small is-light is-rounded"
+                data-family-queue="{family.key}">
+            <i class="pi pi-plus"></i> Queue all
+        </button>
+    </div>
+</div>
+<div class="genre-family-chips">
+    {#for g in family.subgenres}
+    <button type="button" class="genre-family-chip" data-genre-name="{g.name}">
+        <span class="genre-family-chip-name">{g.name}</span>
+        <span class="genre-family-chip-count">{g.songCount}</span>
+    </button>
+    {/for}
+</div>

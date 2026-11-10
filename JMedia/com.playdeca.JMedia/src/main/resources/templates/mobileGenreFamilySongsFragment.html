@@ -1,0 +1,27 @@
+{#if songs.isEmpty}
+<div class="scroll-end">— end —</div>
+{#else}
+{#for s in songs}
+<div class="mobile-song-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}"
+     data-playlist-id="0"
+     style="cursor: pointer; --i: {s_index};">
+    <div class="mobile-song-artwork">
+        <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
+    </div>
+    <div class="mobile-song-info">
+        <div class="mobile-song-title">{s.title ?: "Unknown Title"}</div>
+        <div class="mobile-song-artist">{s.artist ?: "Unknown Artist"}</div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-genre-group-songs-more/{profileId}?group={groupEncoded}&page={nextPage}&limit={limit}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}
+{/if}

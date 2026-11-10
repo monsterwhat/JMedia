@@ -5,6 +5,15 @@
 
     JMedia.MusicIndex = {};
 
+    let genreView = 'all';
+    try {
+        if (window.localStorage && localStorage.getItem('musicGenreView') === 'grouped') {
+            genreView = 'grouped';
+        }
+    } catch (err) {
+        console.warn('[MusicIndex] Could not read genre view preference', err);
+    }
+
     function _bcMusicHome() { window.loadMobilePlaylistSongs(0); }
     window._musicBreadcrumb = [{ label: 'Music', navigate: _bcMusicHome }];
     window.updateNavBackBtn = function() {
@@ -267,9 +276,11 @@
         else document.getElementById(`nav-playlist-${id}`)?.classList.add('active');
 
         document.getElementById('mobileSongList')?.classList.remove('is-hidden');
-        ['mobileQueueContent', 'mobileHistoryContent', 'mobileAlbumContent', 'mobileGenreContent', 'mobilePlaylistContent'].forEach(id => {
+        ['mobileQueueContent', 'mobileHistoryContent', 'mobileAlbumContent', 'mobileGenreContent',
+         'mobileGenreGroupedContent', 'mobileGenreFamilyContent', 'mobilePlaylistContent'].forEach(id => {
             document.getElementById(id)?.classList.add('is-hidden');
         });
+        document.getElementById('mobileGenreViewToggle')?.classList.add('is-hidden');
         hideAllSearchContainers();
         showSearchContainer('mobileMusicSearchContainer');
 
@@ -306,30 +317,34 @@
         const navItem = document.getElementById(`nav-music-${tab}`) || document.getElementById(`nav-${tab}`);
         if (navItem) navItem.classList.add('active');
 
-        ['mobileSongList', 'mobileAlbumContent', 'mobileGenreContent', 'mobilePlaylistContent', 'mobileQueueContent', 'mobileHistoryContent'].forEach(id => {
+        ['mobileSongList', 'mobileAlbumContent', 'mobileGenreContent', 'mobileGenreGroupedContent', 'mobileGenreFamilyContent', 'mobilePlaylistContent', 'mobileQueueContent', 'mobileHistoryContent'].forEach(id => {
             document.getElementById(id)?.classList.add('is-hidden');
         });
         hideAllSearchContainers();
+        document.getElementById('mobileGenreViewToggle')?.classList.add('is-hidden');
 
-        let targetId, endpoint, searchId;
-        if (tab === 'albums') {
-            targetId = 'mobileAlbumContent'; endpoint = 'mobile-albums'; searchId = 'mobileAlbumSearchContainer';
-        } else if (tab === 'genres') {
-            targetId = 'mobileGenreContent'; endpoint = 'mobile-genres'; searchId = 'mobileGenreSearchContainer';
-        } else if (tab === 'playlists') {
-            targetId = 'mobilePlaylistContent'; endpoint = 'mobile-playlists'; searchId = 'mobilePlaylistSearchContainer';
-        } else if (tab === 'queue') {
-            targetId = 'mobileQueueContent'; endpoint = 'mobile-queue-fragment'; searchId = 'mobileQueueSearchContainer';
+        if (tab === 'genres') {
+            document.getElementById('mobileGenreViewToggle')?.classList.remove('is-hidden');
+            window.switchGenreView(genreView);
         } else {
-            targetId = 'mobileHistoryContent'; endpoint = 'mobile-history-fragment'; searchId = 'mobileHistorySearchContainer';
-        }
+            let targetId, endpoint, searchId;
+            if (tab === 'albums') {
+                targetId = 'mobileAlbumContent'; endpoint = 'mobile-albums'; searchId = 'mobileAlbumSearchContainer';
+            } else if (tab === 'playlists') {
+                targetId = 'mobilePlaylistContent'; endpoint = 'mobile-playlists'; searchId = 'mobilePlaylistSearchContainer';
+            } else if (tab === 'queue') {
+                targetId = 'mobileQueueContent'; endpoint = 'mobile-queue-fragment'; searchId = 'mobileQueueSearchContainer';
+            } else {
+                targetId = 'mobileHistoryContent'; endpoint = 'mobile-history-fragment'; searchId = 'mobileHistorySearchContainer';
+            }
 
-        showSearchContainer(searchId);
-        const targetEl = document.getElementById(targetId);
-        if (targetEl) {
-            targetEl.classList.remove('is-hidden');
-            const profileId = JMedia.Helpers.getActiveProfileId();
-            if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/${endpoint}/${profileId}`, { target: `#${targetId}`, swap: 'innerHTML' });
+            showSearchContainer(searchId);
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) {
+                targetEl.classList.remove('is-hidden');
+                const profileId = JMedia.Helpers.getActiveProfileId();
+                if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/${endpoint}/${profileId}`, { target: `#${targetId}`, swap: 'innerHTML' });
+            }
         }
         if (window.Breadcrumbs) {
             (function(t) {
@@ -343,6 +358,108 @@
         }
         updateNavBackBtn();
     };
+
+    window.switchGenreView = function(view) {
+        genreView = view === 'grouped' ? 'grouped' : 'all';
+        try {
+            if (window.localStorage) localStorage.setItem('musicGenreView', genreView);
+        } catch (err) {
+            console.warn('[MusicIndex] Could not save genre view preference', err);
+        }
+
+        const toggle = document.getElementById('mobileGenreViewToggle');
+        if (toggle) {
+            toggle.classList.remove('is-hidden');
+            toggle.querySelectorAll('[data-genre-view]').forEach(function(btn) {
+                btn.classList.toggle('is-active', btn.dataset.genreView === genreView);
+            });
+        }
+
+        const all = document.getElementById('mobileGenreContent');
+        const grouped = document.getElementById('mobileGenreGroupedContent');
+        const family = document.getElementById('mobileGenreFamilyContent');
+        const search = document.getElementById('mobileGenreSearchContainer');
+        if (family) family.classList.add('is-hidden');
+
+        const profileId = JMedia.Helpers.getActiveProfileId();
+        if (genreView === 'grouped') {
+            if (all) all.classList.add('is-hidden');
+            if (grouped) grouped.classList.remove('is-hidden');
+            if (search) search.classList.add('is-hidden');
+            if (window.htmx) {
+                window.htmx.ajax('GET', `/api/music/ui/genre-groups/${profileId}`, {
+                    target: '#mobileGenreGroupedContent', swap: 'innerHTML'
+                });
+            }
+        } else {
+            if (grouped) grouped.classList.add('is-hidden');
+            if (all) all.classList.remove('is-hidden');
+            if (search) search.classList.remove('is-hidden');
+            if (window.htmx) {
+                window.htmx.ajax('GET', `/api/music/ui/mobile-genres/${profileId}`, {
+                    target: '#mobileGenreContent', swap: 'innerHTML'
+                });
+            }
+        }
+    };
+
+    window.loadGenreFamily = function(groupKey, groupName) {
+        if (!groupKey) return;
+        document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
+        document.getElementById('nav-music-genres')?.classList.add('active');
+
+        ['mobileSongList', 'mobileAlbumContent', 'mobilePlaylistContent', 'mobileQueueContent',
+         'mobileHistoryContent', 'mobileGenreContent', 'mobileGenreGroupedContent'].forEach(id => {
+            document.getElementById(id)?.classList.add('is-hidden');
+        });
+        hideAllSearchContainers();
+        document.getElementById('mobileGenreViewToggle')?.classList.add('is-hidden');
+
+        const family = document.getElementById('mobileGenreFamilyContent');
+        if (family) {
+            family.classList.remove('is-hidden');
+            family.innerHTML = '<div class="skeleton-shell" style="padding:1rem;">' +
+                '<div class="skeleton-block" style="height:32px;width:40%;border-radius:8px;"></div>' +
+                '<div class="skeleton-block mt-3" style="height:48px;border-radius:24px;"></div></div>';
+        }
+
+        const profileId = JMedia.Helpers.getActiveProfileId();
+        if (window.htmx) {
+            window.htmx.ajax('GET', `/api/music/ui/genre-family/${profileId}?group=${encodeURIComponent(groupKey)}`, {
+                target: '#mobileGenreFamilyContent', swap: 'innerHTML'
+            });
+        }
+
+        musicBreadcrumbPush(groupName || 'Genre group', function() {
+            window.loadGenreFamily(groupKey, groupName);
+        });
+        updateNavBackBtn();
+    };
+
+    function runGenreFamilyAction(groupKey, mode) {
+        if (!groupKey) return;
+        const profileId = JMedia.Helpers.getActiveProfileId();
+        fetch(`/api/music/queue-genre-family/${profileId}/${encodeURIComponent(groupKey)}?mode=${mode}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' }
+        })
+            .then(function(res) {
+                if (!res.ok) throw new Error('HTTP error! status: ' + res.status);
+                return res.json();
+            })
+            .then(function() {
+                if (window.showToast) {
+                    window.showToast(mode === 'queue' ? 'Genre group added to queue' : 'Playing genre group', 'success');
+                }
+            })
+            .catch(function(err) {
+                console.error('[MusicIndex] Genre group action failed:', err);
+                if (window.showToast) window.showToast('Failed to play genre group', 'error');
+            });
+    }
+
+    window.playGenreFamily = function(groupKey) { runGenreFamilyAction(groupKey, 'play'); };
+    window.queueGenreFamily = function(groupKey) { runGenreFamilyAction(groupKey, 'queue'); };
 
     // Long press is owned by JMedia.MobileContextMenu (js/jmedia/MobileContextMenu.js).
     // This file used to run a second, independent long-press timer that opened
@@ -479,9 +596,11 @@
         document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-music')?.classList.add('active');
 
-        ['mobileQueueContent', 'mobileHistoryContent', 'mobileAlbumContent', 'mobileGenreContent', 'mobilePlaylistContent'].forEach(id => {
+        ['mobileQueueContent', 'mobileHistoryContent', 'mobileAlbumContent', 'mobileGenreContent',
+         'mobileGenreGroupedContent', 'mobileGenreFamilyContent', 'mobilePlaylistContent'].forEach(id => {
             document.getElementById(id)?.classList.add('is-hidden');
         });
+        document.getElementById('mobileGenreViewToggle')?.classList.add('is-hidden');
         hideAllSearchContainers();
         showSearchContainer('mobileMusicSearchContainer');
 
@@ -649,6 +768,35 @@
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
         else fn();
     })(function() {
+        document.addEventListener('click', function(e) {
+            const target = e.target;
+            if (!target || !target.closest) return;
+
+            const viewBtn = target.closest('[data-genre-view]');
+            if (viewBtn) {
+                e.preventDefault();
+                window.switchGenreView(viewBtn.dataset.genreView);
+                return;
+            }
+            const chip = target.closest('.genre-family-chip');
+            if (chip) {
+                e.preventDefault();
+                window.loadGenreSongs(chip.dataset.genreName);
+                return;
+            }
+            const play = target.closest('[data-family-play]');
+            if (play) {
+                e.preventDefault();
+                window.playGenreFamily(play.dataset.familyPlay);
+                return;
+            }
+            const queue = target.closest('[data-family-queue]');
+            if (queue) {
+                e.preventDefault();
+                window.queueGenreFamily(queue.dataset.familyQueue);
+            }
+        });
+
         const coverContainer = document.getElementById('songCoverImageContainer');
         if (coverContainer) {
             coverContainer.style.cursor = 'pointer';

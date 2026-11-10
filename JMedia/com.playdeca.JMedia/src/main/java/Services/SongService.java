@@ -14,7 +14,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -865,6 +870,13 @@ public class SongService {
 
     public record PaginatedGenres(List<Object[]> genres, long totalCount) {}
 
+    public record GenreFamilyCard(String key, String name, long songCount, long genreCount) {}
+
+    public record GenreFamilyGenre(String name, String key, long songCount) {}
+
+    public record GenreFamilyDetail(String key, String name, long songCount,
+                                    long genreCount, List<GenreFamilyGenre> subgenres) {}
+
     /**
      * Normalizes a genre string for consistent matching across genre browsing and search.
      * Lowercases, replaces separators ('/', '&', ',', ';', '|') with a single space,
@@ -953,6 +965,134 @@ public class SongService {
             q.setParameter("search", "%" + search.toLowerCase() + "%");
         }
         return q.getSingleResult();
+    }
+
+    // ── Grouped genres (parent families) ──
+
+    private List<Object[]> loadGenreCounts() {
+        return em.createQuery(
+                "SELECT sg.genreKey, sg.genreName, COUNT(DISTINCT sg.song.id) FROM SongGenre sg " +
+                "GROUP BY sg.genreKey, sg.genreName ORDER BY sg.genreName",
+                Object[].class).getResultList();
+    }
+
+    public List<GenreFamilyCard> findGenreFamilies() {
+        List<Object[]> rows = loadGenreCounts();
+        Map<String, Set<String>> familyKeys = new LinkedHashMap<>();
+        Set<String> unmatched = new LinkedHashSet<>();
+
+        for (Object[] row : rows) {
+            String key = (String) row[0];
+            String name = (String) row[1];
+            List<Utils.GenreFamilies.Family> matches = Utils.GenreFamilies.match(key, name);
+            if (matches.isEmpty()) {
+                unmatched.add(key);
+                continue;
+            }
+            for (Utils.GenreFamilies.Family family : matches) {
+                familyKeys.computeIfAbsent(family.key(), k -> new LinkedHashSet<>()).add(key);
+            }
+        }
+
+        List<GenreFamilyCard> cards = new ArrayList<>();
+        for (Utils.GenreFamilies.Family family : Utils.GenreFamilies.all()) {
+            Set<String> keys = familyKeys.get(family.key());
+            if (keys == null || keys.isEmpty()) continue;
+            long songCount = countDistinctSongs(keys);
+            if (songCount == 0) continue;
+            cards.add(new GenreFamilyCard(family.key(), family.name(), songCount, keys.size()));
+        }
+        if (!unmatched.isEmpty()) {
+            long otherSongs = countDistinctSongs(unmatched);
+            if (otherSongs > 0) {
+                cards.add(new GenreFamilyCard("other", "Other genres", otherSongs, unmatched.size()));
+            }
+        }
+        return cards;
+    }
+
+    public GenreFamilyDetail findGenreFamily(String familyKey) {
+        Utils.GenreFamilies.Family family = Utils.GenreFamilies.find(familyKey);
+        if (family == null) return null;
+
+        List<GenreFamilyGenre> subgenres = new ArrayList<>();
+        Set<String> keys = new LinkedHashSet<>();
+        for (Object[] row : loadGenreCounts()) {
+            String key = (String) row[0];
+            String name = (String) row[1];
+            long count = ((Number) row[2]).longValue();
+            boolean matches = Utils.GenreFamilies.match(key, name).stream()
+                    .anyMatch(f -> f.key().equals(family.key()));
+            if (!matches) continue;
+            keys.add(key);
+            subgenres.add(new GenreFamilyGenre(name, key, count));
+        }
+        if (keys.isEmpty()) return null;
+        long songCount = countDistinctSongs(keys);
+        return new GenreFamilyDetail(family.key(), family.name(), songCount, keys.size(), subgenres);
+    }
+
+    public PaginatedSongs findSongsByGenreFamily(int page, int limit, String familyKey,
+                                                  String sortBy, String sortDirection) {
+        Set<String> keys = genreKeysForFamily(familyKey);
+        if (keys.isEmpty()) {
+            return new PaginatedSongs(List.of(), 0);
+        }
+
+        String order = " ORDER BY ";
+        switch (sortBy) {
+            case "title": default: order += "s.title"; break;
+            case "artist": order += "s.artist"; break;
+            case "album": order += "s.album"; break;
+            case "duration": order += "s.durationSeconds"; break;
+        }
+        order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
+
+        List<SongListItem> songs = em.createQuery(
+                "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+                "FROM Song s JOIN s.genres sg WHERE sg.genreKey IN :keys" + order, SongListItem.class)
+                .setParameter("keys", keys)
+                .setFirstResult((page - 1) * limit)
+                .setMaxResults(limit)
+                .getResultList();
+
+        long total = em.createQuery(
+                "SELECT COUNT(DISTINCT s) FROM Song s JOIN s.genres sg WHERE sg.genreKey IN :keys", Long.class)
+                .setParameter("keys", keys)
+                .getSingleResult();
+
+        return new PaginatedSongs(songs, total);
+    }
+
+    public List<Long> findSongIdsByGenreFamily(String familyKey) {
+        Set<String> keys = genreKeysForFamily(familyKey);
+        if (keys.isEmpty()) return List.of();
+        return em.createQuery(
+                "SELECT DISTINCT s.id FROM Song s JOIN s.genres sg WHERE sg.genreKey IN :keys", Long.class)
+                .setParameter("keys", keys)
+                .getResultList();
+    }
+
+    private Set<String> genreKeysForFamily(String familyKey) {
+        Utils.GenreFamilies.Family family = Utils.GenreFamilies.find(familyKey);
+        Set<String> keys = new LinkedHashSet<>();
+        if (family == null) return keys;
+        for (Object[] row : loadGenreCounts()) {
+            String key = (String) row[0];
+            String name = (String) row[1];
+            boolean matches = Utils.GenreFamilies.match(key, name).stream()
+                    .anyMatch(f -> f.key().equals(family.key()));
+            if (matches) keys.add(key);
+        }
+        return keys;
+    }
+
+    private long countDistinctSongs(Collection<String> keys) {
+        if (keys == null || keys.isEmpty()) return 0;
+        return em.createQuery(
+                "SELECT COUNT(DISTINCT sg.song.id) FROM SongGenre sg WHERE sg.genreKey IN :keys", Long.class)
+                .setParameter("keys", keys)
+                .getSingleResult();
     }
 
     // ── Songs by genre (for genre drill-down) ──
