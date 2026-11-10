@@ -354,6 +354,14 @@
             const volumeIcon = document.getElementById('volumeIcon');
             
             if (!volumeBtn || !volumeSlider || !volumeIcon) return;
+
+            // ResponsivePlayer.init() can run more than once (auto-init and
+            // initWhenReady). Binding again added a second click handler, so one
+            // click opened and immediately closed the popup. Mark the element so
+            // the handlers are attached exactly once; a replaced DOM node has no
+            // marker and gets bound normally.
+            if (volumeBtn.dataset.volumeBound === 'true') return;
+            volumeBtn.dataset.volumeBound = 'true';
             
             let previousVolume = 0.7;
             let sliderTimeout;

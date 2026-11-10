@@ -321,34 +321,40 @@
         },
 
         bindClearQueue: function() {
-            (window.__whenDomReady || function (fn) {
-                if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
-                else fn();
-            })(() => {
-                const clearBtn = document.getElementById('clearQueueBtn');
-                if (clearBtn) {
-                    clearBtn.addEventListener('click', () => {
-                        const profileId = JMedia.Helpers.getActiveProfileId();
-                        fetch(`/api/music/queue/clear/${profileId}`, {
-                            method: 'POST',
-                            headers: {'Accept': 'application/json'}
-                        })
-                            .then(response => {
-                                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                                return response.json();
-                            })
-                            .then(() => {
-                                if (window.updateQueueCount) window.updateQueueCount(0);
-                                // One fragment render is enough; the old code wrote
-                                // data.html (undefined) and then reloaded separately.
-                                this.loadPage(1);
-                            })
-                            .catch(error => {
-                                console.error('[QueueManager] clearQueue failed:', error);
-                            });
-                    });
-                }
+            // Delegate on the document: QueueManager can initialize before the
+            // music view (and its #clearQueueBtn) is inserted, which left the
+            // button with no click handler. Delegation also survives fragment
+            // swaps and repeated init calls.
+            if (window.__clearQueueBinding) return;
+            window.__clearQueueBinding = true;
+
+            document.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('#clearQueueBtn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                this.clearQueue();
             });
+        },
+
+        clearQueue: function() {
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            fetch(`/api/music/queue/clear/${profileId}`, {
+                method: 'POST',
+                headers: {'Accept': 'application/json'}
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(() => {
+                    if (window.updateQueueCount) window.updateQueueCount(0);
+                    // One fragment render is enough; the old code wrote
+                    // data.html (undefined) and then reloaded separately.
+                    this.loadPage(1);
+                })
+                .catch(error => {
+                    console.error('[QueueManager] clearQueue failed:', error);
+                });
         }
     };
 
