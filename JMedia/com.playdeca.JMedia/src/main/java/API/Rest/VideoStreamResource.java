@@ -682,6 +682,9 @@ public class VideoStreamResource {
         // initLen + (fileSize - baseOffset). When baseOffset == 0 the file already starts with the
         // init segment, so no prefix is added and the total stays the plain file size.
         long initLen = 0;
+        // Firefox (Media Foundation) misreads ffmpeg's SBR-flagged AAC config; clear
+        // it before this segment is served, even while it is still being written.
+        segmentCacheService.ensureAacConfigNormalized(tempFile);
         if (baseOffset > 0) {
             try {
                 initLen = FragmentedMp4Seeker.firstFragmentOffset(tempFile);

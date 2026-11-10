@@ -307,7 +307,32 @@ public class SegmentCacheService {
      * sync extension) and does not change any box size, so every byte offset in the
      * segment stays valid.
      */
-    private void normalizeAacConfig(java.nio.file.Path segmentFile) {
+    /** Normalizes each segment's AAC config at most once (serve-time safety net). */
+    private final java.util.Set<String> aacConfigNormalized =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Served segments can still be growing, so the completion hook below may not
+     * have run yet. Normalizing before the first serve means Firefox never sees
+     * the SBR-flagged config, even on a segment that is still being written.
+     */
+    public void ensureAacConfigNormalized(java.nio.file.Path segmentFile) {
+        if (segmentFile == null) {
+            return;
+        }
+        String key = segmentFile.toAbsolutePath().toString();
+        if (aacConfigNormalized.contains(key)) {
+            return;
+        }
+        if (!Files.exists(segmentFile)) {
+            return;
+        }
+        if (normalizeAacConfig(segmentFile)) {
+            aacConfigNormalized.add(key);
+        }
+    }
+
+    private boolean normalizeAacConfig(java.nio.file.Path segmentFile) {
         try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(segmentFile.toFile(), "rw")) {
             long length = raf.length();
             long moovStart = -1;
@@ -337,22 +362,24 @@ public class SegmentCacheService {
                 pos += size;
             }
             if (moovStart < 0 || moovSize <= 0 || moovSize > 4_000_000) {
-                return;
+                return false;
             }
             byte[] moov = new byte[moovSize];
             raf.seek(moovStart);
             raf.readFully(moov);
             int cfg = findAacSpecificConfig(moov, 0, moov.length);
             if (cfg < 0 || cfg + 5 > moov.length) {
-                return;
+                return true;
             }
             if ((moov[cfg + 2] & 0xFF) == 0x56 && (moov[cfg + 3] & 0xFF) == 0xE5 && moov[cfg + 4] == 0) {
                 raf.seek(moovStart + cfg + 2);
                 raf.write(new byte[]{0, 0, 0});
                 LOG.info("Cleared SBR sync extension in AAC config of {}", segmentFile.getFileName());
             }
+            return true;
         } catch (Exception e) {
             LOG.warn("Could not normalize AAC config in {}: {}", segmentFile, e.getMessage());
+            return false;
         }
     }
 
