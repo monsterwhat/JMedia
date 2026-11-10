@@ -4915,9 +4915,13 @@ input[type="range"]::-webkit-slider-thumb {
 .mobile-song-item.long-press-active,
 .mobile-queue-item.long-press-active,
 .mobile-album-card.long-press-active,
-.mobile-genre-card.long-press-active {
-    transform: scale(0.98);
-    opacity: 0.7;
+.mobile-genre-card.long-press-active,
+.mobile-playlist-card.long-press-active {
+    /* The entrance animation (fadeInUp, fill-mode both) keeps opacity:1 and
+       transform:none after it ends, which outranks a normal declaration. */
+    animation: none !important;
+    transform: scale(0.98) !important;
+    opacity: 0.7 !important;
     transition: transform 0.1s ease, opacity 0.1s ease;
 }
 
@@ -4932,6 +4936,8 @@ input[type="range"]::-webkit-slider-thumb {
 .mobile-album-card *,
 .mobile-genre-card,
 .mobile-genre-card *,
+.mobile-playlist-card,
+.mobile-playlist-card *,
 .mobile-context-menu,
 .mobile-context-menu * {
     -webkit-touch-callout: none;

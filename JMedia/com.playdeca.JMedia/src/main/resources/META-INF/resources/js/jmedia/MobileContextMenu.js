@@ -30,7 +30,7 @@
             document.body.addEventListener('click', this.handleOutsideClick.bind(this));
             document.body.addEventListener('click', (e) => {
                 if (this._suppressCardClickUntil && this._suppressCardClickUntil > Date.now()) {
-                    const card = e.target && e.target.closest ? e.target.closest('.mobile-album-card, .mobile-genre-card') : null;
+                    const card = e.target && e.target.closest ? e.target.closest('.mobile-album-card, .mobile-genre-card, .mobile-playlist-card') : null;
                     if (card) {
                         e.preventDefault();
                         e.stopPropagation();
@@ -86,6 +86,17 @@
                     element: el
                 };
             }
+            if (el.classList && el.classList.contains('mobile-playlist-card')) {
+                const playlistId = el.dataset.playlistId;
+                if (!playlistId) return null;
+                return {
+                    type: 'playlist',
+                    value: playlistId,
+                    playlistId: playlistId,
+                    name: el.dataset.playlistName || '',
+                    element: el
+                };
+            }
             const songId = el.dataset ? el.dataset.songId : null;
             if (!songId) return null;
             return {
@@ -117,7 +128,7 @@
 
         handleTouchStart(e) {
             if (e.touches && e.touches.length > 1) return;
-            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card, .mobile-playlist-card');
             if (!target) return;
             this.activeElement = target;
             target.classList.add('long-press-active');
@@ -133,7 +144,7 @@
 
         handleContextMenu(e) {
             e.preventDefault();
-            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card, .mobile-playlist-card');
             if (!target) return;
             const t = this.buildTarget(target);
             if (!t) return;
@@ -418,6 +429,70 @@
                         .catch(err => {
                             console.error('[MobileContextMenu] Failed to load collection songs:', err);
                             if (window.showToast) window.showToast('Failed to load songs', 'error');
+                        });
+                    break;
+                }
+                case 'play-playlist': {
+                    const profileId = JMedia.Helpers.getActiveProfileId();
+                    const playlistId = t.playlistId || t.value;
+                    if (!playlistId) {
+                        console.warn('[MobileContextMenu] No playlist id to play');
+                        break;
+                    }
+                    window.fetch(`/api/music/ui/playback/queue-all/${profileId}/${playlistId}`, { method: 'POST' })
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                            return res.json().catch(() => ({}));
+                        })
+                        .then(() => {
+                            if (window.showToast) window.showToast('Playing playlist', 'success');
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: { queueSize: (JMedia.PlaybackApi && JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0), queueChanged: true, queueLengthChanged: true }
+                            }));
+                        })
+                        .catch(err => {
+                            console.error('[MobileContextMenu] Failed to play playlist:', err);
+                            if (window.showToast) window.showToast('Failed to play playlist', 'error');
+                        });
+                    break;
+                }
+                case 'queue-playlist': {
+                    const profileId = JMedia.Helpers.getActiveProfileId();
+                    const playlistId = t.playlistId || t.value;
+                    if (!playlistId) {
+                        console.warn('[MobileContextMenu] No playlist id to queue');
+                        break;
+                    }
+                    window.fetch(`/api/music/playlists/${playlistId}/song-ids`)
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                            return res.json();
+                        })
+                        .then(data => {
+                            const ids = data && Array.isArray(data.songIds) ? data.songIds : [];
+                            if (!ids.length) {
+                                console.warn('[MobileContextMenu] Playlist has no songs to queue');
+                                return null;
+                            }
+                            return window.fetch(`/api/music/queue/add-many/${profileId}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ songIds: ids })
+                            }).then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res;
+                            });
+                        })
+                        .then(res => {
+                            if (!res) return;
+                            if (window.showToast) window.showToast('Playlist added to queue', 'success');
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: { queueSize: (JMedia.PlaybackApi && JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0), queueChanged: true, queueLengthChanged: true }
+                            }));
+                        })
+                        .catch(err => {
+                            console.error('[MobileContextMenu] Failed to queue playlist:', err);
+                            if (window.showToast) window.showToast('Failed to queue playlist', 'error');
                         });
                     break;
                 }

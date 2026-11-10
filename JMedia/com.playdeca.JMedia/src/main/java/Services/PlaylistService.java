@@ -312,6 +312,16 @@ public class PlaylistService {
     }
 
     @Transactional
+    public List<Long> getSongIds(Long playlistId) {
+        if (playlistId == null) {
+            return List.of();
+        }
+        return em.createQuery("SELECT s.id FROM Playlist p JOIN p.songs s WHERE p.id = :id", Long.class)
+                .setParameter("id", playlistId)
+                .getResultList();
+    }
+
+    @Transactional
     public void addSongsToPlaylist(Playlist playlist, List<Song> songs) {
         if (playlist != null && songs != null && !songs.isEmpty()) {
             Playlist managedPlaylist = find(playlist.id); // find is access-aware

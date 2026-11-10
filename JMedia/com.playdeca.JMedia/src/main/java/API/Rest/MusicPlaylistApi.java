@@ -204,6 +204,25 @@ public class MusicPlaylistApi {
         return addSongToPlaylist(pid, sid);
     }
 
+    @GET
+    @Path("/{playlistId}/song-ids")
+    public Response getPlaylistSongIds(@PathParam("playlistId") Long playlistId) {
+        try {
+            if (playlistService.find(playlistId) == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Playlist not found"))
+                        .build();
+            }
+            List<Long> ids = playlistService.getSongIds(playlistId);
+            return Response.ok(Map.of("songIds", ids, "count", ids.size())).build();
+        } catch (Exception e) {
+            LOG.error("Error loading playlist song ids", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error loading playlist songs: " + e.getMessage()))
+                    .build();
+        }
+    }
+
     @POST
     @Path("/{playlistId}/songs/bulk")
     @Consumes(MediaType.APPLICATION_JSON)
