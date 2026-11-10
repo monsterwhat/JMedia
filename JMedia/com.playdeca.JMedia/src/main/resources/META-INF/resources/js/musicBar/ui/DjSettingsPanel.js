@@ -36,7 +36,7 @@
     const PANEL_HTML = `
         <div class="dj-settings-panel">
             <div class="dj-settings-header">
-                <span class="dj-settings-title"><i class="pi pi-sliders-h"></i> Playback Settings</span>
+                <span class="dj-settings-title"><i class="pi pi-sliders-h"></i> Smart Shuffle</span>
                 <button type="button" class="dj-settings-close" data-dj-action="close" title="Close (Esc)"><i class="pi pi-times"></i></button>
             </div>
             <div class="dj-settings-body">
@@ -476,7 +476,7 @@
             log('Load failed, using defaults:', err);
             syncState();
             if (window.showToast) {
-                window.showToast('Failed to load DJ settings', 'error', 4000);
+                window.showToast('Failed to load Smart Shuffle settings', 'error', 4000);
             }
         });
 
@@ -636,16 +636,6 @@
             return;
         }
 
-        if (e.target.closest('#djModeBtn')) {
-            const modeOn = window.StateManager ? !!window.StateManager.getState().djModeActive : false;
-            if (modeOn) {
-                open();
-            } else {
-                close();
-            }
-            return;
-        }
-
         if (e.target.closest('#djModeIndicator')) {
             toggle();
             return;
@@ -767,6 +757,17 @@
         doc.addEventListener('input', onInput, false);
         doc.addEventListener('change', onChange, false);
         doc.addEventListener('keydown', onKeyDown, false);
+
+        // The menu belongs to Smart Shuffle: open it when the user switches the
+        // shuffle mode to SMART_SHUFFLE. DJ Mode no longer opens it, and server
+        // broadcasts / restored state must not pop it open on their own.
+        window.addEventListener('statePropertyChanged', function(e) {
+            if (!e.detail || e.detail.property !== 'shuffleMode') return;
+            if (e.detail.source !== 'playbackController') return;
+            if (e.detail.newValue === 'SMART_SHUFFLE') {
+                open();
+            }
+        });
     }
 
     init();

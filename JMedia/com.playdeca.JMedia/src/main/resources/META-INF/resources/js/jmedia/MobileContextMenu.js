@@ -439,7 +439,7 @@
                         console.warn('[MobileContextMenu] No playlist id to play');
                         break;
                     }
-                    window.fetch(`/api/music/playback/queue-all/${profileId}/${playlistId}`, { method: 'POST' })
+                    window.fetch(`/api/music/queue-playlist/${profileId}/${playlistId}`, { method: 'POST' })
                         .then(res => {
                             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                             return res.json().catch(() => ({}));

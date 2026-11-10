@@ -239,7 +239,7 @@
             console.warn('[MusicIndex] Play All: no active profile');
             return;
         }
-        fetch(`/api/music/playback/queue-all/${profileId}/${playlistId}`, { method: 'POST' })
+        fetch(`/api/music/queue-playlist/${profileId}/${playlistId}`, { method: 'POST' })
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 return response.json().catch(() => ({}));

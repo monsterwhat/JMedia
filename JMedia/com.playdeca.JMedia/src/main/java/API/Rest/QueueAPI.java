@@ -54,6 +54,17 @@ public class QueueAPI {
     }
 
     @POST
+    @Path("/queue-playlist/{profileId}/{playlistId}")
+    @Consumes(MediaType.WILDCARD)
+    public Response queuePlaylist(@PathParam("profileId") Long profileId,
+                                  @PathParam("playlistId") Long playlistId,
+                                  @Context HttpHeaders headers) {
+        // Same behavior as /playback/queue-all, but that path is shadowed by
+        // PlaybackAPI's class prefix (/api/music/playback) and answers 405.
+        return queueAllSongs(profileId, playlistId, headers);
+    }
+
+    @POST
     @Path("/playback/queue-all/{profileId}/{id}")
     @Consumes(MediaType.WILDCARD)
     public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
