@@ -79,7 +79,9 @@ public class HlsResource {
         // Wait for segment to be available (up to 2s — hls.js retries 503 with backoff)
         long deadline = System.currentTimeMillis() + 2000;
         java.nio.file.Path segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
-        
+        long lastLen = -1;
+        long lastLenChangeAt = System.currentTimeMillis();
+
         while (System.currentTimeMillis() < deadline) {
             if (segmentPath != null && Files.exists(segmentPath)) {
                 // WebVTT needs X-TIMESTAMP-MAP for Apple players; ensured on serve.
@@ -87,7 +89,20 @@ public class HlsResource {
                     java.io.File vtt = hlsService.getVttSegmentFile(sessionId, variant, segment);
                     if (vtt != null) return Response.ok(vtt).type(contentType).build();
                 } else {
-                    return Response.ok(segmentPath.toFile()).type(contentType).build();
+                    // The file exists as soon as ffmpeg opens it, before the last
+                    // fragments are written. Serving at that moment hands the player
+                    // a truncated segment - the classic "audio is choppy / glitches
+                    // at some segment boundaries" symptom. Only serve once the size
+                    // has stopped growing.
+                    long len = safeSize(segmentPath);
+                    long now = System.currentTimeMillis();
+                    if (len > 0 && len == lastLen && now - lastLenChangeAt >= 150) {
+                        return Response.ok(segmentPath.toFile()).type(contentType).build();
+                    }
+                    if (len != lastLen) {
+                        lastLen = len;
+                        lastLenChangeAt = now;
+                    }
                 }
             }
             try {
@@ -108,10 +123,22 @@ public class HlsResource {
     @Produces("video/mp4")
     public Response getInitSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant) {
         long deadline = System.currentTimeMillis() + 5000;
+        long lastLen = -1;
+        long lastLenChangeAt = System.currentTimeMillis();
         while (System.currentTimeMillis() < deadline) {
             java.nio.file.Path initPath = hlsService.getInitSegmentPath(sessionId, variant);
             if (initPath != null && Files.exists(initPath)) {
-                return Response.ok(initPath.toFile()).type("video/mp4").build();
+                // Same truncation guard as media segments: the init file exists
+                // before its boxes are completely written.
+                long len = safeSize(initPath);
+                long now = System.currentTimeMillis();
+                if (len > 0 && len == lastLen && now - lastLenChangeAt >= 150) {
+                    return Response.ok(initPath.toFile()).type("video/mp4").build();
+                }
+                if (len != lastLen) {
+                    lastLen = len;
+                    lastLenChangeAt = now;
+                }
             }
             try {
                 Thread.sleep(100);
@@ -121,5 +148,14 @@ public class HlsResource {
             }
         }
         return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
+    }
+    /** File size, or -1 when the file cannot be stat'ed (still being written). */
+    private static long safeSize(java.nio.file.Path path) {
+        try {
+            return java.nio.file.Files.size(path);
+        } catch (java.io.IOException e) {
+            LOG.debug("Could not stat HLS media file {}: {}", path, e.getMessage());
+            return -1L;
+        }
     }
 }
