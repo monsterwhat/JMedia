@@ -84,7 +84,10 @@ public class StreamAPI {
 
     @GET
     @Path("/{profileId}/{id}")
-    @Produces({"audio/mpeg", "application/octet-stream"})
+    // Advertise wildcard: iOS Safari asks for FLAC with "Accept: audio/flac"
+    // (and some versions "audio/x-flac"). Listing only audio/mpeg made those
+    // requests fail with 406 before the response type was set below.
+    @Produces(MediaType.WILDCARD)
     public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader, @Context HttpHeaders headers) {
         try {
             // Validate profileId matches the authenticated user
@@ -204,6 +207,9 @@ public class StreamAPI {
             String contentType = getContentType(file.getName());
             Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
                     .header("Accept-Ranges", "bytes")
+                    // AVFoundation on iOS refuses FLAC over a chunked response:
+                    // it needs the exact body length to seek/parse the stream.
+                    .header("Content-Length", contentLength)
                     .header("Cache-Control", "public,max-age=3600")
                     .type(contentType)
                     .entity(stream);
