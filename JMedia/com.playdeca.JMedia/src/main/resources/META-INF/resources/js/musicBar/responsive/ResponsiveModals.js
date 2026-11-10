@@ -426,6 +426,10 @@
         showContextMenu: function(songId, target, isLongPress = false, isDesktop = false, mousePosition = null) {
             const menu = this.elements.contextMenu;
             if (!menu) return;
+            if (window.getSelection) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount) selection.removeAllRanges();
+            }
             
             this.state.contextMenuSongId = songId;
             this.state.contextMenuVisible = true;

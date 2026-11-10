@@ -106,6 +106,12 @@
         showContextMenu(songId, isDesktop = false) {
             const menu = document.getElementById('mobileContextMenu');
             if (!menu) return;
+            // iOS keeps the long-press text selection (and its handles) alive
+            // after the timer fires; clear it so it never paints over the menu.
+            if (window.getSelection) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount) selection.removeAllRanges();
+            }
             // Only one menu may be open: the legacy #customContextMenu used to be
             // opened by a second long-press handler and both stayed visible.
             const legacy = document.getElementById('customContextMenu');

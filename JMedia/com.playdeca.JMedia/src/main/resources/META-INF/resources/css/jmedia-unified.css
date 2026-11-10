@@ -4907,3 +4907,37 @@ input[type="range"]::-webkit-slider-thumb {
         z-index: 3000 !important;
     }
 }
+
+/* ==================== MOBILE LONG-PRESS FEEDBACK ==================== */
+/* The JS adds .long-press-active while a finger is held. The rule used to live
+   in the old mobile stylesheet and was lost in the consolidation, so the card
+   had no selected state. Keep the original effect (slight shrink + dim). */
+.mobile-song-item.long-press-active,
+.mobile-queue-item.long-press-active,
+.mobile-album-card.long-press-active,
+.mobile-genre-card.long-press-active {
+    transform: scale(0.98);
+    opacity: 0.7;
+    transition: transform 0.1s ease, opacity 0.1s ease;
+}
+
+/* iOS: a long press on a song/card must not select its text or pop the native
+   callout over the context menu. Scoped to music cards and the menu itself so
+   inputs and other pages keep normal selection. */
+.mobile-song-item,
+.mobile-song-item *,
+.mobile-queue-item,
+.mobile-queue-item *,
+.mobile-album-card,
+.mobile-album-card *,
+.mobile-genre-card,
+.mobile-genre-card *,
+.mobile-context-menu,
+.mobile-context-menu * {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
