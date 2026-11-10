@@ -624,6 +624,37 @@ public class TranscodingService {
         return -1;
     }
 
+    /**
+     * Returns the AudioTrack that an ffmpeg audio-relative selector (0:a:N) maps
+     * to, or null when the selector is negative (default mapping) or the track
+     * list cannot be loaded.
+     */
+    private AudioTrack findAudioTrackBySelector(Video video, int selector) {
+        if (video == null || selector < 0) {
+            return null;
+        }
+        List<AudioTrack> tracks;
+        try {
+            if (video.audioTracks != null && !video.audioTracks.isEmpty()) {
+                tracks = video.audioTracks;
+            } else {
+                tracks = AudioTrack.list("video.id", video.id);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to load audio tracks for video {} while resolving selector {}: {}", video.id, selector, e.getMessage(), e);
+            return null;
+        }
+        if (tracks == null) {
+            return null;
+        }
+        for (AudioTrack track : tracks) {
+            if (toAudioOrdinal(tracks, track) == selector) {
+                return track;
+            }
+        }
+        return null;
+    }
+
     private int toAudioOrdinal(List<AudioTrack> tracks, AudioTrack target) {
         List<AudioTrack> sorted = tracks.stream()
                 .filter(at -> at.trackIndex != null)
@@ -1669,9 +1700,35 @@ public class TranscodingService {
             }
         }
 
+        // Which audio track will actually be mapped? Copy it when it is AAC stereo
+        // and the client can decode it. Re-encoding AAC makes ffmpeg's native
+        // encoder emit a 5-byte AudioSpecificConfig containing the SBR sync
+        // extension (xx xx 56 e5 00); Windows Media Foundation (Firefox) treats
+        // that as HE-AAC and plays it with audible crackling, while Chromium's
+        // own decoder ignores it. A copied track keeps the source's plain 2-byte
+        // ASC, which every decoder agrees on.
+        AudioTrack selectedAudio = findAudioTrackBySelector(video, effectiveAudioSelector);
+        boolean canCopySelectedAudio;
+        if (effectiveAudioSelector < 0) {
+            // Default mapping (0:a:0?): keep the previous behaviour - copy when the
+            // file's default audio is decodable by this client.
+            canCopySelectedAudio = canCopyAudio;
+        } else {
+            // AAC stereo is decodable everywhere, so no client probe is needed here.
+            canCopySelectedAudio = selectedAudio != null
+                    && selectedAudio.codec != null
+                    && selectedAudio.codec.toLowerCase(Locale.ROOT).contains("aac")
+                    && (selectedAudio.channels == null || selectedAudio.channels <= 2);
+        }
+        boolean transcodeAudio = !canCopySelectedAudio;
+        if (transcodeAudio && selectedAudio != null) {
+            LOG.info("Audio track {} ({}, {}ch) must be re-encoded for {}; copy not possible",
+                    selectedAudio.id, selectedAudio.codec, selectedAudio.channels, videoFile.getName());
+        }
+
         // When a specific audio track is selected, transcode to AAC for web compatibility
         // (the selected track may have a different codec than the default track)
-        if (needsVideoTranscode || effectiveAudioSelector >= 0 || !canCopyAudio) {
+        if (transcodeAudio) {
             LOG.info("Transcoding audio for {} (selected track, ensuring AAC)", videoFile.getName());
             // Intentional stereo downmix for universal web playback: <video> elements
             // across all browsers expect stereo; multi-channel AAC would play silence
@@ -1682,9 +1739,11 @@ public class TranscodingService {
                 "-ac", "2"
             ));
         } else {
-            LOG.info("Copying audio for {} (source codec: {})", videoFile.getName(), video.audioCodec);
+            String copiedCodec = selectedAudio != null && selectedAudio.codec != null
+                    ? selectedAudio.codec : video.audioCodec;
+            LOG.info("Copying audio for {} (selected codec: {})", videoFile.getName(), copiedCodec);
             command.add("-c:a"); command.add("copy");
-            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
+            if (copiedCodec != null && copiedCodec.toLowerCase(Locale.ROOT).contains("aac")) {
                 command.add("-bsf:a"); command.add("aac_adtstoasc");
             }
         }
@@ -1723,7 +1782,7 @@ public class TranscodingService {
 
         command.add("-max_muxing_queue_size"); command.add("1024");
 
-        String ffmpegAudioMode = (needsVideoTranscode || effectiveAudioSelector >= 0 || !canCopyAudio) ? "aac" : "copy";
+        String ffmpegAudioMode = transcodeAudio ? "aac" : "copy";
         LOG.info("[FFMPEG] videoId={} hw={} decoder={} encoder={} audio={} scale={}",
             video.id, useHardware, hardwareDecoder, videoEncoder, ffmpegAudioMode,
             qualityHeight > 0 ? String.valueOf(qualityHeight) : "none");

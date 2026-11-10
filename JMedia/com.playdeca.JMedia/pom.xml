@@ -7,7 +7,7 @@
 
     <groupId>com.playdeca.jmedia</groupId>
     <artifactId>JMedia</artifactId>
-    <version>1.21.78</version>
+    <version>1.21.79</version>
     <packaging>jar</packaging>
 
     <properties>
