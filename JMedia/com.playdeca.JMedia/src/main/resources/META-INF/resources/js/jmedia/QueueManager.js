@@ -231,10 +231,16 @@
                 return;
             }
 
+            let removedLocally = false;
             if (action === 'remove') {
                 // The server echoes the new cue over the WebSocket. Suppress the
                 // resulting list rebuild so only the removed card disappears.
                 this._suppressQueueReloadUntil = Date.now() + 3000;
+                // Drop the card before the round-trip: the POST only persists it.
+                removedLocally = this.removeQueueCard(index);
+                if (removedLocally) {
+                    this.decrementQueueCount();
+                }
             }
 
             fetch(url, {
@@ -247,9 +253,7 @@
                 })
                 .then(() => {
                     if (action === 'remove') {
-                        if (this.removeQueueCard(index)) {
-                            this.decrementQueueCount();
-                        } else {
+                        if (!removedLocally) {
                             // Card not rendered in this view: resync once.
                             this._suppressQueueReloadUntil = 0;
                             this.loadPage(this.currentPage);
