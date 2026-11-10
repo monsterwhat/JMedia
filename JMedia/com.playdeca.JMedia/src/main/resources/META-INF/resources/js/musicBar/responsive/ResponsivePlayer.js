@@ -379,15 +379,10 @@
                 }
             };
             
-            // Volume button events
-            volumeBtn.addEventListener('click', (e) => {
-                if (e.detail === 0 || e.pointerType === 'touch') {
-                    // Touch/short click - show slider
-                    this.showVolumeSlider();
-                } else {
-                    // Desktop click - show slider
-                    this.showVolumeSlider();
-                }
+            // Volume button events: hover already opens the popup, so the click
+            // has to toggle (open when closed, close when already open).
+            volumeBtn.addEventListener('click', () => {
+                this.toggleVolumeSlider();
             });
 
             // Tapping anywhere outside the volume pill closes the popup (touch
@@ -449,9 +444,8 @@
                 this.setVolume(exponentialVolume);
             });
             
-            // Show slider on hover/touch - CSS handles hiding now
-            volumeBtn.addEventListener('mouseenter', () => this.showVolumeSlider());
-            volumeSlider.addEventListener('mouseenter', () => this.showVolumeSlider());
+            // Desktop hover is handled by CSS (`:hover` + the gap bridge); the
+            // click toggles a persistent .volume-open class for touch/click use.
             
             // Listen for volume changes
             window.addEventListener('statePropertyChanged', (e) => {
@@ -743,16 +737,27 @@
             const volumeSlider = document.getElementById('musicVolumeProgressBar');
             if (!volumeSlider) return;
             const wrapper = volumeSlider.closest('.mobile-volume-wrapper');
-            const opening = !wrapper || !wrapper.classList.contains('volume-open');
-            if (wrapper) wrapper.classList.toggle('volume-open', opening);
-            this.state.volumeSliderVisible = opening;
+            if (wrapper) wrapper.classList.add('volume-open');
+            this.state.volumeSliderVisible = true;
             // Visibility is owned by CSS (.mobile-volume-wrapper.volume-open);
             // a stale inline display kept the slider on screen after closing.
             volumeSlider.style.display = '';
-            if (opening) {
-                const currentVolume = window.StateManager?.getProperty('volume') || 0.7;
-                const linearValue = window.Helpers.volume.calculateLinearSliderValue(currentVolume);
-                volumeSlider.value = linearValue;
+            const currentVolume = window.StateManager?.getProperty('volume') || 0.7;
+            const linearValue = window.Helpers.volume.calculateLinearSliderValue(currentVolume);
+            volumeSlider.value = linearValue;
+        },
+
+        /**
+         * Toggle volume slider (button click). Hover uses showVolumeSlider() so
+         * entering the button does not immediately get undone by the click.
+         */
+        toggleVolumeSlider: function() {
+            const volumeSlider = document.getElementById('musicVolumeProgressBar');
+            const wrapper = volumeSlider && volumeSlider.closest('.mobile-volume-wrapper');
+            if (wrapper && wrapper.classList.contains('volume-open')) {
+                this.hideVolumeSlider();
+            } else {
+                this.showVolumeSlider();
             }
         },
 
