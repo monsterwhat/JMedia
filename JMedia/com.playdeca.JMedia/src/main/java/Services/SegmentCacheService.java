@@ -362,6 +362,8 @@ public class SegmentCacheService {
                 pos += size;
             }
             if (moovStart < 0 || moovSize <= 0 || moovSize > 4_000_000) {
+                LOG.warn("AAC config not normalized for {}: moov not found or implausible (start={}, size={})",
+                        segmentFile.getFileName(), moovStart, moovSize);
                 return false;
             }
             byte[] moov = new byte[moovSize];
@@ -369,7 +371,9 @@ public class SegmentCacheService {
             raf.readFully(moov);
             int cfg = findAacSpecificConfig(moov, 0, moov.length);
             if (cfg < 0 || cfg + 5 > moov.length) {
-                return true;
+                LOG.warn("AAC config not normalized for {}: no DecoderSpecificInfo found in moov (offset={})",
+                        segmentFile.getFileName(), cfg);
+                return false;
             }
             if ((moov[cfg + 2] & 0xFF) == 0x56 && (moov[cfg + 3] & 0xFF) == 0xE5 && moov[cfg + 4] == 0) {
                 raf.seek(moovStart + cfg + 2);
@@ -438,26 +442,65 @@ public class SegmentCacheService {
             }
             if (size < hdr || i + size > end) return -1;
             if ("esds".equals(type)) {
-                int p = i + hdr + 4; // version/flags
                 int boxEnd = (int) (i + size);
-                for (int n = 0; n < 8 && p < boxEnd; n++) {
-                    int tag = b[p] & 0xFF;
-                    p++;
-                    int len = 0;
-                    for (int k = 0; k < 4 && p < boxEnd; k++) {
-                        int v = b[p] & 0xFF;
-                        p++;
-                        len = (len << 7) | (v & 0x7F);
-                        if ((v & 0x80) == 0) break;
-                    }
-                    if (tag == 0x05) {
-                        return p;
-                    }
-                    p += len;
+                int p = i + hdr + 4; // version/flags
+                // ES_Descriptor (0x03): its payload starts with fixed fields before the
+                // nested DecoderConfigDescriptor, so the children cannot be reached by
+                // skipping len bytes.
+                if (p >= boxEnd || (b[p] & 0xFF) != 0x03) {
+                    LOG.debug("esds at {} does not start with an ES_Descriptor", i);
+                    return -1;
                 }
-                return -1;
+                p++;
+                int[] lenOut = new int[1];
+                p = skipDescriptorLength(b, p, boxEnd, lenOut);
+                if (p < 0 || p + 3 > boxEnd) return -1;
+                int esFlags = b[p + 2] & 0xFF;
+                p += 3; // ES_ID(2) + flags(1)
+                if ((esFlags & 0x80) != 0) p += 2;              // dependsOn_ES_ID
+                if ((esFlags & 0x40) != 0) {                    // URL string
+                    if (p >= boxEnd) return -1;
+                    p += 1 + (b[p] & 0xFF);
+                }
+                if ((esFlags & 0x20) != 0) p += 2;              // OCR_ES_Id
+                // DecoderConfigDescriptor (0x04)
+                if (p + 1 >= boxEnd || (b[p] & 0xFF) != 0x04) {
+                    LOG.debug("esds at {} has no DecoderConfigDescriptor", i);
+                    return -1;
+                }
+                p++;
+                p = skipDescriptorLength(b, p, boxEnd, lenOut);
+                if (p < 0) return -1;
+                p += 13; // objectType, streamType, bufferSizeDB(3), max/avg bitrate
+                // DecoderSpecificInfo (0x05) payload is the AudioSpecificConfig.
+                if (p + 1 >= boxEnd || (b[p] & 0xFF) != 0x05) {
+                    LOG.debug("esds at {} has no DecoderSpecificInfo", i);
+                    return -1;
+                }
+                p++;
+                p = skipDescriptorLength(b, p, boxEnd, lenOut);
+                if (p < 0 || p + lenOut[0] > boxEnd) return -1;
+                return p;
             }
             i += (int) size;
+        }
+        return -1;
+    }
+
+    /** Advances past an MPEG-4 descriptor length field; returns the payload offset or -1. */
+    private static int skipDescriptorLength(byte[] b, int p, int end, int[] lenOut) {
+        int len = 0;
+        for (int k = 0; k < 4; k++) {
+            if (p >= end) {
+                return -1;
+            }
+            int v = b[p] & 0xFF;
+            p++;
+            len = (len << 7) | (v & 0x7F);
+            if ((v & 0x80) == 0) {
+                lenOut[0] = len;
+                return p;
+            }
         }
         return -1;
     }
