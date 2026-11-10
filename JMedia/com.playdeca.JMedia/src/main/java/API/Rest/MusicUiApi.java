@@ -253,6 +253,9 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("hasMore", updatedQueue.size() > 50)
+                .data("nextPage", 2)
+                .data("search", "")
                 .render();
 
         String mobileHtml = mobileQueueFragment
@@ -265,6 +268,9 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("hasMore", updatedQueue.size() > 50)
+                .data("nextPage", 2)
+                .data("search", "")
                 .render();
 
         return new QueueFragmentResponse(html, mobileHtml, updatedQueue.size()); // Reverted to return DTO
