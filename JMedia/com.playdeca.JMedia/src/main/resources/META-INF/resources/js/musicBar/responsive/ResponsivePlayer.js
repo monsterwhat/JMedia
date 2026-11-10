@@ -389,6 +389,14 @@
                     this.showVolumeSlider();
                 }
             });
+
+            // Tapping anywhere outside the volume pill closes the popup (touch
+            // has no hover, so it would otherwise stay open).
+            document.addEventListener('pointerdown', (e) => {
+                if (!e.target.closest || !e.target.closest('.mobile-volume-wrapper')) {
+                    this.hideVolumeSlider();
+                }
+            }, true);
             
             // Long press for mute toggle
             let pressTimer;
@@ -733,24 +741,29 @@
          */
         showVolumeSlider: function() {
             const volumeSlider = document.getElementById('musicVolumeProgressBar');
-            if (volumeSlider) {
-                volumeSlider.style.display = 'block';
-                this.state.volumeSliderVisible = true;
-                
-                // Sync with current volume
+            if (!volumeSlider) return;
+            const wrapper = volumeSlider.closest('.mobile-volume-wrapper');
+            const opening = !wrapper || !wrapper.classList.contains('volume-open');
+            if (wrapper) wrapper.classList.toggle('volume-open', opening);
+            this.state.volumeSliderVisible = opening;
+            // Visibility is owned by CSS (.mobile-volume-wrapper.volume-open);
+            // a stale inline display kept the slider on screen after closing.
+            volumeSlider.style.display = '';
+            if (opening) {
                 const currentVolume = window.StateManager?.getProperty('volume') || 0.7;
                 const linearValue = window.Helpers.volume.calculateLinearSliderValue(currentVolume);
                 volumeSlider.value = linearValue;
-                
-                // Don't auto-hide - let CSS handle it
             }
         },
-        
+
         /**
          * Hide volume slider
          */
         hideVolumeSlider: function() {
-            // Do nothing - slider visibility handled by click toggle
+            const volumeSlider = document.getElementById('musicVolumeProgressBar');
+            const wrapper = volumeSlider && volumeSlider.closest('.mobile-volume-wrapper');
+            if (wrapper) wrapper.classList.remove('volume-open');
+            this.state.volumeSliderVisible = false;
         },
         
         /**
@@ -913,7 +926,7 @@
         handleStateChange: function(oldState, newState) {
             if (window.videoPlaying) {
                 window.Helpers.log('ResponsivePlayer: Video active — ignoring music state change');
-                console.log('[ResponsivePlayer] Blocked handleStateChange — video is active');
+                window.Helpers?.log?.('[ResponsivePlayer] Blocked handleStateChange — video is active');
                 return;
             }
             // React to relevant state changes
@@ -941,7 +954,7 @@
         fetchCurrentSongData: function(songId) {
             if (window.videoPlaying) {
                 window.Helpers.log('[ResponsivePlayer] Blocked fetchCurrentSongData — video is active');
-                console.log('[ResponsivePlayer] Blocked fetchCurrentSongData — video is active');
+                window.Helpers?.log?.('[ResponsivePlayer] Blocked fetchCurrentSongData — video is active');
                 return;
             }
             if (!songId) {

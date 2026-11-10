@@ -4,7 +4,13 @@
     const JMedia = window.JMedia = window.JMedia || {};
 
     function getProfileId() {
-        return window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+        // Same resolution order as JMedia.Helpers: the global is set by the
+        // profile bootstrap and is occasionally absent at first paint, which
+        // produced /api/settings/null/... 404s.
+        return window.globalActiveProfileId
+            || localStorage.getItem('activeProfileId')
+            || (window.JMedia && window.JMedia.Helpers && window.JMedia.Helpers.getActiveProfileId
+                ? window.JMedia.Helpers.getActiveProfileId() : null);
     }
 
     window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, ytdlp: false, parakeet: false, tesseract: false, deno: false };
@@ -314,6 +320,7 @@
             if (!select) return;
             const position = select.value;
             const profileId = getProfileId();
+            if (!profileId) { console.warn('[Settings] sidebar position not saved: no active profile'); return; }
             try {
                 const res = await fetch(`/api/settings/${profileId}/sidebar-position`, {
                     method: 'POST',
@@ -334,6 +341,7 @@
 
         loadUiSettings: async function () {
             const profileId = getProfileId();
+            if (!profileId) { console.debug('[Settings] sidebar position skipped: no active profile'); return; }
             try {
                 const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
                 const json = await res.json();
@@ -885,6 +893,17 @@
 
         loadDirectories: async function() {
             const profileId = getProfileId();
+            if (!profileId) {
+                // Profile not bootstrapped yet: fetching /api/settings/null/...
+                // returned 404 and the empty body broke the JSON parse.
+                if (!this._dirRetry) {
+                    this._dirRetry = setTimeout(() => {
+                        this._dirRetry = null;
+                        JMedia.Settings.loadDirectories();
+                    }, 800);
+                }
+                return;
+            }
             try {
                 const res = await fetch(`/api/settings/${profileId}/directories`);
                 const json = await res.json();

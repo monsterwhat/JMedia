@@ -307,30 +307,11 @@
         updateNavBackBtn();
     };
 
-    let longPressTimer = null;
-    const LONG_PRESS_DURATION = 500;
-
-    document.addEventListener('touchstart', function(e) {
-        const songRow = e.target.closest('tr[data-song-id], .mobile-song-item');
-        if (!songRow) return;
-        songRow.classList.add('long-press-active');
-        longPressTimer = setTimeout(() => {
-            e.preventDefault();
-            const songId = songRow.dataset.songId;
-            showCustomContextMenu(e.touches[0].pageX, e.touches[0].pageY, songId);
-        }, LONG_PRESS_DURATION);
-    }, { passive: false });
-
-    document.addEventListener('touchend', function(e) {
-        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-        document.querySelectorAll('.long-press-active').forEach(el => el.classList.remove('long-press-active'));
-    });
-
-    document.addEventListener('touchmove', function(e) {
-        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-        document.querySelectorAll('.long-press-active').forEach(el => el.classList.remove('long-press-active'));
-    });
-
+    // Long press is owned by JMedia.MobileContextMenu (js/jmedia/MobileContextMenu.js).
+    // This file used to run a second, independent long-press timer that opened
+    // #customContextMenu at the same time as the mobile menu, so a single press
+    // showed two menus and dismissed them inconsistently. Only the click-away
+    // handler stays here for legacy menu markup.
     document.addEventListener('click', function(e) {
         if (!e.target.closest('#customContextMenu')) { hideCustomContextMenu(); }
     });
@@ -656,5 +637,62 @@
             window.showArtistPage(artistEl.textContent);
         }
     };
+
+    /* ------------------------------------------------------------------
+     * Mobile volume availability.
+     * iOS ignores HTMLMediaElement.volume entirely (read-only), so exposing a
+     * slider there would be a lie; Android/desktop set it fine. Probe once and
+     * let CSS decide whether to show the dock volume control.
+     * ------------------------------------------------------------------ */
+    try {
+        const probe = document.createElement('audio');
+        probe.volume = 0.42;
+        const settable = Math.abs(probe.volume - 0.42) < 0.01;
+        document.body.classList.add(settable ? 'volume-controllable' : 'volume-device-only');
+    } catch (e) {
+        console.warn('[MusicIndex] volume capability probe failed', e);
+        document.body.classList.add('volume-device-only');
+    }
+
+    /* ------------------------------------------------------------------
+     * Mobile scrub: the dock progress slider is only 4px tall, so the native
+     * thumb is hard to grab. Treat the whole 16px container as the drag area
+     * and drive the same slider the TimeController already listens to.
+     * ------------------------------------------------------------------ */
+    (function installProgressScrub() {
+        const container = document.querySelector('.mobile-progress-container');
+        const slider = document.getElementById('musicProgressBar');
+        if (!container || !slider) return;
+
+        let dragging = false;
+        const seekTo = (clientX) => {
+            const rect = container.getBoundingClientRect();
+            if (!rect.width) return;
+            const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+            const duration = Number(slider.max) || 0;
+            if (!duration) return;
+            slider.value = String(Math.round(ratio * duration));
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        container.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            container.setPointerCapture?.(e.pointerId);
+            seekTo(e.clientX);
+            e.preventDefault();
+        });
+        container.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            seekTo(e.clientX);
+            e.preventDefault();
+        });
+        const finish = () => {
+            if (!dragging) return;
+            dragging = false;
+            if (typeof slider.onmouseup === 'function') slider.onmouseup();
+        };
+        container.addEventListener('pointerup', finish);
+        container.addEventListener('pointercancel', finish);
+    })();
 
 })(window);

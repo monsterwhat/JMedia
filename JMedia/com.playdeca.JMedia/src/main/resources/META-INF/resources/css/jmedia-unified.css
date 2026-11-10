@@ -4845,3 +4845,65 @@ input[type="range"]::-webkit-slider-thumb {
         padding-left: 0 !important;
     }
 }
+
+/* ==================== MOBILE MUSIC UI FIXES ==================== */
+/* Artwork must not offer the OS image callout on long press; the card/dock
+   container is the touch target, not the <img>. */
+.mobile-song-item img,
+.mobile-album-card img,
+.mobile-player-artwork img,
+#songCoverImage,
+.album-card img {
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    pointer-events: none !important;
+}
+
+/* The context-menu backdrop was sized by a sibling selector that never
+   matched (it is a child), leaving a 0x0 tap target. */
+.mobile-context-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+@media (max-width: 900px) {
+    /* Dock controls: 40px keeps 7 buttons inside a 294px pill on a 360px phone. */
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-btn {
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+    }
+
+    /* Right-rail navigation rows were 25px wide / 26px tall. */
+    .standard-sidebar .nav-item,
+    .standard-sidebar .sidebar-item {
+        min-height: 44px !important;
+        min-width: 40px !important;
+    }
+
+    /* Volume lives in the dock again, but only where the element volume is
+       actually settable (iOS ignores it, so there we keep it hidden). */
+    body.volume-controllable #musicPlayerContainer .mobile-volume-wrapper {
+        display: flex !important;
+        width: 40px !important;
+        height: 40px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: none !important;
+        box-shadow: none !important;
+    }
+    body.volume-device-only #musicPlayerContainer .mobile-volume-wrapper {
+        display: none !important;
+    }
+    #musicPlayerContainer .mobile-volume-wrapper .volume-slider-container {
+        display: none !important;
+    }
+    #musicPlayerContainer .mobile-volume-wrapper.volume-open .volume-slider-container {
+        display: flex !important;
+        z-index: 3000 !important;
+    }
+}

@@ -53,6 +53,7 @@
         async applySidebarPref() {
             try {
                 const profileId = JMedia.Helpers.getActiveProfileId();
+                if (!profileId) { console.debug('[App] sidebar pref skipped: no active profile'); return; }
                 const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
                 if (!res.ok) return;
                 const json = await res.json();

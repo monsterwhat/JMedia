@@ -801,7 +801,8 @@ class VideoSPA {
         }
 
         try {
-            const profileId = localStorage.getItem('activeProfileId');
+            const profileId = localStorage.getItem('activeProfileId') || window.globalActiveProfileId;
+            if (!profileId) { console.debug('[VideoSPA] sidebar pref skipped: no active profile'); return; }
             const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
             const json = await res.json();
             if (res.ok && json.data && layout) {

@@ -58,7 +58,7 @@
 
         handleTouchStart(e) {
             if (e.touches && e.touches.length > 1) return;
-            const target = e.target.closest('.mobile-song-item');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id]');
             if (!target) return;
             this.activeElement = target;
             const songId = target.dataset.songId;
@@ -72,7 +72,7 @@
 
         handleContextMenu(e) {
             e.preventDefault();
-            const target = e.target.closest('.mobile-song-item');
+            const target = e.target.closest('.mobile-song-item, tr[data-song-id]');
             if (!target) return;
             const songId = target.dataset.songId;
             if (!songId) return;
@@ -106,6 +106,10 @@
         showContextMenu(songId, isDesktop = false) {
             const menu = document.getElementById('mobileContextMenu');
             if (!menu) return;
+            // Only one menu may be open: the legacy #customContextMenu used to be
+            // opened by a second long-press handler and both stayed visible.
+            const legacy = document.getElementById('customContextMenu');
+            if (legacy) legacy.style.display = 'none';
             this.currentSongId = songId;
             menu.dataset.songId = songId;
             menu.setAttribute('aria-hidden', 'false');
@@ -362,9 +366,9 @@
         init() {
             const coverContainer = document.getElementById('songCoverImageContainer');
             if (coverContainer) {
-                coverContainer.addEventListener('touchstart', this.handleTouchStart.bind(this), {passive: true});
+                coverContainer.addEventListener('touchstart', this.handleTouchStart.bind(this), {passive: false});
                 ['touchend', 'touchmove', 'touchcancel'].forEach(event => {
-                    coverContainer.addEventListener(event, this.cancelTouch.bind(this), {passive: true});
+                    coverContainer.addEventListener(event, this.cancelTouch.bind(this), {passive: false});
                 });
                 coverContainer.addEventListener('contextmenu', this.handleContextMenu.bind(this));
                 console.log('[CoverImageContextMenu] Cover image long press and right-click initialized');
@@ -372,7 +376,9 @@
         }
 
         handleTouchStart(e) {
-            e.preventDefault();
+            // No preventDefault here: it would swallow the cover tap that opens
+            // song details. The OS image callout is suppressed by CSS
+            // (-webkit-touch-callout) and by the contextmenu handler below.
             const coverContainer = document.getElementById('songCoverImageContainer');
             if (coverContainer) {
                 coverContainer.classList.add('long-press-active');
