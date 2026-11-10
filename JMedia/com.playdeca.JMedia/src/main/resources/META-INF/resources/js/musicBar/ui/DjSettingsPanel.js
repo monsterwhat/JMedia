@@ -646,13 +646,6 @@
             return;
         }
 
-        if (e.target.closest('#smartShuffleSettingsBtn')) {
-            e.preventDefault();
-            e.stopPropagation();
-            open();
-            return;
-        }
-
         if (e.target.closest('#djModeIndicator')) {
             toggle();
             return;
@@ -769,18 +762,6 @@
                 childList: true
             });
         }
-
-        function updateSmartShuffleButton() {
-            const btn = document.getElementById('smartShuffleSettingsBtn');
-            if (!btn) return;
-            const mode = window.StateManager ? window.StateManager.getProperty('shuffleMode') : null;
-            btn.style.display = mode === 'SMART_SHUFFLE' ? '' : 'none';
-        }
-        window.addEventListener('musicStateChanged', updateSmartShuffleButton);
-        window.addEventListener('statePropertyChanged', function(e) {
-            if (e.detail && e.detail.property === 'shuffleMode') updateSmartShuffleButton();
-        });
-        setTimeout(updateSmartShuffleButton, 1500);
 
         doc.addEventListener('click', onClick, false);
         doc.addEventListener('input', onInput, false);
