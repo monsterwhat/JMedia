@@ -29,8 +29,7 @@
         maxConsecutiveByArtist: 0,
         skipsBeforeGenreChange: 1,
         yearMin: 0,
-        yearMax: 0,
-        enabled: true
+        yearMax: 0
     };
 
     const PANEL_HTML = `
@@ -113,11 +112,6 @@
                 </div>
             </div>
             <div class="dj-settings-footer">
-                <label class="switch dj-settings-switch" title="Enable / disable DJ Mode">
-                    <input type="checkbox" id="djEnabledToggle" checked>
-                    <span class="check"></span>
-                </label>
-                <span class="dj-settings-footer-label" id="djEnabledLabel">Enable DJ Mode</span>
                 <span class="dj-settings-save-state" id="djSettingsSaveState"></span>
                 <button type="button" class="dj-settings-reset" data-dj-action="reset"><i class="pi pi-refresh"></i> Reset</button>
             </div>
@@ -221,7 +215,6 @@
             if (typeof payload.skipsBeforeGenreChange === 'number' && isFinite(payload.skipsBeforeGenreChange)) merged.skipsBeforeGenreChange = payload.skipsBeforeGenreChange;
             if (typeof payload.yearMin === 'number' && isFinite(payload.yearMin)) merged.yearMin = payload.yearMin;
             if (typeof payload.yearMax === 'number' && isFinite(payload.yearMax)) merged.yearMax = payload.yearMax;
-            if (typeof payload.enabled === 'boolean') merged.enabled = payload.enabled;
         }
         return merged;
     }
@@ -352,14 +345,6 @@
         if (yearMinInput) yearMinInput.value = state.settings.yearMin || '';
         if (yearMaxInput) yearMaxInput.value = state.settings.yearMax || '';
 
-        const enabledToggle = panel.querySelector('#djEnabledToggle');
-        if (enabledToggle) enabledToggle.checked = !!state.settings.enabled;
-
-        const enabledLabel = panel.querySelector('#djEnabledLabel');
-        if (enabledLabel) enabledLabel.textContent = state.settings.enabled ? 'DJ Mode Enabled' : 'Enable DJ Mode';
-
-        panel.classList.toggle('dj-settings-off', !state.settings.enabled);
-
         renderChips();
     }
 
@@ -457,6 +442,17 @@
 
         ensurePanel();
         indicator.classList.add('expanded');
+
+        // This pill is the entry point to Smart Shuffle, not a DJ Mode label.
+        const statusText = indicator.querySelector('#djModeIndicatorText');
+        if (statusText && (!statusText.textContent || statusText.textContent === 'DJ Mode')) {
+            statusText.textContent = 'Smart Shuffle';
+        }
+        const statusIcon = Array.from(indicator.children).find((el) => el.tagName === 'I');
+        if (statusIcon && statusIcon.classList.contains('pi-compact-disc')) {
+            statusIcon.className = 'pi pi-sliders-h';
+        }
+
         render();
 
         apiLoadSettings().then((raw) => {
@@ -572,25 +568,11 @@
     }
 
     function resetToDefaults() {
-        const modeOn = window.StateManager ? !!window.StateManager.getState().djModeActive : true;
-        state.settings = Object.assign({}, DEFAULT_SETTINGS, { enabled: modeOn });
+        state.settings = Object.assign({}, DEFAULT_SETTINGS);
         state.touched = {};
         Object.keys(DEFAULT_SETTINGS).forEach((k) => { state.touched[k] = true; });
         render();
         saveNow();
-    }
-
-    function onEnabledToggle(checked) {
-        state.settings.enabled = checked;
-        state.touched.enabled = true;
-        if (window.StateManager) {
-            const currentMode = !!window.StateManager.getState().djModeActive;
-            if (checked !== currentMode && window.PlaybackController) {
-                window.PlaybackController.toggleDjMode(getProfileId());
-            }
-        }
-        scheduleSave();
-        render();
     }
 
     function handlePanelClick(e) {
@@ -679,13 +661,6 @@
         }
     }
 
-    function onChange(e) {
-        if (!state.open) return;
-        if (e.target.id === 'djEnabledToggle') {
-            onEnabledToggle(e.target.checked);
-        }
-    }
-
     function onKeyDown(e) {
         if (e.key !== 'Escape' || !state.open) return;
         if (doc.activeElement && doc.activeElement.id === 'djGenreFilter' && state.genreFilter) {
@@ -700,14 +675,6 @@
         if (!state.open) return;
         const indicator = getIndicator();
         if (!indicator) return;
-
-        if (window.StateManager) {
-            const djActive = !!window.StateManager.getState().djModeActive;
-            if (state.settings.enabled !== djActive) {
-                state.settings.enabled = djActive;
-                render();
-            }
-        }
 
         if (indicator.classList.contains('is-hidden')) {
             const djActive = window.StateManager ? !!window.StateManager.getState().djModeActive : false;
@@ -755,7 +722,6 @@
 
         doc.addEventListener('click', onClick, false);
         doc.addEventListener('input', onInput, false);
-        doc.addEventListener('change', onChange, false);
         doc.addEventListener('keydown', onKeyDown, false);
 
         // The menu belongs to Smart Shuffle: open it when the user switches the

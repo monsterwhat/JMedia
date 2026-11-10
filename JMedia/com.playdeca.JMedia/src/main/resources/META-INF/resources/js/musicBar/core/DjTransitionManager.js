@@ -637,37 +637,65 @@
                 return;
             }
 
-            // Remove hidden class and ensure visible
-            indicator.classList.remove('is-hidden');
-            indicator.style.display = (state === 'none') ? 'none' : 'flex';
-            
-            if (state === 'none') {
+            const panelOpen = !!(window.DjSettingsPanel && window.DjSettingsPanel.isOpen());
+
+            // The Smart Shuffle menu lives inside the indicator. When it is open,
+            // never hide the indicator or the menu disappears with it.
+            if (state === 'none' && !panelOpen) {
+                indicator.style.display = 'none';
                 indicator.classList.add('is-hidden');
                 return;
             }
 
-            // Update content based on state
+            indicator.classList.remove('is-hidden');
+            indicator.style.display = 'flex';
+
+            // Keep the panel intact: the old code replaced indicator.innerHTML,
+            // which deleted #djSettingsPanel and dropped .expanded every time
+            // the DJ state changed. Only update the status icon and text.
+            let iconEl = Array.from(indicator.children).find((el) => el.tagName === 'I');
+            let textEl = indicator.querySelector('#djModeIndicatorText');
+            if (!textEl || !iconEl) {
+                const panel = indicator.querySelector('#djSettingsPanel');
+                indicator.innerHTML = '<i class="pi pi-compact-disc" style="font-size:0.75rem"></i> <span id="djModeIndicatorText" class="ml-2"></span>';
+                if (panel) indicator.appendChild(panel);
+                iconEl = Array.from(indicator.children).find((el) => el.tagName === 'I');
+                textEl = indicator.querySelector('#djModeIndicatorText');
+            }
+
+            indicator.classList.remove('active', 'preparing', 'crossfading', 'complete');
+
+            let stateClass = 'active';
+            let iconClass = 'pi pi-sliders-h';
+            let label = 'Smart Shuffle';
+
             switch (state) {
-                case 'active':
-                    indicator.className = 'dj-indicator active';
-                    indicator.innerHTML = '<i class="pi pi-headphones" style="font-size:0.75rem"></i> <span class="ml-2">DJ Mode</span>';
-                    break;
                 case 'preparing':
-                    indicator.className = 'dj-indicator preparing animate-pulse';
-                    indicator.innerHTML = '<i class="pi pi-spin pi-spinner" style="font-size:0.75rem"></i> <span class="ml-2">DJ Syncing...</span>';
+                    stateClass = 'preparing';
+                    iconClass = 'pi pi-spin pi-spinner';
+                    label = 'DJ Syncing...';
                     break;
                 case 'switching':
                 case 'transitioning':
-                    indicator.className = 'dj-indicator crossfading';
-                    var reason = (this.transitionData && this.transitionData.reason) ? ': ' + this.transitionData.reason : '...';
-                    indicator.innerHTML = '<i class="pi pi-compact-disc pi-spin" style="font-size:0.75rem"></i> <span class="ml-2"><b>DJ Mixing</b>' + reason + '</span>';
+                    stateClass = 'crossfading';
+                    iconClass = 'pi pi-compact-disc pi-spin';
+                    label = 'DJ Mixing' + ((this.transitionData && this.transitionData.reason)
+                        ? ': ' + this.transitionData.reason : '...');
                     break;
                 case 'complete':
-                    indicator.className = 'dj-indicator complete';
-                    indicator.innerHTML = '<i class="pi pi-check-circle" style="font-size:0.75rem"></i> <span class="ml-2">Seamlessly Mixed!</span>';
+                    stateClass = 'complete';
+                    iconClass = 'pi pi-check-circle';
+                    label = 'Seamlessly Mixed!';
                     setTimeout(() => this.updateDjIndicator('active'), 3000);
                     break;
+                case 'active':
+                default:
+                    break;
             }
+
+            indicator.classList.add(stateClass);
+            if (iconEl) iconEl.className = iconClass;
+            if (textEl) textEl.textContent = label;
         }
     };
 })(window);
