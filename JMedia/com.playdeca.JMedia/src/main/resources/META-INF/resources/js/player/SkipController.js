@@ -17,15 +17,24 @@
                 if (p._manuallyUndoneSections.has('outro') && t >= p.markers.outroStart && p.markers.outroStart > 0) return;
             }
 
-            if (p.autoSkipIntro && t >= p.markers.introStart && t < p.markers.introEnd) {
+            // A transcode seek lands on the keyframe BEFORE the requested time, so
+            // right after skipping the intro the clock can still read < introEnd.
+            // Without this guard the same section re-triggers forever:
+            // seek(237) -> origin 236.2 -> "still in intro" -> seek(237) -> ...
+            const inSkipGuard = (section, end) => {
+                const g = p._autoSkipGuard;
+                return !!(g && g.section === section && Date.now() < g.until && t < end + 2);
+            };
+
+            if (p.autoSkipIntro && !inSkipGuard('intro', p.markers.introEnd) && t >= p.markers.introStart && t < p.markers.introEnd) {
                 this._performAutoSkip('intro', p.markers.introStart, p.markers.introEnd);
                 return;
             }
-            if (p.autoSkipRecap && t >= p.markers.recapStart && t < p.markers.recapEnd) {
+            if (p.autoSkipRecap && !inSkipGuard('recap', p.markers.recapEnd) && t >= p.markers.recapStart && t < p.markers.recapEnd) {
                 this._performAutoSkip('recap', p.markers.recapStart, p.markers.recapEnd);
                 return;
             }
-            if (p.autoSkipOutro && t >= p.markers.outroStart && p.markers.outroStart > 0) {
+            if (p.autoSkipOutro && !inSkipGuard('outro', p.markers.outroEnd) && t >= p.markers.outroStart && p.markers.outroStart > 0) {
                 this._performAutoSkip('outro', p.markers.outroStart, p.markers.outroEnd);
                 return;
             }
@@ -41,10 +50,16 @@
                 return;
             }
 
+            // Land a little past the marker end: keyframe-aligned transcode seeks
+            // can start before the requested time, and sitting in [start, end)
+            // after a skip is exactly what caused the skip loop.
+            const target = end + 1;
+            p._autoSkipGuard = { section: section, end: target, until: Date.now() + 10000 };
+
             if (p.needsTranscode) {
-                p.streamMgr.performServerSeek(end);
+                p.streamMgr.performServerSeek(target);
             } else {
-                p.video.currentTime = end;
+                p.video.currentTime = target;
             }
 
             this._showAutoSkipNotice(section);
