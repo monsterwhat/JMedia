@@ -561,15 +561,16 @@
                     return;
                 }
                 p._hlsSessionId = data.sessionId;
-                // Copy-mode HLS starts on the keyframe at or before the requested
-                // position. Use the origin reported by the server for the clock
-                // and subtitles; otherwise both are off by the GOP distance
-                // (~1 s) and the offset changes on every seek.
-                if (typeof data.startTime === 'number' && data.startTime > 0
-                        && Math.abs(data.startTime - (p.streamStartOffset || 0)) > 0.05) {
-                    console.log('[SimplePlayer] HLS content starts at ' + data.startTime +
+                // Real content origin: copy mode starts on the keyframe at or
+                // before the request. Use the server-reported value everywhere
+                // the clock/subtitles are derived, or both are off by the GOP
+                // distance (~1 s) and it changes on every seek.
+                const effectiveStart = (typeof data.startTime === 'number' && data.startTime > 0)
+                    ? data.startTime : savedTime;
+                if (Math.abs(effectiveStart - (p.streamStartOffset || 0)) > 0.05) {
+                    console.log('[SimplePlayer] HLS content starts at ' + effectiveStart +
                         's (requested ' + savedTime + 's); realigning clock and subtitles');
-                    p.streamStartOffset = data.startTime;
+                    p.streamStartOffset = effectiveStart;
                     if (p.subtitleController) {
                         p.subtitleController.loadSubtitles();
                     }
@@ -612,7 +613,7 @@
                     };
                     p.video.addEventListener('loadedmetadata', () => {
                         if (p._destroyed) return;
-                        p.streamStartOffset = savedTime > 0 ? savedTime : 0;
+                        p.streamStartOffset = effectiveStart > 0 ? effectiveStart : 0;
                         p.applyInitialState();
                         p._hideLoading();
                         markNativeHlsOk();
@@ -635,8 +636,9 @@
                     fallbackToDirect: true,
                     loadingMessage: 'Loading HLS stream...',
                     // The encoder starts at this seek origin (server `-ss`), so the
-                    // element is 0-based relative to it.
-                    contentOffset: savedTime,
+                    // element is 0-based relative to it. Copy mode snaps to a
+                    // keyframe, so use the origin the server reported.
+                    contentOffset: effectiveStart,
                     // Local library sessions are growing VOD, not live TV: without
                     // this hls.js applies liveSyncDurationCount and starts at the
                     // encoder's latest segment instead of 0:00.
