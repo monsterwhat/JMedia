@@ -444,6 +444,7 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
     logoHeroImg.onerror = null;
     logoHeroImg.onload = null;
     logoHeroImg.removeAttribute('src');
+    logoHeroImg.classList.remove('is-skeleton');
     logoHeroImg.style.display = 'none';
   }
 
@@ -477,7 +478,13 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
   modal.dataset.seriesTitle = 'tmdb:' + tmdbId;
   modal.dataset.catalogueTmdbId = String(tmdbId);
   if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
-  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = 'none'; }
+  if (logoHeroImg) {
+    logoHeroImg.onerror = null;
+    logoHeroImg.onload = null;
+    logoHeroImg.removeAttribute('src');
+    logoHeroImg.classList.remove('is-skeleton');
+    logoHeroImg.style.display = 'none';
+  }
 
   // Hero backdrop (TMDb URLs only; the server builds them).
   const isTmdbImage = function (u) { return typeof u === 'string' && /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9_]+\/[A-Za-z0-9_.-]+$/.test(u); };
@@ -502,6 +509,7 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
       logoHeroImg.classList.remove('is-skeleton');
     } else {
       logoHeroImg.style.display = 'none';
+      logoHeroImg.classList.remove('is-skeleton');
       if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
     }
   }
