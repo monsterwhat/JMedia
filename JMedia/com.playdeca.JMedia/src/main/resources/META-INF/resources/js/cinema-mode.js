@@ -1919,7 +1919,10 @@ function sortAndGroupEpisodes(episodes) {
   const seasonKeys = Object.keys(groups).sort((a, b) => {
     const [sa, ca] = a.split(':');
     const [sb, cb] = b.split(':');
-    const na = parseInt(sa), nb = parseInt(sb);
+    let na = parseInt(sa), nb = parseInt(sb);
+    // Specials (season 0) go last: the modal should open on a normal season.
+    if (na === 0) na = Number.MAX_SAFE_INTEGER;
+    if (nb === 0) nb = Number.MAX_SAFE_INTEGER;
     if (na !== nb) return na - nb;
     return (contentTypePriority[ca] ?? 99) - (contentTypePriority[cb] ?? 99);
   });

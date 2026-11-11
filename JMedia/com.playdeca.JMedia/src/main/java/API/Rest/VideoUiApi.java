@@ -960,7 +960,8 @@ public class VideoUiApi {
                             expectedCounts.getOrDefault(sn, 0)));
                 }
             }
-            seasons.sort(Comparator.comparingInt(SeasonEntry::seasonNumber));
+            seasons.sort(Comparator.comparingInt((SeasonEntry s) ->
+                    s.seasonNumber() == 0 ? Integer.MAX_VALUE : s.seasonNumber()));
 
             // Group null-season episodes by contentType
             Map<String, List<Models.Video.Video>> extrasContentTypes = noSeasonEpisodes.stream()
