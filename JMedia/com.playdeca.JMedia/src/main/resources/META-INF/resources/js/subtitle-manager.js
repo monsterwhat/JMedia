@@ -189,6 +189,17 @@ class SubtitleManager {
         });
     }
 
+    /**
+     * The player's subtitle panel and the Subtitle Style dialog both use the
+     * same element ids (subPreviewText, subStyleSize, fontSizeVal, ...). When the
+     * dialog is open it must win, otherwise getElementById updates the hidden
+     * panel and the dialog preview never changes.
+     */
+    _styleRoot() {
+        const modal = document.getElementById('subtitleManagementModal');
+        return (modal && modal.classList.contains('is-active')) ? modal : document;
+    }
+
     loadStyle() {
         const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
         const style = {
@@ -200,19 +211,25 @@ class SubtitleManager {
             bottom: saved.bottom || 60
         };
 
-        if (document.getElementById('subStyleFont')) document.getElementById('subStyleFont').value = style.font;
-        if (document.getElementById('subStyleSize')) document.getElementById('subStyleSize').value = style.size;
-        if (document.getElementById('subStyleColor')) document.getElementById('subStyleColor').value = style.color;
-        if (document.getElementById('subStyleBgOpacity')) document.getElementById('subStyleBgOpacity').value = style.bgOpacity;
-        if (document.getElementById('subStyleLineHeight')) document.getElementById('subStyleLineHeight').value = style.lineHeight;
-        if (document.getElementById('subStyleBottom')) document.getElementById('subStyleBottom').value = style.bottom;
+        const root = this._styleRoot();
+        const setVal = (id, value) => {
+            const el = root.querySelector('#' + id);
+            if (el) el.value = value;
+        };
+        setVal('subStyleFont', style.font);
+        setVal('subStyleSize', style.size);
+        setVal('subStyleColor', style.color);
+        setVal('subStyleBgOpacity', style.bgOpacity);
+        setVal('subStyleLineHeight', style.lineHeight);
+        setVal('subStyleBottom', style.bottom);
 
         this.updateStyle(false);
     }
 
     updateStyle(shouldApply = true) {
+        const root = this._styleRoot();
         const getVal = (id, def) => {
-            const el = document.getElementById(id);
+            const el = root.querySelector('#' + id);
             return el ? el.value : def;
         };
 
@@ -225,9 +242,9 @@ class SubtitleManager {
             bottom: parseInt(getVal('subStyleBottom', 60))
         };
 
-        // Update UI labels in the modal
+        // Update UI labels in the dialog (scoped: the player panel has the same ids)
         const setLabel = (id, val) => {
-            const el = document.getElementById(id);
+            const el = root.querySelector('#' + id);
             if (el) el.textContent = val;
         };
 
@@ -235,11 +252,11 @@ class SubtitleManager {
         setLabel('bgOpacityVal', style.bgOpacity);
         setLabel('bottomDistVal', style.bottom);
 
-        const hexInput = document.getElementById('subStyleColorHex');
+        const hexInput = root.querySelector('#subStyleColorHex');
         if (hexInput) hexInput.value = style.color;
 
         // Update live preview in the modal
-        const preview = document.getElementById('subPreviewText');
+        const preview = root.querySelector('#subPreviewText');
         if (preview) {
             preview.style.fontFamily = style.font;
             preview.style.fontSize = style.size + 'px';
@@ -269,8 +286,9 @@ class SubtitleManager {
             };
             style = { ...defaults, ...externalStyle };
         } else {
+            const root = this._styleRoot();
             const getVal = (id, def) => {
-                const el = document.getElementById(id);
+                const el = root.querySelector('#' + id);
                 return el ? el.value : def;
             };
             style = {
