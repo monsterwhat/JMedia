@@ -31,6 +31,17 @@
         
         // Deferred volume during crossfade
         _pendingVolume: null,
+
+        // True while a dual-player crossfade is running. Only one fade may run
+        // at a time: a second one would flip `activePlayer` while the first
+        // fade still owns both elements.
+        _isCrossfading: false,
+        _singlePlaybackTimer: null,
+
+        // Local "the user asked to be silent" flag. A crossfade waits for the
+        // incoming element to buffer before it starts playing; without this a
+        // pause issued during that wait would be undone when canplay fires.
+        _userPaused: false,
         
         // iOS autoplay-policy unlock state
         _iosUnlocked: false,
@@ -57,19 +68,36 @@
             this._unlockIOSAudio();
             this.setupEventListeners();
             window.Helpers.log('AudioEngine: Web Audio initialized (idempotent)');
+
+            // Single-stream invariant: the engine owns two <audio> elements and
+            // exactly one of them may be audible. The point fixes below cover
+            // the normal paths; this catches the case where a fade is aborted or
+            // a source change lands mid-fade and the outgoing element is never
+            // paused — the "two songs at once" symptom.
+            if (this._singlePlaybackTimer) clearInterval(this._singlePlaybackTimer);
+            this._singlePlaybackTimer = setInterval(() => this._enforceSinglePlayback(), 1000);
             
             // Re-load if state exists
             setTimeout(() => {
-                if (window.StateManager && !window.videoPlaying) {
-                    const state = window.StateManager.getState();
-                    if (state && state.currentSongId && state.playing) {
-                        this.loadAudioSourceOnly({
-                            id: String(state.currentSongId),
-                            title: state.songName,
-                            artist: state.artist,
-                            duration: state.duration
-                        }, state.currentTime || 0);
-                    }
+                if (!window.StateManager || window.videoPlaying) return;
+                // Never fight a restore/DJ transition that is already running.
+                if (this._isCrossfading || (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading'))) {
+                    window.Helpers.log('AudioEngine: Skipping delayed source load — crossfade already in progress');
+                    return;
+                }
+                const activePlayer = this.getActivePlayer();
+                if (activePlayer && !activePlayer.paused) {
+                    window.Helpers.log('AudioEngine: Skipping delayed source load — audio already playing');
+                    return;
+                }
+                const state = window.StateManager.getState();
+                if (state && state.currentSongId && state.playing) {
+                    this.loadAudioSourceOnly({
+                        id: String(state.currentSongId),
+                        title: state.songName,
+                        artist: state.artist,
+                        duration: state.duration
+                    }, state.currentTime || 0);
                 }
             }, 500);
         },
@@ -415,6 +443,9 @@
 
             this._setAudioSessionPlayback();
 
+            // A play request is an explicit "be audible" intent.
+            this._userPaused = false;
+
             // Record the attempt, not just success: the stale websocket frame
             // that pauses the element usually arrives while play() is still
             // pending, so waiting for the promise to resolve leaves the guard
@@ -422,6 +453,10 @@
             this._lastLocalPlayAt = Date.now();
 
             return this._ensureContextRunning(label).then(() => {
+                // Exactly one element may play. A pending fade or a skipped
+                // state update can leave the other element running; starting
+                // this one without stopping it is how two songs end up mixed.
+                this._pauseOthers(el, 'start-playback:' + label);
                 const p = el.play();
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
             }).then(() => {
@@ -537,10 +572,71 @@
         },
 
         /**
+         * Pause one element without unloading it. The source stays buffered,
+         * which keeps DJ preloads intact.
+         */
+        _pausePlayer: function(player, reason) {
+            if (!player || player.paused) return;
+            try {
+                player.pause();
+            } catch (err) {
+                console.warn('AudioEngine: pause() failed for ' + (player.id || 'audio element') + ' (' + (reason || 'unknown') + ')', err);
+            }
+        },
+
+        /**
+         * Silence every element except `keep`. Passing null pauses both. This
+         * is the single-stream invariant: after a mix the outgoing element must
+         * never be left audible (or playable) next to the incoming one.
+         */
+        _pauseOthers: function(keep, reason) {
+            [this.audio, this.audioNext].forEach((p) => {
+                if (!p || p === keep) return;
+                this._pausePlayer(p, reason);
+            });
+        },
+
+        /**
+         * Release an element's media resource. Assigning `src = ''` resolves the
+         * empty string against the page URL and makes the element try to decode
+         * HTML as media, which is what produced "Invalid URI" and
+         * NotSupportedError in the console. Removing the attribute and calling
+         * load() is the documented way to unload.
+         */
+        _unloadPlayer: function(player, reason) {
+            if (!player) return;
+            this._pausePlayer(player, reason);
+            try {
+                player.removeAttribute('src');
+                player._currentSongId = null;
+                player._djTransitioned = false;
+                player.load();
+            } catch (err) {
+                console.warn('AudioEngine: unload failed for ' + (player.id || 'audio element') + ' (' + (reason || 'unknown') + ')', err);
+            }
+        },
+
+        /**
+         * Watchdog for the single-stream invariant. Skipped during a crossfade,
+         * where both elements are legitimately playing (one fading out).
+         */
+        _enforceSinglePlayback: function() {
+            if (this._isCrossfading) return;
+            if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) return;
+            const active = this.getActivePlayer();
+            [this.audio, this.audioNext].forEach((p) => {
+                if (!p || p === active || p.paused) return;
+                window.Helpers?.log?.('[AudioEngine] Stopping non-active player ' + p.id +
+                    ' (single-stream invariant, song ' + (p._currentSongId || '?') + ')');
+                this._pausePlayer(p, 'single-stream invariant');
+            });
+        },
+
+        /**
          * Preload next song for crossfade (HTML5 audio fallback)
          * Note: WebAudio preload is preferred - this is fallback
          */
-        preload: function(songId, startTime = 0) {
+        preload: function(songId, startTime = 0, retryCount = 0) {
             if (window.videoPlaying) return;
             let profileId = null;
             if (window.StateManager && window.StateManager.getProperty('profileId')) {
@@ -564,6 +660,23 @@
             // Don't attempt to load if songId is not valid
             if (!songId || songId === 'null' || songId === 'undefined') {
                 window.Helpers?.log?.('[AudioEngine preload] Invalid songId, skipping preload');
+                return;
+            }
+
+            // During a crossfade the "inactive" player is the OUTGOING element:
+            // it is still audible until the fade finishes and its gain reaches
+            // zero. Loading a new source into it cuts the fade and can leave it
+            // holding/playing a second song, so defer until the fade is done.
+            if (this._isCrossfading || (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading'))) {
+                if (retryCount < 25) {
+                    window.Helpers?.log?.('[AudioEngine preload] Deferring ' + songId + ' until the crossfade finishes');
+                    const self = this;
+                    setTimeout(function() {
+                        self.preload(songId, startTime, retryCount + 1);
+                    }, 400);
+                } else {
+                    console.warn('[AudioEngine preload] Dropping preload for ' + songId + ' — crossfade never finished');
+                }
                 return;
             }
             
@@ -628,8 +741,6 @@
                 const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 if (!iosProfileId || iosProfileId === 'undefined') {
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
-                    const self = this;
-                    setTimeout(function() { self.crossfadeTo(songId, entryTime, duration, djManaged); }, 200);
                     return false;
                 }
                 if (!songId || songId === 'null' || songId === 'undefined') {
@@ -641,6 +752,9 @@
                     return false;
                 }
                 this._isCrossfading = true;
+                if (window.SynchronizationManager) {
+                    window.SynchronizationManager.setFlag('isCrossfading', true);
+                }
 
                 const player = this.getActivePlayer();
                 const url = '/api/music/stream/' + iosProfileId + '/' + songId;
@@ -687,9 +801,10 @@
                 }
             }
             
-            // Swap active player immediately so getActivePlayer() returns the
-            // fading-in player during the crossfade (Bug D fix)
-            this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+            // Swap the active player only after every guard below has passed.
+            // Doing it here (as the code used to) flipped the pointer even when
+            // the fade was refused, leaving getActivePlayer() on the outgoing
+            // element that was still playing the old song.
             
             // Get profile ID - must have a valid one
             let profileId = null;
@@ -701,13 +816,11 @@
                 profileId = localStorage.getItem('activeProfileId');
             }
             
-            // Don't proceed if profileId is not valid
+            // Don't proceed if profileId is not valid. The caller retries
+            // (setSource / DjTransitionManager); retrying inside here as well
+            // could start two fades for the same song.
             if (!profileId || profileId === 'undefined') {
                 window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
-                const self = this;
-                setTimeout(function() {
-                    self.crossfadeTo(songId, entryTime, duration, djManaged);
-                }, 200);
                 return false;
             }
             
@@ -723,6 +836,16 @@
                 return false;
             }
             this._isCrossfading = true;
+            // Publish the shared flag for every fade, not only DJ-managed ones.
+            // setSource and setVolume key off it; without it a normal fade is
+            // invisible to them and a second source change can re-enter here.
+            if (window.SynchronizationManager) {
+                window.SynchronizationManager.setFlag('isCrossfading', true);
+            }
+
+            // The fade is definitely starting: now the pointer may move so
+            // getActivePlayer() returns the fading-in element.
+            this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
             
             // Mark current player as DJ-transitioned so its onended doesn't trigger auto-next
             // This prevents the old song's natural end from skipping to next after crossfade
@@ -832,6 +955,17 @@
             // This prevents intermittent audio when gain ramps are scheduled before
             // the audio element has buffered enough to play (Bug A fix).
             var startPlayback = () => {
+                // The user may have paused while the incoming element was still
+                // buffering. Starting it now would undo that pause.
+                if (this._userPaused) {
+                    window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused before the incoming element was ready');
+                    this._isCrossfading = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    this._pauseOthers(null, 'crossfade aborted');
+                    return;
+                }
                 // Resume AudioContext if suspended, then schedule ramps
                 // gain ramps are scheduled on the Web Audio timeline so they fire at the correct
                 // time relative to context.currentTime once the context resumes
@@ -854,7 +988,7 @@
                 
                 nextPlayer.play().then(() => {
                     setTimeout(() => {
-                        currentPlayer.pause();
+                        this._pausePlayer(currentPlayer, 'crossfade finalize');
                         // A DJ plan for the following song may have preloaded into
                         // the outgoing player during the fade. Clearing its src
                         // would throw that preload away, so keep a newer source.
@@ -862,7 +996,7 @@
                             && outgoingSongId
                             && currentPlayer._currentSongId !== outgoingSongId;
                         if (!hasNewerPreload) {
-                            currentPlayer.src = '';
+                            this._unloadPlayer(currentPlayer, 'crossfade finalize');
                         }
                         
                         if (this.ctx) {
@@ -969,8 +1103,22 @@
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
-                    nextPlayer.play().catch((err) => {
+                    if (this._userPaused) {
+                        window.Helpers.log('AudioEngine: Crossfade failed while paused; not retrying playback');
+                        this._pauseOthers(null, 'crossfade failed paused');
+                        return;
+                    }
+                    nextPlayer.play().then(() => {
+                        // The incoming element started; stop the outgoing one so
+                        // it cannot keep playing underneath it.
+                        this._pauseOthers(nextPlayer, 'crossfade retry');
+                    }).catch((err) => {
                         console.warn('AudioEngine: Retry play after crossfade failure failed', err);
+                        // The incoming element cannot play: put the pointer back
+                        // on the still-audible outgoing element instead of
+                        // leaving the engine pointing at silence.
+                        this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                        window.Helpers.log('AudioEngine: Crossfade failed; reverted active player to ' + this.getActivePlayer().id);
                     });
                 });
             };
@@ -983,6 +1131,26 @@
                     this._isCrossfading = false;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    if (this._userPaused) {
+                        window.Helpers.log('AudioEngine: Crossfade timeout while paused; leaving both players silent');
+                        this._pauseOthers(null, 'crossfade timeout paused');
+                        return;
+                    }
+                    // The incoming element never became ready. Try it anyway;
+                    // if it still cannot play, put the pointer back on the
+                    // outgoing element so playback continues instead of ending
+                    // in silence.
+                    this._lastLocalPlayAt = Date.now();
+                    const attempt = nextPlayer.play();
+                    if (attempt && typeof attempt.catch === 'function') {
+                        attempt.then(() => {
+                            this._pauseOthers(nextPlayer, 'crossfade-timeout');
+                        }).catch((err) => {
+                            console.warn('AudioEngine: Crossfade timeout fallback play failed', err);
+                            this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                            window.Helpers.log('AudioEngine: Crossfade timeout; kept outgoing player ' + this.getActivePlayer().id);
+                        });
                     }
                 }, 8000);
                 
@@ -1056,8 +1224,15 @@
         
         pause: function() {
             const player = this.getActivePlayer();
-            window.Helpers?.log?.('[AudioEngine pause] Calling pause on player:', player.id, 'currently playing:', !player.paused);
-            player.pause();
+            window.Helpers?.log?.('[AudioEngine pause] Pausing active player:', player.id, 'currently playing:', !player.paused);
+            // Remember the intent: a crossfade that is still waiting for its
+            // incoming element must not start playback after the user paused.
+            this._userPaused = true;
+            // Pause BOTH elements. After a mix the outgoing element can still be
+            // audible, or the pointer can be on the element that is not the one
+            // making sound; pausing only the "active" one leaves the other song
+            // running — the "I still hear two songs" symptom.
+            this._pauseOthers(null, 'pause');
             window.Helpers?.log?.('[AudioEngine pause] After pause, isPaused:', player.paused);
         },
 
@@ -1074,6 +1249,10 @@
             const player = this.getActivePlayer();
             const gain = this.getActiveGain();
             const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId')}/${currentSong.id}`;
+            // A direct source change is authoritative: silence the other
+            // element first so it cannot keep playing the previous song under
+            // the one we are about to start.
+            this._pauseOthers(player, 'performSetSource');
             player._currentSongId = currentSong.id;
             
             if (player.src !== url) {
@@ -1143,6 +1322,7 @@
             }
             const player = this.getActivePlayer();
             const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId')}/${currentSong.id}`;
+            this._pauseOthers(player, 'loadAudioSourceOnly');
             player._currentSongId = currentSong.id;
             player.src = url;
             player.onloadedmetadata = () => {
@@ -1189,18 +1369,29 @@
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             if (!window.SynchronizationManager) return false;
 
-            // CROSSFADE GUARD: Check BOTH players. During a crossfade, the next song 
-            // is likely already loaded in the inactive player.
+            // CROSSFADE GUARD: while a fade runs, the incoming song is already
+            // loaded on the active (fading-in) player. A state echo for that
+            // same song is a no-op. A request for a DIFFERENT song must wait:
+            // touching either element mid-fade cuts the fade or starts a second
+            // stream, which is what produced two songs at once.
             if (window.SynchronizationManager.getFlag('isCrossfading')) {
                 const activePlayer = this.getActivePlayer();
-                const inactivePlayer = this.getInactivePlayer();
                 const targetUrl = this.getStreamUrl(currentSong.id);
                 
-                if ((activePlayer && activePlayer.src.endsWith(targetUrl)) ||
-                    (inactivePlayer && inactivePlayer.src.endsWith(targetUrl))) {
+                if (activePlayer && targetUrl && activePlayer.src.endsWith(targetUrl)) {
                     window.Helpers.log('AudioEngine: Ignoring setSource during active crossfade for song ' + currentSong.id);
                     return true;
                 }
+
+                if (retryCount < 40) {
+                    window.Helpers.log('AudioEngine: Deferring setSource for song ' + currentSong.id + ' until the crossfade finishes');
+                    const self = this;
+                    setTimeout(() => {
+                        self.setSource(currentSong, prevSong, nextSong, play, backendTime, retryCount + 1);
+                    }, 250);
+                    return true;
+                }
+                window.Helpers?.log?.('[AudioEngine] Crossfade still running; applying source directly for ' + currentSong.id);
             }
 
             // CROSSFADE: apply to normal playback and to manual skips in DJ Mode.
@@ -1231,8 +1422,12 @@
                 // Preload the next song in the inactive player
                 this.preloadSong(currentSong.id, backendTime || 0);
                 // Initiate crossfade
-                this.crossfadeTo(currentSong.id, backendTime || 0, fadeDuration, false);
-                return true;
+                if (this.crossfadeTo(currentSong.id, backendTime || 0, fadeDuration, false)) {
+                    return true;
+                }
+                // Never report success for a fade that did not start: the state
+                // machine would advance while the previous song keeps playing.
+                window.Helpers.log('AudioEngine: Crossfade did not start for song ' + currentSong.id + ' — applying source directly');
             }
 
             const result = SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
