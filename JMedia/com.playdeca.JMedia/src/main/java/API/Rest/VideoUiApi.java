@@ -1218,6 +1218,7 @@ public class VideoUiApi {
         card.put("overview", show.overview());
         card.put("backdrop", tmdbImageUrl(show.backdropPath(), "w1280"));
         card.put("poster", tmdbImageUrl(show.posterPath(), "w500"));
+        card.put("logo", tmdbImageUrl(show.logoPath(), "w500"));
         card.put("voteAverage", round1(show.voteAverage()));
         card.put("status", show.status());
         card.put("nextAirDate", show.nextAirDate());
@@ -1238,31 +1239,70 @@ public class VideoUiApi {
         card.put("seasonCount", seasons.size());
 
         ArrayNode episodes = card.putArray("episodes");
-        // Every season is loaded so the dropdown works offline; each snapshot is
-        // cached in SeasonMetadataCache, so later views skip TMDb entirely.
-        int limit = Math.min(seasons.size(), 30);
-        for (int i = 0; i < limit; i++) {
-            int seasonNumber = seasons.get(i);
+        // Only the first season is loaded up front; other seasons are fetched on
+        // demand by /external-season. Each snapshot is cached in
+        // SeasonMetadataCache, so later views skip TMDb entirely.
+        Integer firstSeason = null;
+        for (Integer number : seasons) {
+            if (number != null && number > 0) { firstSeason = number; break; }
+        }
+        if (firstSeason == null && !seasons.isEmpty()) firstSeason = seasons.get(0);
+        card.put("episodesSeason", firstSeason == null ? -1 : firstSeason);
+        if (firstSeason != null) {
             TmdbCatalogService.CatalogSeason season =
-                    tmdbCatalogService.getSeason(tmdbId, seasonNumber);
-            if (season == null) continue;
-            for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
-                ObjectNode item = episodes.addObject();
-                item.put("seasonNumber", seasonNumber);
-                item.put("episodeNumber", ep.number());
-                item.put("contentType", "episode");
-                item.put("episodeTitle", ep.name() != null && !ep.name().isBlank()
-                        ? ep.name() : "Episode " + ep.number());
-                item.put("overview", ep.overview());
-                item.put("airDate", ep.airDate());
-                item.put("airDateDisplay", formatAirDate(ep.airDate()));
-                item.put("stillUrl", tmdbImageUrl(ep.stillPath(), "w300"));
-                item.put("missing", true);
-                item.put("state", ep.released() ? "MISSING"
-                        : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "UNRELEASED"));
+                    tmdbCatalogService.getSeason(tmdbId, firstSeason);
+            if (season != null) {
+                for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
+                    episodes.add(catalogEpisodeJson(firstSeason, ep));
+                }
             }
         }
         return card;
+    }
+
+    /**
+     * Episodes for one catalogue season, used by the card's season dropdown for
+     * shows that were not preloaded.
+     */
+    @GET
+    @Path("/external-season")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getExternalSeason(@QueryParam("tmdbId") Integer tmdbId,
+                                      @QueryParam("season") Integer season) {
+        if (tmdbId == null || tmdbId <= 0 || season == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "tmdbId and season are required")).build();
+        }
+        ArrayNode episodes = objectMapper.createArrayNode();
+        try {
+            TmdbCatalogService.CatalogSeason catalog = tmdbCatalogService.getSeason(tmdbId, season);
+            if (catalog != null) {
+                for (TmdbCatalogService.CatalogEpisode ep : catalog.episodes()) {
+                    episodes.add(catalogEpisodeJson(season, ep));
+                }
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("External season failed for TMDb {} S{}: {}", tmdbId, season, e.getMessage());
+        }
+        return Response.ok(episodes).build();
+    }
+
+    private ObjectNode catalogEpisodeJson(int seasonNumber, TmdbCatalogService.CatalogEpisode ep) {
+        ObjectNode item = objectMapper.createObjectNode();
+        item.put("seasonNumber", seasonNumber);
+        item.put("episodeNumber", ep.number());
+        item.put("contentType", "episode");
+        item.put("episodeTitle", ep.name() != null && !ep.name().isBlank()
+                ? ep.name() : "Episode " + ep.number());
+        item.put("overview", ep.overview());
+        item.put("airDate", ep.airDate());
+        item.put("airDateDisplay", formatAirDate(ep.airDate()));
+        item.put("stillUrl", tmdbImageUrl(ep.stillPath(), "w300"));
+        item.put("missing", true);
+        item.put("state", ep.released() ? "MISSING"
+                : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "UNRELEASED"));
+        return item;
     }
 
     private ObjectNode externalMovieCard(Integer tmdbId) {
@@ -1281,6 +1321,7 @@ public class VideoUiApi {
         card.put("overview", movie.overview());
         card.put("backdrop", tmdbImageUrl(movie.backdropPath(), "w1280"));
         card.put("poster", tmdbImageUrl(movie.posterPath(), "w500"));
+        card.put("logo", tmdbImageUrl(movie.logoPath(), "w500"));
         card.put("voteAverage", round1(movie.voteAverage()));
         if (movie.runtime() > 0) card.put("runtime", movie.runtime());
         ArrayNode genres = card.putArray("genres");

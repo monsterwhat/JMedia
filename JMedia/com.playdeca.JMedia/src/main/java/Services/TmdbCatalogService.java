@@ -65,11 +65,11 @@ public class TmdbCatalogService {
                               List<Integer> seasons, Map<Integer, Integer> counts,
                               String overview, String backdropPath, String posterPath,
                               double voteAverage, String firstAirDate, List<String> genres,
-                              List<String> createdBy, List<String> networks) {}
+                              List<String> createdBy, List<String> networks, String logoPath) {}
 
     public record CatalogMovie(int tmdbId, String title, String overview, String backdropPath,
                                String posterPath, double voteAverage, String releaseDate,
-                               int runtime, List<String> genres, String director) {}
+                               int runtime, List<String> genres, String director, String logoPath) {}
 
     public record SearchResult(int tmdbId, String title, Integer year, String mediaType,
                                String posterUrl, String overview, boolean inLibrary, String token) {}
@@ -86,7 +86,8 @@ public class TmdbCatalogService {
             return cached.show;
         }
 
-        JsonNode root = metadataService.tmdbGet("/tv/" + tmdbId, null);
+        JsonNode root = metadataService.tmdbGet("/tv/" + tmdbId,
+                "append_to_response=images&include_image_language=en,null");
         if (root == null) {
             return cached != null ? cached.show : null;
         }
@@ -116,14 +117,15 @@ public class TmdbCatalogService {
                 text(root, "first_air_date"),
                 names(root.path("genres")),
                 names(root.path("created_by")),
-                names(root.path("networks")));
+                names(root.path("networks")),
+                bestLogoPath(root.path("images")));
         showCache.put(tmdbId, new CachedShow(show, now + SHOW_TTL_MS));
         return show;
     }
 
     public CatalogMovie getMovie(int tmdbId) {
         JsonNode root = metadataService.tmdbGet("/movie/" + tmdbId,
-                "append_to_response=credits");
+                "append_to_response=credits,images&include_image_language=en,null");
         if (root == null) {
             return null;
         }
@@ -137,7 +139,32 @@ public class TmdbCatalogService {
         return new CatalogMovie(tmdbId, root.path("title").asText(""),
                 text(root, "overview"), text(root, "backdrop_path"), text(root, "poster_path"),
                 root.path("vote_average").asDouble(0), text(root, "release_date"),
-                root.path("runtime").asInt(0), names(root.path("genres")), director);
+                root.path("runtime").asInt(0), names(root.path("genres")), director,
+                bestLogoPath(root.path("images")));
+    }
+
+    /**
+     * Best title logo: English first, then language-neutral, highest rated.
+     * TMDb logos are transparent art, far nicer than a plain text title.
+     */
+    private static String bestLogoPath(JsonNode images) {
+        JsonNode logos = images == null ? null : images.path("logos");
+        if (logos == null || !logos.isArray()) return null;
+        String best = null;
+        double bestScore = -1;
+        for (JsonNode logo : logos) {
+            String lang = text(logo, "iso_639_1");
+            if (lang != null && !lang.isBlank() && !"en".equalsIgnoreCase(lang)) continue;
+            String path = text(logo, "file_path");
+            if (path == null || !path.startsWith("/")) continue;
+            double score = logo.path("vote_average").asDouble(0)
+                    + ("en".equalsIgnoreCase(lang) ? 1.0 : 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = path;
+            }
+        }
+        return best;
     }
 
     private static List<String> names(JsonNode array) {

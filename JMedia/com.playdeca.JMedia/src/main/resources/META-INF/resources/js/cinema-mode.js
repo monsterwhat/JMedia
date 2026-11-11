@@ -440,7 +440,12 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   const fallbackTitle = meta && meta.title ? String(meta.title) : '';
   if (textTitleEl) { textTitleEl.textContent = fallbackTitle; textTitleEl.style.display = ''; }
-  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = 'none'; }
+  if (logoHeroImg) {
+    logoHeroImg.onerror = null;
+    logoHeroImg.onload = null;
+    logoHeroImg.removeAttribute('src');
+    logoHeroImg.style.display = 'none';
+  }
 
   // No playback for a catalogue title.
   const playBtn = document.getElementById('modal-play-btn');
@@ -470,11 +475,36 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
   const isTv = data.mediaType === 'tv';
   const title = data.title || fallbackTitle;
   modal.dataset.seriesTitle = 'tmdb:' + tmdbId;
+  modal.dataset.catalogueTmdbId = String(tmdbId);
   if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
   if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = 'none'; }
 
   // Hero backdrop (TMDb URLs only; the server builds them).
   const isTmdbImage = function (u) { return typeof u === 'string' && /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9_]+\/[A-Za-z0-9_.-]+$/.test(u); };
+
+  // Title art: TMDb's transparent logo when the show/movie has one, else text.
+  if (logoHeroImg) {
+    const logoUrl = isTmdbImage(data.logo) ? data.logo : '';
+    if (logoUrl) {
+      logoHeroImg.onerror = function () {
+        logoHeroImg.onerror = null;
+        logoHeroImg.onload = null;
+        logoHeroImg.style.display = 'none';
+        if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
+      };
+      logoHeroImg.onload = function () {
+        logoHeroImg.style.display = 'block';
+        if (textTitleEl) textTitleEl.style.display = 'none';
+      };
+      logoHeroImg.src = logoUrl;
+      logoHeroImg.style.maxWidth = '288px';
+      logoHeroImg.style.maxHeight = '80px';
+      logoHeroImg.classList.remove('is-skeleton');
+    } else {
+      logoHeroImg.style.display = 'none';
+      if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
+    }
+  }
   const heroUrl = isTmdbImage(data.backdrop) ? data.backdrop
     : (isTmdbImage(data.poster) ? data.poster : '');
   const backdropImg = document.getElementById('modal-backdrop-img');
@@ -558,10 +588,33 @@ async function openExternalDetails(tmdbId, mediaType, meta) {
   }
 
   // Episodes: every catalogue episode is missing (aired), unreleased or TBA.
-  if (isTv && Array.isArray(data.episodes) && data.episodes.length) {
+  // Only the first season is preloaded; the dropdown lists every TMDb season
+  // and the rest are fetched by switchSeason() on demand.
+  if (isTv && Array.isArray(data.seasons) && data.seasons.length) {
     const cacheKey = 'tmdb:' + tmdbId;
-    _episodesCache.set(cacheKey, data.episodes);
-    const { groups, seasonKeys } = sortAndGroupEpisodes(data.episodes.slice());
+    const loaded = Array.isArray(data.episodes) ? data.episodes : [];
+    _episodesCache.set(cacheKey, loaded);
+    const numbers = (data.seasons || [])
+      .map(s => Number(s.number))
+      .filter(n => !isNaN(n));
+    loaded.forEach(ep => {
+      const n = Number(ep.seasonNumber);
+      if (!numbers.includes(n)) numbers.push(n);
+    });
+    const ordered = numbers.filter(n => n > 0).sort((a, b) => a - b)
+      .concat(numbers.filter(n => n === 0));
+    const groups = {};
+    const seasonKeys = [];
+    ordered.forEach(n => {
+      const key = n + ':episode';
+      seasonKeys.push(key);
+      groups[key] = [];
+    });
+    loaded.forEach(ep => {
+      const key = (ep.seasonNumber != null ? ep.seasonNumber : 1) + ':' + (ep.contentType || 'episode');
+      if (!groups[key]) { groups[key] = []; seasonKeys.push(key); }
+      groups[key].push(ep);
+    });
     const episodesHtml = buildCinemaEpisodesHtml(groups, seasonKeys, '');
     if (content) content.insertAdjacentHTML('beforeend', episodesHtml);
   }
@@ -1724,6 +1777,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
 
   // Show text title immediately, hide logo until it loads
   modal.dataset.seriesTitle = seriesTitle;
+  delete modal.dataset.catalogueTmdbId;
   const textTitleEl = document.getElementById('modal-text-title');
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
@@ -2637,6 +2691,48 @@ function switchSeason(seasonKey) {
     .filter(v => (v.seasonNumber != null ? v.seasonNumber : 1) === sn
       && (v.contentType || 'episode') === (ct || 'episode'))
     .sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0));
+
+  // Catalogue cards preload only the first season; fetch the rest on demand.
+  const catalogueId = document.getElementById('cinema-modal')?.dataset.catalogueTmdbId || '';
+  if (!episodes.length && catalogueId) {
+    const gen = _modalGeneration;
+    const sectionNow = document.querySelector('#cinema-modal .cinema-episodes-section');
+    if (!sectionNow) return;
+    const rowNow = sectionNow.querySelector('.cinema-season-row');
+    sectionNow.querySelectorAll('.cinema-episode-card').forEach(el => el.remove());
+    const placeholder = '<div class="cinema-episode-card is-missing" style="opacity:.7;cursor:default;"><div class="cinema-episode-info"><p class="cinema-episode-desc">Loading episodes…</p></div></div>';
+    if (rowNow) rowNow.insertAdjacentHTML('afterend', placeholder);
+    else sectionNow.insertAdjacentHTML('afterbegin', placeholder);
+
+    fetch('/api/video/ui/external-season?tmdbId=' + encodeURIComponent(catalogueId) + '&season=' + encodeURIComponent(sn))
+      .then(res => res.ok ? res.json() : [])
+      .then(list => {
+        if (gen !== _modalGeneration) return;
+        if (!Array.isArray(list)) list = [];
+        if (list.length) {
+          _episodesCache.set(seriesTitle, (_episodesCache.get(seriesTitle) || []).concat(list));
+        }
+        const sectionAfter = document.querySelector('#cinema-modal .cinema-episodes-section');
+        if (!sectionAfter) return;
+        sectionAfter.querySelectorAll('.cinema-episode-card').forEach(el => el.remove());
+        const rowAfter = sectionAfter.querySelector('.cinema-season-row');
+        const html = list.length ? buildEpisodesList(list)
+          : '<div class="cinema-episode-card is-missing" style="opacity:.7;cursor:default;"><div class="cinema-episode-info"><p class="cinema-episode-desc">No episodes listed for this season.</p></div></div>';
+        if (rowAfter) rowAfter.insertAdjacentHTML('afterend', html);
+        else sectionAfter.insertAdjacentHTML('afterbegin', html);
+      })
+      .catch(err => {
+        console.warn('[cinema] catalogue season fetch failed', err);
+        const sectionErr = document.querySelector('#cinema-modal .cinema-episodes-section');
+        if (!sectionErr) return;
+        sectionErr.querySelectorAll('.cinema-episode-card').forEach(el => el.remove());
+        const rowErr = sectionErr.querySelector('.cinema-season-row');
+        const html = '<div class="cinema-episode-card is-missing" style="opacity:.7;cursor:default;"><div class="cinema-episode-info"><p class="cinema-episode-desc">Could not load this season.</p></div></div>';
+        if (rowErr) rowErr.insertAdjacentHTML('afterend', html);
+        else sectionErr.insertAdjacentHTML('afterbegin', html);
+      });
+    return;
+  }
   
   // Update episode list
   const section = document.querySelector('#cinema-modal .cinema-episodes-section');
@@ -2662,6 +2758,7 @@ function openDetails(videoId) {
   if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
   if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
   delete modal.dataset.seriesTitle;
+  delete modal.dataset.catalogueTmdbId;
   _hideRequestButton();
 
   const descEl = document.getElementById('modal-desc');
@@ -2962,6 +3059,8 @@ function closeModal() {
   if (modal && modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
   if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
   if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
+  delete modal.dataset.seriesTitle;
+  delete modal.dataset.catalogueTmdbId;
 
   // Reset dynamic hero overlay color
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
