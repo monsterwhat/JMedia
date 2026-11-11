@@ -53,12 +53,32 @@
                     if (state && state.djModeActive) {
                         window.Helpers.log('[DJ] DJ mode already active on init, showing indicator');
                         this.updateDjIndicator('active');
+                        // A plan may already exist after a page reload. The
+                        // normal change listener never sees it because it did
+                        // not transition to true in this page session.
+                        if (state.djTransitionPlanned && state.djNextSongId && !this.transitionPrepared) {
+                            window.Helpers.log('[DJ] Restored plan found on init, preparing');
+                            this.prepareTransition(state);
+                        }
                     }
                 } else {
                     setTimeout(checkInitialState, 50);
                 }
             };
             setTimeout(checkInitialState, 100);
+
+            // Self-heal: if a plan arrives while the page is busy, or a state
+            // update is missed, pick it up instead of playing to the natural end.
+            if (this._healTimer) clearInterval(this._healTimer);
+            this._healTimer = setInterval(() => {
+                if (window.videoPlaying || this.isTransitioning || this.transitionPrepared) return;
+                if (!window.StateManager) return;
+                const state = window.StateManager.getState();
+                if (state && state.djModeActive && state.djTransitionPlanned && state.djNextSongId) {
+                    window.Helpers.log('[DJ] Self-heal found an unmonitored plan, preparing');
+                    this.prepareTransition(state);
+                }
+            }, 2000);
         },
         
         /**
