@@ -247,7 +247,18 @@ async function _openFromUrl(parsed) {
     const resolved = await VideoRoutes.resolve(parsed);
     if (!resolved || resolved.found === false) {
       // Keep the shared URL (do NOT fall back to /video): the link stays shareable
-      // and the panel explains why the title cannot be played here.
+      // and the card explains why the title cannot be played here.
+      const meta = resolved && resolved.meta ? resolved.meta : null;
+      const tmdbId = (meta && meta.tmdbId) ? String(meta.tmdbId)
+        : ((parsed && parsed.kind === 'tmdb') ? String(parsed.token || '') : '');
+      if (tmdbId) {
+        const mediaType = (meta && meta.mediaType) || (parsed && parsed.mediaType) || '';
+        const opened = await openExternalDetails(tmdbId, mediaType, meta).catch(function (e) {
+          console.warn('[cinema] catalogue card failed', e);
+          return false;
+        });
+        if (opened) return true;
+      }
       showNotInLibraryPanel(parsed, resolved);
       return true;
     }
@@ -365,6 +376,199 @@ function _removeNotInLibraryPage() {
   if (page) page.remove();
   _notInLibrary = false;
 }
+
+function _hideRequestButton() {
+  const btn = document.getElementById('modal-request-btn');
+  if (btn) {
+    btn.style.display = 'none';
+    btn.onclick = null;
+    btn.removeAttribute('data-token');
+    btn.removeAttribute('data-kind');
+    btn.removeAttribute('data-title');
+    btn.removeAttribute('data-year');
+    btn.removeAttribute('data-poster');
+    btn.removeAttribute('data-media-type');
+    btn.removeAttribute('data-tmdb-id');
+  }
+}
+
+/**
+ * The full cinema card for a title that is NOT in the library: same hero,
+ * badges, genres, overview and season/episode list as a local show, but Play is
+ * replaced by Request and every episode is marked missing/unreleased/TBA.
+ * Returns false (after closing the skeleton) when TMDb has nothing to show, so
+ * the caller can fall back to the plain "not in your library" page.
+ */
+async function openExternalDetails(tmdbId, mediaType, meta) {
+  if (!tmdbId) return false;
+  const gen = ++_modalGeneration;
+  const modal = document.getElementById('cinema-modal');
+  if (!modal) return false;
+  if (modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
+  if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
+  if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
+
+  // Reset the card from whatever was open before.
+  const resetDesc = document.getElementById('modal-desc');
+  if (resetDesc) { resetDesc.innerHTML = ''; resetDesc.textContent = ''; resetDesc.classList.add('is-skeleton'); resetDesc.classList.remove('expanded'); }
+  const resetGenres = document.getElementById('modal-genres');
+  if (resetGenres) { resetGenres.innerHTML = ''; resetGenres.classList.add('is-skeleton'); }
+  const resetCreator = document.getElementById('modal-creator');
+  if (resetCreator) { resetCreator.textContent = ''; resetCreator.classList.add('is-skeleton'); }
+  const resetMeta = document.getElementById('modal-meta-row');
+  if (resetMeta) resetMeta.innerHTML = '';
+  const resetToggle = document.getElementById('modal-desc-toggle');
+  if (resetToggle) resetToggle.style.display = 'none';
+  const content = modal.querySelector('.cinema-modal-content');
+  if (content) {
+    const oldEpisodes = content.querySelector('.cinema-episodes-section, .cinema-series-content');
+    if (oldEpisodes) oldEpisodes.remove();
+    const oldMoreLike = content.querySelector('.cinema-more-like-section');
+    if (oldMoreLike) oldMoreLike.remove();
+  }
+
+  // Open immediately with a skeleton.
+  modal.dataset.originalParent = modal.parentElement.id || 'app-content';
+  document.body.appendChild(modal);
+  document.getElementById('cinema-modal-backdrop').classList.add('active');
+  modal.classList.add('active');
+  trapFocus(modal);
+  document.body.style.overflow = 'hidden';
+  initModalScrollBlur();
+
+  const textTitleEl = document.getElementById('modal-text-title');
+  const logoHeroImg = document.getElementById('modal-logo-hero-img');
+  const fallbackTitle = meta && meta.title ? String(meta.title) : '';
+  if (textTitleEl) { textTitleEl.textContent = fallbackTitle; textTitleEl.style.display = ''; }
+  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = 'none'; }
+
+  // No playback for a catalogue title.
+  const playBtn = document.getElementById('modal-play-btn');
+  if (playBtn) { playBtn.style.display = 'none'; playBtn.onclick = null; }
+  const dlBtn = document.getElementById('modal-download-btn');
+  if (dlBtn) { dlBtn.style.display = 'none'; dlBtn.onclick = null; }
+  const watchBtn = document.getElementById('modal-watchlist-btn');
+  if (watchBtn) { watchBtn.style.display = 'none'; watchBtn.onclick = null; }
+  _hideRequestButton();
+
+  let url = '/api/video/ui/external-details?tmdbId=' + encodeURIComponent(tmdbId);
+  if (mediaType) url += '&type=' + encodeURIComponent(mediaType);
+  const data = await fetchJSON(url).catch(() => null);
+  if (gen !== _modalGeneration) return false;
+
+  if (!data || data.found === false) {
+    // Undo the skeleton without touching the shareable URL.
+    if (textTitleEl) { textTitleEl.textContent = ''; textTitleEl.style.display = 'none'; }
+    document.getElementById('cinema-modal-backdrop').classList.remove('active');
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+    releaseFocusTrap(modal);
+    return false;
+  }
+
+  _removeNotInLibraryPage();
+  const isTv = data.mediaType === 'tv';
+  const title = data.title || fallbackTitle;
+  modal.dataset.seriesTitle = 'tmdb:' + tmdbId;
+  if (textTitleEl) { textTitleEl.textContent = title; textTitleEl.style.display = ''; }
+  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = 'none'; }
+
+  // Hero backdrop (TMDb URLs only; the server builds them).
+  const isTmdbImage = function (u) { return typeof u === 'string' && /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9_]+\/[A-Za-z0-9_.-]+$/.test(u); };
+  const heroUrl = isTmdbImage(data.backdrop) ? data.backdrop
+    : (isTmdbImage(data.poster) ? data.poster : '');
+  const backdropImg = document.getElementById('modal-backdrop-img');
+  if (backdropImg) {
+    backdropImg.onerror = null;
+    backdropImg.onload = null;
+    if (heroUrl) {
+      backdropImg.src = heroUrl;
+      backdropImg.classList.remove('is-skeleton');
+      backdropImg.onerror = function () { backdropImg.onerror = null; backdropImg.classList.add('is-skeleton'); };
+    } else {
+      backdropImg.removeAttribute('src');
+      backdropImg.classList.add('is-skeleton');
+    }
+  }
+  const bgBlur = document.getElementById('modal-bg-blur');
+  if (bgBlur) bgBlur.style.backgroundImage = heroUrl ? `url(${heroUrl})` : '';
+  const bgBlurInner = document.getElementById('modal-bg-blur-inner');
+  if (bgBlurInner) bgBlurInner.style.backgroundImage = heroUrl ? `url(${heroUrl})` : '';
+  if (heroUrl) extractAndApplyModalColor(heroUrl, document.querySelector('.cinema-modal-hero-overlay'));
+
+  if (window.JMedia && window.JMedia.PageChrome) {
+    window.JMedia.PageChrome.setForVideoDetails(title);
+  }
+
+  // Meta badges: rating, year, seasons/length, availability.
+  const metaRow = document.getElementById('modal-meta-row');
+  if (metaRow) {
+    let html = '';
+    const ratingVal = Number(data.voteAverage) || 0;
+    if (ratingVal > 0) html += `<span style="color:${ratingColor(ratingVal)};font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingVal.toFixed(1)}</span>`;
+    if (data.year) html += `<span class="meta-badge">${escapeHtml(String(data.year))}</span>`;
+    if (isTv) {
+      const sc = Number(data.seasonCount) || (data.seasons ? data.seasons.length : 0);
+      if (sc > 0) html += `<span class="meta-badge">${sc} Season${sc > 1 ? 's' : ''}</span>`;
+    } else if (data.runtime) {
+      html += `<span class="meta-badge">${Number(data.runtime)} min</span>`;
+    }
+    html += '<span class="meta-badge" style="border:1px solid rgba(245,158,11,0.55);color:#f0b24a;">Not in library</span>';
+    metaRow.innerHTML = html;
+  }
+
+  const genresEl = document.getElementById('modal-genres');
+  if (genresEl) {
+    const genres = Array.isArray(data.genres) ? data.genres : [];
+    genresEl.innerHTML = genres.map(g => `<span class="cinema-genre-chip">${escapeHtml(String(g))}</span>`).join('');
+    genresEl.classList.remove('is-skeleton');
+  }
+
+  const creatorEl = document.getElementById('modal-creator');
+  if (creatorEl) {
+    creatorEl.textContent = data.creator ? String(data.creator) : '';
+    if (data.creator) creatorEl.classList.remove('is-skeleton');
+  }
+
+  const descEl = document.getElementById('modal-desc');
+  const descToggle = document.getElementById('modal-desc-toggle');
+  const desc = data.overview ? String(data.overview) : '';
+  if (descEl) {
+    descEl.textContent = desc;
+    descEl.classList.remove('expanded');
+    if (desc) descEl.classList.remove('is-skeleton');
+  }
+  if (descToggle) {
+    descToggle.style.display = desc.length > 150 ? 'inline' : 'none';
+    descToggle.textContent = 'more...';
+  }
+
+  // Request replaces Play.
+  const reqBtn = document.getElementById('modal-request-btn');
+  if (reqBtn) {
+    reqBtn.style.display = '';
+    reqBtn.dataset.token = String(tmdbId);
+    reqBtn.dataset.kind = 'tmdb';
+    reqBtn.dataset.title = title || '';
+    reqBtn.dataset.year = data.year ? String(data.year) : '';
+    reqBtn.dataset.poster = isTmdbImage(data.poster) ? data.poster : '';
+    reqBtn.dataset.mediaType = isTv ? 'tv' : 'movie';
+    reqBtn.dataset.tmdbId = String(tmdbId);
+    reqBtn.onclick = function () { requestNotInLibraryTitle(reqBtn); };
+  }
+
+  // Episodes: every catalogue episode is missing (aired), unreleased or TBA.
+  if (isTv && Array.isArray(data.episodes) && data.episodes.length) {
+    const cacheKey = 'tmdb:' + tmdbId;
+    _episodesCache.set(cacheKey, data.episodes);
+    const { groups, seasonKeys } = sortAndGroupEpisodes(data.episodes.slice());
+    const episodesHtml = buildCinemaEpisodesHtml(groups, seasonKeys, '');
+    if (content) content.insertAdjacentHTML('beforeend', episodesHtml);
+  }
+
+  return true;
+}
+
 
 /** Leave the not-in-library state and restore the browse URL. */
 function closeNotInLibrary() {
@@ -1532,6 +1736,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (watchBtnEarly) watchBtnEarly.style.display = 'none';
   const dlBtnEarly = document.getElementById('modal-download-btn');
   if (dlBtnEarly) dlBtnEarly.style.display = 'none';
+  _hideRequestButton();
 
   // Fetch episodes for this series from the JSON endpoint
   const epResp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`).catch(() => null);
@@ -1847,6 +2052,9 @@ function buildEpisodesList(episodeArray) {
                    data-title="${escapeHtml(ep.seriesTitle || '')}"
                    onclick="event.stopPropagation(); window.requestMissingTitle && window.requestMissingTitle(this)">Request</button>`
         : '';
+      const overview = ep.overview
+        ? `<p class="cinema-episode-desc" style="margin-top:.35rem;">${escapeHtml(String(ep.overview))}</p>`
+        : '';
       return `<div class="cinema-episode-card is-missing" data-episode-number="${epNum}" style="opacity:.62;cursor:default;">
         <div class="cinema-episode-thumb-wrap">
           ${img}
@@ -1857,6 +2065,7 @@ function buildEpisodesList(episodeArray) {
             <h3 class="cinema-episode-title">${epNum}. ${escapeHtml(epTitle)}</h3>
           </div>
           <p class="cinema-episode-desc">${sub}</p>
+          ${overview}
           ${request}
         </div>
       </div>`;
@@ -2453,6 +2662,7 @@ function openDetails(videoId) {
   if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
   if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
   delete modal.dataset.seriesTitle;
+  _hideRequestButton();
 
   const descEl = document.getElementById('modal-desc');
   if (descEl) { descEl.innerHTML = ''; descEl.classList.add('is-skeleton'); }
@@ -2809,6 +3019,7 @@ function closeModal() {
   if (playBtn) playBtn.style.display = '';
   if (watchBtn) watchBtn.style.display = '';
   if (dlBtnClose) { dlBtnClose.style.display = ''; dlBtnClose.onclick = null; }
+  _hideRequestButton();
   document.getElementById('cinema-modal-backdrop').classList.remove('active');
   document.getElementById('cinema-modal').classList.remove('active');
   document.body.style.overflow = '';

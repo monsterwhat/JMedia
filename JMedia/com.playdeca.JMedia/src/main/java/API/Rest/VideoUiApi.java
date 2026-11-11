@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.slf4j.Logger; 
 import org.slf4j.LoggerFactory;
 
@@ -1161,6 +1163,149 @@ public class VideoUiApi {
             LOG.warn("External search failed for '{}': {}", q, e.getMessage());
             return List.of();
         }
+    }
+
+    @GET
+    @Path("/external-details")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getExternalDetails(@QueryParam("tmdbId") Integer tmdbId,
+                                       @QueryParam("type") String type) {
+        if (tmdbId == null || tmdbId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("found", false, "error", "tmdbId is required")).build();
+        }
+        String hint = type == null ? "" : type.toLowerCase(Locale.ROOT);
+        ObjectNode payload;
+        try {
+            if (hint.contains("movie")) {
+                payload = externalMovieCard(tmdbId);
+            } else {
+                payload = externalShowCard(tmdbId);
+                if (payload == null && !hint.contains("tv")) {
+                    // No hint at all: the numeric id may also be a movie.
+                    payload = externalMovieCard(tmdbId);
+                }
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("External details failed for TMDb {} ({}): {}", tmdbId, type, e.getMessage());
+            payload = null;
+        }
+        if (payload == null) {
+            return Response.ok(Map.of("found", false, "tmdbId", tmdbId)).build();
+        }
+        return Response.ok(payload).build();
+    }
+
+    /**
+     * The same info card as a library show, but sourced entirely from TMDb. Every
+     * episode is flagged as missing/unreleased so the SPA never offers playback;
+     * per-season snapshots are persisted by {@link TmdbCatalogService}.
+     */
+    private ObjectNode externalShowCard(Integer tmdbId) {
+        TmdbCatalogService.CatalogShow show = tmdbCatalogService.getShow(tmdbId);
+        if (show == null || show.title() == null || show.title().isBlank()) {
+            return null;
+        }
+        ObjectNode card = objectMapper.createObjectNode();
+        card.put("found", true);
+        card.put("inLibrary", false);
+        card.put("mediaType", "tv");
+        card.put("tmdbId", tmdbId);
+        card.put("title", show.title());
+        Integer year = yearOf(show.firstAirDate());
+        if (year != null) card.put("year", year);
+        card.put("overview", show.overview());
+        card.put("backdrop", tmdbImageUrl(show.backdropPath(), "w1280"));
+        card.put("poster", tmdbImageUrl(show.posterPath(), "w500"));
+        card.put("voteAverage", round1(show.voteAverage()));
+        card.put("status", show.status());
+        card.put("nextAirDate", show.nextAirDate());
+        card.put("nextAirDateDisplay", formatAirDate(show.nextAirDate()));
+
+        ArrayNode genres = card.putArray("genres");
+        for (String genre : show.genres()) genres.add(genre);
+        card.put("creator", String.join(", ",
+                show.createdBy().isEmpty() ? show.networks() : show.createdBy()));
+
+        List<Integer> seasons = show.seasons();
+        ArrayNode seasonArray = card.putArray("seasons");
+        for (Integer number : seasons) {
+            ObjectNode season = seasonArray.addObject();
+            season.put("number", number);
+            season.put("episodeCount", show.counts().getOrDefault(number, 0));
+        }
+        card.put("seasonCount", seasons.size());
+
+        ArrayNode episodes = card.putArray("episodes");
+        // Every season is loaded so the dropdown works offline; each snapshot is
+        // cached in SeasonMetadataCache, so later views skip TMDb entirely.
+        int limit = Math.min(seasons.size(), 30);
+        for (int i = 0; i < limit; i++) {
+            int seasonNumber = seasons.get(i);
+            TmdbCatalogService.CatalogSeason season =
+                    tmdbCatalogService.getSeason(tmdbId, seasonNumber);
+            if (season == null) continue;
+            for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
+                ObjectNode item = episodes.addObject();
+                item.put("seasonNumber", seasonNumber);
+                item.put("episodeNumber", ep.number());
+                item.put("contentType", "episode");
+                item.put("episodeTitle", ep.name() != null && !ep.name().isBlank()
+                        ? ep.name() : "Episode " + ep.number());
+                item.put("overview", ep.overview());
+                item.put("airDate", ep.airDate());
+                item.put("airDateDisplay", formatAirDate(ep.airDate()));
+                item.put("stillUrl", tmdbImageUrl(ep.stillPath(), "w300"));
+                item.put("missing", true);
+                item.put("state", ep.released() ? "MISSING"
+                        : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "UNRELEASED"));
+            }
+        }
+        return card;
+    }
+
+    private ObjectNode externalMovieCard(Integer tmdbId) {
+        TmdbCatalogService.CatalogMovie movie = tmdbCatalogService.getMovie(tmdbId);
+        if (movie == null || movie.title() == null || movie.title().isBlank()) {
+            return null;
+        }
+        ObjectNode card = objectMapper.createObjectNode();
+        card.put("found", true);
+        card.put("inLibrary", false);
+        card.put("mediaType", "movie");
+        card.put("tmdbId", tmdbId);
+        card.put("title", movie.title());
+        Integer year = yearOf(movie.releaseDate());
+        if (year != null) card.put("year", year);
+        card.put("overview", movie.overview());
+        card.put("backdrop", tmdbImageUrl(movie.backdropPath(), "w1280"));
+        card.put("poster", tmdbImageUrl(movie.posterPath(), "w500"));
+        card.put("voteAverage", round1(movie.voteAverage()));
+        if (movie.runtime() > 0) card.put("runtime", movie.runtime());
+        ArrayNode genres = card.putArray("genres");
+        for (String genre : movie.genres()) genres.add(genre);
+        card.put("creator", movie.director() == null ? "" : movie.director());
+        return card;
+    }
+
+    /** Only ever expose a TMDb image URL, never an arbitrary path from the payload. */
+    private String tmdbImageUrl(String path, String size) {
+        if (path == null || !path.startsWith("/")) return null;
+        return "https://image.tmdb.org/t/p/" + size + path;
+    }
+
+    private Integer yearOf(String isoDate) {
+        if (isoDate == null || isoDate.length() < 4) return null;
+        try {
+            return Integer.parseInt(isoDate.substring(0, 4));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private double round1(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 
     @GET

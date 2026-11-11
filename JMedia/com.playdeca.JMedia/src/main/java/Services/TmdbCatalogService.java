@@ -62,7 +62,14 @@ public class TmdbCatalogService {
                                 String lastAirDate, boolean complete) {}
 
     public record CatalogShow(int tmdbId, String title, String status, String nextAirDate,
-                              List<Integer> seasons, Map<Integer, Integer> counts) {}
+                              List<Integer> seasons, Map<Integer, Integer> counts,
+                              String overview, String backdropPath, String posterPath,
+                              double voteAverage, String firstAirDate, List<String> genres,
+                              List<String> createdBy, List<String> networks) {}
+
+    public record CatalogMovie(int tmdbId, String title, String overview, String backdropPath,
+                               String posterPath, double voteAverage, String releaseDate,
+                               int runtime, List<String> genres, String director) {}
 
     public record SearchResult(int tmdbId, String title, Integer year, String mediaType,
                                String posterUrl, String overview, boolean inLibrary, String token) {}
@@ -101,9 +108,47 @@ public class TmdbCatalogService {
         }
 
         CatalogShow show = new CatalogShow(tmdbId, root.path("name").asText(""),
-                root.path("status").asText(""), nextAirDate, seasons, counts);
+                root.path("status").asText(""), nextAirDate, seasons, counts,
+                text(root, "overview"),
+                text(root, "backdrop_path"),
+                text(root, "poster_path"),
+                root.path("vote_average").asDouble(0),
+                text(root, "first_air_date"),
+                names(root.path("genres")),
+                names(root.path("created_by")),
+                names(root.path("networks")));
         showCache.put(tmdbId, new CachedShow(show, now + SHOW_TTL_MS));
         return show;
+    }
+
+    public CatalogMovie getMovie(int tmdbId) {
+        JsonNode root = metadataService.tmdbGet("/movie/" + tmdbId,
+                "append_to_response=credits");
+        if (root == null) {
+            return null;
+        }
+        String director = null;
+        for (JsonNode crew : root.path("credits").path("crew")) {
+            if ("Director".equalsIgnoreCase(crew.path("job").asText(""))) {
+                director = text(crew, "name");
+                break;
+            }
+        }
+        return new CatalogMovie(tmdbId, root.path("title").asText(""),
+                text(root, "overview"), text(root, "backdrop_path"), text(root, "poster_path"),
+                root.path("vote_average").asDouble(0), text(root, "release_date"),
+                root.path("runtime").asInt(0), names(root.path("genres")), director);
+    }
+
+    private static List<String> names(JsonNode array) {
+        List<String> out = new ArrayList<>();
+        if (array != null) {
+            for (JsonNode node : array) {
+                String name = text(node, "name");
+                if (name != null && !name.isBlank()) out.add(name);
+            }
+        }
+        return out;
     }
 
     // --------------------------------------------------------------- season
