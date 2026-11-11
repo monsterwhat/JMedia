@@ -440,11 +440,13 @@ public class SettingsController implements Serializable {
         LOGGER.info("Metadata reload completed for: " + scanPath);
     }
 
+    /**
+     * Per-directory entry point (or full library when {@code dirPath} is null).
+     * Delegates to the real implementation; this used to be a no-op stub, so
+     * the "Delete duplicates" button logged a check and deleted nothing.
+     */
     public void deleteDuplicateSongs(String dirPath) {
-        String scanPath = dirPath != null ? dirPath : musicLibraryPath;
-        LOGGER.info("Checking duplicates for: " + (dirPath != null ? "directory: " + dirPath : "all music"));
-        // TODO: Implement per-directory duplicate detection
-        LOGGER.info("Duplicate check completed for: " + scanPath);
+        deleteDuplicateSongs(dirPath, false);
     }
 
     public List<Song> scanLibraryIncremental() {
@@ -1593,56 +1595,70 @@ public class SettingsController implements Serializable {
     // Parallel deleteDuplicateSongs
     // -------------------------------
     public void deleteDuplicateSongs() {
+        deleteDuplicateSongs(null, false);
+    }
+
+    /**
+     * Scans the library (or a single directory) for files sharing
+     * title+artist+album+duration, keeps the best copy (main library before
+     * import, then the oldest file) and deletes the rest together with their DB
+     * rows (playlists preserved).
+     *
+     * @param dirPath restrict the scan to this directory; null/blank = whole library
+     * @param dryRun  report duplicates without deleting anything
+     */
+    public void deleteDuplicateSongs(String dirPath, boolean dryRun) {
         if (isMusicScanningDisabled()) {
             LOGGER.info("Music scanning is disabled in system settings (musicScanThreads). Duplicate cleanup aborted.");
             return;
         }
-        LOGGER.info("Deleting duplicate songs...");
 
-        // Step 1: Collect all audio files from both main and import folders
+        boolean scanAll = (dirPath == null || dirPath.isBlank());
+        File mainMusicFolder = getMusicFolder();
+        File importFolder = new File(mainMusicFolder, "import");
+        String scanLabel = scanAll ? "all music" : dirPath;
+
+        LOGGER.info("[DuplicateCheck] " + (dryRun ? "Dry run" : "Deleting duplicate songs")
+                + " — scanning " + scanLabel);
+
         List<FileDetails> allFileDetails = new ArrayList<>();
         List<File> unidentifiableFilesToDelete = new ArrayList<>();
 
-        // Main music folder
-        File mainMusicFolder = getMusicFolder();
-        if (mainMusicFolder.exists() && mainMusicFolder.isDirectory()) {
-            List<File> mainFiles = new ArrayList<>();
-            collectAudioFiles(mainMusicFolder, mainFiles);
-            File importDir = new File(mainMusicFolder, "import");
-            if (importDir.exists() && importDir.isDirectory()) {
-                mainFiles.removeIf(f -> f.toPath().startsWith(importDir.toPath()));
-            }
-            for (File file : mainFiles) {
-                Song metadata = extractMetadataFromFile(file);
-                if (metadata != null) {
-                    allFileDetails.add(new FileDetails(file, "main", metadata));
-                } else {
-                    unidentifiableFilesToDelete.add(file);
-                }
-            }
+        List<File> roots = new ArrayList<>();
+        if (scanAll) {
+            roots.add(mainMusicFolder);
+            roots.add(importFolder);
         } else {
-            LOGGER.info("Main music folder does not exist: " + mainMusicFolder.getAbsolutePath());
+            roots.add(new File(dirPath));
         }
 
-        // Import folder
-        File importFolder = new File(mainMusicFolder, "import");
-        if (importFolder.exists() && importFolder.isDirectory()) {
-            List<File> importFiles = new ArrayList<>();
-            collectAudioFiles(importFolder, importFiles);
-            for (File file : importFiles) {
+        for (File root : roots) {
+            if (root == null || !root.exists() || !root.isDirectory()) {
+                LOGGER.info("[DuplicateCheck] Folder does not exist, skipping: "
+                        + (root != null ? root.getAbsolutePath() : "null"));
+                continue;
+            }
+
+            List<File> files = new ArrayList<>();
+            collectAudioFiles(root, files);
+
+            for (File file : files) {
+                boolean inImport = file.toPath().startsWith(importFolder.toPath());
+                // A full scan visits the import folder on its own; do not count it twice.
+                if (scanAll && root.equals(mainMusicFolder) && inImport) {
+                    continue;
+                }
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
-                    allFileDetails.add(new FileDetails(file, "import", metadata));
+                    allFileDetails.add(new FileDetails(file, inImport ? "import" : "main", metadata));
                 } else {
                     unidentifiableFilesToDelete.add(file);
                 }
             }
-        } else {
-            LOGGER.info("Import folder does not exist: " + importFolder.getAbsolutePath());
         }
 
         if (allFileDetails.isEmpty() && unidentifiableFilesToDelete.isEmpty()) {
-            LOGGER.info("No songs found in main or import folders to check for duplicates or unidentifiable files.");
+            LOGGER.info("[DuplicateCheck] No songs found in " + scanLabel + " to check for duplicates.");
             return;
         }
 
@@ -1650,9 +1666,9 @@ public class SettingsController implements Serializable {
         java.util.Map<String, List<FileDetails>> potentialDuplicates = new java.util.HashMap<>();
         for (FileDetails fd : allFileDetails) {
             Song song = fd.songMetadata;
-            String songIdentifier = (song.getTitle() == null ? "" : song.getTitle())
-                    + "\0" + (song.getArtist() == null ? "" : song.getArtist())
-                    + "\0" + (song.getAlbum() == null ? "" : song.getAlbum())
+            String songIdentifier = normalizeDuplicateKey(song.getTitle())
+                    + "\0" + normalizeDuplicateKey(song.getArtist())
+                    + "\0" + normalizeDuplicateKey(song.getAlbum())
                     + "\0" + song.getDurationSeconds();
             potentialDuplicates.computeIfAbsent(songIdentifier, k -> new ArrayList<>()).add(fd);
         }
@@ -1678,7 +1694,21 @@ public class SettingsController implements Serializable {
             }
         }
 
-        LOGGER.info("Found " + filesToDelete.size() + " duplicate files to delete. Deleting in parallel...");
+        LOGGER.info("[DuplicateCheck] Scanned " + allFileDetails.size() + " identifiable file(s); found "
+                + filesToDelete.size() + " duplicate file(s) to " + (dryRun ? "report" : "delete") + ".");
+
+        // Log unidentifiable files as skipped (do NOT delete them — data loss risk)
+        for (File file : unidentifiableFilesToDelete) {
+            LOGGER.error("[DuplicateCheck] Skipping unidentifiable file (metadata extraction failed): " + file.getAbsolutePath());
+        }
+
+        if (dryRun) {
+            for (FileDetails fd : filesToDelete) {
+                LOGGER.info("[DuplicateCheck] Would delete duplicate (" + fd.source + "): " + fd.file.getAbsolutePath());
+            }
+            LOGGER.info("[DuplicateCheck] Dry run finished. " + filesToDelete.size() + " file(s) would be deleted.");
+            return;
+        }
 
         ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(getScanExecutor());
         filesToDelete.forEach(fd -> completion.submit(() -> {
@@ -1702,11 +1732,6 @@ public class SettingsController implements Serializable {
             }
         }));
         
-        // Log unidentifiable files as skipped (do NOT delete them — data loss risk)
-        for (File file : unidentifiableFilesToDelete) {
-            LOGGER.error("[DuplicateCheck] Skipping unidentifiable file (metadata extraction failed): " + file.getAbsolutePath());
-        }
-
         List<String> batchLogs = new ArrayList<>();
         int deletedCount = 0;
         
@@ -1726,6 +1751,16 @@ public class SettingsController implements Serializable {
         batchLogs.forEach(LOGGER::info);
         LOGGER.info("Duplicate file deletion completed. " + deletedCount + " duplicate files deleted.");
         musicSocket.broadcastLibraryUpdateToAllProfiles();
+    }
+
+    /**
+     * Case/whitespace-insensitive key part so " Song " and "song" group together.
+     */
+    private String normalizeDuplicateKey(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private String getDefaultMusicFolder() {        String userHome = System.getProperty("user.home");

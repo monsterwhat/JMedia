@@ -810,7 +810,10 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/deleteDuplicates")
-    public Response deleteDuplicates(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
+    public Response deleteDuplicates(@PathParam("profileId") Long profileId,
+                                     @QueryParam("directoryId") Long directoryId,
+                                     @QueryParam("dryRun") @DefaultValue("false") boolean dryRun,
+                                     @Context HttpHeaders headers) {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         
         String dirPath = null;
@@ -820,11 +823,14 @@ public class SettingsApi {
         }
         
         final String finalDirPath = dirPath;
+        LOGGER.info("Duplicate cleanup requested (profile=" + profileId + ", directory="
+                + (directoryId != null ? directoryId : "all") + ", dryRun=" + dryRun + ")");
         executor.submit(() -> {
-            settingsController.deleteDuplicateSongs(finalDirPath);
+            settingsController.deleteDuplicateSongs(finalDirPath, dryRun);
         }, "DeleteDuplicatesThread");
 
-        String msg = directoryId != null ? "Duplicate check started for directory" : "Duplicate check started";
+        String target = directoryId != null ? "for directory" : "for all music";
+        String msg = (dryRun ? "Duplicate scan started " : "Duplicate cleanup started ") + target;
         return Response.ok(ApiResponse.success(msg)).build();
     }
 
