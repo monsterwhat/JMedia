@@ -78,7 +78,7 @@
                 <div class="external-thumbnail-placeholder">
                     <i class="pi pi-lock" style="font-size: 2rem; opacity: 0.4;"></i>
                     <span class="tag is-warning is-light mt-2">
-                        {#if missing.state == 'UNRELEASED'}Unreleased{:else if missing.state == 'TBA'}TBA{:else}Not in library{/if}
+                        {#if missing.state == 'UNRELEASED'}Unreleased{#else if missing.state == 'TBA'}TBA{#else}Not in library{/if}
                     </span>
                 </div>
             </div>
@@ -90,9 +90,9 @@
                 <div class="episode-meta-row">
                     {#if missing.state == 'UNRELEASED'}
                         <span class="episode-duration"><i class="pi pi-clock mr-1"></i> Airs {missing.airDate}</span>
-                    {:else if missing.state == 'TBA'}
+                    {#else if missing.state == 'TBA'}
                         <span class="episode-duration">Air date TBA</span>
-                    {:else}
+                    {#else}
                         <span class="episode-duration">Not in library</span>
                         {#if seriesToken}
                         <button type="button" class="button is-small is-link is-light ml-2"
