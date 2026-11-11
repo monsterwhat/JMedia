@@ -2035,6 +2035,57 @@ public class VideoUiApi {
                 item.put("watched", v.watched);
                 result.add(item);
             }
+
+            // TMDb catalogue: append episodes that are not in the library so the
+            // info modal can render them (Missing / Unreleased / TBA).
+            try {
+                Models.Video.Series series = Models.Video.Series
+                        .find("lower(title) = lower(?1)", decodedTitle).firstResult();
+                if (series != null && series.tmdbId != null) {
+                    boolean hasImdb = series.imdbId != null && !series.imdbId.isBlank();
+                    String requestToken = hasImdb ? series.imdbId : String.valueOf(series.tmdbId);
+                    String requestKind = hasImdb ? "imdb" : "tmdb";
+                    Set<Long> present = episodes.stream()
+                            .filter(e -> e.seasonNumber != null && e.episodeNumber != null)
+                            .map(e -> (long) e.seasonNumber * 1000 + e.episodeNumber)
+                            .collect(Collectors.toSet());
+
+                    TmdbCatalogService.CatalogShow show = tmdbCatalogService.getShow(series.tmdbId);
+                    List<Integer> seasonNumbers = show != null ? show.seasons() : List.of();
+                    for (Integer sn : seasonNumbers) {
+                        TmdbCatalogService.CatalogSeason season =
+                                tmdbCatalogService.getSeason(series.tmdbId, sn);
+                        if (season == null) continue;
+                        for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
+                            if (present.contains((long) sn * 1000 + ep.number())) continue;
+                            Map<String, Object> item = new LinkedHashMap<>();
+                            item.put("id", null);
+                            item.put("missing", true);
+                            item.put("title", ep.name());
+                            item.put("episodeTitle", ep.name());
+                            item.put("seriesTitle", decodedTitle);
+                            item.put("type", "episode");
+                            item.put("seasonNumber", sn);
+                            item.put("episodeNumber", ep.number());
+                            item.put("contentType", "episode");
+                            item.put("airDate", ep.airDate());
+                            item.put("stillUrl", ep.stillPath() != null && ep.stillPath().startsWith("/")
+                                    ? "https://image.tmdb.org/t/p/w300" + ep.stillPath() : null);
+                            boolean future = isFutureDate(ep.airDate());
+                            item.put("state", future ? "UNRELEASED"
+                                    : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "MISSING"));
+                            item.put("description", ep.overview() != null ? ep.overview() : "");
+                            item.put("overview", ep.overview());
+                            item.put("requestToken", requestToken);
+                            item.put("requestKind", requestKind);
+                            result.add(item);
+                        }
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("TMDb episode catalogue failed for '{}': {}", decodedTitle, e.getMessage());
+            }
+
             return toJson(result);
         } catch (Exception e) {
             LOG.error("Error fetching episodes for series {}: {}", seriesTitle, e.getMessage(), e);

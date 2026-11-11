@@ -1553,7 +1553,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   const { groups, seasonKeys } = sortAndGroupEpisodes(episodes);
   // Cache episodes for the season tab handler
   _episodesCache.set(seriesTitle, episodes);
-  const firstEp = episodes[0];
+  const firstEp = episodes.find(e => e.id != null) || episodes[0];
   const resumeEp = resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) || firstEp;
   if (gen !== _modalGeneration) return;
 
@@ -1828,9 +1828,40 @@ function renderContentTypeBadge(contentType) {
 
 function buildEpisodesList(episodeArray) {
   return episodeArray.map((ep, i) => {
-    _episodeById.set(String(ep.id), ep);
+    if (ep.id != null) _episodeById.set(String(ep.id), ep);
     const epTitle = ep.episodeTitle || ep.title || `Episode ${(ep.episodeNumber || i + 1)}`;
     const epNum = ep.episodeNumber || (i + 1);
+
+    if (ep.missing) {
+      const state = ep.state;
+      const badge = state === 'UNRELEASED' ? 'Unreleased' : (state === 'TBA' ? 'TBA' : 'Not in library');
+      const sub = state === 'UNRELEASED'
+        ? (ep.airDate ? 'Airs ' + escapeHtml(ep.airDate) : 'Air date TBA')
+        : (state === 'TBA' ? 'Air date TBA' : 'Not in library');
+      const img = ep.stillUrl
+        ? `<img src="${escapeHtml(ep.stillUrl)}" alt="${escapeHtml(epTitle)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`
+        : '';
+      const request = (state === 'MISSING' && ep.requestToken)
+        ? `<button type="button" class="button is-small is-link is-light mt-2"
+                   data-token="${escapeHtml(ep.requestToken)}" data-kind="${escapeHtml(ep.requestKind || 'imdb')}"
+                   data-title="${escapeHtml(ep.seriesTitle || '')}"
+                   onclick="event.stopPropagation(); window.requestMissingTitle && window.requestMissingTitle(this)">Request</button>`
+        : '';
+      return `<div class="cinema-episode-card is-missing" data-episode-number="${epNum}" style="opacity:.62;cursor:default;">
+        <div class="cinema-episode-thumb-wrap">
+          ${img}
+          <span class="tag is-warning is-light" style="position:absolute;top:6px;left:6px;">${badge}</span>
+        </div>
+        <div class="cinema-episode-info">
+          <div class="cinema-episode-header">
+            <h3 class="cinema-episode-title">${epNum}. ${escapeHtml(epTitle)}</h3>
+          </div>
+          <p class="cinema-episode-desc">${sub}</p>
+          ${request}
+        </div>
+      </div>`;
+    }
+
     const dur = formatDuration(ep.duration);
     const desc = ep.description || ep.overview || '';
     const img = getThumbnailUrl(ep.id);
@@ -1998,7 +2029,7 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
     return missingDesc || missingTitle;
   };
 
-  const stillMissing = episodes.filter(isFallback);
+  const stillMissing = episodes.filter(ep => ep.id != null && isFallback(ep));
   if (!stillMissing.length) return;
 
   const activeItem = document.querySelector('#cinema-season-list .cinema-season-dropdown-item.active');
@@ -4363,7 +4394,7 @@ async function performSearch(query) {
   let external = [];
   if (q.length >= 2) {
     try {
-      const resp = await fetch('/api/video/search-external?q=' + encodeURIComponent(query.trim()), { credentials: 'include' });
+      const resp = await fetch('/api/video/ui/search-external?q=' + encodeURIComponent(query.trim()), { credentials: 'include' });
       if (resp.ok) {
         const data = await resp.json();
         external = (Array.isArray(data) ? data : []).filter(r => !r.inLibrary).slice(0, 10);
