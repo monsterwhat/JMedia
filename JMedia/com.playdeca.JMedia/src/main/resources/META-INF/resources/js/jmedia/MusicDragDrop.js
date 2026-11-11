@@ -10,12 +10,16 @@
 
     const JMedia = window.JMedia = window.JMedia || {};
     const THRESHOLD = 12;
+    const HOLD_MS = 350;
+    const HOLD_SLOP = 10;
     const SOURCE_SELECTOR = '.mobile-song-item[data-song-id], .mobile-album-card, .mobile-playlist-card';
     const INTERACTIVE_SELECTOR = 'button, a, input, textarea, select, .mobile-queue-remove, .mobile-context-menu';
     const DRAG_BODY_CLASS = 'music-dragging';
 
     const state = {
         pending: null,
+        holdTimer: null,
+        lastDragEndAt: 0,
         session: null,
         picker: null,
         playlists: null,
@@ -148,6 +152,23 @@
             el: el,
             source: source
         };
+
+        // Songs are lifted by HOLDING, not by a quick horizontal swipe: this
+        // makes dragging deliberate and leaves the double-tap free for the
+        // context menu. Cards keep the movement-based drag.
+        if (source.type === 'song') {
+            const pointerId = e.pointerId;
+            state.holdTimer = setTimeout(function () {
+                state.holdTimer = null;
+                if (state.session) return;
+                const p = state.pending;
+                if (!p || p.pointerId !== pointerId) return;
+                const menu = document.getElementById('mobileContextMenu');
+                if (menu && menu.getAttribute('aria-hidden') === 'false') return;
+                state.pending = null;
+                startDrag(p, { clientX: p.x, clientY: p.y, pointerId: pointerId });
+            }, HOLD_MS);
+        }
     }
 
     function onPointerMove(e) {
@@ -164,12 +185,24 @@
 
         const menu = document.getElementById('mobileContextMenu');
         if (menu && menu.getAttribute('aria-hidden') === 'false') {
+            cancelHold();
             state.pending = null;
             return;
         }
 
         const dx = e.clientX - pending.x;
         const dy = e.clientY - pending.y;
+
+        // Waiting for the lift: any real movement means this is a scroll/tap,
+        // not a drag intent. Songs do not start dragging on a swipe.
+        if (state.holdTimer) {
+            if (Math.abs(dx) > HOLD_SLOP || Math.abs(dy) > HOLD_SLOP) {
+                cancelHold();
+                state.pending = null;
+            }
+            return;
+        }
+
         if (Math.abs(dy) > THRESHOLD && Math.abs(dy) >= Math.abs(dx)) {
             // Vertical gesture: let the page scroll.
             state.pending = null;
@@ -181,7 +214,15 @@
         }
     }
 
+    function cancelHold() {
+        if (state.holdTimer) {
+            clearTimeout(state.holdTimer);
+            state.holdTimer = null;
+        }
+    }
+
     function onPointerUp(e) {
+        cancelHold();
         if (state.session && e.pointerId === state.session.pointerId) {
             finishDrag(e);
             return;
@@ -190,6 +231,7 @@
     }
 
     function onPointerCancel(e) {
+        cancelHold();
         if (state.session && e.pointerId === state.session.pointerId) {
             cleanupDrag();
         }
@@ -285,6 +327,7 @@
         document.body.classList.remove(DRAG_BODY_CLASS);
         closeDrawer();
         state.session = null;
+        state.lastDragEndAt = Date.now();
     }
 
     function cancelLongPress() {
@@ -1067,7 +1110,8 @@
             if (source) openPicker(source);
         },
         openPickerFromTarget: openPickerFromTarget,
-        close: closeDrawer
+        close: closeDrawer,
+        lastDragEndAt: function () { return state.lastDragEndAt; }
     };
 
     log('Initialized');

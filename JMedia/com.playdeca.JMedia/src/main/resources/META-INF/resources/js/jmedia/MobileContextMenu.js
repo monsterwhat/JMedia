@@ -8,11 +8,15 @@
             this.activeElement = null;
             this.timerId = null;
             this.duration = 500;
+            this.doubleTapMs = 300;
+            this.tapSlop = 24;
             this.currentSongId = null;
             this.currentTarget = null;
             this.menuJustOpened = false;
             this.mousePosition = null;
             this._suppressCardClickUntil = 0;
+            this._lastTouchAt = 0;
+            this._songTap = null;
             this.init();
         }
 
@@ -28,6 +32,10 @@
             });
             document.body.addEventListener('contextmenu', this.handleContextMenu.bind(this));
             document.body.addEventListener('click', this.handleOutsideClick.bind(this));
+            // Touch clicks on song rows are routed through the double-tap
+            // detector; this runs in the capture phase, before the per-row and
+            // document select handlers.
+            document.addEventListener('click', this.handleSongClickCapture.bind(this), true);
             document.body.addEventListener('click', (e) => {
                 if (this._suppressCardClickUntil && this._suppressCardClickUntil > Date.now()) {
                     const card = e.target && e.target.closest ? e.target.closest('.mobile-album-card, .mobile-genre-card, .mobile-playlist-card') : null;
@@ -130,6 +138,17 @@
             if (e.touches && e.touches.length > 1) return;
             const target = e.target.closest('.mobile-song-item, tr[data-song-id], .mobile-album-card, .mobile-genre-card, .mobile-playlist-card');
             if (!target) return;
+
+            // Any touch marks the click that follows as touch-generated.
+            this._lastTouchAt = Date.now();
+
+            // Songs: a long press LIFTS the row for the drag/drawer (handled by
+            // MusicDragDrop), and the context menu opens on a double tap. Cards
+            // keep the long-press menu.
+            if (target.matches('.mobile-song-item, tr[data-song-id]')) {
+                return;
+            }
+
             this.activeElement = target;
             target.classList.add('long-press-active');
             this.timerId = setTimeout(() => {
@@ -140,6 +159,89 @@
                 this._suppressCardClickUntil = Date.now() + 800;
                 this.showContextMenu(t);
             }, this.duration);
+        }
+
+        /**
+         * Touch click routing for song rows.
+         *
+         * A single tap selects/plays the song, but the select is delayed by the
+         * double-tap window so a second tap can cancel it and open the context
+         * menu instead. Without the delay the first tap starts playback before
+         * the menu can open.
+         */
+        handleSongClickCapture(e) {
+            const row = e.target && e.target.closest
+                ? e.target.closest('.mobile-song-item, tr[data-song-id]')
+                : null;
+            if (!row) return;
+            // Buttons/links inside a row keep their own behaviour.
+            if (e.target.closest && e.target.closest('button, a, input, textarea, select, .mobile-queue-remove, .mobile-context-menu')) return;
+
+            // Mouse clicks keep their instant behaviour.
+            if (Date.now() - (this._lastTouchAt || 0) > 900) return;
+
+            // A drag just ended; its release click must not select anything.
+            if (window.MusicDragDrop && window.MusicDragDrop.lastDragEndAt &&
+                    Date.now() - window.MusicDragDrop.lastDragEndAt() < 800) {
+                this._blockClick(e);
+                return;
+            }
+
+            const songId = row.dataset ? row.dataset.songId : null;
+            if (!songId) return;
+
+            this._blockClick(e);
+
+            const now = Date.now();
+            const x = e.clientX || 0;
+            const y = e.clientY || 0;
+            const last = this._songTap;
+
+            if (last && last.row === row &&
+                    (now - last.time) <= this.doubleTapMs &&
+                    Math.abs(x - last.x) <= this.tapSlop &&
+                    Math.abs(y - last.y) <= this.tapSlop) {
+                if (last.timer) clearTimeout(last.timer);
+                this._songTap = null;
+                const t = this.buildTarget(row);
+                if (t) {
+                    this._suppressCardClickUntil = Date.now() + 800;
+                    this.showContextMenu(t);
+                    window.Helpers?.log?.('[MobileContextMenu] Double tap -> menu for song ' + songId);
+                }
+                return;
+            }
+
+            const timer = setTimeout(() => {
+                if (this._songTap && this._songTap.timer === timer) {
+                    this._songTap = null;
+                }
+                this._selectSong(songId);
+            }, this.doubleTapMs);
+            // A tap on another row (or a late second tap) supersedes any select
+            // still waiting on the previous tap.
+            if (last && last.timer) clearTimeout(last.timer);
+            this._songTap = { row: row, time: now, x: x, y: y, timer: timer };
+        }
+
+        _blockClick(e) {
+            try { e.preventDefault(); } catch (err) { console.warn('[MobileContextMenu] preventDefault failed', err); }
+            try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+            try { e.stopImmediatePropagation(); } catch (err) { console.warn('[MobileContextMenu] stopImmediatePropagation failed', err); }
+        }
+
+        _selectSong(songId) {
+            if (window.apiPost) {
+                window.apiPost('select', songId);
+                return;
+            }
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+            if (!profileId || profileId === 'undefined') {
+                console.warn('[MobileContextMenu] Cannot select song without a profile id');
+                return;
+            }
+            fetch('/api/music/playback/select/' + profileId + '/' + songId, { method: 'POST' })
+                .catch((err) => console.error('[MobileContextMenu] select failed', err));
         }
 
         handleContextMenu(e) {
