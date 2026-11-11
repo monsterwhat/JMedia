@@ -163,7 +163,7 @@ public class EpisodeSplitService {
             ExecResult first = run(List.of(ffmpeg, "-hide_banner", "-nostats", "-v", "error",
                     "-i", plan.source().toString(), "-map", "0", "-c", "copy",
                     "-t", format(cut), "-avoid_negative_ts", "make_zero",
-                    "-movflags", "+faststart", "-y", tempOne.toString()), SPLIT_TIMEOUT_SECONDS);
+                    "-movflags", "+faststart", "-f", "mp4", "-y", tempOne.toString()), SPLIT_TIMEOUT_SECONDS);
             if (first.exitCode() != 0) {
                 return fail(plan, temps, "first part failed: " + first.tail());
             }
@@ -173,7 +173,7 @@ public class EpisodeSplitService {
                         "-ss", format(cut), "-t", format(secondCut - cut),
                         "-i", plan.source().toString(), "-map", "0", "-c", "copy",
                         "-avoid_negative_ts", "make_zero",
-                        "-movflags", "+faststart", "-y", tempPromo.toString()), SPLIT_TIMEOUT_SECONDS);
+                        "-movflags", "+faststart", "-f", "mp4", "-y", tempPromo.toString()), SPLIT_TIMEOUT_SECONDS);
                 if (preview.exitCode() != 0) {
                     return fail(plan, temps, "preview extraction failed: " + preview.tail());
                 }
@@ -182,7 +182,7 @@ public class EpisodeSplitService {
             ExecResult second = run(List.of(ffmpeg, "-hide_banner", "-nostats", "-v", "error",
                     "-ss", format(secondCut), "-i", plan.source().toString(), "-map", "0", "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
-                    "-movflags", "+faststart", "-y", tempTwo.toString()), SPLIT_TIMEOUT_SECONDS);
+                    "-movflags", "+faststart", "-f", "mp4", "-y", tempTwo.toString()), SPLIT_TIMEOUT_SECONDS);
             if (second.exitCode() != 0) {
                 return fail(plan, temps, "second part failed: " + second.tail());
             }
