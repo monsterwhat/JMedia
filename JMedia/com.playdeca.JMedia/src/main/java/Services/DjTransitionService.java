@@ -333,14 +333,18 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         else if (entryPosition >= 0.40 && entryPosition < 0.55) score += 0.05; // Mid-song OK
         else if (entryPosition >= 0.55) score -= 1.0; // EVEN STRONGER penalty for jumping past the halfway mark
         
-        // Exit scoring: Prefer mixing around the 60% mark
+        // Exit scoring: prefer the outro so the track is actually heard. The old
+        // 55-70 % "sweet spot" cut every song in the middle, which is exactly
+        // what makes an automated mix feel random.
         double exitPosition = exitBeat.getTime() / currentDur;
-        if (exitPosition > 0.55 && exitPosition < 0.70) {
-            score += 0.3; // Peak "sweet spot" for 60% mixing
-        } else if (exitPosition > 0.70) {
-            score += 0.1; // Still okay to mix later
-        } else if (exitPosition <= 0.50) {
-            score -= 0.5; // Stronger penalty for mixing before the halfway point
+        if (exitPosition >= 0.80 && exitPosition <= 0.97) {
+            score += 0.45; // outro: the natural place to blend
+        } else if (exitPosition >= 0.70) {
+            score += 0.20;
+        } else if (exitPosition >= 0.55) {
+            score -= 0.15;
+        } else {
+            score -= 0.60; // stopping in the first half is a last resort
         }
         
         return score;

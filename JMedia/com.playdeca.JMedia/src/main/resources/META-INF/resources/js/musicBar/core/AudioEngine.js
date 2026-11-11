@@ -42,6 +42,10 @@
         // incoming element to buffer before it starts playing; without this a
         // pause issued during that wait would be undone when canplay fires.
         _userPaused: false,
+
+        // null = not probed yet, 'on' = two decks can play together,
+        // 'off' = device only allows one deck (single-deck fade fallback).
+        _dualAudio: null,
         
         // iOS autoplay-policy unlock state
         _iosUnlocked: false,
@@ -62,6 +66,18 @@
         init: function() {
             if (this.initialized) return;
             this.initialized = true;
+
+            // Dual-deck capability: non-iOS browsers can run both elements.
+            // iOS needs a runtime probe (see crossfadeTo) and remembers a
+            // previous failure so we do not break playback twice.
+            this._dualAudio = this.isIOS() ? null : 'on';
+            try {
+                if (this.isIOS() && localStorage.getItem('jmedia_dual_audio') === 'off') {
+                    this._dualAudio = 'off';
+                }
+            } catch (err) {
+                console.warn('AudioEngine: could not read dual-audio capability', err);
+            }
             
             this.initializeAudioElements();
             this.initWebAudio();
@@ -105,27 +121,18 @@
         initWebAudio: function() {
             if (this.ctx || this._webAudioDisabled) return;
 
-            // iOS: keep the <audio> element on the native media (playback) path.
-            //
-            // Routing it through createMediaElementSource() makes WebKit treat the
-            // output as Web Audio, which is the documented cause of "plays for a
-            // few seconds, then goes silent" (WebKit #221334, #211394) and makes
-            // playback follow the ringer/silent switch and die in the background.
-            // Every player that works on iOS either plays the element directly or
-            // feeds Web Audio from decodeAudioData instead of tapping the element.
-            //
-            // The routing is irreversible at runtime: once createMediaElementSource
-            // has returned, the element's samples only exist inside the graph, so
-            // there is no native fallback to switch to later. That is why this is
-            // a decision made up-front rather than a recovery path.
-            //
-            // Trade-off: iOS ignores HTMLMediaElement.volume, so the in-app volume
-            // slider becomes a no-op there. Hardware volume still works. This is
-            // the same trade every native-element player on iOS makes.
-            if (this.isIOS() && !window.JMEDIA_FORCE_WEB_AUDIO_IOS) {
+            // Web Audio is required for an audible crossfade on iOS: iOS ignores
+            // HTMLMediaElement.volume, so an element-volume fade is a no-op and a
+            // GainNode is the only working gain stage. Routing through
+            // createMediaElementSource used to be avoided because older WebKit
+            // could go silent after a few seconds; that is mitigated by
+            // navigator.audioSession.type = 'playback' (set before playback) and
+            // by the runtime dual-element probe in crossfadeTo, which falls back
+            // to a single-deck Web Audio fade if two elements cannot run at once.
+            if (this.isIOS() && window.JMEDIA_DISABLE_WEB_AUDIO_IOS) {
                 this._webAudioDisabled = true;
                 this.ctx = null;
-                window.Helpers.log('AudioEngine: iOS native audio path (Web Audio routing disabled)');
+                window.Helpers.log('AudioEngine: iOS native audio path (Web Audio explicitly disabled)');
                 return;
             }
 
@@ -149,15 +156,28 @@
                 this.nodes.p1 = this.ctx.createMediaElementSource(this.audio);
                 this.nodes.p2 = this.ctx.createMediaElementSource(this.audioNext);
                 
+                // Per-deck low shelf (bass swap): Source -> lowShelf -> fader.
+                this.nodes.low1 = this.ctx.createBiquadFilter();
+                this.nodes.low1.type = 'lowshelf';
+                this.nodes.low1.frequency.value = 220;
+                this.nodes.low1.gain.value = 0;
+
+                this.nodes.low2 = this.ctx.createBiquadFilter();
+                this.nodes.low2.type = 'lowshelf';
+                this.nodes.low2.frequency.value = 220;
+                this.nodes.low2.gain.value = 0;
+
                 // Create gain nodes
                 this.nodes.g1 = this.ctx.createGain();
                 this.nodes.g2 = this.ctx.createGain();
                 
-                // Connect: Source -> Gain -> Destination
-                this.nodes.p1.connect(this.nodes.g1);
+                // Connect: Source -> lowShelf -> Gain -> Destination
+                this.nodes.p1.connect(this.nodes.low1);
+                this.nodes.low1.connect(this.nodes.g1);
                 this.nodes.g1.connect(this.ctx.destination);
                 
-                this.nodes.p2.connect(this.nodes.g2);
+                this.nodes.p2.connect(this.nodes.low2);
+                this.nodes.low2.connect(this.nodes.g2);
                 this.nodes.g2.connect(this.ctx.destination);
                 
                 // Initial volumes - PRIORITIZE DEVICE MANAGER
@@ -456,7 +476,14 @@
                 // Exactly one element may play. A pending fade or a skipped
                 // state update can leave the other element running; starting
                 // this one without stopping it is how two songs end up mixed.
-                this._pauseOthers(el, 'start-playback:' + label);
+                // Never do that during a crossfade: the outgoing deck is
+                // supposed to keep playing while it fades out, and a "play"
+                // state echo must not silence it.
+                const fading = this._isCrossfading ||
+                    (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading'));
+                if (!fading) {
+                    this._pauseOthers(el, 'start-playback:' + label);
+                }
                 const p = el.play();
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
             }).then(() => {
@@ -633,9 +660,163 @@
         },
 
         /**
-         * Preload next song for crossfade (HTML5 audio fallback)
-         * Note: WebAudio preload is preferred - this is fallback
+         * Equal-power (constant-power) fade law: cos for the outgoing deck,
+         * sin for the incoming. At the midpoint each is 0.707, so summed power
+         * stays flat; a linear 1->0 / 0->1 pair drops ~3 dB there (audible
+         * "suck-out"). 64 points keeps the piecewise-linear approximation
+         * within ~0.0007 dB of the true curve.
          */
+        _equalPowerCurve: function(points, kind, level) {
+            const n = Math.max(2, points || 64);
+            const gain = (typeof level === 'number') ? level : 1;
+            const curve = new Float32Array(n);
+            for (let i = 0; i < n; i++) {
+                const theta = (i / (n - 1)) * (Math.PI / 2);
+                curve[i] = (kind === 'out' ? Math.cos(theta) : Math.sin(theta)) * gain;
+            }
+            return curve;
+        },
+
+        /**
+         * Start an equal-power crossfade on the Web Audio graph.
+         *
+         * Anchoring matters: linearRampToValueAtTime interpolates from the
+         * PREVIOUS automation event, so a stale event makes a new ramp jump or
+         * collapse to zero length (heard as a hard cut). cancelAndHoldAtTime +
+         * setValueAtTime pins the start value first. t0 is computed here, never
+         * before an await, with a small lookahead so the curve cannot start in
+         * the past.
+         */
+        _startEqualPowerCrossfade: function(outGain, inGain, outLevel, inLevel, duration, bassSwap) {
+            const ctx = this.ctx;
+            if (!ctx || !outGain || !inGain) return null;
+
+            const t0 = ctx.currentTime + 0.06;
+            const d = Math.max(0.25, duration || 2);
+
+            [outGain, inGain].forEach((g) => {
+                if (typeof g.gain.cancelAndHoldAtTime === 'function') {
+                    g.gain.cancelAndHoldAtTime(t0);
+                } else {
+                    // Firefox (still) lacks cancelAndHoldAtTime.
+                    const v = g.gain.value;
+                    g.gain.cancelScheduledValues(t0);
+                    g.gain.setValueAtTime(v, t0);
+                }
+            });
+
+            outGain.gain.setValueAtTime(outLevel, t0);
+            inGain.gain.setValueAtTime(0, t0);
+            outGain.gain.setValueCurveAtTime(this._equalPowerCurve(64, 'out', outLevel), t0, d);
+            inGain.gain.setValueCurveAtTime(this._equalPowerCurve(64, 'in', inLevel), t0, d);
+
+            if (bassSwap) this._scheduleBassSwap(outGain, inGain, t0, d);
+
+            return { start: t0, end: t0 + d };
+        },
+
+        /**
+         * One bassline at a time. A full-band equal-power crossfade of two
+         * correlated basslines sums to about +3 dB in the middle, which is the
+         * classic "mud" of a bad blend. Keep the incoming low end cut while the
+         * outgoing still owns the bass, then swap on a short ramp at 60 %.
+         */
+        _scheduleBassSwap: function(outGain, inGain, t0, d) {
+            const outLow = (outGain === this.nodes.g1) ? this.nodes.low1 : this.nodes.low2;
+            const inLow = (inGain === this.nodes.g1) ? this.nodes.low1 : this.nodes.low2;
+            if (!outLow || !inLow || outLow === inLow) return;
+
+            const swap = t0 + d * 0.60;
+            const edge = Math.min(0.30, Math.max(0.05, d * 0.10));
+
+            outLow.gain.cancelScheduledValues(t0);
+            outLow.gain.setValueAtTime(0, t0);
+            outLow.gain.linearRampToValueAtTime(-24, swap);
+
+            inLow.gain.cancelScheduledValues(t0);
+            inLow.gain.setValueAtTime(-24, t0);
+            inLow.gain.setValueAtTime(-24, Math.max(t0, swap - edge));
+            inLow.gain.linearRampToValueAtTime(0, swap + edge);
+        },
+
+        /** Restore both deck filters after a fade or a hard source change. */
+        _resetDeckFilters: function() {
+            const ctx = this.ctx;
+            if (!ctx) return;
+            [this.nodes.low1, this.nodes.low2].forEach((f) => {
+                if (!f) return;
+                f.gain.cancelScheduledValues(ctx.currentTime);
+                f.gain.setValueAtTime(0, ctx.currentTime);
+            });
+        },
+
+        /**
+         * Single-deck fallback for devices that cannot run two media elements
+         * at once: fade the audible deck out, swap its source, fade it back in.
+         * Not an overlap, but still smooth — and it uses the Web Audio fader,
+         * because element.volume is ignored on iOS.
+         */
+        _singleDeckFadeSwap: function(player, songId, seekTime, targetVolume) {
+            const gain = (player === this.audio) ? this.nodes.g1 : this.nodes.g2;
+            const low = (player === this.audio) ? this.nodes.low1 : this.nodes.low2;
+            const outMs = 320;
+            const inMs = 700;
+            const audio = this;
+            const level = (typeof targetVolume === 'number' && targetVolume > 0) ? targetVolume : 0.8;
+
+            if (this.ctx && gain) {
+                const now = this.ctx.currentTime;
+                if (typeof gain.gain.cancelAndHoldAtTime === 'function') {
+                    gain.gain.cancelAndHoldAtTime(now);
+                } else {
+                    gain.gain.cancelScheduledValues(now);
+                    gain.gain.setValueAtTime(gain.gain.value, now);
+                }
+                gain.gain.linearRampToValueAtTime(0, now + outMs / 1000);
+            }
+
+            setTimeout(function() {
+                if (!player) return;
+                audio._pauseOthers(player, 'single-deck swap');
+                player._currentSongId = songId;
+                player.src = audio.getStreamUrl(songId);
+                player.onloadedmetadata = function() {
+                    try {
+                        player.currentTime = seekTime || 0;
+                    } catch (err) {
+                        console.warn('AudioEngine: single-deck seek failed', err);
+                    }
+                    audio._startPlayback(player, 'single-deck-swap').then(function() {
+                        if (audio.ctx && gain) {
+                            const t = audio.ctx.currentTime;
+                            gain.gain.cancelScheduledValues(t);
+                            gain.gain.setValueAtTime(0, t);
+                            gain.gain.linearRampToValueAtTime(level, t + inMs / 1000);
+                        }
+                        if (low && audio.ctx) {
+                            low.gain.cancelScheduledValues(audio.ctx.currentTime);
+                            low.gain.setValueAtTime(0, audio.ctx.currentTime);
+                        }
+                        window.Helpers?.log?.('[AudioEngine] Single-deck fade swap to ' + songId + ' complete');
+                    });
+                };
+            }, outMs + 20);
+        },
+
+        /** Remember a failed dual-audio probe for this device. */
+        _setDualAudioSupport: function(ok) {
+            this._dualAudio = ok ? 'on' : 'off';
+            try {
+                if (ok) {
+                    localStorage.removeItem('jmedia_dual_audio');
+                } else {
+                    localStorage.setItem('jmedia_dual_audio', 'off');
+                }
+            } catch (err) {
+                console.warn('AudioEngine: could not persist dual-audio capability', err);
+            }
+        },
+
         preload: function(songId, startTime = 0, retryCount = 0) {
             if (window.videoPlaying) return;
             let profileId = null;
@@ -735,9 +916,11 @@
                 return false;
             }
 
-            // iOS: single-element direct swap — dual-player crossfade is
-            // unreliable/silent on iOS because only one audio stream can play.
-            if (this.isIOS()) {
+            // iOS: Web Audio drives a real fade now. A previous probe may have
+            // proved that this device cannot run two media elements at once;
+            // only then do we use the single-deck fade-and-swap (still an
+            // audible fade, just no overlap).
+            if (this.isIOS() && this._dualAudio === 'off') {
                 const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 if (!iosProfileId || iosProfileId === 'undefined') {
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
@@ -756,28 +939,19 @@
                     window.SynchronizationManager.setFlag('isCrossfading', true);
                 }
 
-                const player = this.getActivePlayer();
-                const url = '/api/music/stream/' + iosProfileId + '/' + songId;
-                player._currentSongId = songId;
-                player.src = url;
-                player.load();
-                player.onloadedmetadata = () => {
-                    player.currentTime = entryTime || 0;
-                    const finish = (ok) => {
-                        this._isCrossfading = false;
-                        if (window.SynchronizationManager) {
-                            window.SynchronizationManager.setFlag('isCrossfading', false);
-                        }
-                        if (!ok) {
-                            console.warn('AudioEngine: iOS direct-swap did not start playback for ' + songId);
-                        }
-                    };
-                    this._startPlayback(player, 'crossfadeTo:ios').then(finish).catch((err) => {
-                        console.error('AudioEngine: iOS direct-swap cleanup failed', err);
-                        finish(false);
-                    });
-                };
-                window.Helpers.log('AudioEngine: iOS direct swap to ' + songId + ' at ' + (entryTime || 0) + 's');
+                let singleVol = 0.8;
+                if (window.StateManager) {
+                    const v = window.StateManager.getProperty('volume');
+                    if (typeof v === 'number' && v > 0 && v <= 1) singleVol = v;
+                }
+                this._singleDeckFadeSwap(this.getActivePlayer(), songId, entryTime || 0, singleVol);
+                window.Helpers.log('AudioEngine: iOS single-deck fade to ' + songId + ' at ' + (entryTime || 0) + 's');
+                setTimeout(() => {
+                    this._isCrossfading = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                }, 1400);
                 return true;
             }
 
@@ -891,59 +1065,38 @@
                 };
             }
 
-            // 2. Schedule volume ramps - PREVENT ANY VOLUME SPIKE
-            // CRITICAL: The combined volume must NEVER exceed targetVolume
-            // Both players must start at 0 to guarantee this, otherwise currentVol (which can be
-            // higher than user's current targetVolume) causes momentary volume spike
+            // 2. Equal-power crossfade on the Web Audio graph.
+            // The fade is scheduled inside the scheduler (never before an await)
+            // and anchored with cancelAndHoldAtTime + setValueAtTime, so a stale
+            // automation event cannot turn the ramp into a zero-length hard cut.
             var self = this;
             var scheduleGainRamps = function() {
                 if (self.ctx) {
-                    const now = self.ctx.currentTime;
-                    
-                    window.Helpers?.log?.('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
-                    window.Helpers?.log?.('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
-                    
-                    // TRUE CROSSFADE: the outgoing song ramps DOWN from its current level
-                    // while the incoming song ramps UP from 0 to targetVolume, both over
-                    // fadeTime. Web Audio gain nodes are the single volume stage, so the
-                    // underlying element volumes stay pinned at 1.0.
+                    // Web Audio is the single volume stage; keep elements pinned.
                     currentPlayer.volume = 1.0;
                     nextPlayer.volume = 1.0;
-                    
-                    // Cancel any pending events
-                    currentGain.gain.cancelScheduledValues(now);
-                    nextGain.gain.cancelScheduledValues(now);
-                    
-                    // Fade out: snapshot the current gain level and ramp to 0.
-                    // Using the live gain value (not a hard 0) means no instant mute.
+
                     const currentLevel = Math.max(0.0001, currentGain.gain.value);
-                    currentGain.gain.setValueAtTime(currentLevel, now);
-                    currentGain.gain.linearRampToValueAtTime(0, now + fadeTime);
-                    
-                    // Fade in: 0 -> targetVolume
-                    nextGain.gain.setValueAtTime(0, now);
-                    nextGain.gain.linearRampToValueAtTime(targetVolume, now + fadeTime);
-                    
-                    window.Helpers?.log?.('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', true crossfade over ' + fadeTime + 's');
-                    window.Helpers?.log?.('[AudioEngine crossfade] Schedule: currentGain ' + currentLevel.toFixed(3) + ' -> 0, nextGain 0 -> ' + targetVolume);
+                    const fade = self._startEqualPowerCrossfade(
+                        currentGain, nextGain, currentLevel, targetVolume, fadeTime, true);
+
+                    if (fade) {
+                        window.Helpers.log('AudioEngine: Equal-power crossfade scheduled (' + fadeTime +
+                            's, bass swap at 60%) to ' + targetVolume);
+                    } else {
+                        console.warn('AudioEngine: Could not schedule equal-power crossfade');
+                    }
                 } else {
-                    // Fallback: HTML5 Volume Fading (only when Web Audio is unavailable)
-                    // TRUE crossfade: outgoing fades from its current volume to 0 while
-                    // the incoming fades from 0 up to targetVolume.
+                    // No Web Audio at all: element-volume approximation (legacy).
                     const savedCurrentVol = currentPlayer.volume;
-                    
                     const steps = 40;
                     const interval = (fadeTime * 1000) / steps;
-                    
                     let currentStep = 0;
                     const fadeInterval = setInterval(() => {
                         currentStep++;
-                        
                         const progress = currentStep / steps;
-                        
                         currentPlayer.volume = savedCurrentVol * (1 - progress);
                         nextPlayer.volume = targetVolume * progress;
-                        
                         if (currentStep >= steps) {
                             clearInterval(fadeInterval);
                         }
@@ -951,43 +1104,9 @@
                 }
             };
 
-            // Wait for the next player to be ready before starting the transition.
-            // This prevents intermittent audio when gain ramps are scheduled before
-            // the audio element has buffered enough to play (Bug A fix).
-            var startPlayback = () => {
-                // The user may have paused while the incoming element was still
-                // buffering. Starting it now would undo that pause.
-                if (this._userPaused) {
-                    window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused before the incoming element was ready');
-                    this._isCrossfading = false;
-                    if (window.SynchronizationManager) {
-                        window.SynchronizationManager.setFlag('isCrossfading', false);
-                    }
-                    this._pauseOthers(null, 'crossfade aborted');
-                    return;
-                }
-                // Resume AudioContext if suspended, then schedule ramps
-                // gain ramps are scheduled on the Web Audio timeline so they fire at the correct
-                // time relative to context.currentTime once the context resumes
-                if (self.ctx && self.ctx.state === 'suspended') {
-                    self.ctx.resume().then(scheduleGainRamps).catch(function(err) {
-                        console.warn('AudioEngine: AudioContext resume failed before crossfade ramps', err);
-                        scheduleGainRamps();
-                    });
-                } else {
-                    scheduleGainRamps();
-                }
+            // Runs when the fade length has elapsed: retire the outgoing deck.
+            var finalizeCrossfade = () => {
 
-                // 3. Execute play and swap
-                // Verify entry time is set correctly before playing
-                const actualTime = nextPlayer.currentTime || 0;
-                if (Math.abs(actualTime - seekTime) > 1) {
-                    window.Helpers?.log?.('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
-                    nextPlayer.currentTime = seekTime;
-                }
-                
-                nextPlayer.play().then(() => {
-                    setTimeout(() => {
                         this._pausePlayer(currentPlayer, 'crossfade finalize');
                         // A DJ plan for the following song may have preloaded into
                         // the outgoing player during the fade. Clearing its src
@@ -1095,8 +1214,100 @@
                             detail: { source: 'audioEngine', includeCurrentTime: false }
                         }));
                         
+                        // The swap is done: restore both filters for the next mix.
+                        this._resetDeckFilters();
                         this._isCrossfading = false;
-                    }, (fadeTime + 0.1) * 1000);
+            };
+
+            // Schedule the fade once the incoming deck is confirmed running.
+            var beginFade = () => {
+                if (this._userPaused) {
+                    window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused');
+                    this._isCrossfading = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    this._pauseOthers(null, 'crossfade aborted');
+                    return;
+                }
+                if (self.ctx && self.ctx.state === 'suspended') {
+                    self.ctx.resume().then(scheduleGainRamps).catch(function(err) {
+                        console.warn('AudioEngine: AudioContext resume failed before crossfade ramps', err);
+                        scheduleGainRamps();
+                    });
+                } else {
+                    scheduleGainRamps();
+                }
+                setTimeout(finalizeCrossfade, (fadeTime + 0.1) * 1000);
+            };
+
+            // Wait for the next player to be ready before starting the transition.
+            // This prevents intermittent audio when the fade starts before the
+            // audio element has buffered enough to play (Bug A fix).
+            var startPlayback = () => {
+                if (this._userPaused) {
+                    window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused before the incoming element was ready');
+                    this._isCrossfading = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    this._pauseOthers(null, 'crossfade aborted');
+                    return;
+                }
+                // Verify entry time is set correctly before playing
+                const actualTime = nextPlayer.currentTime || 0;
+                if (Math.abs(actualTime - seekTime) > 1) {
+                    window.Helpers?.log?.('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
+                    nextPlayer.currentTime = seekTime;
+                }
+
+                // The incoming deck must be silent until the curve starts, so a
+                // readiness probe cannot leak audio.
+                if (self.ctx && nextGain) {
+                    nextGain.gain.cancelScheduledValues(self.ctx.currentTime);
+                    nextGain.gain.setValueAtTime(0, self.ctx.currentTime);
+                }
+
+                nextPlayer.play().then(() => {
+                    // iOS: prove that two media elements can run at once before
+                    // committing to an overlap. If they cannot, use the
+                    // single-deck fade instead of a silent or duplicated deck.
+                    if (this.isIOS() && this._dualAudio !== 'off') {
+                        // Sample twice, after any metadata seek has settled, so a
+                        // seek jump cannot masquerade as playback progress.
+                        setTimeout(() => {
+                            const t1 = nextPlayer.currentTime || 0;
+                            setTimeout(() => {
+                                const t2 = nextPlayer.currentTime || 0;
+                                // What matters is that the incoming element can
+                                // actually advance while the other deck exists. A
+                                // paused outgoing (already ended, or stopped by a
+                                // previous action) is not a concurrency failure.
+                                const advanced = !nextPlayer.paused && t2 > t1 + 0.02;
+                                window.Helpers?.log?.('[AudioEngine] iOS dual-audio probe: out=' +
+                                    currentPlayer.id + ' outPaused=' + currentPlayer.paused +
+                                    ' in=' + nextPlayer.id + ' nextPaused=' + nextPlayer.paused +
+                                    ' t1=' + t1.toFixed(2) + ' t2=' + t2.toFixed(2) +
+                                    ' ctx=' + (self.ctx ? self.ctx.state : 'none') + ' ok=' + advanced);
+                                if (!advanced) {
+                                    window.Helpers?.log?.('[AudioEngine] iOS dual-audio probe failed — using single-deck fades');
+                                    this._setDualAudioSupport(false);
+                                    this._isCrossfading = false;
+                                    if (window.SynchronizationManager) {
+                                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                                    }
+                                    this._unloadPlayer(nextPlayer, 'dual-audio probe failed');
+                                    this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                                    this._singleDeckFadeSwap(currentPlayer, songId, seekTime, targetVolume);
+                                    return;
+                                }
+                                this._setDualAudioSupport(true);
+                                beginFade();
+                            }, 200);
+                        }, 200);
+                        return;
+                    }
+                    beginFade();
                 }).catch(e => {
                     console.error('AudioEngine: Crossfade play failed', e);
                     this._isCrossfading = false;
@@ -1123,7 +1334,7 @@
                 });
             };
 
-            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA â€” enough buffered to play
+            if (nextPlayer.readyState >= 3) { // HAVE_FUTURE_DATA — enough buffered to run the fade
                 startPlayback();
             } else {
                 var crossfadeTimeout = setTimeout(() => {
@@ -1141,6 +1352,12 @@
                     // if it still cannot play, put the pointer back on the
                     // outgoing element so playback continues instead of ending
                     // in silence.
+                    const fallbackGain = this.getActiveGain();
+                    if (this.ctx && fallbackGain) {
+                        fallbackGain.gain.cancelScheduledValues(this.ctx.currentTime);
+                        fallbackGain.gain.setValueAtTime(targetVolume, this.ctx.currentTime);
+                    }
+                    this._resetDeckFilters();
                     this._lastLocalPlayAt = Date.now();
                     const attempt = nextPlayer.play();
                     if (attempt && typeof attempt.catch === 'function') {
@@ -1165,9 +1382,10 @@
 
         setVolume: function(volume, source = 'unknown') {
             // During crossfade, don't apply the volume change to gain nodes
-            // (they have active ramps that would be corrupted).
-            // Instead, save it as pending â€” it will be applied after the crossfade completes.
-            if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) {
+            // (they have active curves that would be corrupted).
+            // Instead, save it as pending — it will be applied after the crossfade completes.
+            if (this._isCrossfading ||
+                    (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading'))) {
                 this._pendingVolume = volume;
                 // Update UI immediately so the slider responds
                 if (source !== 'stateManager' && window.StateManager) {
@@ -1199,8 +1417,13 @@
             const player = this.getActivePlayer();
             if (gain && this.ctx) {
                 const safeVol = Math.max(0.0001, vol);
-                gain.gain.setValueAtTime(gain.gain.value, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(safeVol, this.ctx.currentTime + 0.1);
+                const now = this.ctx.currentTime;
+                // cancelScheduledValues can leave a running setValueCurveAtTime
+                // in place; an event inside its window throws NotSupportedError.
+                // Only automate when the param is idle (no fade in progress).
+                gain.gain.cancelScheduledValues(now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(safeVol, now + 0.1);
                 if (player) player.volume = 1.0; // element stays pinned while gain is active
             } else if (player) {
                 player.volume = vol;
@@ -1253,6 +1476,8 @@
             // element first so it cannot keep playing the previous song under
             // the one we are about to start.
             this._pauseOthers(player, 'performSetSource');
+            // Undo any bass cut left by an interrupted crossfade.
+            this._resetDeckFilters();
             player._currentSongId = currentSong.id;
             
             if (player.src !== url) {
@@ -1261,8 +1486,10 @@
                 
                 // SKIP VOLUME RESTORE DURING CROSSFADE - gain nodes are controlled by crossfade curves
                 // Setting volume during an active curve throws "Can't add events during a curve event"
-                if (!window.SynchronizationManager || !window.SynchronizationManager.getFlag('isCrossfading')) {
-                    // RESTORE VOLUME ON LOAD ï¿½ single active volume stage: the gain node
+                const fading = this._isCrossfading ||
+                    (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading'));
+                if (!fading) {
+                    // RESTORE VOLUME ON LOAD — single active volume stage: the gain node
                     // when Web Audio exists, else the element volume.
                     let currentVol = 0.8;
                     if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
@@ -1273,11 +1500,19 @@
                     // Guard nodes existence so a failed Web Audio init does not throw
                     // here and abort performSetSource before player.play().
                     if (this.nodes.g1 && this.nodes.g2 && this.ctx) {
-                        gain.gain.value = currentVol;
+                        const now = this.ctx.currentTime;
+                        // Anchor instead of assigning .value: assigning is a
+                        // setValueAtTime at currentTime and throws if a curve
+                        // happens to still be running on this fader.
+                        gain.gain.cancelScheduledValues(now);
+                        gain.gain.setValueAtTime(currentVol, now);
                         player.volume = 1.0; // element pinned; gain is the volume stage
                     } else {
                         player.volume = currentVol;
                     }
+                } else {
+                    // A fade owns the fader; the curve already ends at the
+                    // user's target volume, so there is nothing to apply here.
                 }
             } else if (play && player.paused) {
                 this._startPlayback(player, 'performSetSource:same-source');
@@ -1408,7 +1643,7 @@
             const nearEnd = active && active.duration > 0 && (active.duration - active.currentTime) < 1.5;
             const manualDjChange = djActive && !djManaged && !crossfading && !nearEnd;
 
-            if (currentSong && currentSong.id && fadeDuration > 0 && isPlaying && !this.isIOS()
+            if (currentSong && currentSong.id && fadeDuration > 0 && isPlaying
                     && (!djActive || manualDjChange)) {
                 window.Helpers.log('AudioEngine: Crossfade triggered for song ' + currentSong.id +
                     ' (' + fadeDuration + 's, ' + (djActive ? 'manual DJ skip' : 'normal') + ')');

@@ -207,8 +207,10 @@
             // into the next track (53s observed for a 3-4 minute song). Starting
             // that far in means the listener misses most of it, so keep the mix
             // point near the start and fall back to 0 when it is excessive.
+            // 45s keeps most beat-aligned entries: clamping to 0 throws the
+            // server's downbeat alignment away and makes the blend sound off.
             const rawEntryTime = state.djEntryTime || 0;
-            const MAX_DJ_ENTRY_SECONDS = 30;
+            const MAX_DJ_ENTRY_SECONDS = 45;
             const entryTime = rawEntryTime > MAX_DJ_ENTRY_SECONDS ? 0 : rawEntryTime;
             if (entryTime !== rawEntryTime) {
                 window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (max ' +

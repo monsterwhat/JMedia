@@ -239,6 +239,17 @@ public class SettingsController implements Serializable {
      * Song object populated with metadata or null on failure.
      */
     private Song extractMetadataFromFile(File file) {
+        return extractMetadataFromFile(file, false);
+    }
+
+    /**
+     * @param lightweight skip BPM detection and artwork extraction. Duplicate
+     *                    detection only needs title/artist/album/duration, and
+     *                    the full path decodes every file with TarsosDSP (hours
+     *                    for a large library) and writes artwork side files even
+     *                    during a dry run.
+     */
+    private Song extractMetadataFromFile(File file, boolean lightweight) {
         String relativePath = file.getName(); // Default to file name in case of early error
         try {
             File baseFolder = getMusicFolder();
@@ -274,8 +285,9 @@ public class SettingsController implements Serializable {
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
                 
-                // If BPM is 0 or not set in tags, try to detect with ffprobe or estimate
-                if (song.getBpm() == 0) {
+                // If BPM is 0 or not set in tags, try to detect with ffprobe or estimate.
+                // Skipped for duplicate detection: it decodes the whole file.
+                if (!lightweight && song.getBpm() == 0) {
                     int detectedBpm = getBpmWithFFprobe(file);
                     if (detectedBpm > 0) {
                         LOGGER.info("[ffmpeg] INFO: Extracted BPM from audio: " + detectedBpm + " for " + file.getName());
@@ -299,16 +311,18 @@ public class SettingsController implements Serializable {
                     }
                 }
 
-                try {
-                    byte[] imageData = AudioArtworkService.extractArtworkBytes(tag);
-                    if (imageData != null && imageData.length > 0) {
-                        song.setArtworkPath(artworkService.saveArtwork(imageData));
-                    } else {
+                if (!lightweight) {
+                    try {
+                        byte[] imageData = AudioArtworkService.extractArtworkBytes(tag);
+                        if (imageData != null && imageData.length > 0) {
+                            song.setArtworkPath(artworkService.saveArtwork(imageData));
+                        } else {
+                            song.setArtworkPath(null);
+                        }
+                    } catch (Exception artworkException) {
+                        LOGGER.error("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName(), artworkException);
                         song.setArtworkPath(null);
                     }
-                } catch (Exception artworkException) {
-                    LOGGER.error("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName(), artworkException);
-                    song.setArtworkPath(null);
                 }
             }
             
@@ -1648,7 +1662,7 @@ public class SettingsController implements Serializable {
                 if (scanAll && root.equals(mainMusicFolder) && inImport) {
                     continue;
                 }
-                Song metadata = extractMetadataFromFile(file);
+                Song metadata = extractMetadataFromFile(file, true);
                 if (metadata != null) {
                     allFileDetails.add(new FileDetails(file, inImport ? "import" : "main", metadata));
                 } else {
