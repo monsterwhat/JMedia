@@ -21,6 +21,7 @@ import Utils.GenreNormalizer;
 public class PlaybackQueueController {
 
     private static final int MAX_QUEUE_AHEAD = 500;
+    private static final int MAX_QUEUE_BEHIND = 100;
     private static final Logger LOG = LoggerFactory.getLogger(PlaybackQueueController.class);
 
     public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId) {
@@ -46,12 +47,24 @@ public void enforceQueueWindow(PlaybackState st) {
         List<Long> cue = st.getCue();
         if (cue == null) return;
         int cueIndex = st.getCueIndex();
-        int max = Math.max(0, cueIndex) + 1 + MAX_QUEUE_AHEAD;
+        int beforeIndex = cueIndex;
         int beforeCue = cue.size();
         int beforeOrig = -1;
         List<Long> orig = st.getOriginalCue();
         if (orig != null) beforeOrig = orig.size();
         boolean trimmed = false;
+
+        // Bound the played prefix too. Keeping the entire prefix let the queue
+        // grow to the library size (11k+) as playback advanced.
+        if (cueIndex > MAX_QUEUE_BEHIND) {
+            int drop = cueIndex - MAX_QUEUE_BEHIND;
+            cue.subList(0, drop).clear();
+            cueIndex -= drop;
+            st.setCueIndex(cueIndex);
+            trimmed = true;
+        }
+
+        int max = Math.max(0, cueIndex) + 1 + MAX_QUEUE_AHEAD;
         if (cue.size() > max) {
             cue.subList(max, cue.size()).clear();
             trimmed = true;
@@ -60,8 +73,8 @@ public void enforceQueueWindow(PlaybackState st) {
         // from. Window only the active cue so a playlist/library source is not
         // silently replaced by the whole library at the end of the window.
         if (trimmed) {
-            LOG.info("Trimmed playback queue window for profile {}: cueIndex={}, cue {} -> {}, originalCue {} (kept), max={}",
-                    st.getProfileId(), cueIndex, beforeCue, cue.size(), beforeOrig, max);
+            LOG.info("Trimmed playback queue window for profile {}: cueIndex {} -> {}, cue {} -> {}, originalCue {} (kept), max={}",
+                    st.getProfileId(), beforeIndex, cueIndex, beforeCue, cue.size(), beforeOrig, max);
         }
     }
 
