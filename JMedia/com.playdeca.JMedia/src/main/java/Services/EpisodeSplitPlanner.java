@@ -34,6 +34,13 @@ public final class EpisodeSplitPlanner {
     /** Do not snap to a keyframe further back than this. */
     public static final double MAX_KEYFRAME_GAP_SECONDS = 8.0;
 
+    /** A next-episode preview between the two episodes is this long, roughly. */
+    public static final double MIN_PREVIEW_SECONDS = 10.0;
+    public static final double MAX_PREVIEW_SECONDS = 180.0;
+
+    /** Ignore anything this close to the first cut: it is part of the same fade. */
+    public static final double TRAILING_SEARCH_GAP_SECONDS = 15.0;
+
     private static final Pattern RANGE_PATTERN = Pattern.compile(
             "(?i)^(.*?[sS]\\d{1,2}[\\s\\._-]*[eE])(\\d{1,3})(\\s*[-–]\\s*[eE]?)(\\d{1,3})(.*)$");
 
@@ -100,6 +107,35 @@ public final class EpisodeSplitPlanner {
             double distance = Math.abs(black.end() - midpoint);
             double score = black.length() + silence - MIDPOINT_PENALTY * distance;
             Candidate candidate = new Candidate(black.end(), black.length(), silence, distance, score);
+            if (best == null || candidate.score() > best.score()) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Finds a second break shortly after the first, which marks the end of a
+     * next-episode preview. Returns null when there is only one break (a plain
+     * two-in-one file). Nearest qualifying run wins.
+     */
+    static Candidate chooseTrailingCandidate(List<TimeRange> blacks, List<TimeRange> silences,
+                                             double duration, double afterSeconds) {
+        if (blacks == null || silences == null || duration <= 0 || afterSeconds <= 0) return null;
+        double windowStart = afterSeconds + TRAILING_SEARCH_GAP_SECONDS;
+        double windowEnd = duration * 0.80;
+        Candidate best = null;
+        for (TimeRange black : blacks) {
+            if (black.length() < MIN_BLACK_SECONDS) continue;
+            if (black.start() < windowStart || black.end() > windowEnd) continue;
+            double gap = black.end() - afterSeconds;
+            if (gap < MIN_PREVIEW_SECONDS || gap > MAX_PREVIEW_SECONDS) continue;
+            double silence = 0;
+            for (TimeRange silenceRange : silences) {
+                silence += black.overlap(silenceRange);
+            }
+            if (silence < MIN_SILENCE_OVERLAP_SECONDS) continue;
+            Candidate candidate = new Candidate(black.end(), black.length(), silence, gap, -gap);
             if (best == null || candidate.score() > best.score()) {
                 best = candidate;
             }

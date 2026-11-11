@@ -155,6 +155,55 @@ class EpisodeSplitPlannerTest {
         assertEquals(672.38, EpisodeSplitPlanner.snapToKeyframe(672.38, null), 0.001);
     }
 
+    // ── preview detection (three-way cut) ───────────────────────────────────
+
+    @Test
+    void findsThePreviewBetweenTwoEpisodes() {
+        // S01E35-36: the two black+silence breaks 34s apart.
+        EpisodeSplitPlanner.Candidate trailing = EpisodeSplitPlanner.chooseTrailingCandidate(
+                List.of(range(674.67, 677.68), range(711.92, 714.92)),
+                List.of(range(674.21, 677.75), range(711.90, 715.00)),
+                1386.86, 677.68);
+
+        assertEquals(714.92, trailing.boundarySeconds(), 0.01,
+                "the second fade closes the preview and opens episode 2");
+    }
+
+    @Test
+    void aNormalPairHasNoPreview() {
+        // The 684s black is 0.21s of scene noise, far below the threshold.
+        assertNull(EpisodeSplitPlanner.chooseTrailingCandidate(
+                List.of(range(671.59, 672.38), range(684.39, 684.60)),
+                List.of(range(671.90, 672.43), range(684.40, 684.70)),
+                1352.98, 671.50));
+    }
+
+    @Test
+    void rejectsATrailingRunThatIsTooClose() {
+        assertNull(EpisodeSplitPlanner.chooseTrailingCandidate(
+                List.of(range(677.68, 683.00)),
+                List.of(range(677.75, 683.10)),
+                1386.86, 677.68));
+    }
+
+    @Test
+    void rejectsATrailingRunThatIsTooFar() {
+        assertNull(EpisodeSplitPlanner.chooseTrailingCandidate(
+                List.of(range(900.00, 903.00)),
+                List.of(range(900.10, 903.10)),
+                1386.86, 677.68));
+    }
+
+    @Test
+    void prefersTheNearestTrailingRun() {
+        EpisodeSplitPlanner.Candidate trailing = EpisodeSplitPlanner.chooseTrailingCandidate(
+                List.of(range(695.00, 698.00), range(711.92, 714.92)),
+                List.of(range(695.10, 698.10), range(711.90, 715.00)),
+                1386.86, 677.68);
+
+        assertEquals(698.00, trailing.boundarySeconds(), 0.01);
+    }
+
     // ── the measured library cases end to end ───────────────────────────────
 
     @Test

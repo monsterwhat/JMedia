@@ -1010,6 +1010,11 @@ public class VideoManagementApi {
         body.put("episodeRange", plan.firstEpisode() + "-" + plan.lastEpisode());
         body.put("durationSeconds", round2(plan.durationSeconds()));
         body.put("cutSeconds", round2(plan.cutSeconds()));
+        body.put("threeWay", plan.isThreeWay());
+        if (plan.isThreeWay()) {
+            body.put("secondCutSeconds", round2(plan.secondCutSeconds()));
+            body.put("previewSeconds", round2(plan.secondCutSeconds() - plan.cutSeconds()));
+        }
         body.put("reason", plan.reason());
         if (plan.primary() != null) {
             body.put("blackSeconds", round2(plan.primary().blackSeconds()));
@@ -1053,6 +1058,10 @@ public class VideoManagementApi {
         if (outcome.partTwo() != null) body.put("partTwo", outcome.partTwo().toString());
         if (outcome.archivedOriginal() != null) {
             body.put("archivedOriginal", outcome.archivedOriginal().toString());
+        }
+        if (outcome.promo() != null) {
+            body.put("preview", outcome.promo().toString());
+            body.put("previewSeconds", round2(outcome.promoSec()));
         }
         if (outcome.partOneSeconds() > 0) body.put("partOneSeconds", round2(outcome.partOneSeconds()));
         if (outcome.partTwoSeconds() > 0) body.put("partTwoSeconds", round2(outcome.partTwoSeconds()));
