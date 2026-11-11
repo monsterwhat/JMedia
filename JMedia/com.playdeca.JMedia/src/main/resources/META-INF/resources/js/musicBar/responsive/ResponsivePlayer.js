@@ -950,6 +950,8 @@
          * Track in-flight fetch to prevent duplicate concurrent requests
          */
         _fetchingSongData: null,
+        _lastFetchedSongId: null,
+        _lastFetchedAt: 0,
 
         /**
          * Handle state changes from StateManager
@@ -961,7 +963,7 @@
                 return;
             }
             // React to relevant state changes
-            if (oldState.currentSongId !== newState.currentSongId) {
+            if (String(oldState.currentSongId) !== String(newState.currentSongId)) {
                 // Song changed - fetch full song data
                 this.fetchCurrentSongData(newState.currentSongId);
                 // Update cover image
@@ -994,11 +996,19 @@
             }
             
             // Guard against duplicate concurrent requests for the same song
-            if (this._fetchingSongData === songId) {
+            const fetchKey = String(songId);
+            if (this._fetchingSongData === fetchKey) {
                 window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData: Already fetching for songId:', songId);
                 return;
             }
-            this._fetchingSongData = songId;
+            // A state update loop can call this repeatedly for the same song
+            // (e.g. string vs numeric currentSongId). Throttle the same ID.
+            if (this._lastFetchedSongId === fetchKey && Date.now() - (this._lastFetchedAt || 0) < 1500) {
+                return;
+            }
+            this._lastFetchedSongId = fetchKey;
+            this._lastFetchedAt = Date.now();
+            this._fetchingSongData = fetchKey;
             
             window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData called for songId:', songId);
             
@@ -1018,7 +1028,10 @@
                          const songMetadata = { ...data.data };
                         
                          if (window.StateManager) {
-                             window.StateManager.updateState({ currentSongId: songId, currentSongData: songMetadata }, 'ResponsivePlayer');
+                             // Do NOT write currentSongId here: the server/state owns
+                             // it. Rewriting it with a string caused a string/number
+                             // state-change loop and constant /playback/current calls.
+                             window.StateManager.updateState({ currentSongData: songMetadata }, 'ResponsivePlayer');
                          }
                          
                           // Update cover image
@@ -1039,7 +1052,7 @@
                  })
                 .catch(err => console.error('[ResponsivePlayer] Failed to fetch song data:', err))
                 .finally(() => {
-                    if (this._fetchingSongData === songId) {
+                    if (this._fetchingSongData === fetchKey) {
                         this._fetchingSongData = null;
                     }
                 });
