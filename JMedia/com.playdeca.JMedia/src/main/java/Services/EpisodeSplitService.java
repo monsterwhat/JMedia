@@ -406,6 +406,8 @@ public class EpisodeSplitService {
     }
 
     private static String format(double seconds) {
-        return String.format(java.util.Locale.ROOT, "%.3f", seconds);
+        // Six decimals: rounding a keyframe timestamp down by a millisecond makes
+        // ffmpeg seek to the *previous* keyframe, which silently adds seconds.
+        return String.format(java.util.Locale.ROOT, "%.6f", seconds);
     }
 }
