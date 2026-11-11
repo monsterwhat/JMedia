@@ -46,6 +46,11 @@
         // null = not probed yet, 'on' = two decks can play together,
         // 'off' = device only allows one deck (single-deck fade fallback).
         _dualAudio: null,
+
+        // Crossfade bookkeeping: a monotonic token so a watchdog from an old
+        // fade cannot clear a newer one, and a timestamp for bounded deferrals.
+        _fadeToken: 0,
+        _deferStartedAt: 0,
         
         // iOS autoplay-policy unlock state
         _iosUnlocked: false,
@@ -1017,6 +1022,20 @@
                 window.SynchronizationManager.setFlag('isCrossfading', true);
             }
 
+            // Watchdog: a fade that never finalizes (for example play() pending
+            // on a stalled incoming element) would leave isCrossfading true
+            // forever, and every later setSource would defer on it.
+            const fadeToken = ++this._fadeToken;
+            setTimeout(() => {
+                if (this._fadeToken !== fadeToken || !this._isCrossfading) return;
+                console.warn('[AudioEngine] Crossfade watchdog: fade did not finalize, clearing flags');
+                this._isCrossfading = false;
+                if (window.SynchronizationManager) {
+                    window.SynchronizationManager.setFlag('isCrossfading', false);
+                }
+                this._pauseOthers(this.getActivePlayer(), 'crossfade watchdog');
+            }, (fadeTime + 6) * 1000);
+
             // The fade is definitely starting: now the pointer may move so
             // getActivePlayer() returns the fading-in element.
             this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
@@ -1604,6 +1623,23 @@
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             if (!window.SynchronizationManager) return false;
 
+            // STATE ECHO GUARD: never start a transition to the song that is
+            // already playing on the active deck. Websocket state echoes repeat
+            // after a song change; without this the engine faded the same song
+            // into the other deck over and over ("two songs fighting").
+            const playingNow = this.getActivePlayer();
+            if (currentSong && currentSong.id && playingNow &&
+                    String(playingNow._currentSongId) === String(currentSong.id) &&
+                    !playingNow.paused) {
+                const delta = Math.abs((backendTime || 0) - (playingNow.currentTime || 0));
+                if (delta < 2.0) {
+                    window.Helpers?.log?.('[AudioEngine] Ignoring setSource: song ' +
+                        currentSong.id + ' is already playing on the active deck');
+                    this._deferStartedAt = 0;
+                    return true;
+                }
+            }
+
             // CROSSFADE GUARD: while a fade runs, the incoming song is already
             // loaded on the active (fading-in) player. A state echo for that
             // same song is a no-op. A request for a DIFFERENT song must wait:
@@ -1612,13 +1648,21 @@
             if (window.SynchronizationManager.getFlag('isCrossfading')) {
                 const activePlayer = this.getActivePlayer();
                 const targetUrl = this.getStreamUrl(currentSong.id);
+                const activeSongId = activePlayer && activePlayer._currentSongId;
                 
-                if (activePlayer && targetUrl && activePlayer.src.endsWith(targetUrl)) {
+                if ((activePlayer && targetUrl && activePlayer.src.endsWith(targetUrl)) ||
+                        (activeSongId && String(activeSongId) === String(currentSong.id))) {
                     window.Helpers.log('AudioEngine: Ignoring setSource during active crossfade for song ' + currentSong.id);
+                    this._deferStartedAt = 0;
                     return true;
                 }
 
-                if (retryCount < 40) {
+                // Bound the wait by time, not by a per-call retry counter: each
+                // new state echo restarts the counter, which deferred forever
+                // when a fade flag got stuck.
+                const deferStart = this._deferStartedAt || Date.now();
+                this._deferStartedAt = deferStart;
+                if (Date.now() - deferStart < 3000) {
                     window.Helpers.log('AudioEngine: Deferring setSource for song ' + currentSong.id + ' until the crossfade finishes');
                     const self = this;
                     setTimeout(() => {
@@ -1626,7 +1670,8 @@
                     }, 250);
                     return true;
                 }
-                window.Helpers?.log?.('[AudioEngine] Crossfade still running; applying source directly for ' + currentSong.id);
+                this._deferStartedAt = 0;
+                window.Helpers?.log?.('[AudioEngine] Crossfade still running after 3s; applying source directly for ' + currentSong.id);
             }
 
             // CROSSFADE: apply to normal playback and to manual skips in DJ Mode.
