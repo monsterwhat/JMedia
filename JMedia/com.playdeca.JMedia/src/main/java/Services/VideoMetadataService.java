@@ -1554,6 +1554,15 @@ public class VideoMetadataService {
     }
 
     public Optional<ExternalTitleMeta> lookupExternalTitle(String kind, String token) {
+        return lookupExternalTitle(kind, token, null);
+    }
+
+    /**
+     * @param mediaType optional "tv"/"movie" hint for bare TMDb ids. The same
+     *                  numeric id can exist as both (e.g. TMDb 72636 is
+     *                  Made in Abyss as TV and Hotshot as a movie).
+     */
+    public Optional<ExternalTitleMeta> lookupExternalTitle(String kind, String token, String mediaType) {
         if (kind == null || token == null || token.isBlank()) {
             return Optional.empty();
         }
@@ -1583,8 +1592,15 @@ public class VideoMetadataService {
                         LOG.debug("TMDb lookup skipped: '{}' is not a numeric id", token);
                         return Optional.empty();
                     }
+                    String hint = mediaType == null ? "" : mediaType.toLowerCase(Locale.ROOT);
+                    if (hint.contains("tv")) {
+                        return detailsMeta(tmdbUrl("/tv/" + id, null, apiKey, bearer), authHeaders, timeout, "tv");
+                    }
                     Optional<ExternalTitleMeta> movie = detailsMeta(
                             tmdbUrl("/movie/" + id, null, apiKey, bearer), authHeaders, timeout, "movie");
+                    if (hint.contains("movie")) {
+                        return movie;
+                    }
                     if (movie.isPresent()) {
                         return movie;
                     }

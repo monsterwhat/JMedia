@@ -67,7 +67,7 @@
                 area: null,
                 section: query.get('section') || 'home',
                 params: params,
-                kind: null, token: null, season: null, episode: null
+                kind: null, token: null, season: null, episode: null, mediaType: null
             };
         }
 
@@ -102,7 +102,8 @@
             kind: kind,
             token: token,
             season: (season != null && !isNaN(season)) ? season : null,
-            episode: (episode != null && !isNaN(episode)) ? episode : null
+            episode: (episode != null && !isNaN(episode)) ? episode : null,
+            mediaType: query.get('type') || null
         };
     }
 
@@ -124,6 +125,9 @@
         if (parsed.season != null && parsed.episode != null) {
             qs.push('season=' + encodeURIComponent(parsed.season));
             qs.push('episode=' + encodeURIComponent(parsed.episode));
+        }
+        if (parsed.mediaType) {
+            qs.push('type=' + encodeURIComponent(parsed.mediaType));
         }
         if (qs.length) url += '?' + qs.join('&');
         try {

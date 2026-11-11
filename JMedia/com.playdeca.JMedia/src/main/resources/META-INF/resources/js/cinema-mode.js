@@ -4436,7 +4436,7 @@ async function performSearch(query) {
       const poster = r.posterUrl
         ? `<img class="cinema-search-result-thumb" src="${escapeHtml(r.posterUrl)}" alt="" loading="lazy">`
         : '<div class="cinema-search-result-thumb" style="display:flex;align-items:center;justify-content:center;opacity:.4;"><i class="fa-solid fa-film"></i></div>';
-      return `<button class="cinema-search-result" data-click="closeSearchByClick" data-search-action="openExternalInfo" data-token="${escapeHtml(r.token || '')}" data-kind="tmdb">
+      return `<button class="cinema-search-result" data-click="closeSearchByClick" data-search-action="openExternalInfo" data-token="${escapeHtml(r.token || '')}" data-kind="tmdb" data-media-type="${escapeHtml(r.mediaType || '')}">
         ${poster}
         <div class="cinema-search-result-info">
           <div class="cinema-search-result-title">${title}</div>
@@ -4763,7 +4763,12 @@ function closeSearchByClick(el) {
   } else if (action === 'openExternalInfo') {
     var token = el.getAttribute('data-token');
     var kind = el.getAttribute('data-kind') || 'tmdb';
-    if (token) window.location.href = '/video/info/' + kind + '/' + encodeURIComponent(token);
+    var mediaType = el.getAttribute('data-media-type') || '';
+    if (token) {
+      var url = '/video/info/' + kind + '/' + encodeURIComponent(token);
+      if (mediaType) url += '?type=' + encodeURIComponent(mediaType);
+      window.location.href = url;
+    }
   }
 }
 

@@ -66,8 +66,9 @@ public class VideoLinkResolver {
     @Path("/{token}")
     public Response resolveAuto(@PathParam("token") String token,
                                 @QueryParam("season") Integer season,
-                                @QueryParam("episode") Integer episode) {
-        return resolve(null, token, season, episode);
+                                @QueryParam("episode") Integer episode,
+                                @QueryParam("type") String mediaType) {
+        return resolve(null, token, season, episode, mediaType);
     }
 
     /** Explicit kind: imdb | tmdb | tvdb | db. */
@@ -76,11 +77,12 @@ public class VideoLinkResolver {
     public Response resolveTyped(@PathParam("kind") String kind,
                                  @PathParam("token") String token,
                                  @QueryParam("season") Integer season,
-                                 @QueryParam("episode") Integer episode) {
-        return resolve(kind, token, season, episode);
+                                 @QueryParam("episode") Integer episode,
+                                 @QueryParam("type") String mediaType) {
+        return resolve(kind, token, season, episode, mediaType);
     }
 
-    private Response resolve(String kind, String token, Integer season, Integer episode) {
+    private Response resolve(String kind, String token, Integer season, Integer episode, String mediaType) {
         if (token == null || token.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(error("Missing id")).build();
@@ -95,7 +97,7 @@ public class VideoLinkResolver {
             } else if (internal.matches()) {
                 result = byInternal(Long.parseLong(internal.group(1)));
             } else if (DIGITS.matcher(token).matches()) {
-                result = byTmdb(Integer.parseInt(token));
+                result = byTmdb(Integer.parseInt(token), mediaType);
                 if (result == null) {
                     result = byInternal(Long.parseLong(token));
                 }
@@ -106,7 +108,7 @@ public class VideoLinkResolver {
         } else {
             switch (kindNorm) {
                 case "imdb" -> result = byImdb(token);
-                case "tmdb" -> result = byTmdb(parseIntOrNull(token));
+                case "tmdb" -> result = byTmdb(parseIntOrNull(token), mediaType);
                 case "tvdb" -> result = byTvdb(parseIntOrNull(token));
                 case "db" -> result = byInternal(parseLongOrNull(token));
                 default -> {
@@ -124,7 +126,7 @@ public class VideoLinkResolver {
             missing.put("kind", detectedKind);
             // Best-effort TMDb metadata so the SPA can render a friendly "not in your
             // library" page instead of a dead end. Never fails the response.
-            attachMeta(missing, detectedKind, token);
+            attachMeta(missing, detectedKind, token, mediaType);
             return Response.ok(missing).build();
         }
 
@@ -145,16 +147,24 @@ public class VideoLinkResolver {
         return movie != null ? forMovie(movie) : null;
     }
 
-    private ObjectNode byTmdb(Integer tmdbId) {
+    private ObjectNode byTmdb(Integer tmdbId, String mediaType) {
         if (tmdbId == null) {
             return null;
         }
-        List<Series> candidates = Series.<Series>find("tmdbId", tmdbId).list();
-        if (!candidates.isEmpty()) {
-            return forSeries(pickCanonicalSeries(candidates));
+        String hint = mediaType == null ? "" : mediaType.toLowerCase(Locale.ROOT);
+        if (!hint.contains("movie")) {
+            List<Series> candidates = Series.<Series>find("tmdbId", tmdbId).list();
+            if (!candidates.isEmpty()) {
+                return forSeries(pickCanonicalSeries(candidates));
+            }
         }
-        Video movie = Video.find("type = 'movie' and tmdbId = ?1", String.valueOf(tmdbId)).firstResult();
-        return movie != null ? forMovie(movie) : null;
+        if (!hint.contains("tv")) {
+            Video movie = Video.find("type = 'movie' and tmdbId = ?1", String.valueOf(tmdbId)).firstResult();
+            if (movie != null) {
+                return forMovie(movie);
+            }
+        }
+        return null;
     }
 
     private ObjectNode byTvdb(Integer tvdbId) {
@@ -244,11 +254,12 @@ public class VideoLinkResolver {
      * external ids TMDb knows but our library does not. In-memory cached; a TMDb
      * outage or unknown id simply leaves the body unchanged.
      */
-    private void attachMeta(ObjectNode node, String kind, String token) {
+    private void attachMeta(ObjectNode node, String kind, String token, String mediaType) {
         if (token == null || (!"imdb".equals(kind) && !"tmdb".equals(kind) && !"tvdb".equals(kind))) {
             return;
         }
-        String cacheKey = kind + ':' + token.toLowerCase(Locale.ROOT);
+        String hint = mediaType != null && !mediaType.isBlank() ? mediaType.toLowerCase(Locale.ROOT) : "";
+        String cacheKey = kind + ':' + token.toLowerCase(Locale.ROOT) + (hint.isEmpty() ? "" : ":" + hint);
         try {
             long now = System.currentTimeMillis();
             MetaCacheEntry cached = metaCache.get(cacheKey);
@@ -258,7 +269,7 @@ public class VideoLinkResolver {
                 }
                 return;
             }
-            ObjectNode meta = metadataService.lookupExternalTitle(kind, token)
+            ObjectNode meta = metadataService.lookupExternalTitle(kind, token, hint.isEmpty() ? null : hint)
                     .map(this::buildMeta).orElse(null);
             metaCache.put(cacheKey, new MetaCacheEntry(meta,
                     now + (meta != null ? META_TTL_MS : META_NEGATIVE_TTL_MS)));
