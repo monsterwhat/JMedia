@@ -54,7 +54,7 @@
             window.addEventListener('musicStateChanged', () => {
                 if (window.videoPlaying) {
                     window.Helpers.log('UIUpdater: Video active — skipping throttledUpdate');
-                    console.log('[UIUpdater] Blocked update — video is active');
+                    window.Helpers?.log?.('[UIUpdater] Blocked update — video is active');
                     return;
                 }
                 this.throttledUpdate();
@@ -74,7 +74,7 @@
             if (!window.StateManager) return;
             if (window.videoPlaying) {
                 window.Helpers.log('UIUpdater: Video active — skipping performUIUpdate');
-                console.log('[UIUpdater] Blocked performUIUpdate — video is active');
+                window.Helpers?.log?.('[UIUpdater] Blocked performUIUpdate — video is active');
                 return;
             }
             
@@ -166,7 +166,7 @@
                         this._lastArtworkSongId = currentSongId;
                     }
                     
-                    console.log('[UIUpdater] Updating images for song:', currentSong.title, '| artwork:', !!currentSong.id);
+                    window.Helpers?.log?.('[UIUpdater] Updating images for song:', currentSong.title, '| artwork:', !!currentSong.id);
                     if (window.ImageManager) {
                         window.ImageManager.updateImages(currentSong, null, null);
                     } else {

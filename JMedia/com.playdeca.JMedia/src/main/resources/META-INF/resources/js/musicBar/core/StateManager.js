@@ -157,7 +157,7 @@
                     if (this.state[key] !== changes[key]) {
                         this.state[key] = changes[key];
                         hasChanges = true;
-                        window.Helpers.log(`StateManager updated ${key} from ${oldState[key]} to ${changes[key]} (${source})`);
+                        window.Helpers.log(`StateManager updated ${key} (${source})`);
                     }
                 }
             }

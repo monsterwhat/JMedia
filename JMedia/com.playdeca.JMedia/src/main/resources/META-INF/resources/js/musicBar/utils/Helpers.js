@@ -76,8 +76,8 @@
          */
         log: function(...args) {
             const enabled = (typeof window !== 'undefined' && window.localStorage)
-                ? localStorage.getItem('musicbar_debug') !== 'false'
-                : true;
+                ? (localStorage.getItem('musicbar_debug') === 'true' || localStorage.getItem('musicbar_debug') === '1')
+                : false;
 
             if (enabled) {
                 console.log('[musicBar]', ...args);

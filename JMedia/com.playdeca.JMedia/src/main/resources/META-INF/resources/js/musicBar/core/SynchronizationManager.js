@@ -47,7 +47,7 @@
             
             // Check if operation is already in progress
             if (this.locks[lockKey]) {
-                console.log(`[SyncManager] ${operationType} already in progress for ${profileId}`);
+                window.Helpers?.log?.(`[SyncManager] ${operationType} already in progress for ${profileId}`);
                 return false;
             }
             
@@ -152,7 +152,7 @@
             operation.sequenceNumber = ++this.sequences.dom;
             this.queues.dom.push(operation);
             
-            console.log(`[SyncManager] Enqueued DOM operation ${operation.sequenceNumber} of type ${operation.type}`);
+            window.Helpers?.log?.(`[SyncManager] Enqueued DOM operation ${operation.sequenceNumber} of type ${operation.type}`);
             this.processDOMQueue();
         },
         
@@ -256,11 +256,11 @@
          * Initialize synchronization manager
          */
         init: function() {
-            console.log('[SyncManager] Initialized');
+            window.Helpers?.log?.('[SyncManager] Initialized');
             
             // Listen for cleanup events
             window.addEventListener('beforeunload', () => {
-                console.log('[SyncManager] Cleaning up before page unload');
+                window.Helpers?.log?.('[SyncManager] Cleaning up before page unload');
                 this.flags.isProcessingMessage = false;
                 this.flags.isProcessingDOMOperations = false;
                 this.activeAudioOperation = null;

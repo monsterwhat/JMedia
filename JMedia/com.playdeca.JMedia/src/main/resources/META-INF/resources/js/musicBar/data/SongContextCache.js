@@ -50,7 +50,7 @@
             };
             this.cacheTimestamp = Date.now();
             
-            console.log('[SongContextCache] Updated cache:', this.cache);
+            window.Helpers?.log?.('[SongContextCache] Updated cache:', this.cache);
             
             // Emit cache update event
             window.dispatchEvent(new CustomEvent('songContextCacheUpdated', {
@@ -68,7 +68,7 @@
             // Check if cache is valid for current profile
             if (!this.cache || this.cache.profileId !== profileId ||
                     Date.now() - this.cacheTimestamp > this.CACHE_DURATION) {
-                console.log('[SongContextCache] Cache invalid or missing - profile:', profileId, 'cache:', this.cache);
+                window.Helpers?.log?.('[SongContextCache] Cache invalid or missing - profile:', profileId, 'cache:', this.cache);
                 return null;
             }
             
@@ -76,7 +76,7 @@
                            direction === 'previous' ? this.cache.previousSong :
                            this.cache.currentSong;
             
-            console.log('[SongContextCache] getCachedSongContext(', direction, ') →', cachedSong ? JSON.stringify(cachedSong) : 'null');
+            window.Helpers?.log?.('[SongContextCache] getCachedSongContext(', direction, ') →', cachedSong ? JSON.stringify(cachedSong) : 'null');
             return cachedSong || null;
         },
         
