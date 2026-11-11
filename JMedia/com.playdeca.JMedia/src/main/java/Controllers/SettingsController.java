@@ -721,9 +721,16 @@ public class SettingsController implements Serializable {
             if (f.isDirectory()) {
                 collectAudioFiles(f, audioFiles);
             } else if (f.isFile()) {
-                String name = f.getName().toLowerCase();
+                String name = f.getName();
+                // Hidden entries and macOS AppleDouble sidecars ("._song.m4a")
+                // end in an audio extension but are not media: they make the
+                // scanner run ffprobe fallbacks for every file.
+                if (name.startsWith(".")) {
+                    continue;
+                }
+                String lower = name.toLowerCase();
                 for (String ext : SUPPORTED_AUDIO_EXTENSIONS) {
-                    if (name.endsWith(ext)) {
+                    if (lower.endsWith(ext)) {
                         audioFiles.add(f);
                         break;
                     }
@@ -1655,6 +1662,8 @@ public class SettingsController implements Serializable {
 
             List<File> files = new ArrayList<>();
             collectAudioFiles(root, files);
+            LOGGER.info("[DuplicateCheck] " + files.size() + " candidate file(s) under " + root.getAbsolutePath());
+            int processed = 0;
 
             for (File file : files) {
                 boolean inImport = file.toPath().startsWith(importFolder.toPath());
@@ -1667,6 +1676,10 @@ public class SettingsController implements Serializable {
                     allFileDetails.add(new FileDetails(file, inImport ? "import" : "main", metadata));
                 } else {
                     unidentifiableFilesToDelete.add(file);
+                }
+                processed++;
+                if (processed % 500 == 0) {
+                    LOGGER.info("[DuplicateCheck] scanned " + processed + "/" + files.size());
                 }
             }
         }
