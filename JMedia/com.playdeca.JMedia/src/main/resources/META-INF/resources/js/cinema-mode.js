@@ -189,6 +189,34 @@ function _pushInfoUrl(token) {
   }
 }
 
+/** Shareable URL for a catalogue (not-in-library) card. */
+function _externalInfoUrl(token, kind, mediaType) {
+  var url = '/video/info/' + (kind || 'tmdb') + '/' + encodeURIComponent(token);
+  if (mediaType) url += '?type=' + encodeURIComponent(mediaType);
+  return url;
+}
+
+/**
+ * Open a catalogue card in place, with the same shareable history entry that
+ * openDetails/openSeriesDetail give library titles. Assigning
+ * window.location.href here used to reload the whole SPA (all scripts, sockets
+ * and home rows) before the modal could paint. Respects _suppressUrlWrite so
+ * the deep-link boot path does not push a second entry.
+ */
+function _openExternalFromCard(tmdbId, mediaType, meta, kind) {
+  if (_suppressUrlWrite) return openExternalDetails(tmdbId, mediaType, meta);
+  var url = _externalInfoUrl(tmdbId, kind, mediaType);
+  var current = window.location.pathname + window.location.search;
+  if (current !== url) {
+    try {
+      history.pushState({ video: { area: 'info', token: String(tmdbId) } }, '', url);
+    } catch (e) {
+      console.warn('[cinema] pushState external info failed', e);
+    }
+  }
+  return openExternalDetails(tmdbId, mediaType, meta);
+}
+
 function _pushWatchUrl(token, season, episode) {
   if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
   const url = VideoRoutes.watchUrl(token, season, episode);
@@ -253,7 +281,7 @@ async function _openFromUrl(parsed) {
         : ((parsed && parsed.kind === 'tmdb') ? String(parsed.token || '') : '');
       if (tmdbId) {
         const mediaType = (meta && meta.mediaType) || (parsed && parsed.mediaType) || '';
-        const opened = await openExternalDetails(tmdbId, mediaType, meta).catch(function (e) {
+        const opened = await _openExternalFromCard(tmdbId, mediaType, meta).catch(function (e) {
           console.warn('[cinema] catalogue card failed', e);
           return false;
         });
@@ -5082,11 +5110,14 @@ function closeSearchByClick(el) {
     var token = el.getAttribute('data-token');
     var kind = el.getAttribute('data-kind') || 'tmdb';
     var mediaType = el.getAttribute('data-media-type') || '';
-    if (token) {
-      var url = '/video/info/' + kind + '/' + encodeURIComponent(token);
-      if (mediaType) url += '?type=' + encodeURIComponent(mediaType);
-      window.location.href = url;
+    if (!token) return;
+    var tmdbId = parseInt(token, 10);
+    if (isNaN(tmdbId)) {
+      // Unknown id kinds keep the old navigation behaviour.
+      window.location.href = _externalInfoUrl(token, kind, mediaType);
+      return;
     }
+    _openExternalFromCard(tmdbId, mediaType, null, kind);
   }
 }
 
@@ -5100,7 +5131,13 @@ window.openRequestedTitle = function(el) {
   if (!el || !el.dataset) return;
   var token = el.dataset.token;
   var kind = el.dataset.kind || 'tmdb';
-  if (token) window.location.href = '/video/info/' + kind + '/' + encodeURIComponent(token);
+  if (!token) return;
+  var tmdbId = parseInt(token, 10);
+  if (isNaN(tmdbId)) {
+    window.location.href = _externalInfoUrl(token, kind, null);
+    return;
+  }
+  _openExternalFromCard(tmdbId, null, null, kind);
 };
 
 // ============================================================
