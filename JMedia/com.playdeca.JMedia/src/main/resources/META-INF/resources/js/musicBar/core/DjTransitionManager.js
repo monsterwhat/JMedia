@@ -339,6 +339,26 @@
          */
         executeTransition: function() {
             if (this.isTransitioning) return;
+            if (!this.transitionData) return;
+
+            // A manual DJ skip (or another fade) may still be running. Never
+            // notify the server unless this transition's crossfade actually
+            // starts; otherwise the server advances while the old audio is
+            // still the active element, and every new plan fires immediately.
+            var crossfading = window.SynchronizationManager
+                && window.SynchronizationManager.getFlag('isCrossfading');
+            if (crossfading) {
+                this._executeRetry = (this._executeRetry || 0) + 1;
+                if (this._executeRetry <= 20) {
+                    var self = this;
+                    setTimeout(function () { self.executeTransition(); }, 300);
+                } else {
+                    window.Helpers.log('[DJ] Crossfade still busy; cancelling deferred transition');
+                    this.cancelTransition();
+                }
+                return;
+            }
+            this._executeRetry = 0;
             this.isTransitioning = true;
             
             // Set crossfade flag to prevent progress bar jumps
@@ -365,8 +385,24 @@
                 
                 this.updateDjIndicator('transitioning');
                 
-                // Execute the actual dual-player crossfade
-                window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true);
+                // Execute the actual dual-player crossfade and only advance the
+                // server state when the audio engine accepted it.
+                var started = window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true);
+                if (started === false) {
+                    this.isTransitioning = false;
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    this._executeRetry = (this._executeRetry || 0) + 1;
+                    if (this._executeRetry <= 20) {
+                        var retrySelf = this;
+                        setTimeout(function () { retrySelf.executeTransition(); }, 300);
+                    } else {
+                        window.Helpers.log('[DJ] Crossfade could not start; aborting transition');
+                        this.cancelTransition();
+                    }
+                    return;
+                }
                 
                 // Notify server that transition has started
                 if (this.transitionData.profileId) {
@@ -496,6 +532,9 @@
                     // Notify server that transition has started
                     if (self.transitionData && self.transitionData.profileId) {
                         self.notifyTransitionStarted(self.transitionData.profileId);
+                    }
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
                     
                     // Clean up

@@ -617,12 +617,12 @@
 
         crossfadeTo: function(songId, entryTime, duration, djManaged) {
             if (window.videoPlaying) {
-                window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo ï¿½ video is active');
+                window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo — video is active');
                 this._isCrossfading = false;
-                return;
+                return false;
             }
 
-            // iOS: single-element direct swap ï¿½ dual-player crossfade is
+            // iOS: single-element direct swap — dual-player crossfade is
             // unreliable/silent on iOS because only one audio stream can play.
             if (this.isIOS()) {
                 const iosProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
@@ -630,15 +630,15 @@
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
                     const self = this;
                     setTimeout(function() { self.crossfadeTo(songId, entryTime, duration, djManaged); }, 200);
-                    return;
+                    return false;
                 }
                 if (!songId || songId === 'null' || songId === 'undefined') {
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Invalid songId, skipping');
-                    return;
+                    return false;
                 }
                 if (this._isCrossfading) {
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
-                    return;
+                    return false;
                 }
                 this._isCrossfading = true;
 
@@ -664,7 +664,7 @@
                     });
                 };
                 window.Helpers.log('AudioEngine: iOS direct swap to ' + songId + ' at ' + (entryTime || 0) + 's');
-                return;
+                return true;
             }
 
             const currentPlayer = this.getActivePlayer();
@@ -708,19 +708,19 @@
                 setTimeout(function() {
                     self.crossfadeTo(songId, entryTime, duration, djManaged);
                 }, 200);
-                return;
+                return false;
             }
             
             // Don't proceed if songId is not valid
             if (!songId || songId === 'null' || songId === 'undefined') {
                 window.Helpers?.log?.('[AudioEngine crossfadeTo] Invalid songId, skipping');
-                return;
+                return false;
             }
             
             // Guard against re-entrant crossfade (Bug E fix)
             if (this._isCrossfading) {
                 window.Helpers?.log?.('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
-                return;
+                return false;
             }
             this._isCrossfading = true;
             
@@ -891,7 +891,11 @@
                         // Update DJ indicator back to active only for the DJ-managed
                         // transition. A manual skip in DJ Mode fades too, but its
                         // freshly planned next transition must survive the fade.
-                        if (window.DjTransitionManager && djManaged) {
+                        // Even for a DJ-managed fade, a newer plan for the following
+                        // song may have been prepared during the fade; keep it.
+                        const djData = window.DjTransitionManager && window.DjTransitionManager.transitionData;
+                        const canClearDj = !djData || String(djData.nextSongId) === String(songId);
+                        if (window.DjTransitionManager && djManaged && canClearDj) {
                             window.DjTransitionManager.transitionPrepared = false;
                             window.DjTransitionManager.isTransitioning = false;
                             window.DjTransitionManager.transitionData = null;
@@ -988,6 +992,7 @@
                     startPlayback();
                 });
             }
+            return true;
         },
 
         setVolume: function(volume, source = 'unknown') {
@@ -1216,6 +1221,13 @@
                     && (!djActive || manualDjChange)) {
                 window.Helpers.log('AudioEngine: Crossfade triggered for song ' + currentSong.id +
                     ' (' + fadeDuration + 's, ' + (djActive ? 'manual DJ skip' : 'normal') + ')');
+                // A prepared natural transition is now stale. Cancel it only if
+                // it targets the song we are manually switching to; a plan for
+                // the following song must survive.
+                const prepared = window.DjTransitionManager && window.DjTransitionManager.transitionData;
+                if (manualDjChange && prepared && String(prepared.nextSongId) === String(currentSong.id)) {
+                    window.DjTransitionManager.cancelTransition();
+                }
                 // Preload the next song in the inactive player
                 this.preloadSong(currentSong.id, backendTime || 0);
                 // Initiate crossfade

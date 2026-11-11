@@ -39,6 +39,12 @@ public class PlaybackController {
 
     private final Map<Long, PlaybackState> memoryStates = new ConcurrentHashMap<>();
 
+    // Safety net against a client-side DJ crossfade race: never accept DJ
+    // transition-started calls closer than this. Normal tracks are minutes
+    // long; the guard only blocks runaway skip loops.
+    private final Map<Long, Long> lastDjTransitionStartedAt = new ConcurrentHashMap<>();
+    private static final long MIN_DJ_TRANSITION_GAP_MS = 15_000L;
+
     // Tracks the most recent songs playback advanced FROM per profile, so a late
     // client "song ended" echo (onended -> POST /next) can be deduplicated.
     // Without this, the server advances once on its own 500ms tick AND again when
@@ -751,6 +757,15 @@ public class PlaybackController {
     public synchronized void handleTransitionStarted(Long profileId) {
         PlaybackState st = getState(profileId);
         if (Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjNextSongId() != null) {
+            long now = System.currentTimeMillis();
+            Long last = lastDjTransitionStartedAt.get(profileId);
+            if (last != null && now - last < MIN_DJ_TRANSITION_GAP_MS) {
+                LOGGER.warning("Ignoring rapid DJ transition for profile " + profileId
+                        + " (" + (now - last) + "ms since the last one)");
+                return;
+            }
+            lastDjTransitionStartedAt.put(profileId, now);
+
             System.out.println("[DJ] Transition started on frontend, updating server state...");
             
             // Capture old song ID BEFORE overwriting currentSongId
