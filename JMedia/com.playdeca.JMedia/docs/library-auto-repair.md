@@ -100,9 +100,20 @@ so they collide with real episodes in the season card.
 
 ### 2.2 Steven Universe
 
-84 episodes under `SERIES id=2604`, plus one orphan row under a duplicate
-`SERIES id=2605` whose path still points at a retired root
-(`/mnt/media/TV Shows/...` instead of `/mnt/storage/...`).
+84 episodes under `SERIES id=2604`, plus one row under a duplicate
+`SERIES id=2605` for a file that also exists under `/mnt/storage`. The two
+paths are the same file: `/mnt/media/TV Shows` is a bind mount of
+`/mnt/storage/TV Shows` (same device and inode), so this is duplicate series
+identity, not a stale path.
+
+### 2.3 Library root shape
+
+The configured library root is `/mnt/media`. `Movies`, `TV Shows`, `hls`,
+`mp4` and `sessions` are each bind-mounted from `/dev/sda1`
+(`/proc/mounts`: `/dev/sda1 /mnt/media/TV\040Shows ext4 rw,relatime`), so the
+same bytes are visible under `/mnt/media/...` and `/mnt/storage/...`. Rows are
+stored with the `/mnt/media` spelling. A repair that rewrites `Video.path` must
+keep that spelling, or playback and the next scan will not agree.
 
 Every file is a pair: `Steven Universe - S01E01-02 - [x265.AAC].mp4`.
 Stored rows (excerpt):
@@ -340,7 +351,7 @@ writes; applying is journaled.
 | R1 | `MULTI_EPISODE_RANGE` | `SxxEaa-bb` | split into two files | disk |
 | R2 | `EXTRA_WITH_NUMBER` | `contentType=extra` and `episodeNumber != null` | clear the number | DB |
 | R3 | `DUPLICATE_SERIES` | equal `(tmdbId, imdbId)` or normalised title | merge, repoint episodes | DB |
-| R4 | `STALE_ROOT` | `path` under a retired root | remap via `mediaHash` | DB |
+| R4 | `STALE_ROOT` | `path` under a root that no longer resolves | remap via `mediaHash` | DB |
 | R5 | `FOLDER_SEASON_MAP` | folder is a named arc of a known show | map folders → one season | DB + override |
 | R6 | `ABSOLUTE_MISMATCH` | `episodeNumber > expected[season]` | reuse `resolveAbsoluteNumber` | DB + override |
 | R7 | `WRONG_SHOW` | hint/score disagrees with stored IDs | re-resolve, reset enrichment | DB |
