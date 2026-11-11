@@ -22,6 +22,7 @@
         lastDragEndAt: 0,
         session: null,
         picker: null,
+        detachedSource: null,
         playlists: null,
         albums: [],
         albumSearchTimer: null,
@@ -49,6 +50,10 @@
     function toast(message, type) {
         if (typeof window.showToast === 'function') {
             window.showToast(message, type || 'success');
+        } else {
+            // Never fail silently: a missing toast must still be visible in the
+            // console log during development.
+            log('Toast unavailable, message was: ' + message);
         }
     }
 
@@ -233,7 +238,10 @@
     function onPointerCancel(e) {
         cancelHold();
         if (state.session && e.pointerId === state.session.pointerId) {
-            cleanupDrag();
+            // A cancelled pointer usually means the browser took the gesture for
+            // scrolling. Do not throw the selection away: keep the drawer open so
+            // the same destination can be tapped.
+            detachForTap(state.session.source);
         }
         state.pending = null;
     }
@@ -262,6 +270,7 @@
 
         ensureDrawer();
         openDrawer(pending.source);
+        if (state.drawer) state.drawer.classList.add('is-dragging');
         moveGhost(e.clientX, e.clientY);
         updateDropTarget(e.clientX, e.clientY);
 
@@ -285,6 +294,8 @@
         const clone = el.cloneNode(true);
         clone.classList.add('music-drag-ghost');
         clone.classList.remove('drag-source', 'long-press-active');
+        // Belt and braces: elementFromPoint at release must never hit the ghost.
+        clone.style.pointerEvents = 'none';
         clone.style.width = rect.width + 'px';
         clone.style.height = rect.height + 'px';
         clone.style.left = '0';
@@ -305,12 +316,48 @@
     function finishDrag(e) {
         const session = state.session;
         if (!session) return;
-        const option = optionAt(e.clientX, e.clientY);
+        // The release point can miss the drawer: implicit pointer capture, a
+        // zeroed coordinate on cancel, or the ghost sitting under the cursor.
+        // Fall back to the option that was highlighted last, and if there is
+        // still nothing, keep the drawer open and let the user tap instead of
+        // closing it with no explanation.
+        const option = optionAt(e.clientX, e.clientY) || session.lastOption;
         const source = session.source;
-        cleanupDrag();
         if (option) {
+            cleanupDrag();
             performDrop(source, option);
+            return;
         }
+        detachForTap(source);
+    }
+
+    /**
+     * Ends the drag but leaves the drawer open so a destination can be tapped.
+     * Without this a release that misses by a few pixels closed the drawer and
+     * silently did nothing.
+     */
+    function detachForTap(source) {
+        const session = state.session;
+        if (session && session.ghost && session.ghost.parentNode) {
+            session.ghost.parentNode.removeChild(session.ghost);
+        }
+        if (session && session.sourceEl) session.sourceEl.classList.remove('drag-source');
+        document.querySelectorAll('.music-drop-item.is-drop-over').forEach(function (el) {
+            el.classList.remove('is-drop-over');
+        });
+        document.body.classList.remove(DRAG_BODY_CLASS);
+        if (state.drawer) state.drawer.classList.remove('is-dragging');
+        if (state.suppressClick) {
+            document.removeEventListener('click', state.suppressClick, true);
+            state.suppressClick = null;
+        }
+        state.session = null;
+        state.lastDragEndAt = Date.now();
+        state.detachedSource = source || null;
+        if (state.detachedSource) {
+            toast('Drop missed — tap a destination', 'info');
+        }
+        refreshPreview();
     }
 
     function cleanupDrag() {
@@ -325,9 +372,11 @@
             el.classList.remove('is-drop-over');
         });
         document.body.classList.remove(DRAG_BODY_CLASS);
-        closeDrawer();
+        if (state.drawer) state.drawer.classList.remove('is-dragging');
         state.session = null;
+        state.detachedSource = null;
         state.lastDragEndAt = Date.now();
+        closeDrawer();
     }
 
     function cancelLongPress() {
@@ -366,11 +415,11 @@
         const preview = document.getElementById('musicDropPreview');
         if (!preview) return;
         const session = state.session;
-        const source = session ? session.source : state.picker;
+        const source = session ? session.source : (state.picker || state.detachedSource);
         if (!source) return;
         const option = session ? session.lastOption : null;
         if (!option) {
-            preview.textContent = state.picker
+            preview.textContent = (state.picker || state.detachedSource)
                 ? 'Tap a playlist, an album, or New'
                 : 'Drop on a playlist, an album, or New';
             return;
@@ -445,12 +494,12 @@
         drawer.addEventListener('click', function (e) {
             const option = e.target.closest('[data-drop-kind]');
             if (!option) return;
-            if (state.picker) {
+            const tapSource = state.picker || state.detachedSource;
+            if (tapSource) {
                 e.preventDefault();
                 e.stopPropagation();
-                const source = state.picker;
                 closeDrawer();
-                performDrop(source, option);
+                performDrop(tapSource, option);
                 return;
             }
             const kind = option.dataset.dropKind;
@@ -472,6 +521,7 @@
         const overlay = state.overlay;
         if (!drawer || !overlay) return;
         state.picker = asPicker ? source : null;
+        state.detachedSource = null;
         drawer.classList.toggle('picker-mode', !!asPicker);
         drawer.classList.add('active');
         overlay.classList.add('active');
@@ -547,6 +597,8 @@
         const overlay = state.overlay;
         if (!drawer || !overlay) return;
         state.picker = null;
+        state.detachedSource = null;
+        drawer.classList.remove('is-dragging');
         drawer.classList.remove('picker-mode');
         drawer.classList.remove('active');
         overlay.classList.remove('active');

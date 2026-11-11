@@ -52,7 +52,7 @@
         '/js/jmedia/SongCache.js',
         '/js/jmedia/MusicIndex.js?v=2',
         '/js/jmedia/MobileContextMenu.js?v=2',
-        '/js/jmedia/MusicDragDrop.js?v=1',
+        '/js/jmedia/MusicDragDrop.js?v=2',
         '/js/jmedia/MusicBarInit.js?v=5',
         '/js/jmedia/MediaSession.js',
         '/js/jmedia/HistoryManager.js',

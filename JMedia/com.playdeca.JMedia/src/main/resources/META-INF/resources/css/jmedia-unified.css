@@ -5158,6 +5158,12 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-user-select: none;
 }
 
+/* While a pointer drag is live the drawer must not scroll: a scroll gesture
+   cancels the pointer and the drop would be lost. */
+.music-drop-drawer.is-dragging .music-drop-body {
+    overflow-y: hidden;
+}
+
 .drag-source {
     opacity: 0.35 !important;
 }
