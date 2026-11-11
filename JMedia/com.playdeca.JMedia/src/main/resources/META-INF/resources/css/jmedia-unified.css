@@ -5257,6 +5257,13 @@ input[type="range"]::-webkit-slider-thumb {
     min-height: 2rem;
 }
 
+.music-drop-hint {
+    padding: 0 1rem 0.5rem;
+    font-size: 0.68rem;
+    line-height: 1.35;
+    opacity: 0.55;
+}
+
 .music-drop-body {
     flex: 1;
     overflow-y: auto;

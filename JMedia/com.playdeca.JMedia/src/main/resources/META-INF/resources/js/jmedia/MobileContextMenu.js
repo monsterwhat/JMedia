@@ -329,6 +329,14 @@
                 case 'playlist':
                     this.openPlaylistSubmenu({ songId: songId });
                     break;
+                case 'move':
+                    if (window.MusicDragDrop && typeof window.MusicDragDrop.openPickerFromTarget === 'function') {
+                        window.MusicDragDrop.openPickerFromTarget(t);
+                    } else {
+                        console.warn('[MobileContextMenu] Move picker is not available');
+                        if (window.showToast) window.showToast('Move is not available', 'error');
+                    }
+                    break;
                 case 'rescan':
                     if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     JMedia.PlaybackApi.rescanSong(songId);

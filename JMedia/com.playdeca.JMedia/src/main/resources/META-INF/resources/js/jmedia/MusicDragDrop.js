@@ -17,6 +17,7 @@
     const state = {
         pending: null,
         session: null,
+        picker: null,
         playlists: null,
         albums: [],
         albumSearchTimer: null,
@@ -319,16 +320,19 @@
     }
 
     function refreshPreview() {
-        const session = state.session;
-        if (!session) return;
         const preview = document.getElementById('musicDropPreview');
         if (!preview) return;
-        const option = session.lastOption;
+        const session = state.session;
+        const source = session ? session.source : state.picker;
+        if (!source) return;
+        const option = session ? session.lastOption : null;
         if (!option) {
-            preview.textContent = 'Drop on a playlist, an album, or New';
+            preview.textContent = state.picker
+                ? 'Tap a playlist, an album, or New'
+                : 'Drop on a playlist, an album, or New';
             return;
         }
-        const n = session.source.count;
+        const n = source.count;
         const songs = n ? n + ' song' + (n === 1 ? '' : 's') : 'songs';
         const kind = option.dataset.dropKind;
         if (kind === 'playlist') {
@@ -362,6 +366,7 @@
             + '  <button type="button" class="music-drop-close" aria-label="Cancel">&#215;</button>'
             + '</div>'
             + '<div class="music-drop-preview" id="musicDropPreview">Drop on a playlist, an album, or New</div>'
+            + '<div class="music-drop-hint" id="musicDropHint">Tip: long-press a song, album, or playlist, then Move / Add to&hellip; to search albums.</div>'
             + '<div class="music-drop-body">'
             + '  <section class="music-drop-section">'
             + '    <div class="music-drop-section-head"><span>Playlists</span>'
@@ -391,10 +396,20 @@
                 loadAlbums(value);
             }, 250);
         });
-        // New/Cancel targets are usable with a click too (accessibility).
+        // New/Cancel targets are usable with a click too (accessibility), and
+        // in picker mode every destination is tap-selectable because there is
+        // no pointer capture / active drag.
         drawer.addEventListener('click', function (e) {
             const option = e.target.closest('[data-drop-kind]');
             if (!option) return;
+            if (state.picker) {
+                e.preventDefault();
+                e.stopPropagation();
+                const source = state.picker;
+                closeDrawer();
+                performDrop(source, option);
+                return;
+            }
             const kind = option.dataset.dropKind;
             if (kind === 'new-playlist' || kind === 'new-album') {
                 e.preventDefault();
@@ -408,24 +423,88 @@
         });
     }
 
-    function openDrawer(source) {
+    function openDrawer(source, asPicker) {
         ensureDrawer();
         const drawer = state.drawer;
         const overlay = state.overlay;
         if (!drawer || !overlay) return;
+        state.picker = asPicker ? source : null;
+        drawer.classList.toggle('picker-mode', !!asPicker);
         drawer.classList.add('active');
         overlay.classList.add('active');
         drawer.setAttribute('aria-hidden', 'false');
         updateSourceLabel(source);
         refreshPreview();
+
+        const search = drawer.querySelector('#musicDropAlbumSearch');
+        if (search) {
+            search.style.display = asPicker ? '' : 'none';
+            search.value = '';
+        }
+        const hint = drawer.querySelector('#musicDropHint');
+        if (hint) hint.style.display = asPicker ? 'none' : '';
+
         loadPlaylists();
         loadAlbums('');
+    }
+
+    function openPicker(source) {
+        if (!source) return;
+        cleanupDrag();
+        ensureDrawer();
+        openDrawer(source, true);
+        if (source.type !== 'song') {
+            resolveSongIds(source).then(function (ids) {
+                source.count = ids.length;
+                updateSourceLabel(source);
+                refreshPreview();
+            }).catch(function (err) {
+                log('Could not resolve picker source', err);
+            });
+        }
+    }
+
+    function openPickerFromTarget(target) {
+        if (!target) return;
+        let source = null;
+        if (target.type === 'song') {
+            source = sourceFor(target.element) || {
+                type: 'song',
+                songId: String(target.songId || target.value || ''),
+                label: 'Song',
+                count: 1
+            };
+        } else if (target.type === 'album') {
+            const name = target.value || 'Album';
+            source = {
+                type: 'album',
+                albumName: name,
+                albumArtist: target.albumArtist || '',
+                label: 'Album · ' + name,
+                count: null
+            };
+        } else if (target.type === 'playlist') {
+            const name = target.name || 'Playlist';
+            source = {
+                type: 'playlist',
+                playlistId: String(target.playlistId || target.value || ''),
+                label: 'Playlist · ' + name,
+                count: null
+            };
+        }
+        if (!source) {
+            toast('Nothing to move', 'warning');
+            return;
+        }
+        openPicker(source);
     }
 
     function closeDrawer() {
         const drawer = state.drawer;
         const overlay = state.overlay;
         if (!drawer || !overlay) return;
+        state.picker = null;
+        drawer.classList.remove('picker-mode');
         drawer.classList.remove('active');
         overlay.classList.remove('active');
         drawer.setAttribute('aria-hidden', 'true');
@@ -985,10 +1064,9 @@
     window.MusicDragDrop = {
         openFor: function (element) {
             const source = sourceFor(element);
-            if (!source) return;
-            ensureDrawer();
-            openDrawer(source);
+            if (source) openPicker(source);
         },
+        openPickerFromTarget: openPickerFromTarget,
         close: closeDrawer
     };
 
