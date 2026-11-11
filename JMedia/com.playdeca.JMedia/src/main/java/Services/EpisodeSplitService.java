@@ -155,36 +155,45 @@ public class EpisodeSplitService {
         Path tempPromo = threeWay ? directory.resolve(names[0] + ".promo.tmp") : null;
         List<Path> temps = threeWay ? List.of(tempOne, tempTwo, tempPromo)
                 : List.of(tempOne, tempTwo);
+
+        // The output container follows the source file name. MP4 cannot carry
+        // SubRip/ASS or bitmap subtitles, so those get converted to mov_text
+        // (text subs) or the file is refused rather than losing tracks.
+        SplitOutput output = splitOutput(plan.source(), partOne);
+        if (output == null) {
+            return new SplitOutcome(false,
+                    "bitmap subtitles cannot be stored in MP4 without dropping them; "
+                            + "split this file manually", partOne, partTwo, null, null, 0, 0, 0);
+        }
+
         try {
             double cut = plan.cutSeconds();
             double secondCut = threeWay ? plan.secondCutSeconds() : cut;
             String ffmpeg = ffmpegDiscovery.findFFmpegExecutable();
 
-            ExecResult first = run(List.of(ffmpeg, "-hide_banner", "-nostats", "-v", "error",
-                    "-i", plan.source().toString(), "-map", "0", "-c", "copy",
-                    "-t", format(cut), "-avoid_negative_ts", "make_zero",
-                    "-movflags", "+faststart", "-f", "mp4", "-y", tempOne.toString()), SPLIT_TIMEOUT_SECONDS);
+            ExecResult first = run(command(ffmpeg, output, plan.source(), tempOne,
+                    "-t", format(cut)), SPLIT_TIMEOUT_SECONDS);
             if (first.exitCode() != 0) {
                 return fail(plan, temps, "first part failed: " + first.tail());
             }
 
             if (threeWay) {
-                ExecResult preview = run(List.of(ffmpeg, "-hide_banner", "-nostats", "-v", "error",
-                        "-ss", format(cut), "-t", format(secondCut - cut),
-                        "-i", plan.source().toString(), "-map", "0", "-c", "copy",
-                        "-avoid_negative_ts", "make_zero",
-                        "-movflags", "+faststart", "-f", "mp4", "-y", tempPromo.toString()), SPLIT_TIMEOUT_SECONDS);
+                ExecResult preview = run(command(ffmpeg, output, plan.source(), tempPromo,
+                        "-ss", format(cut), "-t", format(secondCut - cut)), SPLIT_TIMEOUT_SECONDS);
                 if (preview.exitCode() != 0) {
                     return fail(plan, temps, "preview extraction failed: " + preview.tail());
                 }
             }
 
-            ExecResult second = run(List.of(ffmpeg, "-hide_banner", "-nostats", "-v", "error",
-                    "-ss", format(secondCut), "-i", plan.source().toString(), "-map", "0", "-c", "copy",
-                    "-avoid_negative_ts", "make_zero",
-                    "-movflags", "+faststart", "-f", "mp4", "-y", tempTwo.toString()), SPLIT_TIMEOUT_SECONDS);
+            ExecResult second = run(command(ffmpeg, output, plan.source(), tempTwo,
+                    "-ss", format(secondCut)), SPLIT_TIMEOUT_SECONDS);
             if (second.exitCode() != 0) {
                 return fail(plan, temps, "second part failed: " + second.tail());
+            }
+
+            String streamProblem = verifyStreams(plan.source(), output, tempOne, tempTwo);
+            if (streamProblem != null) {
+                return fail(plan, temps, streamProblem);
             }
 
             double firstSeconds = probeDuration(tempOne);
@@ -238,6 +247,100 @@ public class EpisodeSplitService {
         double drift = Math.abs(first + second + promo - total);
         if (drift > DURATION_TOLERANCE_SECONDS) {
             return "parts do not tile the source (drift " + format(drift) + "s)";
+        }
+        return null;
+    }
+
+    /**
+     * How the parts are muxed. The container follows the source extension, all
+     * streams are copied (no re-encode), and MP4 gets text subtitles converted
+     * to mov_text because it cannot carry SubRip/ASS. Bitmap subtitles cannot be
+     * converted, so such a file is refused rather than silently losing tracks.
+     */
+    private record SplitOutput(String container, List<String> mapArgs,
+                               List<String> postCopyArgs, boolean faststart,
+                               int expectedStreams) {
+    }
+
+    private SplitOutput splitOutput(Path source, Path output) {
+        String name = output.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        List<String> types = streamTypes(source);
+        if (name.endsWith(".mkv")) {
+            return new SplitOutput("matroska", List.of("-map", "0"), List.of(), false, types.size());
+        }
+        List<String> subtitleCodecs = subtitleCodecs(source);
+        if (subtitleCodecs.stream().anyMatch(codec -> !isTextSubtitle(codec))) {
+            return null;
+        }
+        int expected = (int) types.stream()
+                .filter(type -> type.equals("video") || type.equals("audio") || type.equals("subtitle"))
+                .count();
+        if (subtitleCodecs.isEmpty()) {
+            return new SplitOutput("mp4", List.of("-map", "0:v", "-map", "0:a?"),
+                    List.of(), true, expected);
+        }
+        return new SplitOutput("mp4",
+                List.of("-map", "0:v", "-map", "0:a?", "-map", "0:s?"),
+                List.of("-c:s", "mov_text"), true, expected);
+    }
+
+    private static boolean isTextSubtitle(String codec) {
+        return switch (codec) {
+            case "subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text" -> true;
+            default -> false;
+        };
+    }
+
+    private List<String> streamTypes(Path source) {
+        String output = run(List.of(ffmpegDiscovery.findFFprobeExecutable(),
+                "-v", "error", "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0", source.toString()), DETECT_TIMEOUT_SECONDS).output();
+        List<String> types = new ArrayList<>();
+        for (String line : output.split("\\R")) {
+            String type = line.trim();
+            if (!type.isEmpty()) types.add(type);
+        }
+        return types;
+    }
+
+    private List<String> subtitleCodecs(Path source) {
+        String output = run(List.of(ffmpegDiscovery.findFFprobeExecutable(),
+                "-v", "error", "-select_streams", "s",
+                "-show_entries", "stream=codec_name",
+                "-of", "csv=p=0", source.toString()), DETECT_TIMEOUT_SECONDS).output();
+        List<String> codecs = new ArrayList<>();
+        for (String line : output.split("\\R")) {
+            String codec = line.trim();
+            if (!codec.isEmpty()) codecs.add(codec);
+        }
+        return codecs;
+    }
+
+    private List<String> command(String ffmpeg, SplitOutput output, Path source, Path target,
+                                 String... timing) {
+        List<String> args = new ArrayList<>();
+        args.add(ffmpeg);
+        args.addAll(List.of("-hide_banner", "-nostats", "-v", "error"));
+        args.addAll(List.of(timing));
+        args.add("-i");
+        args.add(source.toString());
+        args.addAll(output.mapArgs());
+        args.addAll(List.of("-c", "copy", "-avoid_negative_ts", "make_zero"));
+        args.addAll(output.postCopyArgs());
+        if (output.faststart()) {
+            args.addAll(List.of("-movflags", "+faststart"));
+        }
+        args.addAll(List.of("-f", output.container(), "-y", target.toString()));
+        return args;
+    }
+
+    /** Every stream the source had must survive into both parts. */
+    private String verifyStreams(Path source, SplitOutput output, Path partOne, Path partTwo) {
+        int first = streamTypes(partOne).size();
+        int second = streamTypes(partTwo).size();
+        if (first != output.expectedStreams() || second != output.expectedStreams()) {
+            return "stream count changed (source " + output.expectedStreams()
+                    + ", parts " + first + "/" + second + ")";
         }
         return null;
     }
