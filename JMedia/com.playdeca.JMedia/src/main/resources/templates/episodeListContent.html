@@ -89,7 +89,7 @@
                 </div>
                 <div class="episode-meta-row">
                     {#if missing.state == 'UNRELEASED'}
-                        <span class="episode-duration"><i class="pi pi-clock mr-1"></i> Airs {missing.airDate}</span>
+                        <span class="episode-duration"><i class="pi pi-clock mr-1"></i> Airs {missing.airDateDisplay}</span>
                     {#else if missing.state == 'TBA'}
                         <span class="episode-duration">Air date TBA</span>
                     {#else}

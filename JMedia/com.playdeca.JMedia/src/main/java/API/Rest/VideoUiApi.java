@@ -1101,6 +1101,7 @@ public class VideoUiApi {
                                 ? ep.name() : "Episode " + ep.number());
                         item.put("overview", ep.overview());
                         item.put("airDate", ep.airDate());
+                        item.put("airDateDisplay", formatAirDate(ep.airDate()));
                         item.put("stillUrl", ep.stillPath() != null && ep.stillPath().startsWith("/")
                                 ? "https://image.tmdb.org/t/p/w300" + ep.stillPath() : null);
                         boolean future = isFutureDate(ep.airDate());
@@ -1135,6 +1136,17 @@ public class VideoUiApi {
             return java.time.LocalDate.parse(isoDate).isAfter(java.time.LocalDate.now());
         } catch (RuntimeException e) {
             return false;
+        }
+    }
+
+    /** Day/Month/Year for the "Airs" labels; ISO stays in the JSON for computations. */
+    private String formatAirDate(String isoDate) {
+        if (isoDate == null || isoDate.isBlank()) return null;
+        try {
+            return java.time.LocalDate.parse(isoDate)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        } catch (RuntimeException e) {
+            return isoDate;
         }
     }
 
@@ -2070,6 +2082,7 @@ public class VideoUiApi {
                             item.put("episodeNumber", ep.number());
                             item.put("contentType", "episode");
                             item.put("airDate", ep.airDate());
+                            item.put("airDateDisplay", formatAirDate(ep.airDate()));
                             item.put("stillUrl", ep.stillPath() != null && ep.stillPath().startsWith("/")
                                     ? "https://image.tmdb.org/t/p/w300" + ep.stillPath() : null);
                             boolean future = isFutureDate(ep.airDate());

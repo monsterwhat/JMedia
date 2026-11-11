@@ -1836,7 +1836,7 @@ function buildEpisodesList(episodeArray) {
       const state = ep.state;
       const badge = state === 'UNRELEASED' ? 'Unreleased' : (state === 'TBA' ? 'TBA' : 'Not in library');
       const sub = state === 'UNRELEASED'
-        ? (ep.airDate ? 'Airs ' + escapeHtml(ep.airDate) : 'Air date TBA')
+        ? (ep.airDateDisplay ? 'Airs ' + escapeHtml(ep.airDateDisplay) : (ep.airDate ? 'Airs ' + escapeHtml(ep.airDate) : 'Air date TBA'))
         : (state === 'TBA' ? 'Air date TBA' : 'Not in library');
       const img = ep.stillUrl
         ? `<img src="${escapeHtml(ep.stillUrl)}" alt="${escapeHtml(epTitle)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`
