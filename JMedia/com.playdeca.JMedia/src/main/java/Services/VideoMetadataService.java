@@ -1607,6 +1607,32 @@ public class VideoMetadataService {
         }
     }
 
+    /**
+     * Generic TMDb GET for catalog surfaces (search, show seasons, episode lists).
+     * Returns null when TMDb is disabled or the call fails; callers degrade.
+     */
+    public JsonNode tmdbGet(String path, String query) {
+        if (!isTmdbConfigured()) {
+            return null;
+        }
+        String key = getApiKey();
+        boolean bearer = isBearerToken(key);
+        Map<String, String> headers = bearer ? Map.of("Authorization", "Bearer " + key) : null;
+        String url = tmdbUrl(path, query, key, bearer);
+        try {
+            return fetchJson(url, headers);
+        } catch (IOException e) {
+            LOG.warn("TMDb GET {} failed: {}", path, e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (RuntimeException e) {
+            LOG.warn("TMDb GET {} failed: {}", path, e.getMessage());
+            return null;
+        }
+    }
+
     private String tmdbUrl(String path, String query, String apiKey, boolean bearer) {
         StringBuilder url = new StringBuilder("https://api.themoviedb.org/3").append(path);
         char sep = '?';

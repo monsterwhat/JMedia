@@ -50,13 +50,13 @@
     </div>
 {/if}
 
-{#if episodes.size == 0 && subFolders.size == 0}
+{#if episodes.size == 0 && subFolders.size == 0 && missingEpisodes.size == 0}
     <div class="carousel-empty-state">
         <i class="pi pi-video"></i>
         <h3>No episodes found</h3>
         <p>We couldn't find any episodes for this season.</p>
     </div>
-{#else if !episodes.empty}
+{#else}
     {#if subFolders && subFolders.size > 0}
         <h3 class="mb-3" style="font-size: 1.2rem; font-weight: 700; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 1px;">
             <i class="pi pi-list mr-2"></i>Episodes
@@ -68,6 +68,44 @@
         {/for}
         {#for extEp in externalEpisodes}
            {#include videoEntryFragment.html video=extEp external=true /}
+        {/for}
+        {#for missing in missingEpisodes}
+        <div class="episode-entry is-missing" data-episode-number="{missing.number}" style="opacity: 0.62; cursor: default;">
+            <div class="episode-thumbnail">
+                {#if missing.stillUrl}
+                    <img src="{missing.stillUrl}" alt="Episode {missing.number}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" onerror="this.style.display='none'">
+                {/if}
+                <div class="external-thumbnail-placeholder">
+                    <i class="pi pi-lock" style="font-size: 2rem; opacity: 0.4;"></i>
+                    <span class="tag is-warning is-light mt-2">
+                        {#if missing.state == 'UNRELEASED'}Unreleased{:else if missing.state == 'TBA'}TBA{:else}Not in library{/if}
+                    </span>
+                </div>
+            </div>
+            <div class="episode-details">
+                <div class="episode-header-row">
+                    <span class="episode-number-badge">E{missing.number}</span>
+                    <span class="episode-title-text">{missing.title}</span>
+                </div>
+                <div class="episode-meta-row">
+                    {#if missing.state == 'UNRELEASED'}
+                        <span class="episode-duration"><i class="pi pi-clock mr-1"></i> Airs {missing.airDate}</span>
+                    {:else if missing.state == 'TBA'}
+                        <span class="episode-duration">Air date TBA</span>
+                    {:else}
+                        <span class="episode-duration">Not in library</span>
+                        {#if seriesToken}
+                        <button type="button" class="button is-small is-link is-light ml-2"
+                                data-token="{seriesToken}" data-kind="{seriesKind}" data-title="{seriesTitle}"
+                                onclick="event.stopPropagation(); window.requestMissingTitle && window.requestMissingTitle(this)">Request</button>
+                        {/if}
+                    {/if}
+                </div>
+                {#if missing.overview}
+                <p class="help" style="margin: .25rem 0 0; color: rgba(255,255,255,0.45);">{missing.overview}</p>
+                {/if}
+            </div>
+        </div>
         {/for}
     </div>
 {/if}

@@ -1,0 +1,26 @@
+{#if requests && requests.size > 0}
+<div class="cinema-section" id="cinemaRequestsSection" style="padding: 0 2rem 1.5rem;">
+    <div class="cinema-section-title" style="margin-bottom: .75rem;">Requested</div>
+    <div class="standard-grid" style="padding: 0 1rem;">
+        {#for r in requests}
+        <div class="standard-card" data-token="{r.token}" data-kind="{r.kind}"
+             onclick="window.openRequestedTitle && window.openRequestedTitle(this)"
+             title="Requested — not in the library yet">
+            <div class="standard-card-poster">
+                {#if r.posterUrl}
+                    <img class="poster-img" src="{r.posterUrl}" alt="{r.title}" loading="lazy">
+                {:else}
+                    <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
+                        <i class="pi pi-image"></i>
+                    </div>
+                {/if}
+            </div>
+            <div class="standard-card-info">
+                <div class="standard-card-title">{r.title}</div>
+                <div class="standard-card-meta">Requested{#if r.year} &middot; {r.year}{/if}</div>
+            </div>
+        </div>
+        {/for}
+    </div>
+</div>
+{/if}

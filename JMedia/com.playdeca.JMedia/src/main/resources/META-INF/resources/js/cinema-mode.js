@@ -1377,6 +1377,19 @@ async function loadCinemaData() {
     const container = document.querySelector('.cinema-sections');
     if (container) {
     container.innerHTML = html;
+    // "Requested" rail: titles requested from search / the not-in-library page.
+    if (section === 'home') {
+      fetch('/api/video/ui/requests-fragment', { credentials: 'include' })
+        .then(r => r.ok ? r.text() : '')
+        .then(reqHtml => {
+          if (!reqHtml || !reqHtml.trim() || !container.isConnected) return;
+          const holder = document.createElement('div');
+          holder.innerHTML = reqHtml;
+          const first = holder.firstElementChild;
+          if (first) container.insertBefore(first, container.firstChild);
+        })
+        .catch(e => console.warn('[cinema] requests rail failed', e));
+    }
     }
     const scriptTag = document.getElementById('cinema-home-data');
     if (scriptTag) {
@@ -4322,32 +4335,51 @@ async function performSearch(query) {
   if (!dropdown) return;
   const q = query.trim().toLowerCase();
   if (!q) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
-  
-  // Use the global allVideos already loaded by loadCinemaData()
-  if (!window.allVideos || !window.allVideos.length) return;
-  
-  // Deduplicate: one result per movie, one per TV series
-  const seen = new Map();
-  const matches = [];
-  window.allVideos.forEach(v => {
-    const title = (v.title || '').toLowerCase();
-    const series = (v.seriesTitle || '').toLowerCase();
-    if (!title.includes(q) && !series.includes(q)) return;
-    
-    if (v.type === 'movie') {
-      matches.push(v);
-    } else if (v.type === 'episode' && v.seriesTitle) {
-      const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!seen.has(key)) {
-        seen.set(key, true);
-        matches.push({ ...v, _isSeries: true });
+
+  // Local results (one per movie / one per TV series)
+  let results = [];
+  if (window.allVideos && window.allVideos.length) {
+    const seen = new Map();
+    const matches = [];
+    window.allVideos.forEach(v => {
+      const title = (v.title || '').toLowerCase();
+      const series = (v.seriesTitle || '').toLowerCase();
+      if (!title.includes(q) && !series.includes(q)) return;
+
+      if (v.type === 'movie') {
+        matches.push(v);
+      } else if (v.type === 'episode' && v.seriesTitle) {
+        const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!seen.has(key)) {
+          seen.set(key, true);
+          matches.push({ ...v, _isSeries: true });
+        }
       }
+    });
+    results = matches.slice(0, 20);
+  }
+
+  // TMDb results for titles that are not in the library.
+  let external = [];
+  if (q.length >= 2) {
+    try {
+      const resp = await fetch('/api/video/search-external?q=' + encodeURIComponent(query.trim()), { credentials: 'include' });
+      if (resp.ok) {
+        const data = await resp.json();
+        external = (Array.isArray(data) ? data : []).filter(r => !r.inLibrary).slice(0, 10);
+      }
+    } catch (e) {
+      console.warn('[cinema] external search failed', e);
     }
-  });
-  const results = matches.slice(0, 20);
-  
-  if (!results.length) { dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>'; dropdown.classList.add('visible'); return; }
-  dropdown.innerHTML = results.map(v => {
+  }
+
+  if (!results.length && !external.length) {
+    dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>';
+    dropdown.classList.add('visible');
+    return;
+  }
+
+  let html = results.map(v => {
     const id = v.id;
     const title = v.type === 'movie' ? (v.title || 'Untitled') : (v.seriesTitle || v.title || 'Untitled');
     const type = v.type === 'movie' ? 'Movie' : 'TV';
@@ -4360,6 +4392,27 @@ async function performSearch(query) {
       </div>
     </button>`;
   }).join('');
+
+  if (external.length) {
+    html += '<div class="cinema-search-hint" style="margin-top:.5rem;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,.45);">Not in your library</div>';
+    html += external.map(r => {
+      const title = escapeHtml(r.title || 'Untitled');
+      const type = r.mediaType === 'movie' ? 'Movie' : 'TV';
+      const year = r.year ? ' \u2022 ' + r.year : '';
+      const poster = r.posterUrl
+        ? `<img class="cinema-search-result-thumb" src="${escapeHtml(r.posterUrl)}" alt="" loading="lazy">`
+        : '<div class="cinema-search-result-thumb" style="display:flex;align-items:center;justify-content:center;opacity:.4;"><i class="fa-solid fa-film"></i></div>';
+      return `<button class="cinema-search-result" data-click="closeSearchByClick" data-search-action="openExternalInfo" data-token="${escapeHtml(r.token || '')}" data-kind="tmdb">
+        ${poster}
+        <div class="cinema-search-result-info">
+          <div class="cinema-search-result-title">${title}</div>
+          <div class="cinema-search-result-sub">${type}${year} \u2022 Not in library</div>
+        </div>
+      </button>`;
+    }).join('');
+  }
+
+  dropdown.innerHTML = html;
   dropdown.classList.add('visible');
 }
 
@@ -4673,8 +4726,25 @@ function closeSearchByClick(el) {
   } else if (action === 'openSeriesDetailFromSearch') {
     var title = el.getAttribute('data-series-title');
     if (title) openSeriesDetail(decodeURIComponent(title));
+  } else if (action === 'openExternalInfo') {
+    var token = el.getAttribute('data-token');
+    var kind = el.getAttribute('data-kind') || 'tmdb';
+    if (token) window.location.href = '/video/info/' + kind + '/' + encodeURIComponent(token);
   }
 }
+
+/** Request a missing episode's show from the info view. */
+window.requestMissingTitle = function(el) {
+  requestNotInLibraryTitle(el);
+};
+
+/** Open the not-in-library info page for a requested title card. */
+window.openRequestedTitle = function(el) {
+  if (!el || !el.dataset) return;
+  var token = el.dataset.token;
+  var kind = el.dataset.kind || 'tmdb';
+  if (token) window.location.href = '/video/info/' + kind + '/' + encodeURIComponent(token);
+};
 
 // ============================================================
 // Event Delegation: data-click and data-change attributes

@@ -12,6 +12,7 @@ import Models.Settings.Profile;
 import Models.Video.VideoState;
 import Models.Video.CollectionWatchProgress;
 import Services.VideoSuggestionService;
+import Services.TmdbCatalogService;
 import Services.ExternalVideoService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.ValueResolver;
@@ -65,6 +66,9 @@ public class VideoUiApi {
     Services.VideoMetadataService videoMetadataService;
 
     @Inject
+    Services.TmdbCatalogService tmdbCatalogService;
+
+    @Inject
     java.util.concurrent.ExecutorService executor;
 
     // Guard against repeated IntroDB enrichment submits for the same video (re-render thrash)
@@ -87,6 +91,8 @@ public class VideoUiApi {
     Template episodeListContent;
     @Inject @io.quarkus.qute.Location("folderEpisodesContent.html")
     Template folderEpisodesContent;
+    @Inject @io.quarkus.qute.Location("requestsFragment.html")
+    Template requestsFragment;
     @Inject @io.quarkus.qute.Location("optimizedHeroFragment.html")
     Template optimizedHeroFragment;
     @Inject @io.quarkus.qute.Location("detailsFragment.html")
@@ -887,6 +893,24 @@ public class VideoUiApi {
             // Batch load video states for all normal episodes
             Map<Long, Models.Video.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
 
+            // Expected episode counts from TMDb: lets a season card say
+            // "2 of 10 available" and adds seasons the library does not have.
+            Map<Integer, Integer> expectedCounts = new HashMap<>();
+            List<Integer> catalogSeasonNumbers = new ArrayList<>();
+            try {
+                Models.Video.Series series = Models.Video.Series
+                        .find("lower(title) = lower(?1)", decodedTitle).firstResult();
+                if (series != null && series.tmdbId != null) {
+                    TmdbCatalogService.CatalogShow show = tmdbCatalogService.getShow(series.tmdbId);
+                    if (show != null) {
+                        expectedCounts.putAll(show.counts());
+                        catalogSeasonNumbers.addAll(show.seasons());
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("TMDb season list failed for '{}': {}", decodedTitle, e.getMessage());
+            }
+
             List<SeasonEntry> seasons = new ArrayList<>();
             for (String key : sortedKeys) {
                 String[] parts = key.split("\\|", 2);
@@ -915,7 +939,8 @@ public class VideoUiApi {
                     }
                 }
 
-                seasons.add(new SeasonEntry(sn, sample.id, displayName, ss, watched, total));
+                seasons.add(new SeasonEntry(sn, sample.id, displayName, ss, watched, total,
+                        expectedCounts.getOrDefault(sn, total)));
             }
 
             // Merge external season numbers (no way to know suffix from external service, so add as separate card)
@@ -923,7 +948,16 @@ public class VideoUiApi {
             Set<Integer> existingSeasonNums = seasons.stream().map(s -> s.seasonNumber()).collect(Collectors.toSet());
             for (Integer extSn : externalSeasonNumbers) {
                 if (!existingSeasonNums.contains(extSn)) {
-                    seasons.add(new SeasonEntry(extSn, null, "Season " + extSn, null, 0, 0));
+                    seasons.add(new SeasonEntry(extSn, null, "Season " + extSn, null, 0, 0,
+                            expectedCounts.getOrDefault(extSn, 0)));
+                }
+            }
+            // Seasons TMDb knows but the library has no file for (including specials).
+            for (Integer sn : catalogSeasonNumbers) {
+                if (!existingSeasonNums.contains(sn)) {
+                    seasons.add(new SeasonEntry(sn, null,
+                            sn == 0 ? "Specials" : "Season " + sn, null, 0, 0,
+                            expectedCounts.getOrDefault(sn, 0)));
                 }
             }
             seasons.sort(Comparator.comparingInt(SeasonEntry::seasonNumber));
@@ -1028,12 +1062,63 @@ public class VideoUiApi {
 
             List<Models.Video.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(decodedTitle, seasonNumber);
 
+            // TMDb catalogue: episodes that exist in the show but are not in the
+            // library (aired = MISSING, future = UNRELEASED, no date = TBA).
+            List<Map<String, Object>> missingEpisodes = new ArrayList<>();
+            Integer tmdbId = null;
+            String seriesToken = null;
+            String seriesKind = null;
+            try {
+                Models.Video.Series series = Models.Video.Series
+                        .find("lower(title) = lower(?1)", decodedTitle).firstResult();
+                if (series != null) {
+                    tmdbId = series.tmdbId;
+                    if (series.imdbId != null && !series.imdbId.isBlank()) {
+                        seriesToken = series.imdbId;
+                        seriesKind = "imdb";
+                    } else if (tmdbId != null) {
+                        seriesToken = String.valueOf(tmdbId);
+                        seriesKind = "tmdb";
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("Series lookup failed for '{}': {}", decodedTitle, e.getMessage());
+            }
+
+            if (tmdbId != null) {
+                TmdbCatalogService.CatalogSeason catalog =
+                        tmdbCatalogService.getSeason(tmdbId, seasonNumber);
+                if (catalog != null) {
+                    Set<Integer> present = episodes.stream()
+                            .map(ep -> ep.episodeNumber != null ? ep.episodeNumber : -1)
+                            .collect(Collectors.toSet());
+                    for (TmdbCatalogService.CatalogEpisode ep : catalog.episodes()) {
+                        if (present.contains(ep.number())) continue;
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("number", ep.number());
+                        item.put("title", ep.name() != null && !ep.name().isBlank()
+                                ? ep.name() : "Episode " + ep.number());
+                        item.put("overview", ep.overview());
+                        item.put("airDate", ep.airDate());
+                        item.put("stillUrl", ep.stillPath() != null && ep.stillPath().startsWith("/")
+                                ? "https://image.tmdb.org/t/p/w300" + ep.stillPath() : null);
+                        boolean future = isFutureDate(ep.airDate());
+                        item.put("state", future ? "UNRELEASED"
+                                : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "MISSING"));
+                        missingEpisodes.add(item);
+                    }
+                }
+            }
+
             return episodeListContent
                     .data("seriesTitle", decodedTitle)
                     .data("seasonNumber", seasonNumber)
                     .data("episodes", episodes)
                     .data("subFolders", folderEntries)
                     .data("externalEpisodes", externalEpisodes)
+                    .data("missingEpisodes", missingEpisodes)
+                    .data("seriesToken", seriesToken)
+                    .data("seriesKind", seriesKind)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                     .data("encodedSeriesTitle", seriesTitle)
                     .render();
@@ -1041,6 +1126,43 @@ public class VideoUiApi {
             LOG.error("Error rendering episodes fragment for show {} season {}: {}", seriesTitle, seasonNumber, e.getMessage(), e);
             return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading episodes</h3><p>" + e.getMessage() + "</p></div>";
         }
+    }
+
+    private boolean isFutureDate(String isoDate) {
+        if (isoDate == null || isoDate.isBlank()) return false;
+        try {
+            return java.time.LocalDate.parse(isoDate).isAfter(java.time.LocalDate.now());
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    @GET
+    @Path("/search-external")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public List<TmdbCatalogService.SearchResult> searchExternal(@QueryParam("q") String q) {
+        try {
+            return tmdbCatalogService.search(q);
+        } catch (RuntimeException e) {
+            LOG.warn("External search failed for '{}': {}", q, e.getMessage());
+            return List.of();
+        }
+    }
+
+    @GET
+    @Path("/requests-fragment")
+    @Blocking
+    public String getRequestsFragment() {
+        List<Models.Video.MediaRequest> requests = new ArrayList<>();
+        try {
+            requests = Models.Video.MediaRequest
+                    .find("status = ?1", "PENDING")
+                    .page(0, 20).list();
+        } catch (RuntimeException e) {
+            LOG.warn("Could not load media requests: {}", e.getMessage());
+        }
+        return requestsFragment.data("requests", requests).render();
     }
 
     @GET
@@ -1701,8 +1823,10 @@ public class VideoUiApi {
 
     // Helper records for passing series and season info to templates
     public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId, Long sampleVideoId) {}
-    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName, String seasonSuffix, int watched, int total) {
+    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName, String seasonSuffix,
+                              int watched, int total, int expected) {
         public int getPercent() { return total > 0 ? watched * 100 / total : 0; }
+        public int getAvailabilityPercent() { return expected > 0 ? total * 100 / expected : 0; }
     }
     public static class SeasonProgress {
         public int watched;

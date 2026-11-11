@@ -65,7 +65,12 @@
                 </div>
                 <div class="standard-card-info">
                     <div class="standard-card-title">{season.seasonName}</div>
-                    {#if season.total > 0}
+                    {#if season.expected > season.total}
+                    <div class="standard-card-meta">{season.total} of {season.expected} available</div>
+                    <div class="season-progress-track">
+                        <div class="season-progress-bar" style="width: {season.availabilityPercent}%;"></div>
+                    </div>
+                    {:else if season.total > 0}
                     <div class="standard-card-meta">{season.watched}/{season.total} watched</div>
                     <div class="season-progress-track">
                         <div class="season-progress-bar" style="width: {season.percent}%;"></div>
