@@ -56,7 +56,7 @@ class SubtitleManager {
         
         // Refresh subtitle list from server
         this.refreshSubtitleList();
-        this.switchTab('manual');
+        this.switchTab('style');
     }
     
     async refreshSubtitleList() {
@@ -83,7 +83,7 @@ class SubtitleManager {
     }
 
     switchTab(tab) {
-        const tabs = ['manual', 'ai', 'style', 'upload'];
+        const tabs = ['style'];
         tabs.forEach(t => {
             const btn = document.getElementById(`${t}-tab-btn`);
             const content = document.getElementById(`${t}-tab-content`);
@@ -246,6 +246,9 @@ class SubtitleManager {
             preview.style.color = style.color;
             preview.style.backgroundColor = `rgba(0, 0, 0, ${style.bgOpacity})`;
             preview.style.lineHeight = style.lineHeight;
+            // The real overlay is anchored to the bottom edge; mirror that so the
+            // Bottom Distance slider has a visible effect in the preview.
+            preview.style.bottom = style.bottom + 'px';
         }
 
         if (shouldApply) {
