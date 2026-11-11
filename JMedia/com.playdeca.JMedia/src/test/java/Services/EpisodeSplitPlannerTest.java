@@ -155,6 +155,22 @@ class EpisodeSplitPlannerTest {
         assertEquals(672.38, EpisodeSplitPlanner.snapToKeyframe(672.38, null), 0.001);
     }
 
+    @Test
+    void snapsTheTrailingCutForwardWhenThatIsCloser() {
+        // S01E37-38: keyframes 710.21 and 715.04 around a 714.92 boundary.
+        double cut = EpisodeSplitPlanner.snapToNearestKeyframe(714.92, List.of(710.208, 715.042));
+
+        assertEquals(715.042, cut, 0.001,
+                "rounding forward keeps the preview out of episode two");
+    }
+
+    @Test
+    void fallsBackToThePreviousKeyframeWhenNoneIsClose() {
+        double cut = EpisodeSplitPlanner.snapToNearestKeyframe(714.92, List.of(700.00, 730.00));
+
+        assertEquals(714.92, cut, 0.001);
+    }
+
     // ── preview detection (three-way cut) ───────────────────────────────────
 
     @Test

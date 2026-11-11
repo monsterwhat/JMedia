@@ -34,6 +34,9 @@ public final class EpisodeSplitPlanner {
     /** Do not snap to a keyframe further back than this. */
     public static final double MAX_KEYFRAME_GAP_SECONDS = 8.0;
 
+    /** Nearest keyframe may sit on either side of the boundary, up to this far. */
+    public static final double NEAREST_KEYFRAME_GAP_SECONDS = 3.0;
+
     /** A next-episode preview between the two episodes is this long, roughly. */
     public static final double MIN_PREVIEW_SECONDS = 10.0;
     public static final double MAX_PREVIEW_SECONDS = 180.0;
@@ -139,6 +142,29 @@ public final class EpisodeSplitPlanner {
             if (best == null || candidate.score() > best.score()) {
                 best = candidate;
             }
+        }
+        return best;
+    }
+
+    /**
+     * Snaps to whichever keyframe is closest, before or after the boundary.
+     * Used for the trailing cut of a preview: the preview is discarded, so
+     * starting episode two a few frames after the fade costs nothing, while
+     * snapping back would leave part of the preview on its head.
+     */
+    static double snapToNearestKeyframe(double boundary, List<Double> keyframes) {
+        if (keyframes == null || keyframes.isEmpty()) return boundary;
+        double best = -1;
+        double bestDistance = Double.MAX_VALUE;
+        for (double keyframe : keyframes) {
+            double distance = Math.abs(keyframe - boundary);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = keyframe;
+            }
+        }
+        if (best < 0 || bestDistance > NEAREST_KEYFRAME_GAP_SECONDS) {
+            return snapToKeyframe(boundary, keyframes);
         }
         return best;
     }

@@ -109,7 +109,7 @@ public class EpisodeSplitService {
                 EpisodeSplitPlanner.chooseTrailingCandidate(blacks, silences, duration, cut);
         double secondCut = 0;
         if (trailing != null) {
-            secondCut = EpisodeSplitPlanner.snapToKeyframe(trailing.boundarySeconds(), keyframes);
+            secondCut = EpisodeSplitPlanner.snapToNearestKeyframe(trailing.boundarySeconds(), keyframes);
             LOG.info("Split analysis: {} -> preview {}s..{}s ({}s) between episodes",
                     file, format(cut), format(secondCut), format(secondCut - cut));
         }
