@@ -835,6 +835,18 @@ public class SettingsApi {
     }
 
     @POST
+    @Path("/{profileId}/cleanOrphans")
+    public Response cleanOrphans(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        LOGGER.info("Orphan cleanup requested (profile=" + profileId + ")");
+        executor.submit(() -> {
+            int removed = settingsController.cleanOrphanSongs();
+            LOGGER.info("Orphan cleanup removed " + removed + " song row(s)");
+        }, "OrphanCleanupThread");
+        return Response.ok(ApiResponse.success("Orphan cleanup started")).build();
+    }
+
+    @POST
     @Path("/{profileId}/install-requirements")
     @Consumes(MediaType.WILDCARD)
     public Response installRequirements(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {

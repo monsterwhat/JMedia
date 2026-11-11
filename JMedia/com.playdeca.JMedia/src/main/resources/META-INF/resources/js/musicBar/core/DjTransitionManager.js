@@ -240,11 +240,15 @@
             }
             
             this.transitionPrepared = true;
+            this._preparingShown = false;
             
             window.Helpers.log('[DJ] Transition ready: exit at ' + exitTime + 's â†’ entry at ' + entryTime + 's');
             window.Helpers?.log?.('[DJ] Transition ready: exit=' + exitTime + 's, entry=' + entryTime + 's, nextSong=' + nextSongId);
             
-            this.updateDjIndicator('preparing');
+            // Do not announce "Syncing" yet: the plan is created as soon as the
+            // next song is known, which can be minutes before the fade. The
+            // monitor switches the indicator when the exit is close.
+            this.updateDjIndicator('active');
             this.startMonitoring();
         },
         
@@ -283,6 +287,16 @@
                 var currentTime = window.AudioEngine ? window.AudioEngine.getCurrentTime() : 0;
 
                 var exitTime = self.transitionData.exitTime;
+
+                // Announce "Syncing" only when the mix is imminent (15s for an
+                // 8s fade), not from the moment the next song was planned.
+                if (!self._preparingShown && exitTime > 0) {
+                    var remaining = exitTime - currentTime;
+                    if (remaining > 0 && remaining <= 15) {
+                        self._preparingShown = true;
+                        self.updateDjIndicator('preparing');
+                    }
+                }
 
                 // REMOVED: Safety buffer that prevented transitions in the first 30s.
                 // This allows transitions to trigger even if the user seeks to the beginning.
@@ -734,14 +748,13 @@
                 case 'preparing':
                     stateClass = 'preparing';
                     iconClass = 'pi pi-spin pi-spinner';
-                    label = 'DJ Syncing...';
+                    label = 'Smart Shuffle Syncing...';
                     break;
                 case 'switching':
                 case 'transitioning':
                     stateClass = 'crossfading';
                     iconClass = 'pi pi-compact-disc pi-spin';
-                    label = 'DJ Mixing' + ((this.transitionData && this.transitionData.reason)
-                        ? ': ' + this.transitionData.reason : '...');
+                    label = 'Smart Shuffle Mixing...';
                     break;
                 case 'complete':
                     stateClass = 'complete';

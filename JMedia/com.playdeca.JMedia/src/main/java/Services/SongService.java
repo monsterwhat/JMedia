@@ -213,7 +213,7 @@ public class SongService {
             try {
                 LOGGER.log(Level.INFO, "[OrphanCleanup] Removing: {0} — {1} / {2}",
                         new Object[]{orphan.id, orphan.getArtist(), orphan.getTitle()});
-                delete(orphan);
+                deleteWithPlaylistPreservation(orphan);
                 removed++;
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "[OrphanCleanup] Failed to remove orphan song ID " + orphan.id, e);

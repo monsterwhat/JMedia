@@ -1737,46 +1737,42 @@ public class SettingsController implements Serializable {
             return;
         }
 
-        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(getScanExecutor());
-        filesToDelete.forEach(fd -> completion.submit(() -> {
-            try {
-                // Delete physical file
-                if (fd.file.delete()) {
-                    // Delete corresponding database entry with playlist preservation
-                    String relativePath = getMusicFolder().toURI().relativize(fd.file.toURI()).getPath();
-                    Song songInDb = songService.findByPathInNewTx(relativePath);
-                    if (songInDb != null) {
-                        songService.deleteWithPlaylistPreservation(songInDb);
-                        return "Deleted duplicate file and preserved playlists: " + fd.file.getAbsolutePath();
-                    } else {
-                        return "Deleted duplicate file (no DB entry found): " + fd.file.getAbsolutePath();
-                    }
-                } else {
-                    return "Failed to delete physical file: " + fd.file.getAbsolutePath();
-                }
-            } catch (Exception e) {
-                return "Error deleting duplicate file " + fd.file.getAbsolutePath() + ": " + e.getMessage();
-            }
-        }));
-        
-        List<String> batchLogs = new ArrayList<>();
+        // Delete one file at a time. The old implementation submitted all of them
+        // to the scan executor at once; each task opened a transaction and the
+        // connection pool was exhausted ("Unable to acquire JDBC Connection"),
+        // failing after the physical file had already been removed.
         int deletedCount = 0;
-        
-        for (int i = 0; i < filesToDelete.size(); i++) {
+        for (FileDetails fd : filesToDelete) {
             try {
-                Future<String> future = completion.take();
-                String logMessage = future.get();
-                batchLogs.add(logMessage);
-                if (logMessage.startsWith("Deleted duplicate file")) {
+                // DB row first: if the transaction fails, the file is still there.
+                String relativePath = getMusicFolder().toURI().relativize(fd.file.toURI()).getPath();
+                Song songInDb = songService.findByPathInNewTx(relativePath);
+                if (songInDb != null) {
+                    songService.deleteWithPlaylistPreservation(songInDb);
+                }
+
+                if (fd.file.delete()) {
                     deletedCount++;
+                    LOGGER.info("Deleted duplicate file" + (songInDb != null
+                            ? " and preserved playlists: " : " (no DB entry found): ")
+                            + fd.file.getAbsolutePath());
+                } else {
+                    LOGGER.error("Failed to delete physical file: " + fd.file.getAbsolutePath());
                 }
             } catch (Exception e) {
-                batchLogs.add("Error in deletion task: " + e.getMessage());
+                LOGGER.error("Error deleting duplicate file " + fd.file.getAbsolutePath() + ": " + e.getMessage(), e);
             }
         }
 
-        batchLogs.forEach(LOGGER::info);
         LOGGER.info("Duplicate file deletion completed. " + deletedCount + " duplicate files deleted.");
+
+        // Files deleted by earlier runs may have left rows behind; remove any row
+        // whose file no longer exists.
+        int orphans = songService.deleteOrphanSongs(getMusicFolder().getAbsolutePath());
+        if (orphans > 0) {
+            LOGGER.info("[DuplicateCheck] Removed " + orphans + " orphan song row(s) whose file is gone.");
+        }
+
         musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
@@ -1788,6 +1784,17 @@ public class SettingsController implements Serializable {
             return "";
         }
         return value.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    /**
+     * Removes song rows whose file no longer exists (deleted outside the app, or
+     * left behind by an interrupted cleanup). Returns the number removed.
+     */
+    public int cleanOrphanSongs() {
+        int removed = songService.deleteOrphanSongs(getMusicFolder().getAbsolutePath());
+        LOGGER.info("[OrphanCleanup] Removed " + removed + " song row(s) with no file on disk.");
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
+        return removed;
     }
 
     private String getDefaultMusicFolder() {        String userHome = System.getProperty("user.home");

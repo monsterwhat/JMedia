@@ -89,7 +89,7 @@
                     </div>
                 </div>
                 <div class="dj-settings-group">
-                    <span class="dj-settings-group-title">DJ Mixing</span>
+                    <span class="dj-settings-group-title">Smart Shuffle Mixing</span>
                     <span class="dj-settings-group-hint">Only crossfades between songs already in the queue</span>
                 </div>
                 <div class="dj-settings-section">

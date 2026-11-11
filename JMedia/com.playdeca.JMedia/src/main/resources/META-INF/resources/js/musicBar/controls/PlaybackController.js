@@ -339,7 +339,7 @@
             window.StateManager.updateState({ djModeActive: newMode }, 'playbackController');
             
             if (window.showToast) {
-                window.showToast('DJ Mode: ' + (newMode ? 'ON' : 'OFF'), 'success', 2000);
+                window.showToast('Smart Shuffle: ' + (newMode ? 'ON' : 'OFF'), 'success', 2000);
             }
             
             // Send to backend
