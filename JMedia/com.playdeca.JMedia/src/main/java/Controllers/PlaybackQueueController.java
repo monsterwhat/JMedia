@@ -503,17 +503,18 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         state.setCue(newCue);
         int newIndex = newCue.indexOf(state.getCurrentSongId());
 
-        // When DJ filtering dropped the currently-playing song (e.g. genre pool
-        // changed mid-play), do NOT swap the audible track out from under the
-        // user: keep it current with cueIndex -1 so the next advance starts from
-        // the rebuilt pool head. Only auto-select the first song when idle.
+        // When the current song is not in the rebuilt pool (e.g. it came from
+        // outside the source queue), keep it as the current track instead of
+        // swapping the audible/selected song to the head. The next advance
+        // starts from the rebuilt pool.
         if (newIndex != -1) {
             state.setCueIndex(newIndex);
-        } else if (!state.isPlaying()) {
+        } else if (state.getCurrentSongId() != null) {
+            newCue.add(0, state.getCurrentSongId());
             state.setCueIndex(0);
-            if (!newCue.isEmpty()) {
-                state.setCurrentSongId(newCue.get(0));
-            }
+        } else if (!newCue.isEmpty()) {
+            state.setCueIndex(0);
+            state.setCurrentSongId(newCue.get(0));
         } else {
             state.setCueIndex(-1);
         }
@@ -527,17 +528,22 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         List<Long> originalCue = state.getOriginalCue();
         // Check if there is an original cue to restore from
         if (originalCue != null && !originalCue.isEmpty()) {
-            state.setCue(new ArrayList<>(originalCue));
-            state.setOriginalCue(new ArrayList<>()); // Clear the saved cue
+            List<Long> restored = new ArrayList<>(originalCue);
+            state.setCue(restored);
+            // Keep the full source pool for a later Smart Shuffle rebuild. The
+            // active cue is windowed separately by enforceQueueWindow.
+            state.setOriginalCue(new ArrayList<>(restored));
         }
 
-        // After restoring, find the index of the current song
+        // After restoring, find the index of the current song. If it came from
+        // outside the restored source (radio/queue selection), put it at the
+        // head so the restore does not silently switch the current track.
         if (state.getCue() != null && state.getCurrentSongId() != null) {
             int newIndex = state.getCue().indexOf(state.getCurrentSongId());
-            // If the current song is no longer in the restored cue (e.g. DJ widened
-            // the queue to the library), newIndex is -1. Leaving cueIndex at -1 while
-            // playing is safe: the next advance's cueIndex<0 branch plays the restored
-            // head instead of consuming it, so playback continues from the top.
+            if (newIndex == -1) {
+                state.getCue().add(0, state.getCurrentSongId());
+                newIndex = 0;
+            }
             state.setCueIndex(newIndex);
         } else {
             state.setCueIndex(-1);
