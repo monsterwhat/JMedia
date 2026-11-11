@@ -159,11 +159,22 @@ public class UnifiedVideoEntityCreationService {
                     series = new Series();
                     series.title = result.showName;
                     series.releaseYear = result.year;
+                    applyProviderHint(result, series);
                     series.persist();
-                } else if (series.releaseYear == null && result.year != null) {
-                    series.releaseYear = result.year;
+                } else {
+                    if (series.releaseYear == null && result.year != null) {
+                        series.releaseYear = result.year;
+                    }
+                    applyProviderHint(result, series);
                 }
                 video.series = series;
+
+                // A folder-level id is authoritative: seed the video's show id so
+                // enrichment skips the unscored TMDb title search entirely.
+                if (result.providerTmdbId != null
+                        && (video.tmdbId == null || video.tmdbId.isBlank())) {
+                    video.tmdbId = String.valueOf(result.providerTmdbId);
+                }
             }
         } else {
             video.series = null;
@@ -268,6 +279,34 @@ public class UnifiedVideoEntityCreationService {
         return null;
     }
     
+    /**
+     * Applies provider ids read from the show folder name. When present they win
+     * over any title search: they are the only deterministic way to express
+     * "this folder is season 2 of show 30984" (e.g. an arc released as its own
+     * folder).
+     */
+    private void applyProviderHint(SmartNamingService.NamingResult result, Series series) {
+        if (result == null || series == null) return;
+        boolean changed = false;
+        if (result.providerTmdbId != null && !result.providerTmdbId.equals(series.tmdbId)) {
+            series.tmdbId = result.providerTmdbId;
+            changed = true;
+        }
+        if (result.providerImdbId != null
+                && !result.providerImdbId.equalsIgnoreCase(series.imdbId)) {
+            series.imdbId = result.providerImdbId;
+            changed = true;
+        }
+        if (result.providerTvdbId != null && !result.providerTvdbId.equals(series.tvdbId)) {
+            series.tvdbId = result.providerTvdbId;
+            changed = true;
+        }
+        if (changed) {
+            LOG.info("Pinned series '{}' to provider ids from the folder name: tmdb={} imdb={} tvdb={}",
+                    series.title, series.tmdbId, series.imdbId, series.tvdbId);
+        }
+    }
+
     /**
      * Normalizes show name for merge detection
      * "Archer (2009)" -> "archer", "Archer2009" -> "archer"

@@ -92,6 +92,17 @@ public class SmartNamingService {
     // the episode list. Require only that no letter follows, so "Ovation" and
     // "novacaine" still do not match.
     private static final Pattern BONUS_CONTENT_PATTERN = Pattern.compile("(?i)\\b(ova|oad|oav)(?![a-z])");
+
+    /**
+     * Provider id token in a show folder name. This is the deterministic way to
+     * pin a show that a title search cannot disambiguate (an arc released as its
+     * own folder), and it was previously ignored:
+     *   Show (2004) {tmdb-123456}    {tvdb-123456}    {imdb-tt1234567}
+     *   Show (2004) [tmdbid-123456]  [tvdbid-123456]  [imdbid-tt1234567]
+     * Braces and brackets only: parentheses are already used for the year.
+     */
+    private static final Pattern PROVIDER_ID_TOKEN = Pattern.compile(
+            "(?i)[\\{\\[]\\s*(tmdb|imdb|tvdb)\\s*(?:id)?\\s*[-_\\s]?\\s*(tt\\d{5,}|\\d{1,10})\\s*[\\}\\]]");
     // WWW release-group wrapper folders like "www.rtkorm.com" that wrap show folders
     private static final Pattern WWW_FOLDER_PATTERN = Pattern.compile("(?i)^www\\..+\\..+$");
     
@@ -199,6 +210,10 @@ public class SmartNamingService {
          * in the parser itself. Null for results built outside detectSmartNames.
          */
         public String detectionMethod;
+        /** Provider ids declared in the folder name; authoritative when set. */
+        public Integer providerTmdbId;
+        public String providerImdbId;
+        public Integer providerTvdbId;
 
         public NamingResult(String mediaType, String showName, String title, 
                           Integer season, Integer episode, String seasonName, String folder,
@@ -351,6 +366,22 @@ public class SmartNamingService {
         // decide sibling-inference eligibility (bare-numbered methods only,
         // provider-remapped "+Absolute" results excluded).
         result.detectionMethod = episodeDetection.detectionMethod;
+
+        // Provider ids in the folder name are authoritative. Read them from the
+        // show folder first (the documented convention), then from the whole
+        // relative path so a token on the file name still pins the show.
+        ProviderHint providerHint = parseProviderHint(pathAnalysis.showFolder);
+        if (providerHint == null) {
+            providerHint = parseProviderHint(relativePath);
+        }
+        if (providerHint != null && !providerHint.isEmpty()) {
+            result.providerTmdbId = providerHint.tmdbId;
+            result.providerImdbId = providerHint.imdbId;
+            result.providerTvdbId = providerHint.tvdbId;
+            LOGGER.debug("Provider hint for '{}': tmdb={} imdb={} tvdb={}",
+                    finalShowName, providerHint.tmdbId, providerHint.imdbId, providerHint.tvdbId);
+        }
+
         // Override: files in extras folders get contentType="extra" regardless of filename pattern match
         // Catches early returns from filename patterns (EPISODE_SIMPLE, etc.) that skip path-based extras detection
         boolean isExtrasSubfolder = pathAnalysis.subFolder != null && EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.subFolder).find();
@@ -1530,12 +1561,80 @@ public class SmartNamingService {
         return Math.min(baseConfidence, 1.0);
     }
     
+    /**
+     * Provider ids declared in a folder name. Authoritative when present: they
+     * let a show be pinned without relying on title search (see parseProviderHint).
+     */
+    public static final class ProviderHint {
+        public final Integer tmdbId;
+        public final String imdbId;
+        public final Integer tvdbId;
+
+        ProviderHint(Integer tmdbId, String imdbId, Integer tvdbId) {
+            this.tmdbId = tmdbId;
+            this.imdbId = imdbId;
+            this.tvdbId = tvdbId;
+        }
+
+        public boolean isEmpty() {
+            return tmdbId == null && imdbId == null && tvdbId == null;
+        }
+    }
+
+    /**
+     * Reads provider tokens from a raw folder (or path) name. Returns null when
+     * none is present. Malformed values are logged and skipped rather than
+     * failing the scan.
+     */
+    public static ProviderHint parseProviderHint(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        Matcher matcher = PROVIDER_ID_TOKEN.matcher(raw);
+        Integer tmdb = null;
+        Integer tvdb = null;
+        String imdb = null;
+        boolean found = false;
+        while (matcher.find()) {
+            String kind = matcher.group(1).toLowerCase(java.util.Locale.ROOT);
+            String value = matcher.group(2);
+            try {
+                switch (kind) {
+                    case "tmdb" -> {
+                        tmdb = Integer.parseInt(value);
+                        found = true;
+                    }
+                    case "tvdb" -> {
+                        tvdb = Integer.parseInt(value);
+                        found = true;
+                    }
+                    default -> {
+                        if (!value.matches("(?i)tt\\d{5,}")) {
+                            LOGGER.warn("Ignoring non-IMDb id in provider hint '{}': {}", raw, value);
+                            continue;
+                        }
+                        imdb = value.toLowerCase(java.util.Locale.ROOT);
+                        found = true;
+                    }
+                }
+            } catch (NumberFormatException e) {
+                LOGGER.warn("Ignoring malformed provider id in '{}': {}", raw, value);
+            }
+        }
+        return found ? new ProviderHint(tmdb, imdb, tvdb) : null;
+    }
+
+    /** Removes provider tokens from a display name, collapsing the gap they leave. */
+    public static String stripProviderHint(String raw) {
+        if (raw == null) return null;
+        return PROVIDER_ID_TOKEN.matcher(raw).replaceAll(" ")
+                .replaceAll("\\s+", " ").trim();
+    }
+
     public static String cleanShowName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return "Unknown Show";
         }
         
-        String cleaned = name;
+        String cleaned = stripProviderHint(name);
 
         Matcher seasonMatcher = SEASON_SPLIT_PATTERN.matcher(cleaned);
         if (seasonMatcher.find()) {
