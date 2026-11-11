@@ -7,6 +7,8 @@ import Services.SettingsService;
 import Services.VideoConversionService;
 import Services.VideoMetadataService;
 import Services.MetadataEnrichmentWorker;
+import Services.EpisodeSplitService;
+import Services.AuthService;
 import Models.Video.Video;
 import Models.Video.Series;
 import Models.DTOs.TvShowDTO;
@@ -17,6 +19,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Context;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +45,12 @@ public class VideoManagementApi {
 
     @Inject
     SettingsService settingsService;
+
+    @Inject
+    EpisodeSplitService episodeSplitService;
+
+    @Inject
+    AuthService authService;
 
     @Inject
     VideoConversionService videoConversionService;
@@ -973,5 +982,97 @@ public class VideoManagementApi {
     public static class BatchConversionRequest {
         public List<Long> videoIds;
         public ConversionOptionsRequest options;
+    }
+
+    // ── multi-episode splitting ─────────────────────────────────────────────
+
+    /** Reports where a two-in-one file would be cut. Read-only. */
+    @POST
+    @Path("/split/analyze")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    public Response analyzeSplit(@FormParam("path") String path,
+                                 @Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(Map.of("error", "Admin access required")).build();
+        }
+        java.nio.file.Path file = resolveSplitFile(path);
+        if (file == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "path must point at an existing file")).build();
+        }
+        EpisodeSplitService.SplitPlan plan = episodeSplitService.analyze(file);
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("file", file.toString());
+        body.put("splittable", plan.isSplittable());
+        body.put("episodeRange", plan.firstEpisode() + "-" + plan.lastEpisode());
+        body.put("durationSeconds", round2(plan.durationSeconds()));
+        body.put("cutSeconds", round2(plan.cutSeconds()));
+        body.put("reason", plan.reason());
+        if (plan.primary() != null) {
+            body.put("blackSeconds", round2(plan.primary().blackSeconds()));
+            body.put("silenceSeconds", round2(plan.primary().silenceSeconds()));
+            body.put("midpointDistanceSeconds", round2(plan.primary().midpointDistanceSeconds()));
+        }
+        return Response.ok(body).build();
+    }
+
+    /**
+     * Performs the split. The source is archived under
+     * {@code ~/.jmedia/split-originals/} unless {@code archive=false}.
+     */
+    @POST
+    @Path("/split/apply")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    public Response applySplit(@FormParam("path") String path,
+                               @FormParam("archive") String archive,
+                               @Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(Map.of("error", "Admin access required")).build();
+        }
+        java.nio.file.Path file = resolveSplitFile(path);
+        if (file == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "path must point at an existing file")).build();
+        }
+        boolean keepOriginal = archive == null || !archive.equalsIgnoreCase("false");
+        EpisodeSplitService.SplitPlan plan = episodeSplitService.analyze(file);
+        EpisodeSplitService.SplitOutcome outcome = episodeSplitService.apply(plan, keepOriginal);
+
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("ok", outcome.ok());
+        body.put("message", outcome.message());
+        body.put("file", file.toString());
+        body.put("cutSeconds", round2(plan.cutSeconds()));
+        if (outcome.partOne() != null) body.put("partOne", outcome.partOne().toString());
+        if (outcome.partTwo() != null) body.put("partTwo", outcome.partTwo().toString());
+        if (outcome.archivedOriginal() != null) {
+            body.put("archivedOriginal", outcome.archivedOriginal().toString());
+        }
+        if (outcome.partOneSeconds() > 0) body.put("partOneSeconds", round2(outcome.partOneSeconds()));
+        if (outcome.partTwoSeconds() > 0) body.put("partTwoSeconds", round2(outcome.partTwoSeconds()));
+        return outcome.ok()
+                ? Response.ok(body).build()
+                : Response.status(Response.Status.CONFLICT).entity(body).build();
+    }
+
+    private java.nio.file.Path resolveSplitFile(String path) {
+        if (path == null || path.isBlank()) return null;
+        try {
+            java.nio.file.Path file = java.nio.file.Paths.get(path.trim());
+            return java.nio.file.Files.isRegularFile(file) ? file : null;
+        } catch (RuntimeException e) {
+            LOG.warn("Split: invalid path '{}': {}", path, e.getMessage());
+            return null;
+        }
+    }
+
+    private static double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 }

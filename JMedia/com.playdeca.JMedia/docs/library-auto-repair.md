@@ -564,6 +564,75 @@ The following questions were resolved above and are kept only for context:
 
 ---
 
+## 12. Split-point detection (measured and implemented)
+
+The earlier sections leave one question open: where exactly to cut a file that
+holds two episodes. The answer was measured on the live library, not assumed.
+
+### 12.1 What does not work
+
+| Approach | Error on the measured files |
+|---|---|
+| Catalogue runtime for the first episode | TMDb says 12:00 for every episode; the real half is 676.5 s → **+43.5 s**, well into episode 2 |
+| Midpoint (`duration / 2`) | off by 4.1 s (S01E01-02), 15.7 s (S01E35-36), 2.8 s (S01E48-49) |
+| Black frames only | S01E01-02 has a 0.21 s false black at 684.4 s; picking the first black run picks noise |
+| Audio silence only | the *single* episode S01E47 contains 5.4 s of silence at 96.7 % of the file — silence alone cuts a normal episode |
+
+### 12.2 What works
+
+A real break shows black, an audio gap, **and** a position near the middle.
+All three together, scored:
+
+```
+window      = [0.30·D, 0.65·D]
+candidate   = black run >= 0.50 s inside the window
+requirement = audio silence overlapping the black run >= 0.20 s
+score       = blackSeconds + silenceOverlap - 0.02 · |run.end - D/2|
+cut         = last keyframe <= winning run.end   (max 8 s back)
+```
+
+Snapping backwards to a keyframe keeps the cut inside the black run: part two
+opens on black instead of skipping the first frames of the episode.
+
+### 12.3 Measured results
+
+| File | Duration | Black run | Silence | Cut (keyframe) |
+|---|---|---|---|---|
+| S01E01-02 | 1352.98 | 671.59–672.38 | 671.90–672.43 | 671.50 |
+| S01E35-36 | 1386.86 | 674.67–677.68 | 674.21–677.75 | 677.68 |
+| S01E48-49 | 1360.79 | 677.72–683.22 | 677.75–679.09 | 683.22 |
+| S01E47 *(single)* | 696.17 | 673.01–676.68 | 673.51–678.90 | **no split** |
+
+Season 1 as a whole agrees: 21 of 24 pairs break at 671–674 s, three
+(S01E35–40) at 674–678 s, the one-hour special (S01E48-49) at 683 s. The
+midpoint is never the right answer on its own.
+
+### 12.4 Proof cut (S01E01-02, into a temp dir, source untouched)
+
+```
+part1  671.59 s   131 MB   (cut requested at 671.50)
+part2  681.68 s   165 MB   (opening: 0.29 s of the fade tail, then 0.79 s black, then picture)
+first packet of part2 is a keyframe
+```
+
+The residual 0.29 s of the previous episode's dark fade at the start of part
+two is inherent to a keyframe-snapped stream copy and invisible. Heading the
+other way (next keyframe) would lose real frames of episode 2, which is worse.
+
+### 12.5 Implementation
+
+- `Services/EpisodeSplitPlanner` — pure decision logic (filename range, candidate
+  scoring, keyframe snap, output names). No I/O, fully unit-tested against the
+  measurements above.
+- `Services/EpisodeSplitService` — ffmpeg probe/detect/split/verify, stream copy
+  only, originals archived under `~/.jmedia/split-originals/<timestamp>/`.
+- `POST /api/video/manage/split/analyze` — read-only plan.
+- `POST /api/video/manage/split/apply` — performs the cut, verifies both part
+  durations within 3 s, refuses to overwrite existing outputs, cleans up temp
+  files on any failure.
+
+---
+
 ## Appendix A — Server evidence
 
 Read-only queries against a copy of `~/.jmedia/jmedia-video.mv.db`
