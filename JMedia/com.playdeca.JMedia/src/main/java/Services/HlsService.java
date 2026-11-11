@@ -184,6 +184,7 @@ public class HlsService {
     @Inject SubtitleTrackService subtitleTrackService;
     @Inject PgsOcrService pgsOcrService;
     @Inject TranscodingService transcodingService;
+    @Inject KeyframeIndexService keyframeIndexService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
@@ -274,6 +275,11 @@ public class HlsService {
                 ? TranscodingService.CODEC_H264
                 : resolvedCodec;
         session.outputCodec = outputCodec;
+        // A copy-mode encoder starts on the keyframe at or before the request,
+        // not on the request itself. Report that real origin so the clock and
+        // subtitles line up (the GOP distance is the classic "subs are a second
+        // out" offset, and it changes on every seek).
+        session.effectiveStartSeconds = resolveEffectiveStart(video, startSeconds, outputCodec);
         session.audioCodecsParam = audioCodecsParam;
         session.userAgent = userAgent;
         LOG.info("HLS session {} output codec: {} (source {}, client codecs {}, client audio codecs {}, ua={})",
@@ -1618,6 +1624,40 @@ public class HlsService {
     }
 
     /**
+     * Copy-mode HLS starts at the keyframe at or before the requested position.
+     * Returns the real content origin so the client's clock and subtitle offset
+     * match the picture; transcode (or no seek) returns the request unchanged.
+     */
+    private double resolveEffectiveStart(Video video, double startSeconds, String outputCodec) {
+        if (startSeconds <= 0.5 || !TranscodingService.CODEC_COPY.equals(outputCodec)) {
+            return startSeconds;
+        }
+        if (video == null || video.path == null || video.path.isBlank()) {
+            return startSeconds;
+        }
+        try {
+            Path source = Path.of(video.path);
+            if (!source.isAbsolute()) {
+                String library = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                if (library == null || library.isBlank()) {
+                    return startSeconds;
+                }
+                source = Path.of(library, video.path);
+            }
+            double snapped = keyframeIndexService.snapToKeyframe(source, startSeconds);
+            if (Math.abs(snapped - startSeconds) >= 0.05) {
+                LOG.info("HLS copy start adjusted to keyframe {}s (requested {}s)",
+                        String.format(java.util.Locale.ROOT, "%.3f", snapped),
+                        String.format(java.util.Locale.ROOT, "%.3f", startSeconds));
+            }
+            return snapped;
+        } catch (RuntimeException e) {
+            LOG.warn("Could not resolve keyframe start for video {}: {}", video.id, e.getMessage());
+            return startSeconds;
+        }
+    }
+
+    /**
      * ffmpeg {@code -ss} argument for the session's seek origin. Encoders used to
      * hardcode 0, which made every HLS seek restart the whole session at 0:00 and
      * then clamp the player to the first encoded segment window.
@@ -2365,6 +2405,12 @@ public class HlsService {
         public final List<SubtitleTrack> subtitleTracks;
         public final Path sessionDir;
         public final double startSeconds;
+        /**
+         * Content position the encoder really starts from. For copy mode this is
+         * the keyframe at or before {@link #startSeconds}; for transcode it is the
+         * requested position. Clients must use this for the clock and subtitles.
+         */
+        public volatile double effectiveStartSeconds;
         public final long createdAt;
         public final List<String> audioPlaylistNames = new java.util.concurrent.CopyOnWriteArrayList<>();
         public volatile long lastAccessed;
@@ -2413,6 +2459,7 @@ public class HlsService {
             subtitleTracks = subs;
             sessionDir = d;
             startSeconds = s;
+            effectiveStartSeconds = s;
             createdAt = System.currentTimeMillis();
             lastAccessed = System.currentTimeMillis();
         }
@@ -2473,9 +2520,12 @@ public class HlsService {
     public static class SessionInfo {
         public final String sessionId;
         public final String playlistUrl;
-        public SessionInfo(String id, String url) {
+        /** Real content origin of the encoder (keyframe-aligned for copy mode). */
+        public final double startTime;
+        public SessionInfo(String id, String url, double startTime) {
             sessionId = id;
             playlistUrl = url;
+            this.startTime = startTime;
         }
     }
 }

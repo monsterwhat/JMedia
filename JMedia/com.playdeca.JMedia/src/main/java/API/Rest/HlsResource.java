@@ -33,7 +33,7 @@ public class HlsResource {
             HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId,
                     audioTrackIndex, qualityHeight, deviceToken, codecs, userAgent, audioCodecs);
             String playlistUrl = "/api/hls/master/" + session.sessionId + ".m3u8";
-            return new HlsService.SessionInfo(session.sessionId, playlistUrl);
+            return new HlsService.SessionInfo(session.sessionId, playlistUrl, session.effectiveStartSeconds);
         } catch (Exception e) {
             LOG.error("Failed to create HLS session for video {}: {}", videoId, e.getMessage(), e);
             throw new WebApplicationException("Failed to create HLS session: " + e.getMessage(), Response.Status.INTERNAL_SERVER_ERROR);

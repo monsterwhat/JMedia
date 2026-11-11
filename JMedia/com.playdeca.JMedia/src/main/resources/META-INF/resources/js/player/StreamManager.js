@@ -561,6 +561,19 @@
                     return;
                 }
                 p._hlsSessionId = data.sessionId;
+                // Copy-mode HLS starts on the keyframe at or before the requested
+                // position. Use the origin reported by the server for the clock
+                // and subtitles; otherwise both are off by the GOP distance
+                // (~1 s) and the offset changes on every seek.
+                if (typeof data.startTime === 'number' && data.startTime > 0
+                        && Math.abs(data.startTime - (p.streamStartOffset || 0)) > 0.05) {
+                    console.log('[SimplePlayer] HLS content starts at ' + data.startTime +
+                        's (requested ' + savedTime + 's); realigning clock and subtitles');
+                    p.streamStartOffset = data.startTime;
+                    if (p.subtitleController) {
+                        p.subtitleController.loadSubtitles();
+                    }
+                }
                 p._hlsSessionPending = false;
                 // Seed the fallback position: fallbackToDirectStream ignores its
                 // savedTime param and derives absTime from lastKnownGoodPosition. Only
