@@ -775,11 +775,12 @@ public class SongService {
             queryStr.append(" AND s.id NOT IN :excludeSongIds");
         }
 
-        queryStr.append(" ORDER BY FUNCTION('RAND')"); // Random ordering
+        queryStr.append(" ORDER BY ABS(s.bpm - :currentBpm), FUNCTION('RAND')");
 
         var query = em.createQuery(queryStr.toString(), Song.class)
                 .setParameter("songPoolIds", songPoolIds)
                 .setParameter("genreKey", Utils.GenreNormalizer.resolveAll(genre).get(0).key())
+                .setParameter("currentBpm", currentBpm)
                 .setParameter("minBpm", minBpm)
                 .setParameter("maxBpm", maxBpm);
 

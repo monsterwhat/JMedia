@@ -366,7 +366,7 @@
                 this.updateDjIndicator('transitioning');
                 
                 // Execute the actual dual-player crossfade
-                window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration);
+                window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true);
                 
                 // Notify server that transition has started
                 if (this.transitionData.profileId) {

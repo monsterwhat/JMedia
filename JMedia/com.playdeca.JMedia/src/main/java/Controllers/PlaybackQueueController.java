@@ -56,13 +56,12 @@ public void enforceQueueWindow(PlaybackState st) {
             cue.subList(max, cue.size()).clear();
             trimmed = true;
         }
-        if (orig != null && orig.size() > max) {
-            orig.subList(max, orig.size()).clear();
-            trimmed = true;
-        }
+        // Do NOT trim originalCue: it is the source pool Smart Shuffle refills
+        // from. Window only the active cue so a playlist/library source is not
+        // silently replaced by the whole library at the end of the window.
         if (trimmed) {
-            LOG.info("Trimmed playback queue window for profile {}: cueIndex={}, cue {} -> {}, originalCue {} -> {}, max={}",
-                    st.getProfileId(), cueIndex, beforeCue, cue.size(), beforeOrig, (orig != null ? orig.size() : -1), max);
+            LOG.info("Trimmed playback queue window for profile {}: cueIndex={}, cue {} -> {}, originalCue {} (kept), max={}",
+                    st.getProfileId(), cueIndex, beforeCue, cue.size(), beforeOrig, max);
         }
     }
 
@@ -381,15 +380,24 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
 
         List<Song> allSongs = songService.findByIds(songPoolIds);
 
-        // Smart Shuffle: restrict the pool to the configured genre pool and year
-        // range before grouping (these were DJ-scoped settings; selection now
-        // belongs to Smart Shuffle).
+        // Smart Shuffle: restrict the pool to the configured genre pool, year
+        // range and explicit BPM range before grouping (these were DJ-scoped
+        // settings; selection now belongs to Smart Shuffle).
         boolean applySelectionFilters = true;
         if (applySelectionFilters) {
+            final int minBpm = state.getDjBpmMin() != null ? state.getDjBpmMin() : 0;
+            final int maxBpm = state.getDjBpmMax() != null ? state.getDjBpmMax() : 0;
             allSongs = allSongs.stream()
                     .filter(s -> isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
                     .filter(s -> isYearAllowed(state, s.getReleaseDate()))
+                    .filter(s -> minBpm <= 0 || s.getBpm() >= minBpm)
+                    .filter(s -> maxBpm <= 0 || s.getBpm() <= maxBpm)
                     .collect(java.util.stream.Collectors.toList());
+        }
+        if (allSongs.isEmpty()) {
+            LOG.warn("Smart Shuffle pool is empty after filters for profile " + profileId
+                    + "; keeping the current queue");
+            return;
         }
 
         // Get current song's BPM for sorting reference
@@ -417,9 +425,11 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         // 4. Build the new queue with BPM sorting within genre groups
         List<Long> newCue = new ArrayList<>();
 
-        // Smart Shuffle block size: songsPerGenre > 0 interleaves genres in blocks
+        // Smart Shuffle block size: songsPerGenre > 0 interleaves genres in
+        // blocks. 0 means "off" for the block size, so use a one-song-per-genre
+        // rotation instead of playing all songs of one genre in a row.
         int blockSize = (applySelectionFilters && state.getDjSongsPerGenre() != null && state.getDjSongsPerGenre() > 0)
-                ? state.getDjSongsPerGenre() : 0;
+                ? state.getDjSongsPerGenre() : (applySelectionFilters ? 1 : 0);
 
         java.util.Map<String, List<Song>> sortedByGenre = new java.util.HashMap<>();
         for (String genre : genres) {
@@ -697,6 +707,18 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     // We must respect the song the DJ has already analyzed and aligned.
     if (!skippedEarly && Boolean.TRUE.equals(state.getDjTransitionPlanned()) && state.getDjNextSongId() != null) {
         System.out.println("[DJ] Respecting already planned transition to song ID: " + state.getDjNextSongId());
+        return;
+    }
+
+    // songsPerGenre = 0 is the mixed mode: initSmartShuffle already built a
+    // one-song-per-genre rotation. Replacing the queued next with a random
+    // same-genre candidate is what made Smart Shuffle feel erratic, so keep
+    // the interleaved order. The artist-cap pass still runs after this method.
+    boolean mixedMode = state.getDjSongsPerGenre() == null || state.getDjSongsPerGenre() <= 0;
+    if (mixedMode) {
+        if (skippedEarly) {
+            state.setDjGenreSkipCount(0);
+        }
         return;
     }
 
@@ -1240,13 +1262,28 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
 
     private List<Long> buildSongPool(PlaybackState state) {
-        // The genre-pool / year filters are Smart Shuffle selection settings.
+        // The genre-pool / year / BPM filters are Smart Shuffle selection settings.
         boolean applyFilters = state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
-        return songService.findAll().stream()
+
+        // Keep the source the user started from (playlist or library). Using the
+        // whole library here made Smart Shuffle jump context at the end of the
+        // 500-song window.
+        List<Long> sourceIds = state.getOriginalCue();
+        List<Song> sourceSongs = (sourceIds != null && !sourceIds.isEmpty())
+                ? songService.findByIds(sourceIds)
+                : songService.findAll();
+
+        final int minBpm = state.getDjBpmMin() != null ? state.getDjBpmMin() : 0;
+        final int maxBpm = state.getDjBpmMax() != null ? state.getDjBpmMax() : 0;
+
+        return sourceSongs.stream()
                 .filter(s -> !applyFilters
                         || ((isDjGenrePoolUnrestricted(state) || isGenreAllowed(state, s.getGenre()))
-                            && isYearAllowed(state, s.getReleaseDate())))
+                            && isYearAllowed(state, s.getReleaseDate())
+                            && (minBpm <= 0 || s.getBpm() >= minBpm)
+                            && (maxBpm <= 0 || s.getBpm() <= maxBpm)))
                 .map(s -> s.id)
+                .distinct()
                 .collect(java.util.stream.Collectors.toList());
     }
 

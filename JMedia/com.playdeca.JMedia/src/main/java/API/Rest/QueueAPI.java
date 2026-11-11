@@ -94,6 +94,11 @@ public class QueueAPI {
 
         playbackController.clearQueue(userProfile.id);
         playbackController.addToQueue(songIds, false, userProfile.id);
+
+        var queueState = playbackController.getState(userProfile.id);
+        queueState.setOriginalCue(new ArrayList<>(songIds));
+        playbackController.updateState(userProfile.id, queueState, true);
+
         playbackController.selectSong(songIds.get(0), userProfile.id);
 
         return Response.ok(ApiResponse.success("Genre group queued and playback started")).build();
@@ -126,6 +131,12 @@ public class QueueAPI {
         playbackController.clearQueue(userProfile.id);
         List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
         playbackController.addToQueue(songIds, false, userProfile.id);
+
+        // Remember the full source pool for Smart Shuffle refills. The active
+        // cue stays windowed, but refills must not jump to the whole library.
+        var queueState = playbackController.getState(userProfile.id);
+        queueState.setOriginalCue(new ArrayList<>(songIds));
+        playbackController.updateState(userProfile.id, queueState, true);
 
         // Start playback with the first song
         playbackController.selectSong(songIds.get(0), userProfile.id);

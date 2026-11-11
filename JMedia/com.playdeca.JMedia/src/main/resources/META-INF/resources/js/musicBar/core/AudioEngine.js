@@ -615,7 +615,7 @@
             }
         },
 
-        crossfadeTo: function(songId, entryTime, duration) {
+        crossfadeTo: function(songId, entryTime, duration, djManaged) {
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo ï¿½ video is active');
                 this._isCrossfading = false;
@@ -629,7 +629,7 @@
                 if (!iosProfileId || iosProfileId === 'undefined') {
                     window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
                     const self = this;
-                    setTimeout(function() { self.crossfadeTo(songId, entryTime, duration); }, 200);
+                    setTimeout(function() { self.crossfadeTo(songId, entryTime, duration, djManaged); }, 200);
                     return;
                 }
                 if (!songId || songId === 'null' || songId === 'undefined') {
@@ -669,6 +669,7 @@
 
             const currentPlayer = this.getActivePlayer();
             const nextPlayer = this.getInactivePlayer();
+            const outgoingSongId = currentPlayer ? currentPlayer._currentSongId : null;
             const currentGain = this.getActiveGain();
             const nextGain = this.getInactiveGain();
             // Respect the server-provided crossfade duration, clamped to a safe
@@ -705,7 +706,7 @@
                 window.Helpers?.log?.('[AudioEngine crossfadeTo] Waiting for valid profileId...');
                 const self = this;
                 setTimeout(function() {
-                    self.crossfadeTo(songId, entryTime, duration);
+                    self.crossfadeTo(songId, entryTime, duration, djManaged);
                 }, 200);
                 return;
             }
@@ -854,7 +855,15 @@
                 nextPlayer.play().then(() => {
                     setTimeout(() => {
                         currentPlayer.pause();
-                        currentPlayer.src = '';
+                        // A DJ plan for the following song may have preloaded into
+                        // the outgoing player during the fade. Clearing its src
+                        // would throw that preload away, so keep a newer source.
+                        const hasNewerPreload = currentPlayer._currentSongId
+                            && outgoingSongId
+                            && currentPlayer._currentSongId !== outgoingSongId;
+                        if (!hasNewerPreload) {
+                            currentPlayer.src = '';
+                        }
                         
                         if (this.ctx) {
                             // CRITICAL: Cancel any ongoing gain curves before setting new values
@@ -879,8 +888,10 @@
                             window.SynchronizationManager.setFlag('isCrossfading', false);
                         }
                         
-                        // Update DJ indicator back to active (transition complete)
-                        if (window.DjTransitionManager) {
+                        // Update DJ indicator back to active only for the DJ-managed
+                        // transition. A manual skip in DJ Mode fades too, but its
+                        // freshly planned next transition must survive the fade.
+                        if (window.DjTransitionManager && djManaged) {
                             window.DjTransitionManager.transitionPrepared = false;
                             window.DjTransitionManager.isTransitioning = false;
                             window.DjTransitionManager.transitionData = null;
@@ -891,14 +902,17 @@
                             window.DjTransitionManager.updateDjIndicator('complete');
                         }
                         
-                        // FINAL STATE UPDATE: Use seekTime (entry position), not currentTime after playing
-                        // The currentTime has been advancing during the fade, so we must use the original entry position
+                        // FINAL STATE UPDATE: DJ-managed transitions use the entry
+                        // position the server recorded; manual/normal crossfades
+                        // use the player's actual position so the progress bar does
+                        // not jump back by the fade duration.
+                        const finalTime = djManaged ? seekTime : (newPlayer.currentTime || seekTime);
                         if (window.StateManager) {
                             window.StateManager.updateState({ 
                                 duration: newPlayer.duration || 0,
-                                currentTime: seekTime  // Use entry time, not currentTime after fade
+                                currentTime: finalTime
                             }, 'audioEngine');
-                            window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
+                            window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + finalTime);
                         }
                         
                         // Apply final volume â€” use pending volume if user changed it during crossfade
@@ -935,7 +949,7 @@
                         
                         // Force sync the slider to the correct position
                         if (window.TimeController) {
-                            window.TimeController.updateSliderFromState(seekTime, newPlayer.duration);
+                            window.TimeController.updateSliderFromState(finalTime, newPlayer.duration);
                         }
                         
                         // Request state save after crossfade completes to persist any volume changes
@@ -1184,17 +1198,28 @@
                 }
             }
 
-            // NON-DJ CROSSFADE: When crossfade is enabled and we're not in DJ mode,
-            // smoothly fade from current song to the new song instead of a hard cut
+            // CROSSFADE: apply to normal playback and to manual skips in DJ Mode.
+            // The DJ-managed natural transition already sets isCrossfading and
+            // isTransitioning, so it is excluded here to avoid a double fade.
             const state = window.StateManager?.getState();
-            const crossfadeDuration = state?.crossfadeDuration;
             const isPlaying = state?.playing;
-            if (currentSong && currentSong.id && crossfadeDuration > 0 && !state?.djModeActive && isPlaying && !this.isIOS()) {
-                window.Helpers.log('AudioEngine: Non-DJ crossfade triggered for song ' + currentSong.id + ' (' + crossfadeDuration + 's)');
+            const djActive = !!state?.djModeActive;
+            const djManaged = !!(window.DjTransitionManager && window.DjTransitionManager.isTransitioning);
+            const crossfading = !!(window.SynchronizationManager.getFlag && window.SynchronizationManager.getFlag('isCrossfading'));
+            const configuredDuration = state?.crossfadeDuration;
+            const fadeDuration = configuredDuration > 0 ? configuredDuration : (djActive ? 8 : 0);
+            const active = this.getActivePlayer();
+            const nearEnd = active && active.duration > 0 && (active.duration - active.currentTime) < 1.5;
+            const manualDjChange = djActive && !djManaged && !crossfading && !nearEnd;
+
+            if (currentSong && currentSong.id && fadeDuration > 0 && isPlaying && !this.isIOS()
+                    && (!djActive || manualDjChange)) {
+                window.Helpers.log('AudioEngine: Crossfade triggered for song ' + currentSong.id +
+                    ' (' + fadeDuration + 's, ' + (djActive ? 'manual DJ skip' : 'normal') + ')');
                 // Preload the next song in the inactive player
                 this.preloadSong(currentSong.id, backendTime || 0);
                 // Initiate crossfade
-                this.crossfadeTo(currentSong.id, backendTime || 0, crossfadeDuration);
+                this.crossfadeTo(currentSong.id, backendTime || 0, fadeDuration, false);
                 return true;
             }
 
