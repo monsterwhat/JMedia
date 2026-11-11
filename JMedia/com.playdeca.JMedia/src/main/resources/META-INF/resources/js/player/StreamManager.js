@@ -1192,6 +1192,10 @@
             const p = this.player;
             if (p._destroyed || !document.body.contains(p.container)) return;
 
+            // Remember the intent: a rebuild must not silently leave the player
+            // paused (auto-skip intro used to do exactly that).
+            const wasPlaying = !p._userPaused && (p.state ? p.state.playing !== false : !p.video.paused);
+
             p._swapInProgress = true;
             if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
             p._swapSafetyTimer = setTimeout(() => {
@@ -1227,6 +1231,19 @@
             p.video.addEventListener('playing', onSeekPlaying, { once: true });
             p.video.addEventListener('loadeddata', onSeekReady, { once: true });
             p.video.addEventListener('error', onSeekReady, { once: true });
+
+            // The rebuilt session goes through MANIFEST_PARSED -> play(), but a
+            // stale `state.playing === false` from the swap guard can pause it
+            // again. Resume explicitly once the new media is ready.
+            const resumeAfterRebuild = () => {
+                if (p._destroyed || p._userPaused || !wasPlaying) return;
+                if (!p.video.paused) return;
+                p.video.play().catch(function(e) {
+                    console.log('[SimplePlayer] Resume after HLS rebuild blocked:', e);
+                });
+            };
+            p.video.addEventListener('canplay', resumeAfterRebuild, { once: true });
+            p.video.addEventListener('loadeddata', resumeAfterRebuild, { once: true });
         }
 
         cleanupHls() {
@@ -1247,19 +1264,26 @@
             console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
 
             // Local HLS session: prefer a cheap client-side seek when the target is
-            // already buffered, so small skips (back/forward a few seconds) do not
-            // tear down and rebuild the whole encoder. Only fall back to a full
-            // session recreate when the target lies beyond what is buffered.
+            // already in the encoded manifest, so small skips (back/forward a few
+            // seconds) do not tear down and rebuild the whole encoder. Only fall
+            // back to a full session recreate when the target lies outside what the
+            // playlist can serve.
+            //
+            // `buffered` is the downloaded window, which is much shorter than the
+            // playlist: an intro skip of ~90 s was rebuilding the encoder even
+            // though the segment existed, and the rebuilt session came back
+            // paused (the "skip intro then stuck until I seek" bug). `seekable`
+            // reflects what hls.js can fetch.
             if (p._hlsSessionId || p._hlsSessionPending) {
-                const bufLen = p.video.buffered ? p.video.buffered.length : 0;
-                const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
+                const seekLen = p.video.seekable ? p.video.seekable.length : 0;
+                const seekableEnd = seekLen > 0 ? p.video.seekable.end(seekLen - 1) : 0;
                 // `time` is absolute content time; the element timeline is relative to
                 // the session's content offset. A target BEFORE the session start has
                 // no encoded media in this session, so it must rebuild the encoder at
                 // that earlier position (the server now honours start=).
                 const relTime = time - (p.streamStartOffset || 0);
-                if (p.video.readyState > 0 && relTime >= 0 && relTime <= bufferedEnd + 1) {
-                    console.log(`[SimplePlayer] HLS in-buffer seek to ${time}s (relative ${relTime}s, buffered to ${bufferedEnd}s)`);
+                if (p.video.readyState > 0 && relTime >= 0 && relTime <= seekableEnd + 2) {
+                    console.log(`[SimplePlayer] HLS in-manifest seek to ${time}s (relative ${relTime}s, seekable to ${seekableEnd}s)`);
                     try { p.video.currentTime = relTime; } catch (e) {}
                     p.video.play().catch(function() {});
                     return;
