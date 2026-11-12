@@ -136,14 +136,21 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         // DJ mode without Repeat ALL also stops on natural end — a DJ set is still a
         // bounded queue, while a manual press is a deliberate request for more music.
         if (state.getCue() == null || state.getCue().isEmpty()) {
+            // Shuffle modes are continuous by definition: SMART_SHUFFLE/SHUFFLE
+            // select from the library, so an empty queue means "refill", not
+            // "stop". With shuffle OFF the queue is a bounded album/playlist and
+            // a natural end stops (Repeat OFF) or wraps (Repeat ALL).
+            boolean continuousSelection = forward
+                    && state.getShuffleMode() != PlaybackState.ShuffleMode.OFF;
             if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL
-                    || (manualAdvance && forward)) {
+                    || (manualAdvance && forward)
+                    || continuousSelection) {
                 refillCueFromPool(state, profileId, manualAdvance);
             } else {
                 // Repeat OFF (or ONE) natural end: do NOT refill — signal stop so
                 // PlaybackController halts playback instead of looping.
-                LOG.info("Queue empty on natural end: not refilling (repeat={}, manualAdvance={})",
-                        state.getRepeatMode(), manualAdvance);
+                LOG.info("Queue empty on natural end: not refilling (repeat={}, manualAdvance={}, shuffle={})",
+                        state.getRepeatMode(), manualAdvance, state.getShuffleMode());
                 state.setPlaying(false);
                 return null;
             }
@@ -227,9 +234,13 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         }
         state.getCue().remove(0);
         state.setCueIndex(-1);
-        if (manualAdvance) {
+        boolean continuousSelection = forward
+                && state.getShuffleMode() != PlaybackState.ShuffleMode.OFF;
+        if (manualAdvance || continuousSelection) {
+            // Manual skip always continues; shuffle modes are continuous by
+            // definition, so a consumed one-song cue must refill rather than stop.
             enforceQueueWindow(state);
-            return advance(state, true, skippedEarly, true, profileId, depth + 1);
+            return advance(state, true, skippedEarly, manualAdvance, profileId, depth + 1);
         }
         state.setPlaying(false);
         enforceQueueWindow(state);
