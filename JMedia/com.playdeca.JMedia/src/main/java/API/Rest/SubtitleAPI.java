@@ -377,8 +377,17 @@ public class SubtitleAPI {
             // but the video is actually at the offset position. We must shift subtitles to match.
             if (track.isEmbedded) {
                 if (PgsOcrService.isPgsCodec(track.codec) || "pgs".equals(track.format)) {
-                    // PGS is image-based: OCR to WebVTT on demand (cached per track)
-                    webVTTContent = pgsOcrService.getOrCreateWebVTT(track);
+                    // PGS is image-based: OCR can be unavailable (no Tesseract, missing
+                    // stream index, unreadable source). Returning 500 made the player
+                    // drop the track entirely; an empty VTT keeps playback intact and the
+                    // reason is logged.
+                    try {
+                        webVTTContent = pgsOcrService.getOrCreateWebVTT(track);
+                    } catch (RuntimeException ocrFailure) {
+                        LOGGER.warn("PGS OCR unavailable for track {} ({}): {}", trackId, track.format,
+                                ocrFailure.getMessage());
+                        webVTTContent = "WEBVTT\n\nNOTE OCR unavailable for this PGS track\n";
+                    }
                 } else {
                     webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
                 }

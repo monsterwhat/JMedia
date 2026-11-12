@@ -81,6 +81,32 @@
         /**
          * Connect WebSocket for current profile
          */
+        /**
+         * Presence heartbeat. The server pings every 10s and the browser answers at the
+         * protocol level; this message is a second, JS-level signal for clients whose
+         * pong is not delivered. Both refresh the same "still listening" timestamp, so
+         * auto-pause can tell a closed laptop from an open tab.
+         */
+        _startHeartbeat: function() {
+            this._stopHeartbeat();
+            this._heartbeat = setInterval(() => {
+                try {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                } catch (e) {
+                    console.warn('[WebSocketManager] presence ping failed:', e);
+                }
+            }, 15000);
+        },
+
+        _stopHeartbeat: function() {
+            if (this._heartbeat) {
+                clearInterval(this._heartbeat);
+                this._heartbeat = null;
+            }
+        },
+
         connect: async function() {
             try {
                 const profileId = await this.waitForProfileId();
@@ -92,10 +118,12 @@
                 this.ws = new WebSocket(wsUrl);
                 
                 this.ws.onopen = () => {
+                    this._startHeartbeat();
                     this.onOpen();
                 };
                 
                 this.ws.onclose = (event) => {
+                    this._stopHeartbeat();
                     this.onClose(event);
                 };
                 

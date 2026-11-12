@@ -127,10 +127,12 @@ public class PgsOcrService {
             if (!(isPgsCodec(track.codec) || "pgs".equals(track.format))) {
                 continue;
             }
-            // Skip tracks that can never be OCR'd (missing stream index or video
-            // path) so they don't spam the log with ERRORs on every preload pass.
-            if (track.trackIndex == null || track.fullPath == null || track.fullPath.isBlank()) {
-                LOG.debug("Skipping PGS track {} (id={}): missing stream index or video path", track.trackIndex, track.id);
+            // Skip tracks that can never be OCR'd (missing stream index) so they don't
+            // spam the log with ERRORs on every preload pass. A missing fullPath is not
+            // disqualifying: embedded tracks carry no sidecar path and the owning
+            // video's file is used instead.
+            if (track.trackIndex == null) {
+                LOG.debug("Skipping PGS track {} (id={}): missing stream index", track.trackIndex, track.id);
                 continue;
             }
             preload(track);
@@ -167,13 +169,28 @@ public class PgsOcrService {
         if (ffmpeg == null) {
             throw new IOException("FFmpeg is not installed.");
         }
-        if (track.trackIndex == null || track.fullPath == null) {
-            throw new IOException("PGS track is missing stream index or video path");
+        if (track.trackIndex == null) {
+            throw new IOException("PGS track is missing its stream index");
         }
 
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path baseFilePath = Paths.get(track.fullPath);
-        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
+        // Embedded tracks store no sidecar path (fullPath is null by design — the
+        // subtitle lives inside the video), so resolve the owning video's file. The
+        // old code only looked at fullPath and every embedded PGS track failed with
+        // "PGS track is missing stream index or video path", which surfaced in the
+        // player as HTTP 500 on the subtitle request.
+        Path filePath;
+        if (track.fullPath != null && !track.fullPath.isBlank()) {
+            Path baseFilePath = Paths.get(track.fullPath);
+            filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
+        } else {
+            Models.Video.Video owner = track.video;
+            if (owner == null || owner.path == null) {
+                throw new IOException("PGS track " + track.id + " has no fullPath and no owning video path");
+            }
+            Path baseFilePath = Paths.get(owner.path);
+            filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, owner.path);
+        }
 
         Path tempSup = Files.createTempFile("pgs_ocr_", ".sup");
         try {

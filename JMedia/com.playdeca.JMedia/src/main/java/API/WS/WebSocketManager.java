@@ -23,6 +23,19 @@ public class WebSocketManager {
     private final Map<String, Long> sessionProfileMap = new ConcurrentHashMap<>();
     private final Map<Long, Set<Session>> profileSessionsMap = new ConcurrentHashMap<>();
 
+    /** How often an open music socket is pinged to prove the client still exists. */
+    private static final long PRESENCE_PING_EVERY_MS = 10_000L;
+    /**
+     * A socket that has not answered for this long is not a listener. Only
+     * {@code isOpen()} used to decide, and that can stay true for hours after a
+     * laptop sleeps or the network drops (no close frame, OS TCP keepalive default
+     * is ~2h), so auto-pause never fired for the case that matters.
+     */
+    private static final long PRESENCE_STALE_MS = 30_000L;
+
+    /** Last time each music session proved it is alive (open, pong or client message). */
+    private final Map<String, Long> musicLastSeen = new ConcurrentHashMap<>();
+
 
   
     public void addSession(Session session, Long profileId) {
@@ -30,10 +43,12 @@ public class WebSocketManager {
         profileSessionsMap.computeIfAbsent(profileId, k -> ConcurrentHashMap.newKeySet()).add(session);
         // Also add to musicSessions for compatibility until music-specific broadcasts are fully removed
         musicSessions.add(session);
+        musicLastSeen.put(session.getId(), System.currentTimeMillis());
     }
 
     public void removeSession(Session session) {
         String sessionId = session.getId();
+        musicLastSeen.remove(sessionId);
         Long profileId = sessionProfileMap.remove(sessionId);
         if (profileId != null) {
             Set<Session> sessions = profileSessionsMap.get(profileId);
@@ -185,6 +200,7 @@ public class WebSocketManager {
 
     private void removeSessionData(Session session) {
         String sessionId = session.getId();
+        musicLastSeen.remove(sessionId);
         Long profileId = sessionProfileMap.remove(sessionId);
         if (profileId != null) {
             Set<Session> sessions = profileSessionsMap.get(profileId);
@@ -200,20 +216,57 @@ public class WebSocketManager {
     /**
      * Count open music WebSocket sessions for the given profile.
      * Side-effect free: does not mutate any internal state.
+     *
+     * <p>A socket that has stopped answering pings is not a listener: {@code isOpen()}
+     * can stay true for hours after a laptop sleeps or Wi-Fi drops (no close frame,
+     * OS keepalive defaults to ~2h), which is exactly the case auto-pause must catch.
      */
     public int getMusicSessionCount(Long profileId) {
         if (profileId == null) {
             return 0;
         }
+        long now = System.currentTimeMillis();
         int count = 0;
         for (Session session : musicSessions) {
-            if (session.isOpen()) {
-                Long pid = sessionProfileMap.get(session.getId());
-                if (profileId.equals(pid)) {
-                    count++;
-                }
+            if (!session.isOpen()) {
+                continue;
             }
+            Long pid = sessionProfileMap.get(session.getId());
+            if (!profileId.equals(pid)) {
+                continue;
+            }
+            Long seen = musicLastSeen.get(session.getId());
+            if (seen == null || now - seen > PRESENCE_STALE_MS) {
+                continue;
+            }
+            count++;
         }
         return count;
+    }
+
+    /** Records proof of life for a music session: a pong, or any client message. */
+    public void markMusicSessionAlive(Session session) {
+        if (session != null) {
+            musicLastSeen.put(session.getId(), System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * Presence heartbeat. Browsers answer a WebSocket ping at the protocol level, so a
+     * pong proves the client is still there even when the page sends nothing. Clients
+     * that do not pong are covered by the small "ping" message the music page sends.
+     */
+    @Scheduled(every = "10s")
+    void pingMusicSessions() {
+        for (Session session : musicSessions) {
+            if (!session.isOpen()) {
+                continue;
+            }
+            try {
+                session.getAsyncRemote().sendPing(java.nio.ByteBuffer.wrap(new byte[]{1}));
+            } catch (Exception e) {
+                LOG.debug("Presence ping failed for session {}: {}", session.getId(), e.getMessage());
+            }
+        }
     }
 }

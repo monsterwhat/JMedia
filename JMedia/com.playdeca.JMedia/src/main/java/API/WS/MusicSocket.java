@@ -14,6 +14,7 @@ import jakarta.websocket.OnClose;
 import jakarta.websocket.OnError;
 import jakarta.websocket.OnMessage;
 import jakarta.websocket.OnOpen;
+import jakarta.websocket.PongMessage;
 import jakarta.websocket.Session;
 import jakarta.websocket.server.HandshakeRequest;
 import jakarta.websocket.server.PathParam;
@@ -102,6 +103,9 @@ public class MusicSocket {
 
     @OnMessage
     public void onMessage(Session session, String message) {
+        // Any client message proves the socket is alive, even if it is only the
+        // presence heartbeat rather than a command.
+        webSocketManager.markMusicSessionAlive(session);
         runAsync(() -> {
             try {
                 ObjectNode node = mapper.readValue(message, ObjectNode.class);
@@ -137,6 +141,12 @@ public class MusicSocket {
                 e.printStackTrace();
             }
         });
+    }
+
+    /** Presence pong: the client answered a server ping, so it is still listening. */
+    @OnMessage
+    public void onPong(PongMessage message, Session session) {
+        webSocketManager.markMusicSessionAlive(session);
     }
 
     private void sendCurrentState(Session session, Long profileId) {

@@ -34,7 +34,7 @@
         '/lib/howler.min.js',
         '/js/musicBar/core/AudioEngine.js?v=11',
         '/js/musicBar/core/DjTransitionManager.js?v=6',
-        '/js/musicBar/core/WebSocketManager.js?v=3',
+        '/js/musicBar/core/WebSocketManager.js?v=4',
         '/js/musicBar/controls/PlaybackController.js?v=7',
         '/js/musicBar/controls/TimeController.js?v=2',
         '/js/musicBar/controls/VolumeController.js?v=2',

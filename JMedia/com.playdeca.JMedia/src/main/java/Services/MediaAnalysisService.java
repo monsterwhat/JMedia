@@ -48,6 +48,11 @@ public class MediaAnalysisService {
         JsonNode root = probe(video.path);
         if (root != null) {
             populateVideoMetadata(video, root);
+            double containerSec = video.duration != null ? video.duration / 1000.0 : 0;
+            double effective = resolveEffectiveDuration(root, video.path, containerSec);
+            if (effective > 0 && Math.abs(effective - containerSec) > 1) {
+                video.duration = Math.round(effective * 1000);
+            }
             
             // Extract and persist audio tracks immediately during initial scan
             extractAndPersistAudioTracks(video);
@@ -66,7 +71,90 @@ public class MediaAnalysisService {
         JsonNode root = probe(mediaFile.path);
         if (root != null) {
             populateMediaFileMetadata(mediaFile, root);
+            double effective = resolveEffectiveDuration(root, mediaFile.path, mediaFile.durationSeconds);
+            if (effective > 0 && Math.abs(effective - mediaFile.durationSeconds) > 1) {
+                mediaFile.durationSeconds = (int) Math.round(effective);
+            }
             LOG.info("Successfully analyzed media file for: {}", mediaFile.path);
+        }
+    }
+
+    /**
+     * The container duration is not always the length of what can be played. An MKV
+     * whose subtitle tracks run past the picture reports the subtitle length, so a
+     * 23:52 episode showed as 34:33 with ten minutes of dead air: the player drew a
+     * bar for content that does not exist and stopped itself at the real end.
+     *
+     * <p>When the probe gives no per-stream duration to corroborate the container
+     * (typical for MKV), the last video packet is measured instead. That costs one
+     * extra demux pass per file at scan time, so it only runs when there is nothing
+     * cheaper to trust.
+     */
+    private double resolveEffectiveDuration(JsonNode root, String path, double containerSeconds) {
+        if (containerSeconds <= 0) return containerSeconds;
+
+        double streamSeconds = 0;
+        for (JsonNode stream : root.path("streams")) {
+            String type = stream.path("codec_type").asText();
+            if (!"video".equals(type) && !"audio".equals(type)) continue;
+            JsonNode d = stream.path("duration");
+            if (d.isMissingNode() || d.isNull()) continue;
+            try {
+                double v = Double.parseDouble(d.asText());
+                if (v > streamSeconds) streamSeconds = v;
+            } catch (NumberFormatException ignored) {
+                // "N/A" and similar: no usable per-stream duration
+            }
+        }
+        if (streamSeconds > 0 && Math.abs(containerSeconds - streamSeconds) <= 30) {
+            return containerSeconds;
+        }
+
+        double mediaEnd = probeLastVideoPacketSeconds(path);
+        if (mediaEnd <= 0) return containerSeconds;
+        if (containerSeconds - mediaEnd > 30) {
+            LOG.warn("Container duration for {} is {}s but the media ends at {}s "
+                    + "(subtitle/attachment tail); using the media end",
+                    path, Math.round(containerSeconds), Math.round(mediaEnd));
+            return mediaEnd;
+        }
+        return containerSeconds;
+    }
+
+    /** Last video packet timestamp, i.e. where the picture actually stops. */
+    private double probeLastVideoPacketSeconds(String path) {
+        String ffprobePath = discoveryService.findFFprobeExecutable();
+        if (ffprobePath == null) return 0;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    ffprobePath, "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "packet=pts_time",
+                    "-of", "csv=p=0", path);
+            Process process = pb.start();
+            // Read before waiting: the packet list outgrows the pipe buffer, so
+            // waiting first would deadlock.
+            String out = new String(process.getInputStream().readAllBytes()).trim();
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                LOG.warn("Media-end probe timed out for: {}", path);
+                return 0;
+            }
+            if (process.exitValue() != 0 || out.isEmpty()) return 0;
+            String[] lines = out.split("\\R");
+            for (int i = lines.length - 1; i >= 0; i--) {
+                String v = lines[i].trim();
+                if (v.isEmpty()) continue;
+                try {
+                    return Double.parseDouble(v);
+                } catch (NumberFormatException ignored) {
+                    // header or "N/A" line: keep looking upward
+                }
+            }
+            return 0;
+        } catch (Exception e) {
+            LOG.warn("Could not determine media end for {}: {}", path, e.getMessage());
+            return 0;
         }
     }
 
