@@ -198,6 +198,7 @@ public class PlaybackController {
         st.setDjExitTime(null);
         st.setDjTransitionPlanned(null); // Use null to indicate "not yet attempted"
         st.setDjTransitionConfidence(null);
+        st.setDjTransitionCrossfade(null);
         st.setDjTransitionReason(null);
     }
     
@@ -1657,6 +1658,7 @@ public class PlaybackController {
             st.setDjExitTime(Math.max(transition.getExitTime(), exitFloor));
             st.setDjTransitionPlanned(true);
             st.setDjTransitionConfidence(transition.getConfidence());
+            st.setDjTransitionCrossfade(transition.getCrossfadeSeconds());
             st.setDjTransitionReason(transition.getReason());
             System.out.println("[DJ] === TRANSITION PLANNED ===");
             System.out.println("[DJ]   Exit: " + currentSong.getTitle() + " at " + transition.getExitTime() + "s");

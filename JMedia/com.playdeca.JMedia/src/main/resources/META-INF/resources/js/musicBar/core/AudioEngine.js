@@ -175,15 +175,27 @@
                 // Create gain nodes
                 this.nodes.g1 = this.ctx.createGain();
                 this.nodes.g2 = this.ctx.createGain();
-                
-                // Connect: Source -> lowShelf -> Gain -> Destination
+
+                // Master limiter. Equal-power crossfades preserve power, so two
+                // correlated decks sum to about +3 dBFS at the midpoint. This keeps
+                // peaks in check without touching normal listening levels.
+                this.nodes.master = this.ctx.createDynamicsCompressor();
+                this.nodes.master.threshold.value = -3;
+                this.nodes.master.knee.value = 3;
+                this.nodes.master.ratio.value = 12;
+                this.nodes.master.attack.value = 0.003;
+                this.nodes.master.release.value = 0.25;
+
+                // Connect: Source -> lowShelf -> Gain -> master -> Destination
                 this.nodes.p1.connect(this.nodes.low1);
                 this.nodes.low1.connect(this.nodes.g1);
-                this.nodes.g1.connect(this.ctx.destination);
-                
+                this.nodes.g1.connect(this.nodes.master);
+
                 this.nodes.p2.connect(this.nodes.low2);
                 this.nodes.low2.connect(this.nodes.g2);
-                this.nodes.g2.connect(this.ctx.destination);
+                this.nodes.g2.connect(this.nodes.master);
+
+                this.nodes.master.connect(this.ctx.destination);
                 
                 // Initial volumes - PRIORITIZE DEVICE MANAGER
                 let initialVol = 0.8;
@@ -1061,7 +1073,7 @@
             if (window.StateManager) {
                 const stateVol = window.StateManager.getProperty('volume');
                 window.Helpers?.log?.('[AudioEngine crossfade] StateManager.volume =', stateVol, 'type:', typeof stateVol);
-                if (typeof stateVol === 'number' && stateVol > 0 && stateVol <= 1) {
+                if (typeof stateVol === 'number' && stateVol >= 0 && stateVol <= 1) {
                     targetVolume = stateVol;
                 }
             }

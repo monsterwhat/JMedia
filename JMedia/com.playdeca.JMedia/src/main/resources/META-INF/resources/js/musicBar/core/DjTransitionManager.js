@@ -231,7 +231,10 @@
                 profileId: profileId,
                 streamUrl: '/api/music/stream/' + profileId + '/' + nextSongId,
                 reason: state.djTransitionReason || '',
-                crossfadeDuration: state.crossfadeDuration || 8
+                // The planner's chosen fade wins; state.crossfadeDuration is the
+                // user's global setting and DJ mode forces it to 8 s, which used
+                // to override a 1-2 s beat-aligned plan.
+                crossfadeDuration: state.djTransitionCrossfade || state.crossfadeDuration || 8
             };
             
             // PRELOAD: Tell AudioEngine to preload the next song in the background player
@@ -612,10 +615,10 @@
             this.transitionPrepared = false;
             this.transitionData = null;
             
-            // Clear crossfade flag
-            if (window.SynchronizationManager) {
-                window.SynchronizationManager.setFlag('isCrossfading', false);
-            }
+            // Do NOT clear the shared isCrossfading flag here: AudioEngine owns it
+            // and clears it in finalizeCrossfade. This used to run mid-fade (the
+            // server clears the plan right after transition-started), unfreezing the
+            // slider and re-enabling setSource while the fade was still audible.
             
             this.updateDjIndicator('none');
         },
