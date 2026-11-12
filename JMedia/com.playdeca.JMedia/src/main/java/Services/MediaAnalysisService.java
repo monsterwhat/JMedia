@@ -96,16 +96,19 @@ public class MediaAnalysisService {
 
         double streamSeconds = 0;
         for (JsonNode stream : root.path("streams")) {
-            String type = stream.path("codec_type").asText();
-            if (!"video".equals(type) && !"audio".equals(type)) continue;
+            // Only the primary video stream speaks for the file's length. Some MKVs
+            // carry an extra attached video stream (cover art / thumbnail) whose
+            // duration is the CONTAINER duration, which made this shortcut fire and
+            // skip the measurement that actually matters.
+            if (!"video".equals(stream.path("codec_type").asText())) continue;
             JsonNode d = stream.path("duration");
             if (d.isMissingNode() || d.isNull()) continue;
             try {
-                double v = Double.parseDouble(d.asText());
-                if (v > streamSeconds) streamSeconds = v;
+                streamSeconds = Double.parseDouble(d.asText());
             } catch (NumberFormatException ignored) {
-                // "N/A" and similar: no usable per-stream duration
+                streamSeconds = 0;
             }
+            break;
         }
         if (streamSeconds > 0 && Math.abs(containerSeconds - streamSeconds) <= 30) {
             return containerSeconds;
