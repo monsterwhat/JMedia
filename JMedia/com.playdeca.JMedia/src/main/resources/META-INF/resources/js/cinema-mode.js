@@ -1670,19 +1670,6 @@ async function loadCinemaData() {
     const container = document.querySelector('.cinema-sections');
     if (container) {
     container.innerHTML = html;
-    // "Requested" rail: titles requested from search / the not-in-library page.
-    if (section === 'home') {
-      fetch('/api/video/ui/requests-fragment', { credentials: 'include' })
-        .then(r => r.ok ? r.text() : '')
-        .then(reqHtml => {
-          if (!reqHtml || !reqHtml.trim() || !container.isConnected) return;
-          const holder = document.createElement('div');
-          holder.innerHTML = reqHtml;
-          const first = holder.firstElementChild;
-          if (first) container.insertBefore(first, container.firstChild);
-        })
-        .catch(e => console.warn('[cinema] requests rail failed', e));
-    }
     }
     const scriptTag = document.getElementById('cinema-home-data');
     if (scriptTag) {
