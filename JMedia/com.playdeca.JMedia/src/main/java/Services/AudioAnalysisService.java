@@ -203,8 +203,12 @@ public class AudioAnalysisService {
         }
         File audioFile = new File(libraryPath + File.separator + start.path());
         if (!audioFile.exists()) {
-            LOG.error("Audio file not found: {}", audioFile.getAbsolutePath());
-            QuarkusTransaction.requiringNew().run(() -> markFailed(start.analysisId(), "audio file missing"));
+            // Missing file is not something the retry loop can fix. Mark it
+            // COMPLETED-with-no-beats (like a non-percussive track) so it is not
+            // retried forever and DJ mode simply skips it.
+            LOG.warn("Audio file not found for '{}': {}", start.title(), audioFile.getAbsolutePath());
+            String missingPath = audioFile.getAbsolutePath();
+            QuarkusTransaction.requiringNew().run(() -> markMissing(start.analysisId(), missingPath));
             return null;
         }
 
@@ -340,6 +344,21 @@ public class AudioAnalysisService {
         SongAnalysis analysis = em.getReference(SongAnalysis.class, analysisId);
         analysis.setStatus(SongAnalysis.AnalysisStatus.FAILED);
         analysis.setErrorMessage(message);
+        analysis.setAnalysisTimestamp(System.currentTimeMillis());
+        em.merge(analysis);
+    }
+
+    /** Terminal state for a song whose file is gone: no retry, no DJ plan. */
+    private void markMissing(Long analysisId, String path) {
+        SongAnalysis analysis = em.getReference(SongAnalysis.class, analysisId);
+        analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
+        analysis.setBeatCount(0);
+        analysis.setAverageBpm(0.0);
+        analysis.setBeatTimesJson("[]");
+        analysis.setSegmentFeaturesJson("[]");
+        analysis.setSimilarBeatsJson("{}");
+        analysis.setBeatMetadataJson("[]");
+        analysis.setErrorMessage("audio file not found: " + path);
         analysis.setAnalysisTimestamp(System.currentTimeMillis());
         em.merge(analysis);
     }

@@ -128,15 +128,17 @@ public class AnalysisWorker {
 
             // Recover rows abandoned mid-analysis (crash, restart, shutdown). A
             // PROCESSING row older than the threshold is re-queued; without this it
-            // is never selected again by either worker.
+            // is never selected again by either worker. The tick itself is not
+            // transactional, so the UPDATE needs its own short transaction.
             long stuckCutoff = System.currentTimeMillis() - STUCK_PROCESSING_MS;
-            int recovered = em.createQuery(
-                    "UPDATE SongAnalysis sa SET sa.status = :pending " +
-                    "WHERE sa.status = :processing AND sa.analysisTimestamp < :cutoff")
-                    .setParameter("pending", SongAnalysis.AnalysisStatus.PENDING)
-                    .setParameter("processing", SongAnalysis.AnalysisStatus.PROCESSING)
-                    .setParameter("cutoff", stuckCutoff)
-                    .executeUpdate();
+            int recovered = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() ->
+                    em.createQuery(
+                            "UPDATE SongAnalysis sa SET sa.status = :pending " +
+                            "WHERE sa.status = :processing AND sa.analysisTimestamp < :cutoff")
+                            .setParameter("pending", SongAnalysis.AnalysisStatus.PENDING)
+                            .setParameter("processing", SongAnalysis.AnalysisStatus.PROCESSING)
+                            .setParameter("cutoff", stuckCutoff)
+                            .executeUpdate());
             if (recovered > 0) {
                 LOG.warn("AnalysisWorker: re-queued {} stuck PROCESSING row(s)", recovered);
             }
