@@ -39,8 +39,28 @@ window.refreshCurrentAiView = function() {
 // Debounced search helper
 window.debouncedSearchAiVideos = function() {
     if (window._aiSearchTimer) clearTimeout(window._aiSearchTimer);
-    window._aiSearchTimer = setTimeout(() => {
-        window.refreshCurrentAiView();
+    // The search box is inside the view refreshCurrentAiView() re-renders, so every
+    // keystroke pause replaced the input and dropped focus (same pattern as the video
+    // search). Remember the caret and restore it once the new view is in place.
+    const active = document.activeElement;
+    const wasTyping = !!(active && active.id === 'aiSubSearch');
+    const caret = wasTyping ? active.selectionStart : null;
+    window._aiSearchTimer = setTimeout(async () => {
+        try {
+            const pending = window.refreshCurrentAiView();
+            if (pending && typeof pending.then === 'function') {
+                await pending;
+            }
+        } catch (e) {
+            console.warn('[ai-subtitles] refresh after search failed:', e);
+        }
+        if (!wasTyping) return;
+        const input = document.getElementById('aiSubSearch');
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        if (caret != null) {
+            try { input.setSelectionRange(caret, caret); } catch (e) { /* caret is best-effort */ }
+        }
     }, 400);
 };
 
