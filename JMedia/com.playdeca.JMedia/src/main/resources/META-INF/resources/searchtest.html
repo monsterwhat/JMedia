@@ -12,9 +12,10 @@
   .bare { width:100%; height:50px; border-radius:9999px; border:1px solid #444;
           background:#1c1c1c; color:#fff; padding:0 16px; font-size:16px; }
   .case { margin-bottom:32px; }
-  /* static (not fixed) so it cannot sit off-screen; 'searching' so the field is visible
-     without needing the button swap */
-  #testDock { position: static; margin-top: 8px; }
+  /* same as the app: pinned to the bottom. On iOS the keyboard resizes the visual
+     viewport, which moves fixed elements - the remaining suspect. */
+  #testDock { position: fixed; left:0; right:0; bottom:0; }
+  body { padding-bottom: 160px; }
 </style>
 </head>
 <body>
