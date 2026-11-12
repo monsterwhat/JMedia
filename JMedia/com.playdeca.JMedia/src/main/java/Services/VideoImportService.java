@@ -62,6 +62,10 @@ public class VideoImportService {
     @Inject
     VideoScanExecutor videoScanExecutor;
 
+    /** Shared cap on background ffmpeg/ffprobe children (scan probes included). */
+    @Inject
+    MediaProcessLimiter mediaProcessLimiter;
+
     @Inject
     VideoStateService videoStateService;
 
@@ -255,7 +259,17 @@ public class VideoImportService {
                 
                 for (Path path : filesToProcess) {
                     submittedTasks.incrementAndGet();
-                    completion.submit(() -> processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles));
+                    completion.submit(() -> {
+                        // Per-file, not per-scan: a 3,000-file scan must not hold a background
+                        // slot for its whole duration, and the cap is what keeps the service
+                        // cgroup from reaching the ~7GB that starved the host.
+                        boolean held = mediaProcessLimiter.acquireBackground("scan:" + path.getFileName());
+                        try {
+                            return processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles);
+                        } finally {
+                            if (held) mediaProcessLimiter.releaseBackground();
+                        }
+                    });
                 }
             }
             
