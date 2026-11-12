@@ -4559,6 +4559,13 @@ async function initSubtitleSearchSidebar() {
 // Dock + Search Wiring
 // ============================================================
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
+document.getElementById('searchDockBtn')?.addEventListener('pointerdown', function () {
+  // Apply the layout swap BEFORE the tap can focus anything: `.searching` hides
+  // .cinema-dock-search with display:none, and iOS cancels focus when the focused
+  // element is removed from layout. Doing it on pointerdown avoids that race.
+  const dock = document.querySelector('.cinema-dock');
+  if (dock) dock.classList.add('searching');
+});
 document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
 document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function(e) {
   e.preventDefault();
