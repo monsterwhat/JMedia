@@ -43,8 +43,6 @@
             this.sidePanel = document.getElementById('mobileSidePanel');
             this.sidePanelOverlay = document.getElementById('mobileSidePanelOverlay');
             this.sidePanelClose = document.getElementById('mobileSidePanelClose');
-            this.searchInput = document.getElementById('mobileSearch');
-            this.searchClear = document.getElementById('mobileSearchClear');
             this.songList = document.getElementById('mobileSongList');
             this.tabButtons = document.querySelectorAll('.mobile-tab');
             this.expandBtn = document.getElementById('expandPlayerBtn');
@@ -54,8 +52,6 @@
             if (!this.sidePanel) console.warn('Mobile side panel not found');
             if (!this.sidePanelOverlay) console.warn('Mobile side panel overlay not found');
             if (!this.sidePanelClose) console.warn('Mobile side panel close not found');
-            if (!this.searchInput) console.warn('Mobile search input not found');
-            if (!this.searchClear) console.warn('Mobile search clear not found');
             if (!this.songList) console.warn('Mobile song list not found');
             if (!this.tabButtons) console.warn('Mobile tab buttons not found');
             if (!this.expandBtn) console.warn('Expand button not found');
@@ -79,12 +75,6 @@
                         this.switchMobileTab(tabName);
                     });
                 });
-            }
-            if (this.searchInput) {
-                this.searchInput.addEventListener('input', (e) => this.handleMobileSearch(e.target.value));
-            }
-            if (this.searchClear) {
-                this.searchClear.addEventListener('click', () => this.clearMobileSearch());
             }
             if (this.expandBtn) {
                 this.expandBtn.addEventListener('click', () => this.togglePlayerExpansion());
