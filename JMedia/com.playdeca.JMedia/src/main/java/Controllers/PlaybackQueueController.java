@@ -142,6 +142,8 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             } else {
                 // Repeat OFF (or ONE) natural end: do NOT refill — signal stop so
                 // PlaybackController halts playback instead of looping.
+                LOG.info("Queue empty on natural end: not refilling (repeat={}, manualAdvance={})",
+                        state.getRepeatMode(), manualAdvance);
                 state.setPlaying(false);
                 return null;
             }

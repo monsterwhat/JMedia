@@ -613,7 +613,13 @@ public class PlaybackController {
                     }
                 }
                 
-                LOGGER.info("No next song found for profile " + profileId + ". Stopping playback.");
+                LOGGER.info("No next song found for profile " + profileId + ". Stopping playback."
+                        + " [cueSize=" + (st.getCue() == null ? -1 : st.getCue().size())
+                        + " cueIndex=" + st.getCueIndex()
+                        + " repeat=" + st.getRepeatMode()
+                        + " shuffle=" + st.getShuffleMode()
+                        + " djMode=" + st.getDjModeActive()
+                        + " currentSong=" + st.getCurrentSongId() + "]");
                 stopPlaybackTimer(profileId);
                 st.setPlaying(false);
                 st.setCurrentSongId(null);
