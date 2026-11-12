@@ -4796,6 +4796,27 @@ async function performSearch(query) {
   dropdown.classList.add('visible');
 }
 
+// Temporary diagnosic: the mobile keyboard closes right after the search field is
+// focused. A 404 to /__searchdiag/... lands in nginx's access log with the event and
+// the element that took focus, so no device console is needed.
+(function () {
+const si = document.getElementById('searchInput');
+if (!si) return;
+const report = (event) => {
+try {
+const a = document.activeElement;
+const active = a ? (a.id || a.tagName || 'unknown') : 'null';
+const box = document.querySelector('.cinema-search');
+const vis = box ? (getComputedStyle(box).display !== 'none') : 'n/a';
+const img = new Image();
+img.src = '/__searchdiag/' + event + '/' + encodeURIComponent(active) + '/' + vis + '/' + Date.now();
+} catch (e) { /* diagnostics only */ }
+};
+si.addEventListener('focus', () => report('focus'));
+si.addEventListener('blur', () => report('blur'));
+si.addEventListener('focusout', () => report('focusout'));
+})();
+
 document.getElementById('searchInput')?.addEventListener('input', debounce(function(e) {
   performSearch(e.target.value);
 }, 250));
