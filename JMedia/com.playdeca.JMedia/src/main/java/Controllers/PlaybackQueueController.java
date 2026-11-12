@@ -1348,6 +1348,16 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         }
         List<Long> poolIds = buildSongPool(state);
         boolean smartShuffle = state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
+        // The user's original queue may be exhausted or hold ids that no longer
+        // exist. For a continuous shuffle that is not a reason to stop: fall back
+        // to the whole library and keep playing.
+        if (poolIds.isEmpty() && continuousSelection) {
+            LOG.info("Shuffle pool empty (originalCue={}); refilling from the full library",
+                    state.getOriginalCue() == null ? 0 : state.getOriginalCue().size());
+            poolIds = songService.findAll().stream()
+                    .map(s -> s.id)
+                    .collect(java.util.stream.Collectors.toList());
+        }
         if (poolIds.isEmpty() && smartShuffle && hasDjRestriction(state)) {
             poolIds = songService.findAll().stream()
                     .map(s -> s.id)
