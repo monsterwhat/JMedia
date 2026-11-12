@@ -1369,44 +1369,50 @@
          * requested position.
          */
         async resolveStreamOrigin(url) {
-            // The probe must never hold the player hostage: it is served through the
-            // same transcode/segment path as the real stream, so on a busy or
-            // still-starting encoder it can take tens of seconds. Cap it and let the
-            // caller fall back to the requested position instead of leaving the
-            // element with no src at all (black player).
-            const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-            const timeoutMs = 5000;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-            try {
-                // 4096 bytes, not 0-0: tiny ranges are answered by a special empty-206
-                // branch that carries no headers, so the origin would always be missing.
-                const res = await fetch(url, {
-                    headers: { 'Range': 'bytes=0-4095' },
-                    cache: 'no-store',
-                    credentials: 'include',
-                    signal: controller ? controller.signal : undefined
-                });
-                const raw = res.headers.get('X-Stream-Origin');
+            // Two attempts with a growing budget: the probe is served through the same
+            // transcode/segment path as the real stream, so a cold or busy encoder can
+            // miss the first window. A missed origin is not harmless — the caller keeps
+            // the REQUESTED position while the server actually starts at the keyframe
+            // before it, and the subtitle shift is then wrong by that gap (a seek to
+            // 225s starts at 221.7s, which showed up as cues ~3s late).
+            const attemptsMs = [6000, 12000];
+            for (let attempt = 0; attempt < attemptsMs.length; attempt++) {
+                const timeoutMs = attemptsMs[attempt];
+                const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
                 try {
-                    if (res.body && res.body.cancel) res.body.cancel();
-                } catch (e) {
-                    // Body cancel is best-effort; the range is only 4 KB.
-                }
-                if (raw != null && raw !== '') {
-                    const origin = parseFloat(raw);
-                    if (!isNaN(origin) && origin >= 0) {
-                        return origin;
+                    // 4096 bytes, not 0-0: tiny ranges are answered by a special empty-206
+                    // branch that carries no headers, so the origin would always be missing.
+                    const res = await fetch(url, {
+                        headers: { 'Range': 'bytes=0-4095' },
+                        cache: 'no-store',
+                        credentials: 'include',
+                        signal: controller ? controller.signal : undefined
+                    });
+                    const raw = res.headers.get('X-Stream-Origin');
+                    try {
+                        if (res.body && res.body.cancel) res.body.cancel();
+                    } catch (e) {
+                        // Body cancel is best-effort; the range is only 4 KB.
                     }
+                    if (raw != null && raw !== '') {
+                        const origin = parseFloat(raw);
+                        if (!isNaN(origin) && origin >= 0) {
+                            return origin;
+                        }
+                    }
+                } catch (e) {
+                    if (e && e.name === 'AbortError') {
+                        console.warn('[SimplePlayer] Stream origin probe attempt ' + (attempt + 1)
+                                + ' timed out after ' + timeoutMs + 'ms');
+                    } else {
+                        console.warn('[SimplePlayer] Stream origin probe attempt ' + (attempt + 1) + ' failed:', e);
+                    }
+                } finally {
+                    if (timer) clearTimeout(timer);
                 }
-            } catch (e) {
-                if (e && e.name === 'AbortError') {
-                    console.warn('[SimplePlayer] Stream origin probe timed out after ' + timeoutMs + 'ms; using the requested position');
-                } else {
-                    console.warn('[SimplePlayer] Stream origin probe failed:', e);
-                }
-            } finally {
-                if (timer) clearTimeout(timer);
             }
+            console.warn('[SimplePlayer] Stream origin unavailable; using the requested position (subtitles may be off by the keyframe gap)');
             return null;
         }
 
