@@ -1624,6 +1624,11 @@ html, body {
   background: #141414;
 }
 
+/* In a home-screen (standalone) web app iOS resizes the visual viewport when the
+   keyboard opens, and a bottom-pinned fixed bar loses the field's focus. While
+   searching, the dock is pinned to the top instead, away from the keyboard. */
+.cinema-dock.searching { bottom: auto; top: 0; }
+
 .cinema-dock.searching .cinema-dock-nav {
   display: none;
 }
