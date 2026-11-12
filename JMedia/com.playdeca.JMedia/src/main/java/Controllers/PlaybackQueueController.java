@@ -1338,12 +1338,12 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
 
     private void refillCueFromPool(PlaybackState state, Long profileId, boolean manualAdvance) {
-        // Refill is gated on RepeatMode.ALL OR a manual forward advance. With Repeat
-        // OFF + natural end the queue is consumed exactly once and must NOT be
-        // silently refilled from the library — the caller (advance) returns null
-        // for OFF and stops playback. Only Repeat ALL (continuous playback) or a
-        // manual next/play (manualAdvance) refills from the pool.
-        if (state.getRepeatMode() != PlaybackState.RepeatMode.ALL && !manualAdvance) {
+        // Refill is gated on RepeatMode.ALL, a manual advance, or a continuous
+        // shuffle mode. With Repeat OFF + shuffle OFF the queue is consumed
+        // exactly once and must NOT be silently refilled (album semantics).
+        boolean continuousSelection = state.getShuffleMode() != PlaybackState.ShuffleMode.OFF;
+        if (state.getRepeatMode() != PlaybackState.RepeatMode.ALL
+                && !manualAdvance && !continuousSelection) {
             return;
         }
         List<Long> poolIds = buildSongPool(state);
