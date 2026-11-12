@@ -135,7 +135,11 @@ public class TranscodingService {
     // growing segment's written frontier is served by a fresh transcode, not the segment.
     private static final double FAR_SEEK_AHEAD_SECONDS = 15.0;
 
-    private static final int AUTO_MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 4, 4));
+    // The Arc A380 does the encoding work in hardware, so the old cores/4 rule (4 on a
+    // 16-core box) throttled playback far below what the GPU can sustain. What actually
+    // bounds concurrency here is system RAM per ffmpeg child plus disk read bandwidth, so
+    // the auto size now scales with cores/2 and caps at 12.
+    private static final int AUTO_MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 2, 12));
     private volatile java.util.concurrent.Semaphore transcodePermits; // swapped live by updateMaxConcurrentTranscodes(); each acquire/release pair uses the instance captured at acquire time
     private volatile int transcodePoolSize; // current pool size (mirrors transcodePermits.availablePermits() at creation time)
     private volatile boolean transcodingDisabled = false;

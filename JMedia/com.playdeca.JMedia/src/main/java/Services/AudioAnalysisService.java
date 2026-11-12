@@ -47,6 +47,10 @@ public class AudioAnalysisService {
     @Inject
     TranscodingService transcodingService;
 
+    /** Caps background ffmpeg children alongside the streaming transcode pool. */
+    @Inject
+    MediaProcessLimiter mediaProcessLimiter;
+
     /** Single permit taken only while a transcode runs, so analyses cannot stack up. */
     private final java.util.concurrent.Semaphore transcodeSlot = new java.util.concurrent.Semaphore(1, true);
 
@@ -242,6 +246,7 @@ public class AudioAnalysisService {
 
         AnalysisResult result;
         boolean heldTranscodeSlot = acquireAnalysisSlot(start.title());
+        boolean heldMediaSlot = mediaProcessLimiter.acquireBackground("analysis:" + start.title());
         try {
             LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", start.title());
             result = performAdvancedTarsosAnalysis(audioFile);
@@ -261,6 +266,9 @@ public class AudioAnalysisService {
         } finally {
             if (heldTranscodeSlot) {
                 transcodeSlot.release();
+            }
+            if (heldMediaSlot) {
+                mediaProcessLimiter.releaseBackground();
             }
         }
 
