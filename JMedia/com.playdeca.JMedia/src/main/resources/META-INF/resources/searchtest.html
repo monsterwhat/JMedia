@@ -12,7 +12,9 @@
   .bare { width:100%; height:50px; border-radius:9999px; border:1px solid #444;
           background:#1c1c1c; color:#fff; padding:0 16px; font-size:16px; }
   .case { margin-bottom:32px; }
-  #testDock { position:fixed; left:0; right:0; bottom:0; }
+  /* static (not fixed) so it cannot sit off-screen; 'searching' so the field is visible
+     without needing the button swap */
+  #testDock { position: static; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -30,12 +32,9 @@ cinema-mode.js, so whatever happens here is CSS-only.</p>
   <div style="color:#888;font-size:12px">The dock below is fixed to the bottom, same as the app.</div>
 </div>
 
-<div class="cinema-dock" id="testDock">
-  <div class="cinema-dock-search">
-    <button id="testSearchBtn" type="button" aria-label="Search">Search</button>
-  </div>
+<div class="cinema-dock searching" id="testDock">
   <div class="cinema-search-bar">
-    <input class="cinema-search-input" id="searchInput" type="text" placeholder="Search movies, shows..." autocomplete="off">
+    <input class="cinema-search-input" id="searchInput" type="text" placeholder="Dock search input..." autocomplete="off">
   </div>
   <div class="cinema-search-dropdown" id="searchDropdown"></div>
 </div>
@@ -71,12 +70,7 @@ cinema-mode.js, so whatever happens here is CSS-only.</p>
   hook('bare', bare);
   hook('dock', input);
 
-  // Mimic the app's openSearch, nothing else.
-  btn.addEventListener('click', function () {
-    dock.classList.add('searching');
-    input.value = '';
-    input.focus();
-  });
+  // Keep the dock in 'searching' state so the field is visible; no swap to test.
 })();
 </script>
 </body>
