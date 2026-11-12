@@ -34,6 +34,12 @@ public class VideoDurationRepairService {
     @Inject
     MediaAnalysisService mediaAnalysisService;
 
+    @Inject
+    TranscodingService transcodingService;
+
+    /** Optional series filter: repairing one show takes minutes instead of hours. */
+    private volatile String seriesFilter = null;
+
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger processed = new AtomicInteger(0);
     private final AtomicInteger repaired = new AtomicInteger(0);
@@ -58,12 +64,14 @@ public class VideoDurationRepairService {
     /**
      * Starts a pass in the background.
      *
+     * @param seriesTitle when set, only videos of that series are re-probed
      * @return false when a pass is already running
      */
-    public boolean start() {
+    public boolean start(String seriesTitle) {
         if (!running.compareAndSet(false, true)) {
             return false;
         }
+        seriesFilter = (seriesTitle == null || seriesTitle.isBlank()) ? null : seriesTitle;
         processed.set(0);
         repaired.set(0);
         total.set(0);
@@ -77,14 +85,32 @@ public class VideoDurationRepairService {
 
     private void runPass() {
         try {
-            List<Long> ids = QuarkusTransaction.requiringNew().call(() ->
-                    Video.find("select v.id from Video v where v.duration > 0 and v.path is not null order by v.id")
-                            .project(Long.class)
-                            .list());
+            final String series = seriesFilter;
+            List<Long> ids = QuarkusTransaction.requiringNew().call(() -> {
+                String query = "select v.id from Video v where v.duration > 0 and v.path is not null"
+                        + (series != null ? " and v.seriesTitle = ?1" : "")
+                        + " order by v.id";
+                var q = series != null ? Video.find(query, series) : Video.find(query);
+                return q.project(Long.class).list();
+            });
             total.set(ids.size());
-            LOG.info("Duration repair: checking {} videos", ids.size());
+            LOG.info("Duration repair: checking {} videos{}", ids.size(),
+                    series != null ? " for series '" + series + "'" : "");
 
             for (Long id : ids) {
+                // Yield to playback: a transcode reading the same disks must not queue
+                // behind this pass, and the pass is useless if it makes playback stutter.
+                try {
+                    if (transcodingService != null && transcodingService.getActiveTranscodeCount() > 0) {
+                        Thread.sleep(2000);
+                    } else {
+                        Thread.sleep(50);
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    state = "interrupted";
+                    return;
+                }
                 try {
                     if (mediaAnalysisService.repairDurationIfStretched(id)) {
                         repaired.incrementAndGet();

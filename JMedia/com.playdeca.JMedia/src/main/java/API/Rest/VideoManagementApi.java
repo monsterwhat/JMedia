@@ -362,13 +362,14 @@ public class VideoManagementApi {
     @POST
     @Path("/maintenance/repair-durations")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response startDurationRepair(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+    public Response startDurationRepair(@Context jakarta.ws.rs.core.HttpHeaders headers,
+                                        @QueryParam("series") String series) {
         if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("{\"error\":\"Admin access required\"}")
                     .build();
         }
-        boolean started = durationRepairService.start();
+        boolean started = durationRepairService.start(series);
         return Response.ok("{\"started\":" + started + "}").build();
     }
 
