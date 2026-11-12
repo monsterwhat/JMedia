@@ -371,6 +371,8 @@ public class SubtitleAPI {
             // second after the keyframe. Snapping it again would shift the cues by that
             // gap, which is why the drift only showed on some titles.
             double offset = exactOffset ? requestedOffset : effectiveStreamStart(track, requestedOffset);
+            LOGGER.info("Subtitle offset for track {}: requested={} exact={} used={}",
+                    trackId, requestedOffset, exactOffset, offset);
 
             // For external tracks:
             // -offset: shift earlier by seek position (because the browser video starts at 0.0)
