@@ -4559,13 +4559,6 @@ async function initSubtitleSearchSidebar() {
 // Dock + Search Wiring
 // ============================================================
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
-document.getElementById('searchDockBtn')?.addEventListener('pointerdown', function () {
-  // Apply the layout swap BEFORE the tap can focus anything: `.searching` hides
-  // .cinema-dock-search with display:none, and iOS cancels focus when the focused
-  // element is removed from layout. Doing it on pointerdown avoids that race.
-  const dock = document.querySelector('.cinema-dock');
-  if (dock) dock.classList.add('searching');
-});
 document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
 document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function(e) {
   e.preventDefault();
@@ -4715,12 +4708,9 @@ function openSearch() {
     input.focus();
   };
   if (input) {
+    // Restored: focus inside the tap gesture so iOS opens the keyboard with the field.
     input.value = '';
-    // Do NOT focus while the dock is sliding: iOS cancels the keyboard when a focused
-    // element is repositioned, and re-focusing afterwards restores activeElement but not
-    // the keyboard. Wait for the slide to finish, then focus a stationary field.
-    setTimeout(focusInput, 320);
-    setTimeout(focusInput, 700);
+    input.focus();
   }
 }
 
