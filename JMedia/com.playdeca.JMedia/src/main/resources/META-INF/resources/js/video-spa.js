@@ -955,21 +955,24 @@ window.toggleWatched = function(videoId, el) {
 window.videoSearchTimeout = null;
 window.handleVideoSearch = function(section, query) {
     clearTimeout(window.videoSearchTimeout);
-    // The search box lives INSIDE the content this re-renders, so switching replaces
-    // the <input>: mobile browsers drop focus and close the keyboard mid-word. Remember
-    // whether the user was typing and put the caret back after the new view lands.
-    const active = document.activeElement;
-    const wasTyping = !!(active && active.id === 'videoSearchInput');
-    const caret = wasTyping ? active.selectionStart : null;
+    // The search box lives inside the content this re-renders. Restoring focus after the
+    // fact is not enough on mobile: focus() outside a user gesture will not reopen the
+    // keyboard, so the field looked "done" after every keystroke pause. Instead, keep the
+    // SAME input node across the swap by re-inserting it after the new view lands.
+    const before = document.getElementById('videoSearchInput');
+    const caret = before ? before.selectionStart : null;
     window.videoSearchTimeout = setTimeout(async () => {
         const params = { ...window.videoSPA.currentParams, page: 1, search: query };
         await window.videoSPA.switchSection(section, params);
-        if (!wasTyping) return;
-        const input = document.getElementById('videoSearchInput');
-        if (!input) return;
-        input.focus({ preventScroll: true });
-        if (caret != null) {
-            try { input.setSelectionRange(caret, caret); } catch (e) { /* caret is best-effort */ }
+        const after = document.getElementById('videoSearchInput');
+        if (!before || !after || before === after) return;
+        after.replaceWith(before);
+        before.value = query;
+        try {
+            before.focus({ preventScroll: true });
+            if (caret != null) before.setSelectionRange(caret, caret);
+        } catch (e) {
+            console.warn('[videoSearch] could not restore the search field:', e);
         }
     }, 600);
 };
