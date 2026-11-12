@@ -43,6 +43,13 @@ public class AudioAnalysisService {
     @Inject
     SettingsService settingsService;
 
+    /** Used to detect a running video transcode; analysis is serialised while one is active. */
+    @Inject
+    TranscodingService transcodingService;
+
+    /** Single permit taken only while a transcode runs, so analyses cannot stack up. */
+    private final java.util.concurrent.Semaphore transcodeSlot = new java.util.concurrent.Semaphore(1, true);
+
     /** Proxy so the deferred call still runs inside a transaction. */
     @Inject
     AudioAnalysisService self;
@@ -63,6 +70,19 @@ public class AudioAnalysisService {
     private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
     // Each analysis buffers full PCM + FFT maps; concurrency caused heap exhaustion,
     // so the default (auto) is 1 and scales only with generous heap - see PoolSizeResolver
+
+    /**
+     * Beat, key and spectral features are only derived from the first six minutes.
+     * A 4h20m DJ set used to retain ~672k spectral entries plus every onset and
+     * then hand a huge agent graph to BeatRoot, which is what exhausted the heap.
+     * Loudness still accumulates over the WHOLE file (one double accumulator), so
+     * the per-track gain stays accurate.
+     */
+    private static final double ANALYSIS_WINDOW_SECONDS = 360.0;
+
+    /** How long an analysis waits for a running video transcode to finish. */
+    private static final long TRANSCODE_SLOT_WAIT_MINUTES = 15;
+
 
     private volatile ExecutorService analysisPool;
 
@@ -215,14 +235,33 @@ public class AudioAnalysisService {
             return null;
         }
 
+        if (start.durationSeconds() > ANALYSIS_WINDOW_SECONDS) {
+            LOG.info("Analysis window capped at {}s for '{}' (track is {}s)", (int) ANALYSIS_WINDOW_SECONDS,
+                    start.title(), start.durationSeconds());
+        }
+
         AnalysisResult result;
+        boolean heldTranscodeSlot = acquireAnalysisSlot(start.title());
         try {
             LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", start.title());
             result = performAdvancedTarsosAnalysis(audioFile);
+        } catch (OutOfMemoryError oom) {
+            // Fail fast. Letting this escape used to leave the heap exhausted long
+            // enough that unrelated requests (video streams, progress, subtitles)
+            // failed with the same error and playback froze. Record the failure and
+            // stop; this row is not retried.
+            LOG.error("ADVANCED Analysis ran out of heap for '{}' ({}s) - marking FAILED",
+                    start.title(), start.durationSeconds(), oom);
+            failQuietly(start, "OutOfMemoryError: analysis exceeded the JVM heap");
+            return null;
         } catch (Exception e) {
             LOG.error("ADVANCED Analysis failed for {}: {}", start.title(), e.getMessage(), e);
             QuarkusTransaction.requiringNew().run(() -> markFailed(start.analysisId(), e.getMessage()));
             return null;
+        } finally {
+            if (heldTranscodeSlot) {
+                transcodeSlot.release();
+            }
         }
 
         try {
@@ -374,6 +413,41 @@ public class AudioAnalysisService {
         analysis.setAnalysisTimestamp(System.currentTimeMillis());
         em.merge(analysis);
     }
+
+    /**
+     * While a video transcode is running only one analysis may proceed: each one
+     * holds hundreds of MB and two of them alongside the encoder exhausted the heap.
+     * Bounded wait so a stuck encoder cannot block analysis forever.
+     *
+     * @return true when the serialisation permit was taken and must be released
+     */
+    private boolean acquireAnalysisSlot(String title) {
+        try {
+            if (transcodingService == null || transcodingService.getActiveTranscodeCount() == 0) {
+                return false;
+            }
+            if (transcodeSlot.tryAcquire(TRANSCODE_SLOT_WAIT_MINUTES, java.util.concurrent.TimeUnit.MINUTES)) {
+                LOG.info("Video transcode active - serialising analysis of '{}'", title);
+                return true;
+            }
+            LOG.warn("No free analysis slot after {} min while transcoding; analysing '{}' anyway",
+                    TRANSCODE_SLOT_WAIT_MINUTES, title);
+            return false;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted while waiting for an analysis slot for '{}'", title);
+            return false;
+        }
+    }
+
+    /** Best-effort failure marking: after a heap error even the transaction may fail. */
+    private void failQuietly(AnalysisStart start, String message) {
+        try {
+            QuarkusTransaction.requiringNew().run(() -> markFailed(start.analysisId(), message));
+        } catch (Throwable t) {
+            LOG.error("Could not mark analysis {} as FAILED: {}", start.analysisId(), t.getMessage(), t);
+        }
+    }
     
     public CompletableFuture<SongAnalysis> analyzeSongAsync(Song song) {
         if (!isAnalysisEnabled()) {
@@ -413,6 +487,13 @@ public class AudioAnalysisService {
                 }
                 sampleCount[0] += raw.length;
 
+                // Loudness needs every sample (single accumulator, no retention).
+                // Beat/key features stop at the analysis window so a multi-hour file
+                // cannot retain hundreds of thousands of spectral/onset entries.
+                if (audioEvent.getTimeStamp() > ANALYSIS_WINDOW_SECONDS) {
+                    return true;
+                }
+
                 float[] buffer = raw.clone();
                 float[] magnitudes = new float[bufferSize / 2];
                 fft.forwardTransform(buffer);
@@ -435,7 +516,11 @@ public class AudioAnalysisService {
 
         // Onset detector
         ComplexOnsetDetector onsetDetector = new ComplexOnsetDetector(bufferSize, 0.1, 0.01);
-        onsetDetector.setHandler((time, salience) -> onsetTimes.add(time));
+        onsetDetector.setHandler((time, salience) -> {
+            if (time <= ANALYSIS_WINDOW_SECONDS) {
+                onsetTimes.add(time);
+            }
+        });
         dispatcher.addAudioProcessor(onsetDetector);
         
         dispatcher.run(); // Run full analysis pass
