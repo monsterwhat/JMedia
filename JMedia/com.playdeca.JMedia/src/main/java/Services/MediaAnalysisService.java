@@ -95,14 +95,22 @@ public class MediaAnalysisService {
         if (containerSeconds <= 0) return containerSeconds;
 
         double streamSeconds = 0;
+        boolean primaryVideoSeen = false;
         for (JsonNode stream : root.path("streams")) {
-            // Only the primary video stream speaks for the file's length. Some MKVs
-            // carry an extra attached video stream (cover art / thumbnail) whose
-            // duration is the CONTAINER duration, which made this shortcut fire and
-            // skip the measurement that actually matters.
-            if (!"video".equals(stream.path("codec_type").asText())) continue;
+            if (!"video".equals(stream.path("codec_type").asText())) {
+                continue;
+            }
+            if (primaryVideoSeen) {
+                break;
+            }
+            primaryVideoSeen = true;
+            // Some MKVs carry an extra attached video stream (cover art) whose duration
+            // is the CONTAINER duration. Only the first video stream speaks for the
+            // file, and it is the one the packet scan measures.
             JsonNode d = stream.path("duration");
-            if (d.isMissingNode() || d.isNull()) continue;
+            if (d.isMissingNode() || d.isNull()) {
+                break;
+            }
             try {
                 streamSeconds = Double.parseDouble(d.asText());
             } catch (NumberFormatException ignored) {
