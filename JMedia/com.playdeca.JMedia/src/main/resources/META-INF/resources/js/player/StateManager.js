@@ -76,6 +76,11 @@
             p._autoSkipSection = null;
             p._autoSkipTimer = null;
             p._isUndoing = false;
+            // Sections already auto-skipped for this playback session. A seek rebuild
+            // can park the clock just before the marker end (keyframe origin), which
+            // used to re-trigger the same skip on every guard expiry and leave the
+            // episode frozen right after the intro.
+            p._autoSkippedSections = new Set();
 
             p.storyboard = { metadata: null, loaded: false };
 

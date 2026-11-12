@@ -17,6 +17,20 @@
                 if (p._manuallyUndoneSections.has('outro') && t >= p.markers.outroStart && p.markers.outroStart > 0) return;
             }
 
+            // A section is auto-skipped ONCE per playback session. After a skip the
+            // rebuild can leave the clock at the segment/keyframe origin, which is
+            // still inside [start, end); re-checking on every timeupdate re-fired the
+            // same skip forever (the "frozen right after the intro" symptom). Only an
+            // explicit rewind before the section re-arms it.
+            const skipped = p._autoSkippedSections;
+            if (skipped && skipped.size) {
+                const rewindMargin = 5;
+                if (p.markers.introStart > 0 && t < p.markers.introStart - rewindMargin) skipped.delete('intro');
+                if (p.markers.recapStart > 0 && t < p.markers.recapStart - rewindMargin) skipped.delete('recap');
+                if (p.markers.outroStart > 0 && t < p.markers.outroStart - rewindMargin) skipped.delete('outro');
+            }
+            const alreadySkipped = (section) => !!(skipped && skipped.has(section));
+
             // A transcode seek lands on the keyframe BEFORE the requested time, so
             // right after skipping the intro the clock can still read < introEnd.
             // Without this guard the same section re-triggers forever:
@@ -26,15 +40,15 @@
                 return !!(g && g.section === section && Date.now() < g.until && t < end + 2);
             };
 
-            if (p.autoSkipIntro && !inSkipGuard('intro', p.markers.introEnd) && t >= p.markers.introStart && t < p.markers.introEnd) {
+            if (p.autoSkipIntro && !alreadySkipped('intro') && !inSkipGuard('intro', p.markers.introEnd) && t >= p.markers.introStart && t < p.markers.introEnd) {
                 this._performAutoSkip('intro', p.markers.introStart, p.markers.introEnd);
                 return;
             }
-            if (p.autoSkipRecap && !inSkipGuard('recap', p.markers.recapEnd) && t >= p.markers.recapStart && t < p.markers.recapEnd) {
+            if (p.autoSkipRecap && !alreadySkipped('recap') && !inSkipGuard('recap', p.markers.recapEnd) && t >= p.markers.recapStart && t < p.markers.recapEnd) {
                 this._performAutoSkip('recap', p.markers.recapStart, p.markers.recapEnd);
                 return;
             }
-            if (p.autoSkipOutro && !inSkipGuard('outro', p.markers.outroEnd) && t >= p.markers.outroStart && p.markers.outroStart > 0) {
+            if (p.autoSkipOutro && !alreadySkipped('outro') && !inSkipGuard('outro', p.markers.outroEnd) && t >= p.markers.outroStart && p.markers.outroStart > 0) {
                 this._performAutoSkip('outro', p.markers.outroStart, p.markers.outroEnd);
                 return;
             }
@@ -50,6 +64,8 @@
                     && Date.now() < p._autoSkipGuard.until) {
                 return;
             }
+            if (!p._autoSkippedSections) p._autoSkippedSections = new Set();
+            p._autoSkippedSections.add(section);
             p._autoSkipUndoTime = start;
             p._autoSkipSection = section;
 

@@ -1193,8 +1193,11 @@
             if (p._destroyed || !document.body.contains(p.container)) return;
 
             // Remember the intent: a rebuild must not silently leave the player
-            // paused (auto-skip intro used to do exactly that).
-            const wasPlaying = !p._userPaused && (p.state ? p.state.playing !== false : !p.video.paused);
+            // paused (auto-skip intro used to do exactly that). The element's own
+            // paused flag is authoritative; `state.playing` can still be false from
+            // a previous swap guard, which used to suppress the resume entirely.
+            const wasPlaying = !p._userPaused
+                && (!p.video.paused || (p.state ? p.state.playing !== false : false));
 
             p._swapInProgress = true;
             if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);

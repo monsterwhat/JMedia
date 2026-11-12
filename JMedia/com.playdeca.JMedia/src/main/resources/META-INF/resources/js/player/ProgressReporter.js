@@ -70,6 +70,16 @@
             const p = this.player;
             const now = Date.now();
             var isPaused = p.video ? p.video.paused : false;
+            // During a seek rebuild the element is paused after its src is torn down,
+            // but `streamStartOffset` still holds the PREVIOUS session's origin. Saving
+            // element+offset then records a position from the old timeline — e.g. the
+            // 91.9s report while the player was actually moving to 172s, which lands
+            // inside the intro and re-triggers the auto-skip. The seek path saves the
+            // target itself once the new session is playing.
+            if (p._swapInProgress) {
+                console.log('[SimplePlayer] saveNow skipped: stream swap in progress');
+                return;
+            }
             if (!force && p._lastProgressSave && now - p._lastProgressSave < 2000) {
                 if (isPaused) {
                     console.log('[SimplePlayer] saveNow throttled but pause report forced through (playing=false)');
