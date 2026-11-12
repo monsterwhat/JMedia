@@ -955,10 +955,23 @@ window.toggleWatched = function(videoId, el) {
 window.videoSearchTimeout = null;
 window.handleVideoSearch = function(section, query) {
     clearTimeout(window.videoSearchTimeout);
-    window.videoSearchTimeout = setTimeout(() => {
+    // The search box lives INSIDE the content this re-renders, so switching replaces
+    // the <input>: mobile browsers drop focus and close the keyboard mid-word. Remember
+    // whether the user was typing and put the caret back after the new view lands.
+    const active = document.activeElement;
+    const wasTyping = !!(active && active.id === 'videoSearchInput');
+    const caret = wasTyping ? active.selectionStart : null;
+    window.videoSearchTimeout = setTimeout(async () => {
         const params = { ...window.videoSPA.currentParams, page: 1, search: query };
-        window.videoSPA.switchSection(section, params);
-    }, 500);
+        await window.videoSPA.switchSection(section, params);
+        if (!wasTyping) return;
+        const input = document.getElementById('videoSearchInput');
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        if (caret != null) {
+            try { input.setSelectionRange(caret, caret); } catch (e) { /* caret is best-effort */ }
+        }
+    }, 600);
 };
 
 window.clearVideoSearch = function(section) {
@@ -970,10 +983,20 @@ window.clearVideoSearch = function(section) {
 
 window.handleAdminVideoSearch = function(query) {
     clearTimeout(window.videoSearchTimeout);
-    window.videoSearchTimeout = setTimeout(() => {
+    const active = document.activeElement;
+    const wasTyping = !!(active && active.id === 'adminVideoSearchInput');
+    const caret = wasTyping ? active.selectionStart : null;
+    window.videoSearchTimeout = setTimeout(async () => {
         const params = { ...window.videoSPA.currentParams, page: 1, search: query };
-        window.videoSPA.switchSection('adminHistory', params);
-    }, 500);
+        await window.videoSPA.switchSection('adminHistory', params);
+        if (!wasTyping) return;
+        const input = document.getElementById('adminVideoSearchInput');
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        if (caret != null) {
+            try { input.setSelectionRange(caret, caret); } catch (e) { /* caret is best-effort */ }
+        }
+    }, 600);
 };
 
 window.clearAdminVideoSearch = function() {
