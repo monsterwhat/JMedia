@@ -4813,10 +4813,13 @@ const report = (event) => {
 try {
 const a = document.activeElement;
 const active = a ? (a.id || a.tagName || 'unknown') : 'null';
-const box = document.querySelector('.cinema-search');
-const vis = box ? (getComputedStyle(box).display !== 'none') : 'n/a';
+const inp = document.getElementById('searchInput');
+const inDom = inp ? document.body.contains(inp) : false;
+const visible = inp ? (inp.offsetParent !== null && getComputedStyle(inp).display !== 'none') : false;
+const dock = document.querySelector('.cinema-dock');
+const dockClass = dock ? (dock.className || '').replace(/\s+/g, '.') : 'none';
 const img = new Image();
-img.src = '/__searchdiag/' + event + '/' + encodeURIComponent(active) + '/' + vis + '/' + Date.now();
+img.src = '/__searchdiag/' + event + '/' + encodeURIComponent(active) + '/dom=' + inDom + '/vis=' + visible + '/dock=' + encodeURIComponent(dockClass.slice(0, 40)) + '/' + Date.now();
 } catch (e) { /* diagnostics only */ }
 };
 si.addEventListener('focus', () => report('focus'));
