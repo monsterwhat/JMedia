@@ -1,5 +1,7 @@
 package Services;
 
+import io.quarkus.narayana.jta.QuarkusTransaction;
+
 import Models.Music.Song;
 import Models.Music.SongAnalysis;
 import Models.Settings.Settings;
@@ -208,7 +210,10 @@ public class DjEnrichmentService {
                 if (songId == null) continue;
 
                 pending.decrementAndGet();
-                processMetadata(songId);
+                // Per-song transaction: the worker thread outlives any request scope, and the
+                // EntityManager it inherited was already closed ("Session/EntityManager is
+                // closed" on every song). A fresh transaction per song gives it a live EM.
+                QuarkusTransaction.requiringNew().run(() -> processMetadata(songId));
 
             } catch (InterruptedException e) {
                 LOG.info("DjEnrichmentService metadata worker interrupted");
