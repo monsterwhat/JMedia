@@ -10,6 +10,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -166,39 +167,33 @@ public class AudioAnalysisService {
      * Analyze a song and create SongAnalysis data
      * Uses TarsosDSP for real audio analysis
      */
-    @Transactional
+    /**
+     * Analyse a song and create SongAnalysis data.
+     *
+     * <p>The TarsosDSP decode is deliberately NOT inside a transaction. It used to
+     * hold one JTA transaction for the whole file (minutes), which the transaction
+     * reaper killed with ARJUNA012117 and which left the connection pool failing
+     * fast for every later request. The work is now two short transactions around
+     * the decode.
+     */
     public SongAnalysis analyzeSong(Song song) {
-        // Re-attach to this transaction's persistence context: the caller (DJ worker /
-        // AnalysisWorker) may pass a detached entity whose row was deleted concurrently
-        // (clear+rescan). Merging a stale copy throws StaleObjectStateException and loses
-        // the analysis; operating on the current row never clobbers fresher scan data.
-        Long songId;
-        String songPath;
-        String songTitle;
-        int songDurationSeconds;
-        if (song != null && song.id != null) {
-            // Check existence without loading the full Song (which carries heavy
-            // CLOBs - lyrics + artworkBase64). A COUNT query avoids the heap blow-up.
-            Long count = em.createQuery("SELECT COUNT(s) FROM Song s WHERE s.id = :id", Long.class)
-                    .setParameter("id", song.id)
-                    .getSingleResult();
-            if (count == 0) {
-                LOG.info("Song {} no longer exists (deleted concurrently), skipping analysis", song.id);
-                return null;
-            }
-            songId = song.id;
-            // Load only the columns analyzeSong actually uses: id, path, title, duration.
-            // Skips lyrics / artworkBase64 CLOBs and the eager SongAnalysis join that
-            // would otherwise blow the heap when the queue has 5k+ songs.
-            Object[] cols = (Object[]) em.createQuery(
-                    "SELECT s.id, s.path, s.title, s.durationSeconds FROM Song s WHERE s.id = :id")
-                    .setParameter("id", song.id)
-                    .getSingleResult();
-            songPath = (String) cols[1];
-            songTitle = (String) cols[2];
-            songDurationSeconds = (Integer) cols[3];
-        } else {
+        if (song == null || song.id == null) {
             return null;
+        }
+        Long songId = song.id;
+
+        AnalysisStart start;
+        try {
+            start = QuarkusTransaction.requiringNew().call(() -> beginAnalysis(songId));
+        } catch (Exception e) {
+            LOG.error("Could not start analysis for song {}: {}", songId, e.getMessage(), e);
+            return null;
+        }
+        if (start == null) {
+            return null;
+        }
+        if (start.stub() != null) {
+            return start.stub();
         }
 
         String libraryPath = settingsService.getOrCreateSettings().getLibraryPath();
@@ -206,20 +201,55 @@ public class AudioAnalysisService {
             LOG.error("No library path configured, cannot analyze song");
             return null;
         }
-
-        String fullPath = libraryPath + File.separator + songPath;
-        File audioFile = new File(fullPath);
-
+        File audioFile = new File(libraryPath + File.separator + start.path());
         if (!audioFile.exists()) {
-            LOG.error("Audio file not found: {}", fullPath);
+            LOG.error("Audio file not found: {}", audioFile.getAbsolutePath());
+            QuarkusTransaction.requiringNew().run(() -> markFailed(start.analysisId(), "audio file missing"));
             return null;
         }
 
-        // Check if a completed analysis already exists. Use a slim projection that
-        // only returns id + status + beatCount + averageBpm — loading the full
-        // SongAnalysis row pulls 3 CLOB JSON columns (segmentFeaturesJson,
-        // similarBeatsJson, beatMetadataJson) plus the eager @ElementCollection
-        // beatTimes, which blows the heap on the 5.7GB music DB.
+        AnalysisResult result;
+        try {
+            LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", start.title());
+            result = performAdvancedTarsosAnalysis(audioFile);
+        } catch (Exception e) {
+            LOG.error("ADVANCED Analysis failed for {}: {}", start.title(), e.getMessage(), e);
+            QuarkusTransaction.requiringNew().run(() -> markFailed(start.analysisId(), e.getMessage()));
+            return null;
+        }
+
+        try {
+            return QuarkusTransaction.requiringNew().call(() -> finishAnalysis(
+                    start.analysisId(), songId, start.durationSeconds(), start.title(), result));
+        } catch (Exception e) {
+            LOG.error("Could not persist analysis for {}: {}", start.title(), e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** Everything the decode needs, resolved in the first short transaction. */
+    private record AnalysisStart(Long analysisId, Long songId, String path, String title,
+                                 int durationSeconds, SongAnalysis stub) {
+    }
+
+    /** First short transaction: validate, load slim columns, mark PROCESSING. */
+    private AnalysisStart beginAnalysis(Long songId) {
+        Long count = em.createQuery("SELECT COUNT(s) FROM Song s WHERE s.id = :id", Long.class)
+                .setParameter("id", songId)
+                .getSingleResult();
+        if (count == 0) {
+            LOG.info("Song {} no longer exists (deleted concurrently), skipping analysis", songId);
+            return null;
+        }
+
+        Object[] cols = (Object[]) em.createQuery(
+                "SELECT s.id, s.path, s.title, s.durationSeconds FROM Song s WHERE s.id = :id")
+                .setParameter("id", songId)
+                .getSingleResult();
+        String path = (String) cols[1];
+        String title = (String) cols[2];
+        int duration = (Integer) cols[3];
+
         Object[] existingRow;
         try {
             existingRow = (Object[]) em.createQuery(
@@ -234,108 +264,84 @@ public class AudioAnalysisService {
                 && existingRow[1] == SongAnalysis.AnalysisStatus.COMPLETED
                 && existingRow[2] != null
                 && existingRow[3] != null) {
-            LOG.info("Song {} already analyzed", songTitle);
-            // Return a stub SongAnalysis carrying only the completed status so the
-            // caller (AnalysisWorker) treats this as "no work to do" without us
-            // materialising the heavy columns. analyzeSong's only contract is to
-            // return a non-null result with status COMPLETED in this branch.
+            LOG.info("Song {} already analyzed", title);
             SongAnalysis stub = new SongAnalysis();
             stub.id = (Long) existingRow[0];
             stub.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
             stub.setBeatCount((Integer) existingRow[2]);
             stub.setAverageBpm((Double) existingRow[3]);
-            return stub;
+            return new AnalysisStart((Long) existingRow[0], songId, path, title, duration, stub);
         }
 
-        // Need to write/update. Use em.getReference() for the existing row so we
-        // never materialise the 3 CLOB JSON columns or the @ElementCollection
-        // beat times. The downstream code overwrites every heavy field (beatTimes
-        // via setBeatTimes, all 3 JSON strings, status, etc.) so we don't need
-        // the existing payload — we only need a managed proxy to attach the
-        // @ElementCollection orphan-removal to. If no row yet, getReference()
-        // is skipped and we create a fresh SongAnalysis below.
         Song songRef = em.getReference(Song.class, songId);
-
-        // Create or update analysis record
         SongAnalysis analysis;
         if (existingRow != null) {
-            // Existing is already managed - just update it
-            analysis = em.getReference(SongAnalysis.class, ((Long) existingRow[0]));
+            analysis = em.getReference(SongAnalysis.class, (Long) existingRow[0]);
         } else {
-            // Create new and persist
             analysis = new SongAnalysis();
             analysis.setSong(songRef);
             em.persist(analysis);
         }
-
         analysis.setStatus(SongAnalysis.AnalysisStatus.PROCESSING);
         analysis.setAnalysisTimestamp(System.currentTimeMillis());
+        em.flush();
+        return new AnalysisStart(analysis.id, songId, path, title, duration, null);
+    }
 
-        try {
-            LOG.info("Starting ADVANCED TarsosDSP analysis for: {}", songTitle);
+    /** Second short transaction: write the decode result. */
+    private SongAnalysis finishAnalysis(Long analysisId, Long songId, int songDurationSeconds,
+                                       String songTitle, AnalysisResult result) {
+        SongAnalysis analysis = em.getReference(SongAnalysis.class, analysisId);
 
-            // Step 1: Detect onsets, track beats, and extract spectral features
-            AnalysisResult result = performAdvancedTarsosAnalysis(audioFile);
-
-            if (result == null || result.beatTimes.isEmpty()) {
-                // Beat detection failed (common for classical, ambient, non-percussive music).
-                // Instead of marking as FAILED (which causes endless retries by AnalysisWorker),
-                // mark as COMPLETED with empty data. isReady() will return false, so DJ mode
-                // won't attempt beat-matched transitions, but the song won't be retried.
-                LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", songTitle);
-                analysis.setBeatTimesJson("[]");
-                analysis.setBeatCount(0);
-                analysis.setAverageBpm(0.0);
-                analysis.setSegmentFeaturesJson("[]");
-                analysis.setSimilarBeatsJson("{}");
-                analysis.setBeatMetadataJson("[]");
-                analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
-                analysis.setErrorMessage(null);
-                em.merge(analysis);
-                return analysis;
-            }
-
-            analysis.setBeatTimes(result.beatTimes);
-            analysis.setBeatCount(result.beatTimes.size());
-            analysis.setAverageBpm(result.detectedBpm);
-
-            // Update song BPM with a JPQL UPDATE so we never load the full Song row.
-            if (result.detectedBpm > 0) {
-                em.createQuery(
-                        "UPDATE Song s SET s.bpm = :bpm, s.updatedAt = :now WHERE s.id = :id")
-                        .setParameter("bpm", (int) Math.round(result.detectedBpm))
-                        .setParameter("now", java.time.LocalDateTime.now())
-                        .setParameter("id", songId)
-                        .executeUpdate();
-            }
-
-            // Step 2: Extract features for similarity matching
-            String featuresJson = buildAdvancedFeaturesJson(result);
-            analysis.setSegmentFeaturesJson(featuresJson);
-
-            // Step 3: Build similarity graph
-            String similarBeatsJson = buildSimilarityGraph(result.beatTimes, (int) Math.round(result.detectedBpm));
-            analysis.setSimilarBeatsJson(similarBeatsJson);
-
-            // Step 4: Store beat metadata for cross-song matching
-            String beatMetadataJson = buildBeatMetadata(result.beatTimes, (int) Math.round(result.detectedBpm), songDurationSeconds);
-            analysis.setBeatMetadataJson(beatMetadataJson);
-
+        if (result == null || result.beatTimes.isEmpty()) {
+            // Beat detection failed (common for classical, ambient, non-percussive
+            // music). COMPLETED with empty data avoids endless retries; isReady()
+            // returns false so DJ mode will not attempt a beat-matched transition.
+            LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", songTitle);
+            analysis.setBeatTimesJson("[]");
+            analysis.setBeatCount(0);
+            analysis.setAverageBpm(0.0);
+            analysis.setSegmentFeaturesJson("[]");
+            analysis.setSimilarBeatsJson("{}");
+            analysis.setBeatMetadataJson("[]");
             analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
             analysis.setErrorMessage(null);
-
-            LOG.info("ADVANCED Analysis completed for: {} ({} beats, BPM: {})",
-                songTitle, result.beatTimes.size(), Math.round(result.detectedBpm));
-
-        } catch (Exception e) {
-            LOG.error("ADVANCED Analysis failed for {}: {}", songTitle, e.getMessage());
-            analysis.setStatus(SongAnalysis.AnalysisStatus.FAILED);
-            analysis.setErrorMessage(e.getMessage());
-            e.printStackTrace();
+            em.merge(analysis);
+            return analysis;
         }
 
+        analysis.setBeatTimes(result.beatTimes);
+        analysis.setBeatCount(result.beatTimes.size());
+        analysis.setAverageBpm(result.detectedBpm);
+
+        if (result.detectedBpm > 0) {
+            em.createQuery(
+                    "UPDATE Song s SET s.bpm = :bpm, s.updatedAt = :now WHERE s.id = :id")
+                    .setParameter("bpm", (int) Math.round(result.detectedBpm))
+                    .setParameter("now", java.time.LocalDateTime.now())
+                    .setParameter("id", songId)
+                    .executeUpdate();
+        }
+
+        analysis.setSegmentFeaturesJson(buildAdvancedFeaturesJson(result));
+        analysis.setSimilarBeatsJson(buildSimilarityGraph(result.beatTimes, (int) Math.round(result.detectedBpm)));
+        analysis.setBeatMetadataJson(buildBeatMetadata(result.beatTimes, (int) Math.round(result.detectedBpm), songDurationSeconds));
+        analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
+        analysis.setErrorMessage(null);
         em.merge(analysis);
+
+        LOG.info("ADVANCED Analysis completed for: {} ({} beats, BPM: {})",
+                songTitle, result.beatTimes.size(), Math.round(result.detectedBpm));
         return analysis;
+    }
+
+    /** Short transaction for failure paths; never leaves a rollback-only context. */
+    private void markFailed(Long analysisId, String message) {
+        SongAnalysis analysis = em.getReference(SongAnalysis.class, analysisId);
+        analysis.setStatus(SongAnalysis.AnalysisStatus.FAILED);
+        analysis.setErrorMessage(message);
+        analysis.setAnalysisTimestamp(System.currentTimeMillis());
+        em.merge(analysis);
     }
     
     public CompletableFuture<SongAnalysis> analyzeSongAsync(Song song) {

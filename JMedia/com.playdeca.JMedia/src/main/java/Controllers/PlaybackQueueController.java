@@ -119,8 +119,8 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
      * stack, marked the JTA transaction rollback-only and left the connection
      * pool failing fast for every subsequent request (including login).
      */
-    private Long advance(PlaybackState state, boolean forward, boolean skippedEarly,
-                         boolean manualAdvance, Long profileId, int depth) {
+    Long advance(PlaybackState state, boolean forward, boolean skippedEarly,
+                 boolean manualAdvance, Long profileId, int depth) {
         if (depth > 3) {
             LOG.warn("Playback advance recursion exceeded depth {} (single-song cue, repeat={}); stopping instead of looping",
                     depth, state.getRepeatMode());

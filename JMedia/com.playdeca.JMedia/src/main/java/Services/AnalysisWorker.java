@@ -39,6 +39,7 @@ public class AnalysisWorker {
     private static final int MIN_BATCH_SIZE = 1;
     private static final int MAX_BATCH_SIZE = 10;
     private static final long FAILED_RETRY_AFTER_MS = 300_000; // 5 minutes
+    private static final long STUCK_PROCESSING_MS = 1_800_000;  // 30 minutes
     private static final long TICK_HANG_TIMEOUT_MS = 600_000;  // 10 minutes
     private static final long MAX_DEFER_MS = 120_000;          // 2 minutes
 
@@ -123,6 +124,21 @@ public class AnalysisWorker {
                 deferStartedAt = 0; // re-arm the deferral window for the next tick
             } else {
                 deferStartedAt = 0;
+            }
+
+            // Recover rows abandoned mid-analysis (crash, restart, shutdown). A
+            // PROCESSING row older than the threshold is re-queued; without this it
+            // is never selected again by either worker.
+            long stuckCutoff = System.currentTimeMillis() - STUCK_PROCESSING_MS;
+            int recovered = em.createQuery(
+                    "UPDATE SongAnalysis sa SET sa.status = :pending " +
+                    "WHERE sa.status = :processing AND sa.analysisTimestamp < :cutoff")
+                    .setParameter("pending", SongAnalysis.AnalysisStatus.PENDING)
+                    .setParameter("processing", SongAnalysis.AnalysisStatus.PROCESSING)
+                    .setParameter("cutoff", stuckCutoff)
+                    .executeUpdate();
+            if (recovered > 0) {
+                LOG.warn("AnalysisWorker: re-queued {} stuck PROCESSING row(s)", recovered);
             }
 
             // Phase 1: Process PENDING records. Fetch only IDs first to avoid
