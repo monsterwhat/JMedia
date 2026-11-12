@@ -1616,6 +1616,12 @@ html, body {
 
 .cinema-dock.searching .cinema-search-bar {
   display: flex;
+  /* iOS cancels the keyboard on a focused field inside a backdrop-filtered, bottom-pinned
+     bar: the blur layer is re-composited while the keyboard animates. Focus is only kept
+     with the filter off, so the search bar goes opaque instead of blurred. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: #141414;
 }
 
 .cinema-dock.searching .cinema-dock-nav {
