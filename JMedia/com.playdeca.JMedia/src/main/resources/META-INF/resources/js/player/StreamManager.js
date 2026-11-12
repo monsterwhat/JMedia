@@ -1495,6 +1495,7 @@
             try { p.video.load(); } catch (e) {}
 
             p.streamStartOffset = Math.max(0, time);
+            p._streamOriginAuthoritative = false;
             // F7: Reset stall-detection state (mirror switchAudioTrack)
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
@@ -1507,6 +1508,7 @@
                 if (p._destroyed || seekGen !== p._seekGen) return;
                 if (origin !== null) {
                     p.streamStartOffset = origin;
+                    p._streamOriginAuthoritative = true;
                     console.log('[SimplePlayer] Seek origin from stream:', origin);
                     if (p.loadSubtitles) p.loadSubtitles();
                 }
@@ -1588,6 +1590,9 @@
                     track.kind = 'subtitles';
                     const startOffset = p.streamStartOffset || 0;
                     let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                    if (p._streamOriginAuthoritative) {
+                        src += '&exact=1';
+                    }
                     if (parseFloat(userCorrection) !== 0) {
                         src += `&correction=${userCorrection}`;
                     }

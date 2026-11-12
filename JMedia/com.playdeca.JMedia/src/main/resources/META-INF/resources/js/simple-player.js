@@ -315,6 +315,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (this._destroyed) return;
                         if (origin !== null) {
                             this.streamStartOffset = origin;
+                            this._streamOriginAuthoritative = true;
                         }
                         // Assign src first (with the origin probe as today), then
                         // load subtitles. Subtitle preload is NOT awaited on the

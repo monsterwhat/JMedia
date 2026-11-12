@@ -353,7 +353,8 @@ public class SubtitleAPI {
     @Produces("text/vtt")
     public Response streamSubtitle(@PathParam("trackId") Long trackId,
                                   @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double requestedOffset,
-                                  @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction) {
+                                  @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction,
+                                  @QueryParam("exact") @jakarta.ws.rs.DefaultValue("false") boolean exactOffset) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -364,8 +365,12 @@ public class SubtitleAPI {
         try {
             String webVTTContent;
             // Align with what the stream actually plays: a copy-mode seek starts at the
-            // previous keyframe, not at the requested position.
-            double offset = effectiveStreamStart(track, requestedOffset);
+            // previous keyframe, not at the requested position. When the client already
+            // sent the stream's own X-Stream-Origin (exact=1) that value IS where the
+            // picture begins — a fragment boundary, which can sit a few tenths of a
+            // second after the keyframe. Snapping it again would shift the cues by that
+            // gap, which is why the drift only showed on some titles.
+            double offset = exactOffset ? requestedOffset : effectiveStreamStart(track, requestedOffset);
 
             // For external tracks:
             // -offset: shift earlier by seek position (because the browser video starts at 0.0)

@@ -354,6 +354,15 @@
 
                                         const startOffset = p.streamStartOffset || 0;
                                         let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                                        // When the offset came from the stream's own
+                                        // X-Stream-Origin it is already where the picture
+                                        // begins (a fragment boundary). Re-snapping it to a
+                                        // keyframe on the server shifts the cues by the gap
+                                        // between the two — the few-tenths-of-a-second drift
+                                        // that only some titles show.
+                                        if (p._streamOriginAuthoritative) {
+                                            src += '&exact=1';
+                                        }
                                         if (parseFloat(correction) !== 0) {
                                             src += `&correction=${correction}`;
                                         }
