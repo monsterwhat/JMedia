@@ -141,7 +141,8 @@ public class SongAnalysis extends PanacheEntity {
             && !beatTimesJson.isBlank()
             && similarBeatsJson != null
             && !similarBeatsJson.isBlank()
-            && averageBpm != null;
+            && averageBpm != null
+            && beatCount != null && beatCount > 0;
     }
 
     public List<BeatInfo> getBeatMetadata() {

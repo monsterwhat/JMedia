@@ -210,12 +210,17 @@
             // 45s keeps most beat-aligned entries: clamping to 0 throws the
             // server's downbeat alignment away and makes the blend sound off.
             const rawEntryTime = state.djEntryTime || 0;
-            const MAX_DJ_ENTRY_SECONDS = 45;
-            const entryTime = rawEntryTime > MAX_DJ_ENTRY_SECONDS ? 0 : rawEntryTime;
-            if (entryTime !== rawEntryTime) {
-                window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (max ' +
-                    MAX_DJ_ENTRY_SECONDS + 's)');
-            }
+// Use duration-relative clamp: allow up to min(45, 0.6 * duration)
+// Fall back to the 45s guard when duration is unknown
+let maxEntryTime = 45;
+if (state.duration && typeof state.duration === 'number' && state.duration > 0) {
+    maxEntryTime = Math.min(45, 0.6 * state.duration);
+}
+const entryTime = rawEntryTime > maxEntryTime ? 0 : rawEntryTime;
+if (entryTime !== rawEntryTime) {
+    var maxDesc = state.duration ? Math.min(45, 0.6 * state.duration) + 's' : '45s';
+    window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (max ' + maxDesc + ')');
+}
             const exitTime = state.djExitTime || 0;
             
             // Don't prepare transition if we don't have a valid next song ID
@@ -234,7 +239,11 @@
                 // The planner's chosen fade wins; state.crossfadeDuration is the
                 // user's global setting and DJ mode forces it to 8 s, which used
                 // to override a 1-2 s beat-aligned plan.
-                crossfadeDuration: state.djTransitionCrossfade || state.crossfadeDuration || 8
+                crossfadeDuration: state.djTransitionCrossfade || state.crossfadeDuration || 8,
+                // Tempo nudge for the incoming deck, 1.0 when the planner did not
+                // choose one.
+                rate: (typeof state.djTransitionRate === 'number' && state.djTransitionRate > 0)
+                    ? state.djTransitionRate : 1.0
             };
             
             // PRELOAD: Tell AudioEngine to preload the next song in the background player
@@ -426,7 +435,8 @@
                 
                 // Execute the actual dual-player crossfade and only advance the
                 // server state when the audio engine accepted it.
-                var started = window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true);
+                var started = window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true,
+                    this.transitionData.rate || 1.0);
                 if (started === false) {
                     this.isTransitioning = false;
                     if (window.SynchronizationManager) {
@@ -556,7 +566,27 @@
             
             // Switch source on the SAME element (single-stream iOS)
             primaryAudio.src = streamUrl;
+            primaryAudio._currentSongId = String(self.transitionData.nextSongId);
             primaryAudio.load();
+            
+            // Short gain ramp instead of a hard src cut. The element is ALREADY
+            // routed through AudioEngine's graph (source -> lowshelf -> gain), so
+            // use that gain: creating a second MediaElementSource for the same
+            // element throws InvalidStateError and would break the iOS path.
+            if (window.AudioEngine && window.AudioEngine.ctx && window.AudioEngine.nodes
+                    && window.AudioEngine.nodes.g1) {
+                try {
+                    var gainParam = window.AudioEngine.nodes.g1.gain;
+                    var rampNow = window.AudioEngine.ctx.currentTime;
+                    // Ramp back to the user's gain, not element.volume (pinned at 1.0).
+                    var restoreLevel = gainParam.value > 0 ? gainParam.value : 0.3;
+                    gainParam.cancelScheduledValues(rampNow);
+                    gainParam.setValueAtTime(0.0001, rampNow);
+                    gainParam.linearRampToValueAtTime(restoreLevel, rampNow + 0.1);
+                } catch (err) {
+                    window.Helpers?.log?.('[DJ] iOS gain ramp failed', err);
+                }
+            }
             
             primaryAudio.onloadedmetadata = function() {
                 window.Helpers?.log?.('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
@@ -620,6 +650,14 @@
             // server clears the plan right after transition-started), unfreezing the
             // slider and re-enabling setSource while the fade was still audible.
             
+            this.updateDjIndicator('none');
+        },
+        
+        /** called when a crossfade is aborted so isTransitioning cannot stay true forever */
+        onTransitionAborted: function() {
+            this.isTransitioning = false;
+            this.transitionPrepared = false;
+            this.transitionData = null;
             this.updateDjIndicator('none');
         },
         

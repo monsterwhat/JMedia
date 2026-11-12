@@ -56,6 +56,9 @@ public class AudioAnalysisService {
     
     // Configuration
     private static final int BEATS_PER_BAR = 4; // Standard 4/4 time signature
+
+    /** Loudness target for the per-track gain offset (RMS, dBFS). */
+    private static final double TARGET_RMS_DB = -16.0;
     
     private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
     // Each analysis buffers full PCM + FFT maps; concurrency caused heap exhaustion,
@@ -327,6 +330,15 @@ public class AudioAnalysisService {
                     .executeUpdate();
         }
 
+        // Per-track gain towards a common loudness so the mix does not jump in level.
+        if (result.rmsDb() < 0) {
+            double gainDb = Math.max(-12.0, Math.min(6.0, TARGET_RMS_DB - result.rmsDb()));
+            em.createQuery("UPDATE Song s SET s.gainDb = :gain WHERE s.id = :id")
+                    .setParameter("gain", gainDb)
+                    .setParameter("id", songId)
+                    .executeUpdate();
+        }
+
         analysis.setSegmentFeaturesJson(buildAdvancedFeaturesJson(result));
         analysis.setSimilarBeatsJson(buildSimilarityGraph(result.beatTimes, (int) Math.round(result.detectedBpm)));
         analysis.setBeatMetadataJson(buildBeatMetadata(result.beatTimes, (int) Math.round(result.detectedBpm), songDurationSeconds));
@@ -370,7 +382,7 @@ public class AudioAnalysisService {
         return CompletableFuture.supplyAsync(() -> analyzeSong(song), pool());
     }
 
-    private record AnalysisResult(List<Double> beatTimes, double detectedBpm, List<Double> onsetTimes, Map<Double, double[]> spectralMap) {}
+    private record AnalysisResult(List<Double> beatTimes, double detectedBpm, List<Double> onsetTimes, Map<Double, double[]> spectralMap, double rmsDb) {}
 
     /**
      * Perform actual audio analysis using TarsosDSP
@@ -380,6 +392,9 @@ public class AudioAnalysisService {
         final List<Double> onsetTimes = new ArrayList<>();
         final List<Double> beatTimes = new ArrayList<>();
         final Map<Double, double[]> spectralMap = new TreeMap<>();
+        // Loudness: accumulated in the same pass so per-track gain costs nothing extra.
+        final double[] sumSquares = {0.0};
+        final long[] sampleCount = {0L};
         
         // 1. Collect onsets and FFT spectral data
         int sampleRate = 44100;
@@ -392,7 +407,13 @@ public class AudioAnalysisService {
         dispatcher.addAudioProcessor(new AudioProcessor() {
             @Override
             public boolean process(AudioEvent audioEvent) {
-                float[] buffer = audioEvent.getFloatBuffer().clone();
+                float[] raw = audioEvent.getFloatBuffer();
+                for (float sample : raw) {
+                    sumSquares[0] += (double) sample * sample;
+                }
+                sampleCount[0] += raw.length;
+
+                float[] buffer = raw.clone();
                 float[] magnitudes = new float[bufferSize / 2];
                 fft.forwardTransform(buffer);
                 fft.modulus(buffer, magnitudes);
@@ -446,7 +467,14 @@ public class AudioAnalysisService {
         }
         
         double bpm = 60.0 / medianInterval;
-        return new AnalysisResult(beatTimes, bpm, onsetTimes, spectralMap);
+
+        double rmsDb = 0.0;
+        if (sampleCount[0] > 0) {
+            double rms = Math.sqrt(sumSquares[0] / sampleCount[0]);
+            rmsDb = rms > 0 ? 20.0 * Math.log10(rms) : -96.0;
+        }
+
+        return new AnalysisResult(beatTimes, bpm, onsetTimes, spectralMap, rmsDb);
     }
 
     /**

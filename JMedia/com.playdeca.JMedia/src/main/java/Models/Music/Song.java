@@ -24,6 +24,15 @@ public class Song extends PanacheEntity {
     private boolean explicit;
     private int bpm;
     private int durationSeconds;
+
+    /** Musical key from metadata enrichment, e.g. "C#"; null when unknown. */
+    private String musicalKey;
+    /** "major" or "minor"; null when unknown. */
+    private String keyScale;
+    /** Per-track gain offset in dB towards the loudness target; null when unknown. */
+    private Double gainDb;
+    /** AcousticBrainz energy 0..1; null when unknown. */
+    private Double energy;
     private String path;
 
     private java.time.LocalDateTime dateAdded;

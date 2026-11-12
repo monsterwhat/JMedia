@@ -199,6 +199,7 @@ public class PlaybackController {
         st.setDjTransitionPlanned(null); // Use null to indicate "not yet attempted"
         st.setDjTransitionConfidence(null);
         st.setDjTransitionCrossfade(null);
+        st.setDjTransitionRate(null);
         st.setDjTransitionReason(null);
     }
     
@@ -1659,6 +1660,7 @@ public class PlaybackController {
             st.setDjTransitionPlanned(true);
             st.setDjTransitionConfidence(transition.getConfidence());
             st.setDjTransitionCrossfade(transition.getCrossfadeSeconds());
+            st.setDjTransitionRate(transition.getRate());
             st.setDjTransitionReason(transition.getReason());
             System.out.println("[DJ] === TRANSITION PLANNED ===");
             System.out.println("[DJ]   Exit: " + currentSong.getTitle() + " at " + transition.getExitTime() + "s");
@@ -1668,7 +1670,16 @@ public class PlaybackController {
             LOGGER.info(String.format("DJ Mode: Planned transition to '%s' at exit=%.1fs, entry=%.1fs (confidence=%.2f)",
                     nextSong.getTitle(), transition.getExitTime(), transition.getEntryTime(), transition.getConfidence()));
         } else {
-            clearDjTransitionPlan(st);
+            // Do NOT call clearDjTransitionPlan - it would null djNextSongId
+            // Instead, keep djNextSongId and reset only the transition fields
+            st.setDjNextSongId(nextSongId);
+            st.setDjEntryTime(null);
+            st.setDjExitTime(null);
+            st.setDjTransitionPlanned(false);
+            st.setDjTransitionConfidence(null);
+            st.setDjTransitionCrossfade(null);
+            st.setDjTransitionRate(null);
+            st.setDjTransitionReason("No beat-aligned transition available");
             System.out.println("[DJ] planNextDjTransition: Could not calculate transition");
             LOGGER.fine("DJ Mode: Could not calculate transition, using normal playback");
         }

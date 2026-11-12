@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import Services.DjScoring;
 
 /**
  * Calculates beat-aligned transitions between songs for DJ Mode.
@@ -38,27 +39,31 @@ public class DjTransitionService {
 
     // Upper bound for any crossfade overlap. Longer fades compound the client's
     // hard-cut + slow fade-in into dead air; mobile DJ research recommends 400-700ms.
-    private static final int DJ_MAX_CROSSFADE_SECONDS = 2;
+    private static final int DEFAULT_MAX_CROSSFADE = 2;
+    /** Longer fades are only allowed when the incoming deck can be tempo-matched. */
+    private static final int MATCHED_MAX_CROSSFADE = 6;
+    private static final double MAX_TEMPO_NUDGE = 0.06;
 
     @Inject
     AudioAnalysisService audioAnalysisService;
 
-    /**
-     * Result of a DJ transition calculation.
-     */
+    /** Result of a DJ transition calculation. */
     public static class DjTransition {
         private final double exitTime;      // Where to exit current song (seconds)
         private final double entryTime;     // Where to enter next song (seconds)
         private final int crossfadeSeconds; // Recommended crossfade duration
         private final double confidence;    // 0.0-1.0 how good this match is
         private final String reason;        // Human-readable explanation
+        private final double rate;          // Playback rate for the incoming deck (1.0 = none)
 
-        public DjTransition(double exitTime, double entryTime, int crossfadeSeconds, double confidence, String reason) {
+        public DjTransition(double exitTime, double entryTime, int crossfadeSeconds, double confidence,
+                            String reason, double rate) {
             this.exitTime = exitTime;
             this.entryTime = entryTime;
             this.crossfadeSeconds = crossfadeSeconds;
             this.confidence = confidence;
             this.reason = reason;
+            this.rate = rate;
         }
 
         public double getExitTime() { return exitTime; }
@@ -66,22 +71,16 @@ public class DjTransitionService {
         public int getCrossfadeSeconds() { return crossfadeSeconds; }
         public double getConfidence() { return confidence; }
         public String getReason() { return reason; }
+        public double getRate() { return rate; }
 
         @Override
         public String toString() {
-            return String.format("DjTransition{exit=%.2fs, entry=%.2fs, crossfade=%ds, confidence=%.2f, reason='%s'}",
-                exitTime, entryTime, crossfadeSeconds, confidence, reason);
+            return String.format("DjTransition{exit=%.2fs, entry=%.2fs, crossfade=%ds, confidence=%.2f, rate=%.3f, reason='%s'}",
+                exitTime, entryTime, crossfadeSeconds, confidence, rate, reason);
         }
     }
 
-    /**
-     * Calculate the optimal beat-aligned transition between two songs.
-     * 
-     * @param currentSong     The song currently playing
-     * @param nextSong        The song to transition into
-     * @param crossfadeSeconds Duration of the crossfade in seconds
-     * @return DjTransition with exit/entry times, or null if calculation not possible
-     */
+    /** Calculate the optimal beat-aligned transition between two songs. */
     @Transactional(jakarta.transaction.Transactional.TxType.REQUIRED)
     public DjTransition calculateTransition(Song currentSong, Song nextSong, int crossfadeSeconds) {
         return calculateTransition(currentSong, nextSong, crossfadeSeconds, null, null);
@@ -123,12 +122,11 @@ public class DjTransitionService {
             return null;
         }
 
-        // Step 1: Find all potential exit beats
-        // Aim to play at least 50% or 60s of the song
-        double minExitTime = Math.min(60.0, currentDuration * 0.50);
+        // Step 1: Find all potential exit beats restricted to the exit window [0.70, 0.92]
         List<BeatInfo> exitBeats = new ArrayList<>();
         for (BeatInfo beat : currentBeats) {
-            if (beat.getTime() >= minExitTime) {
+            double exitPosition = beat.getTime() / currentDuration;
+            if (DjScoring.insideExitWindow(exitPosition)) {
                 exitBeats.add(beat);
             }
         }
@@ -136,7 +134,7 @@ public class DjTransitionService {
         if (exitBeats.size() < MIN_EXIT_BEATS) {
             LOG.info("Too few beats ({}) for song {}", exitBeats.size(), currentSong.getTitle());
             // Fall back: use last beat of current, first beat of next
-            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "Too few exit beats, using fallback");
+            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "Too few exit beats, using fallback", currentDuration);
         }
 
         // Step 2: Check BPM compatibility
@@ -170,6 +168,8 @@ public class DjTransitionService {
         }
 
         for (BeatInfo exitBeat : exitBeats) {
+            // Depends only on the exit beat: compute once per row, not per pair.
+            double exitStrength = computeMeanStrength(currentFeatures, exitBeat.getIndex(), exitBeat.getTime());
             // Find matching entry beats in next song with same beatInBar position
             for (BeatInfo entryBeat : limitedNextBeats) {
                 // Primary filter: same beat-in-bar position (or compatible)
@@ -189,11 +189,16 @@ public class DjTransitionService {
                 // 3. BPM compatibility
                 score += (1.0 - bpmRatioDiff) * 0.5;
 
-                // 4. Energy/Volume continuity
-                score += calculateEnergySimilarity(exitBeat, entryBeat, currentAnalysis, nextAnalysis);
+                // 4. Energy/Volume continuity (local onset strength, pre-parsed features)
+                double entryStrength = computeMeanStrength(nextFeatures, entryBeat.getIndex(), entryBeat.getTime());
+                score += DjScoring.energyBonus(exitStrength, entryStrength);
 
-                // 5. Position scoring (prefer end of current, beginning of next)
-                score += scorePosition(exitBeat, entryBeat, currentDuration, nextSong.getDurationSeconds());
+                // 5. Harmonic compatibility (Camelot), penalty only, 0 when unknown
+                score += DjScoring.keyBonus(currentSong.getMusicalKey(), currentSong.getKeyScale(),
+                        nextSong.getMusicalKey(), nextSong.getKeyScale());
+
+                // 6. Position scoring (prefer end of current, beginning of next)
+                score += scorePosition(exitBeat, entryBeat, currentDuration, nextDuration);
                 
                 if (score > bestScore) {
                     bestScore = score;
@@ -204,38 +209,44 @@ public class DjTransitionService {
 
         // Step 4: If no compatible pair found, use fallback
         if (bestCandidate == null) {
-            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "No compatible beat pair found");
+            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "No compatible beat pair found", currentDuration);
         }
 
-        // Step 5: Build result
-        double confidence = normalizeScore(bestScore);
-        
-        // Final confidence multiplier: BPM difference
-        // If BPM ratio is 20% off, multiply confidence by 0.5
-        double bpmPenalty = 1.0 - Math.min(bpmRatioDiff / (MAX_BPM_RATIO_DIFF * 2), 0.8);
-        confidence *= bpmPenalty;
-
-        // DYNAMIC CROSSFADE: Adjust based on BPM, capped at 2s max.
-        // The old 6-12s values compounded the client's hard-cut + slow-fade-in into
-        // dead air (mobile DJ research recommends 400-700ms). The client also caps
-        // its own fade, but the backend must not advertise longer overlaps than the
-        // client will actually perform.
-        int adjustedCrossfade = crossfadeSeconds;
+        // Fade length: short by default, longer only when the tempo can be matched.
+        int baseCrossfade;
         if (crossfadeOverride != null && crossfadeOverride >= 0) {
-            adjustedCrossfade = crossfadeOverride;
-        } else if (nextBpm > 120) adjustedCrossfade = 1;
-        else if (nextBpm < 90) adjustedCrossfade = 2;
-        else adjustedCrossfade = 2;
-        adjustedCrossfade = Math.min(Math.max(adjustedCrossfade, 1), DJ_MAX_CROSSFADE_SECONDS);
+            baseCrossfade = crossfadeOverride;
+        } else if (nextBpm > 120) {
+            baseCrossfade = 1;
+        } else {
+            baseCrossfade = 2;
+        }
+        baseCrossfade = Math.min(Math.max(baseCrossfade, 1), MATCHED_MAX_CROSSFADE);
+
+        double bpmRatio = currentBpm > 0 ? nextBpm / currentBpm : 1.0;
+        double rate = 1.0;
+        if (currentBpm > 0 && nextBpm > 0 && Math.abs(bpmRatio - 1.0) <= MAX_TEMPO_NUDGE) {
+            rate = Math.min(1.0 + MAX_TEMPO_NUDGE, Math.max(1.0 - MAX_TEMPO_NUDGE, 1.0 / bpmRatio));
+        }
+        int adjustedCrossfade = rate != 1.0
+                ? baseCrossfade
+                : Math.min(baseCrossfade, DEFAULT_MAX_CROSSFADE);
+
+        // Clamp the chosen exit so fade doesn't run past the end of the file
+        double clampedExitTime = DjScoring.clampExit(bestCandidate.exitTime, currentDuration, adjustedCrossfade);
+
+        // Step 5: Build result - use DjScoring for confidence normalization
+        double confidence = DjScoring.normalizeConfidence(bestScore, bpmRatioDiff);
 
         String reason = buildReasonString(exitBeats, limitedNextBeats, bestCandidate, currentBpm, nextBpm);
 
         DjTransition transition = new DjTransition(
-            bestCandidate.exitTime,
+            clampedExitTime,
             bestCandidate.entryTime,
             adjustedCrossfade,
             confidence,
-            reason
+            reason,
+            rate
         );
 
         if ("HIGH".equalsIgnoreCase(strictness) && confidence < 0.4) {
@@ -248,112 +259,110 @@ public class DjTransitionService {
 
         return transition;
     }
-/**
- * Parse JSON features once.
- */
-private List<Map<String, Object>> parseFeatures(String json) {
-    if (json == null || json.isEmpty()) return new ArrayList<>();
-    try {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        return mapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
-    } catch (Exception e) {
-        return new ArrayList<>();
-    }
-}
 
-/**
- * Optimized spectral similarity using pre-parsed features.
- */
-private double calculateSpectralSimilarityOptimized(BeatInfo exitBeat, BeatInfo entryBeat,
-                                                   List<Map<String, Object>> currentFeatures,
-                                                   List<Map<String, Object>> nextFeatures) {
-    if (exitBeat.getIndex() >= currentFeatures.size() || entryBeat.getIndex() >= nextFeatures.size()) {
-        return 0.5;
-    }
-
-    double[] exitSpectral = extractSpectralVector(currentFeatures.get(exitBeat.getIndex()));
-    double[] entrySpectral = extractSpectralVector(nextFeatures.get(entryBeat.getIndex()));
-
-    if (exitSpectral == null || entrySpectral == null) {
-        return 0.5;
-    }
-
-    return cosineSimilarity(exitSpectral, entrySpectral);
-}
-
-/**
- * Score how well a pair of beats align based on musical structure.
- */
-private double scoreBeatAlignment(BeatInfo exitBeat, BeatInfo entryBeat) {
-    double score = 0;
-
-    // Bonus for downbeats (start of bar)
-    if (exitBeat.getBeatInBar() == 1) score += 0.2;
-    if (entryBeat.getBeatInBar() == 1) score += 0.2;
-
-    // PHRASE ALIGNMENT (Massive improvement for musicality)
-    // Bonus for starting/ending on 4-bar or 8-bar boundaries
-    // Assuming bars are 1-indexed and we want to mix on boundaries like 1, 5, 9, 13...
-    if ((exitBeat.getBarNumber() - 1) % 4 == 0) score += 0.15;
-    if ((exitBeat.getBarNumber() - 1) % 8 == 0) score += 0.1;
-
-    if ((entryBeat.getBarNumber() - 1) % 4 == 0) score += 0.15;
-    if ((entryBeat.getBarNumber() - 1) % 8 == 0) score += 0.1;
-
-    // Bonus for matching relative position in bar
-    if (exitBeat.getBeatInBar() == entryBeat.getBeatInBar()) score += 0.1;
-
-    return score;
-}
-
-/**
- * Energy/Loudness continuity.
- */
-private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat, 
-                                        SongAnalysis current, SongAnalysis next) {
-    // Find average loudness near the exit and entry points
-    // This helps avoid mixing a loud drop into a quiet intro
-    try {
-        // We use the 'strength' (onset strength) as a proxy for local energy if full segments aren't compared
-        double energyDiff = Math.abs(exitBeat.getStrength() - entryBeat.getStrength());
-        return Math.max(0.0, 0.2 - (energyDiff * 0.2)); // Up to 0.2 bonus for similar energy
-    } catch (Exception e) {
-        return 0.1;
-    }
-}
-    private double scorePosition(BeatInfo exitBeat, BeatInfo entryBeat, double currentDur, double nextDur) {
-        double score = 0;
-        double entryTime = entryBeat.getTime();
-        double entryPosition = entryTime / nextDur;
-
-        // Entry scoring: Prefer early but not intro. Sweet spot expanded to 40%.
-        if (entryTime < 2.0) score -= 0.5; // Penalty for too early (silence/intro)
-        else if (entryTime < 5.0) score -= 0.2;
-        else if (entryPosition > 0.05 && entryPosition < 0.40) score += 0.2; // Expanded sweet spot (first 40%)
-        else if (entryPosition >= 0.40 && entryPosition < 0.55) score += 0.05; // Mid-song OK
-        else if (entryPosition >= 0.55) score -= 1.0; // EVEN STRONGER penalty for jumping past the halfway mark
-        
-        // Exit scoring: prefer the outro so the track is actually heard. The old
-        // 55-70 % "sweet spot" cut every song in the middle, which is exactly
-        // what makes an automated mix feel random.
-        double exitPosition = exitBeat.getTime() / currentDur;
-        if (exitPosition >= 0.80 && exitPosition <= 0.97) {
-            score += 0.45; // outro: the natural place to blend
-        } else if (exitPosition >= 0.70) {
-            score += 0.20;
-        } else if (exitPosition >= 0.55) {
-            score -= 0.15;
-        } else {
-            score -= 0.60; // stopping in the first half is a last resort
+    /** Parse JSON features once. */
+    private List<Map<String, Object>> parseFeatures(String json) {
+        if (json == null || json.isEmpty()) return new ArrayList<>();
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            return mapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            return new ArrayList<>();
         }
-        
+    }
+
+    /** Optimized spectral similarity using pre-parsed features. */
+    private double calculateSpectralSimilarityOptimized(BeatInfo exitBeat, BeatInfo entryBeat,
+                                                       List<Map<String, Object>> currentFeatures,
+                                                       List<Map<String, Object>> nextFeatures) {
+        if (exitBeat.getIndex() >= currentFeatures.size() || entryBeat.getIndex() >= nextFeatures.size()) {
+            return 0.5;
+        }
+
+        double[] exitSpectral = extractSpectralVector(currentFeatures.get(exitBeat.getIndex()));
+        double[] entrySpectral = extractSpectralVector(nextFeatures.get(entryBeat.getIndex()));
+
+        if (exitSpectral == null || entrySpectral == null) {
+            return 0.5;
+        }
+
+        return cosineSimilarity(exitSpectral, entrySpectral);
+    }
+
+    /** Score how well a pair of beats align based on musical structure.
+     *  Uses DjScoring for phrase and downbeat bonuses.
+     */
+    private double scoreBeatAlignment(BeatInfo exitBeat, BeatInfo entryBeat) {
+        double score = 0;
+
+        // Downbeat bonus
+        score += DjScoring.downbeatBonus(exitBeat.getBeatInBar());
+        score += DjScoring.downbeatBonus(entryBeat.getBeatInBar());
+
+        // Phrase bonus (0-based bar numbers; BeatInfo.barNumber is 1-based)
+        score += DjScoring.phraseBonus(exitBeat.getBarNumber() - 1);
+        score += DjScoring.phraseBonus(entryBeat.getBarNumber() - 1);
+
+        // Bonus for matching relative position in bar
+        if (exitBeat.getBeatInBar() == entryBeat.getBeatInBar()) score += 0.1;
+
         return score;
     }
 
     /**
-     * Check if two beats are compatible for matching.
-     * Beats are compatible if they have the same beatInBar position,
-     * or both are downbeats, or both are strong beats (3 in 4/4).
+     * Mean onset strength within +/-2 s of a beat, scanned over a bounded window of
+     * the already-parsed features. No JSON parse and no full-list scan here: this
+     * runs once per exit beat and once per entry beat inside a nested loop.
+     */
+    private static double computeMeanStrength(List<Map<String, Object>> features, int index, double beatTime) {
+        if (features == null || features.isEmpty()) {
+            return 0.5;
+        }
+        int center = Math.min(Math.max(index, 0), features.size() - 1);
+        int from = Math.max(0, center - 8);
+        int to = Math.min(features.size() - 1, center + 8);
+        double sum = 0;
+        int count = 0;
+        for (int i = from; i <= to; i++) {
+            Map<String, Object> feature = features.get(i);
+            if (feature == null) {
+                continue;
+            }
+            Object timeObj = feature.get("time");
+            double time = timeObj instanceof Number ? ((Number) timeObj).doubleValue() : beatTime;
+            if (Math.abs(time - beatTime) > 2.0) {
+                continue;
+            }
+            Object strengthObj = feature.get("strength");
+            if (strengthObj instanceof Number) {
+                sum += ((Number) strengthObj).doubleValue();
+                count++;
+            }
+        }
+        return count > 0 ? sum / count : 0.5;
+    }
+
+    /** Score how well a pair of beats align based on musical structure.
+     *  Uses DjScoring for exit/entry position scoring.
+     */
+    private double scorePosition(BeatInfo exitBeat, BeatInfo entryBeat, double currentDur, double nextDur) {
+        double score = 0;
+
+        // Entry scoring using DjScoring
+        double entryTime = entryBeat.getTime();
+        double entryPosition = entryTime / nextDur;
+        score += DjScoring.entryPositionScore(entryTime, entryPosition);
+
+        // Exit scoring using DjScoring
+        double exitPosition = exitBeat.getTime() / currentDur;
+        score += DjScoring.exitPositionScore(exitPosition);
+
+        return score;
+    }
+
+    /** Check if two beats are compatible for matching.
+     *  Beats are compatible if they have the same beatInBar position,
+     *  or both are downbeats, or both are strong beats (3 in 4/4).
      */
     private boolean beatsCompatible(BeatInfo exitBeat, BeatInfo entryBeat) {
         // Exact match
@@ -371,9 +380,7 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         return false;
     }
 
-    /**
-     * Extract spectral vector from beat feature map.
-     */
+    /** Extract spectral vector from beat feature map. */
     private double[] extractSpectralVector(Map<String, Object> featureMap) {
         Object spectralObj = featureMap.get("spectral");
         if (spectralObj == null) {
@@ -395,9 +402,7 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         return null;
     }
 
-    /**
-     * Calculate cosine similarity between two vectors.
-     */
+    /** Calculate cosine similarity between two vectors. */
     private double cosineSimilarity(double[] a, double[] b) {
         if (a.length != b.length || a.length == 0) {
             return 0;
@@ -422,23 +427,46 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         return (dotProduct / denominator + 1) / 2;
     }
 
-    /**
-     * Create a fallback transition when optimal matching fails.
-     * Uses last strong beat of current song → first strong beat of next song.
+    /** Create a fallback transition when optimal matching fails.
+     *  Uses the last beat within the exit window → first downbeat of next song.
+     *  Clamps exit time and fade duration per Gate B specifications.
      */
     private DjTransition createFallbackTransition(List<BeatInfo> currentBeats, List<BeatInfo> nextBeats,
-                                                    int crossfadeSeconds, String reason) {
+                                                  int crossfadeSeconds, String reason, double currentDuration) {
         if (currentBeats.isEmpty() || nextBeats.isEmpty()) {
             LOG.warn("Cannot create fallback: empty beat lists");
             return null;
         }
 
-        // Last beat of current song
-        BeatInfo lastBeat = currentBeats.get(currentBeats.size() - 1);
-        // First beat of next song (preferably a downbeat)
-        BeatInfo firstBeat = nextBeats.get(0);
+        // Choose the LAST beat with position <= EXIT_WINDOW_END (0.92), not blindly the last beat
+        BeatInfo exitBeat = null;
+        for (BeatInfo beat : currentBeats) {
+            double exitPosition = beat.getTime() / currentDuration;
+            if (DjScoring.insideExitWindow(exitPosition)) {
+                exitBeat = beat; // Keep the last one that fits
+            }
+        }
+        // Fallback: if no beat in exit window, use the last beat whose position is <= 0.92
+        if (exitBeat == null) {
+            for (BeatInfo beat : currentBeats) {
+                if (beat.getTime() <= currentDuration * DjScoring.EXIT_WINDOW_END) {
+                    exitBeat = beat;
+                }
+            }
+        }
+        // Absolute fallback: use the very last beat
+        if (exitBeat == null) {
+            exitBeat = currentBeats.get(currentBeats.size() - 1);
+        }
 
-        // Try to find first downbeat in next song
+        // Clamp exit time so fade doesn't run past the end of the file
+        double exitTime = DjScoring.clampExit(exitBeat.getTime(), currentDuration, crossfadeSeconds);
+
+        // Clamp fade to 1..6 seconds per gate specification
+        int fadeSeconds = Math.max(1, Math.min(6, crossfadeSeconds));
+
+        // Try to find first downbeat in next song (preferably a downbeat)
+        BeatInfo firstBeat = nextBeats.get(0);
         for (BeatInfo beat : nextBeats) {
             if (beat.getBeatInBar() == 1) {
                 firstBeat = beat;
@@ -447,51 +475,45 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         }
 
         // Enforce minimum entry time to avoid silence/intro
-        if (firstBeat.getTime() < 5.0) {
+        if (firstBeat.getTime() < 2.0) {
             for (BeatInfo beat : nextBeats) {
-                if (beat.getBeatInBar() == 1 && beat.getTime() >= 5.0) {
+                if (beat.getTime() >= 2.0) {
                     firstBeat = beat;
                     break;
                 }
             }
-            // Absolute floor: if no downbeat >= 5s, use the first beat at >= 5s
-            if (firstBeat.getTime() < 5.0) {
+            // Absolute floor: if no beat >= 2s, use the first beat at >= 2s
+            if (firstBeat.getTime() < 2.0) {
                 for (BeatInfo beat : nextBeats) {
-                    if (beat.getTime() >= 5.0) {
+                    if (beat.getTime() >= 2.0) {
                         firstBeat = beat;
                         break;
                     }
                 }
             }
-            // Last resort: use the last beat in the entry window
-            if (firstBeat.getTime() < 5.0 && !nextBeats.isEmpty()) {
-                firstBeat = nextBeats.get(nextBeats.size() - 1);
+            // Last resort: use the first beat in the entry window
+            if (firstBeat.getTime() < 2.0 && !nextBeats.isEmpty()) {
+                firstBeat = nextBeats.get(0);
             }
         }
 
         LOG.info(String.format("Fallback transition: exit at %.2fs → entry at %.2fs (%s)", 
-            lastBeat.getTime(), firstBeat.getTime(), reason));
+            exitTime, firstBeat.getTime(), reason));
 
         return new DjTransition(
-            lastBeat.getTime(),
+            exitTime,
             firstBeat.getTime(),
-            crossfadeSeconds,
+            fadeSeconds,
             0.3, // Low confidence for fallback
-            reason
+            reason,
+            1.0  // no tempo nudge on the fallback path
         );
     }
 
-    /**
-     * Normalize raw score to 0-1 confidence range.
-     */
-    private double normalizeScore(double rawScore) {
-        // Raw score max is approximately 1.1 (with bonuses)
-        return Math.min(Math.max(rawScore / 1.1, 0.0), 1.0);
-    }
+    /** Normalize raw score to 0-1 confidence range (delegated to DjScoring). */
+    // normalizeScore removed - use DjScoring.normalizeConfidence instead
 
-    /**
-     * Build human-readable reason string for the transition.
-     */
+    /** Build human-readable reason string for the transition. */
     private String buildReasonString(List<BeatInfo> exitBeats, List<BeatInfo> nextBeats,
                                        TransitionCandidate best, double currentBpm, double nextBpm) {
         StringBuilder sb = new StringBuilder();
@@ -512,9 +534,7 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
         return sb.toString();
     }
 
-    /**
-     * Simple candidate holder for transition scoring.
-     */
+    /** Simple candidate holder for transition scoring. */
     private static class TransitionCandidate {
         final double exitTime;
         final double entryTime;

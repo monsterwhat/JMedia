@@ -11,11 +11,15 @@ import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.enterprise.context.control.RequestContextController;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +58,10 @@ public class DjEnrichmentService {
 
     @Inject
     RequestContextController requestContextController;
+
+    /** Music persistence unit; used by the coverage query in queueAllUnenriched. */
+    @PersistenceContext(unitName = "music")
+    EntityManager em;
 
     // --- Queues ---
     private final BlockingQueue<Long> metadataQueue = new LinkedBlockingQueue<>();
@@ -251,6 +259,7 @@ public class DjEnrichmentService {
             // Hand off to analysis queue (analysis is independent of metadata)
             if (needsAnalysis(song)) {
                 if (analysisPoolSize > 0) {
+                    pending.incrementAndGet();
                     analysisQueue.offer(songId);
                     LOG.debug("DjEnrichmentService [metadata]: '{}' queued for analysis", title);
                 } else {
@@ -284,6 +293,7 @@ public class DjEnrichmentService {
                 Long songId = analysisQueue.poll(POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 if (songId == null) continue;
 
+                pending.decrementAndGet();
                 processAnalysis(songId);
 
             } catch (InterruptedException e) {
@@ -388,6 +398,7 @@ public class DjEnrichmentService {
             long totalScanned = 0;
             int metadataQueued = 0;
             int analysisQueued = 0;
+            Set<Long> queuedIds = new HashSet<>();
 
             while (true) {
                 List<Song> page = Song.findAll().page(pageIndex, PAGE_SIZE).list();
@@ -404,18 +415,23 @@ public class DjEnrichmentService {
 
                     if (needsMeta) {
                         // Metadata first — analysis will be queued after metadata completes
-                        metadataQueue.offer(song.id);
-                        metadataQueued++;
+                        if (queuedIds.add(song.id)) {
+                            metadataQueue.offer(song.id);
+                            metadataQueued++;
+                        }
                     } else if (needsAna && analysisPoolSize > 0) {
                         // Only analysis needed — go directly to analysis queue
-                        analysisQueue.offer(song.id);
-                        analysisQueued++;
+                        if (queuedIds.add(song.id)) {
+                            analysisQueue.offer(song.id);
+                            analysisQueued++;
+                        }
                     }
                 }
 
+                int pageSize = page.size();
                 page.clear();
 
-                if (page.size() < PAGE_SIZE) {
+                if (pageSize < PAGE_SIZE) {
                     break;
                 }
                 pageIndex++;
@@ -423,8 +439,50 @@ public class DjEnrichmentService {
 
             pending.addAndGet(metadataQueued + analysisQueued);
 
-            LOG.info("DjEnrichmentService: queued {} songs — {} for metadata, {} for analysis (total library: {})",
-                metadataQueued + analysisQueued, metadataQueued, analysisQueued, totalScanned);
+            // Phase 2: songs that already have metadata but no analysis row. Keyset
+            // paging (id > lastId) so rows that fail cannot pin the loop on the same
+            // page forever. The NOT EXISTS subquery is the whole check - no entity
+            // is loaded here (lyrics/artwork CLOBs would blow the heap).
+            int extraQueued = 0;
+            if (analysisPoolSize > 0) {
+                long lastId = 0L;
+                final int ANA_PAGE_SIZE = 500;
+                while (true) {
+                    List<Long> anaIds = em.createQuery(
+                            "SELECT s.id FROM Song s " +
+                            "WHERE s.id > :lastId " +
+                            "AND (s.artworkPath IS NOT NULL OR s.genre IS NOT NULL OR s.bpm > 0) " +
+                            "AND NOT EXISTS (SELECT sa.id FROM SongAnalysis sa WHERE sa.song.id = s.id) " +
+                            "ORDER BY s.id", Long.class)
+                            .setParameter("lastId", lastId)
+                            .setMaxResults(ANA_PAGE_SIZE)
+                            .getResultList();
+                    if (anaIds.isEmpty()) {
+                        break;
+                    }
+                    for (Long id : anaIds) {
+                        lastId = id;
+                        if (!queuedIds.add(id)) {
+                            continue;
+                        }
+                        analysisQueue.offer(id);
+                        extraQueued++;
+                    }
+                    if (anaIds.size() < ANA_PAGE_SIZE) {
+                        break;
+                    }
+                }
+            }
+            if (extraQueued > 0) {
+                pending.addAndGet(extraQueued);
+                LOG.info("DjEnrichmentService: queued {} songs for analysis that already have metadata "
+                        + "but no analysis row", extraQueued);
+            }
+
+            LOG.info("DjEnrichmentService: queued {} songs — {} for metadata, {} for analysis, "
+                            + "{} metadata-complete (total library: {})",
+                    metadataQueued + analysisQueued + extraQueued, metadataQueued,
+                    analysisQueued, extraQueued, totalScanned);
         } catch (Exception e) {
             LOG.error("DjEnrichmentService: failed to scan library for unenriched songs", e);
         } finally {

@@ -105,6 +105,7 @@ public class PlaybackState extends PanacheEntity {
     private Boolean djTransitionPlanned; // Whether a transition has been calculated
     private Double djTransitionConfidence; // 0.0-1.0 confidence of the match
     private Integer djTransitionCrossfade; // fade length the planner actually chose (seconds)
+    private Double djTransitionRate;      // playback rate for the incoming deck (1.0 = none)
     private String djTransitionReason;   // Human-readable explanation of the match
 
     @JsonProperty("cueSize")

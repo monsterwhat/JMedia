@@ -913,6 +913,7 @@
                 
                 nextPlayer._currentSongId = songId;
                 nextPlayer.src = url;
+                nextPlayer._djTransitioned = false; // Clear DJ transition flag when element is reused for new preload
                 nextPlayer.load(); // Start buffering
                 
                 const existingHandler = nextPlayer.onloadedmetadata;
@@ -926,7 +927,7 @@
             }
         },
 
-        crossfadeTo: function(songId, entryTime, duration, djManaged) {
+        crossfadeTo: function(songId, entryTime, duration, djManaged, rate) {
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo — video is active');
                 this._isCrossfading = false;
@@ -1034,6 +1035,9 @@
                 window.SynchronizationManager.setFlag('isCrossfading', true);
             }
 
+            // Save the previous active player so we can restore it on abort.
+            const previousActivePlayer = this.activePlayer;
+
             // Watchdog: a fade that never finalizes (for example play() pending
             // on a stalled incoming element) would leave isCrossfading true
             // forever, and every later setSource would defer on it.
@@ -1045,12 +1049,15 @@
                 if (window.SynchronizationManager) {
                     window.SynchronizationManager.setFlag('isCrossfading', false);
                 }
+                // Notify DjTransitionManager so isTransitioning cannot stay true forever
+                window.DjTransitionManager?.onTransitionAborted?.();
                 this._pauseOthers(this.getActivePlayer(), 'crossfade watchdog');
             }, (fadeTime + 6) * 1000);
 
             // The fade is definitely starting: now the pointer may move so
             // getActivePlayer() returns the fading-in element.
-            this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+            // (Flip is deferred to startPlayback success to avoid leaving the
+            // pointer on the outgoing element if play() never resolves.)
             
             // Mark current player as DJ-transitioned so its onended doesn't trigger auto-next
             // This prevents the old song's natural end from skipping to next after crossfade
@@ -1065,6 +1072,16 @@
                     nextPlayer.src = url;
                 }
             }
+
+            // Tempo nudge for the incoming deck (beat matching). Bounded to +/-10 %
+            // here as a safety net; the planner never exceeds +/-6 %.
+            const incomingRate = (typeof rate === 'number' && isFinite(rate) && rate >= 0.9 && rate <= 1.1)
+                ? rate : 1.0;
+            nextPlayer.playbackRate = incomingRate;
+            if (incomingRate !== 1.0) {
+                window.Helpers.log('AudioEngine: tempo nudge ' + incomingRate.toFixed(3) + 'x');
+            }
+            nextPlayer._djRate = incomingRate;
 
             // USE USER'S CURRENT VOLUME SETTING directly - not the gain node which might be stale
             // CRITICAL: Use a LOW default to prevent volume spikes. If we can't read the user's
@@ -1258,6 +1275,8 @@
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
+                    // Notify DjTransitionManager so isTransitioning cannot stay true forever
+                    window.DjTransitionManager?.onTransitionAborted?.();
                     this._pauseOthers(null, 'crossfade aborted');
                     return;
                 }
@@ -1282,6 +1301,8 @@
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
+                    // Notify DjTransitionManager so isTransitioning cannot stay true forever
+                    window.DjTransitionManager?.onTransitionAborted?.();
                     this._pauseOthers(null, 'crossfade aborted');
                     return;
                 }
@@ -1328,16 +1349,23 @@
                                         window.SynchronizationManager.setFlag('isCrossfading', false);
                                     }
                                     this._unloadPlayer(nextPlayer, 'dual-audio probe failed');
-                                    this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                                    // Restore the previous active player since the fade never started
+                                    this.activePlayer = previousActivePlayer;
                                     this._singleDeckFadeSwap(currentPlayer, songId, seekTime, targetVolume);
                                     return;
                                 }
                                 this._setDualAudioSupport(true);
+                                // Incoming deck is now playing — flip activePlayer so
+                                // getActivePlayer() returns the fading-in element.
+                                this.activePlayer = previousActivePlayer === 1 ? 2 : 1;
                                 beginFade();
                             }, 200);
                         }, 200);
                         return;
                     }
+                    // Incoming deck is now playing — flip activePlayer so
+                    // getActivePlayer() returns the fading-in element.
+                    this.activePlayer = previousActivePlayer === 1 ? 2 : 1;
                     beginFade();
                 }).catch(e => {
                     console.error('AudioEngine: Crossfade play failed', e);
@@ -1345,6 +1373,8 @@
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
+                    // Restore the previous active player on play rejection/abort
+                    this.activePlayer = previousActivePlayer;
                     if (this._userPaused) {
                         window.Helpers.log('AudioEngine: Crossfade failed while paused; not retrying playback');
                         this._pauseOthers(null, 'crossfade failed paused');
@@ -1359,7 +1389,7 @@
                         // The incoming element cannot play: put the pointer back
                         // on the still-audible outgoing element instead of
                         // leaving the engine pointing at silence.
-                        this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                        this.activePlayer = previousActivePlayer;
                         window.Helpers.log('AudioEngine: Crossfade failed; reverted active player to ' + this.getActivePlayer().id);
                     });
                 });
@@ -1509,6 +1539,10 @@
             this._pauseOthers(player, 'performSetSource');
             // Undo any bass cut left by an interrupted crossfade.
             this._resetDeckFilters();
+            // A fresh song always starts at normal speed; any tempo nudge belonged
+            // to the previous transition.
+            player.playbackRate = 1.0;
+            player._djRate = 1.0;
             player._currentSongId = currentSong.id;
             
             if (player.src !== url) {
@@ -1743,7 +1777,11 @@
 
         resetAutoplayState: function() { this.autoplayBlocked = false; this.autoplayAttempted = false; },
 
-        setTime: function(time) {
+        setTime: function(time, allowDuringFade) {
+            if (this._isCrossfading && !allowDuringFade) {
+                window.Helpers?.log?.('[AudioEngine] setTime ignored during crossfade; use setTime(time, true) to override');
+                return;
+            }
             const player = this.getActivePlayer();
             if (player) player.currentTime = window.Helpers.safeNumber(time, 0);
         },

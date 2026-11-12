@@ -64,7 +64,7 @@ public class MusicEnrichmentService {
 
     public record MusicBrainzResult(String mbid, String genre) {}
 
-    public record AcousticBrainzResult(int bpm, String key, double danceability, double energy) {}
+    public record AcousticBrainzResult(int bpm, String key, String keyScale, double danceability, double energy) {}
 
     public record DeezerResult(String artist, String title, String album, String genre, String artworkUrl) {}
 
@@ -186,9 +186,18 @@ public class MusicEnrichmentService {
                         if (result.bpm() > 0) {
                             song.setBpm(result.bpm());
                         }
+                        if (result.key() != null && !result.key().isBlank()) {
+                            song.setMusicalKey(result.key());
+                        }
+                        if (result.keyScale() != null && !result.keyScale().isBlank()) {
+                            song.setKeyScale(result.keyScale());
+                        }
+                        if (result.energy() > 0) {
+                            song.setEnergy(result.energy());
+                        }
                         song.setUpdatedAt(java.time.LocalDateTime.now());
                         em.merge(song);
-                        LOGGER.info("Enriched BPM from AcousticBrainz for {} - {}", artist, title);
+                        LOGGER.info("Enriched BPM/key from AcousticBrainz for {} - {}", artist, title);
                     }
                 } catch (Exception e) {
                     LOGGER.error("Failed to query AcousticBrainz for MBID: {}", mbid, e);
@@ -579,6 +588,7 @@ public MusicBrainzResult searchMusicBrainz(String artist, String title) {
             double danceability = 0.0;
             double energy = 0.0;
             String key = null;
+            String keyScale = null;
 
             org.json.JSONObject bpmObj = highLevel.optJSONObject("bpm");
             if (bpmObj != null) {
@@ -600,7 +610,12 @@ public MusicBrainzResult searchMusicBrainz(String artist, String title) {
                 key = keyObj.optString("value", null);
             }
 
-            return new AcousticBrainzResult(bpm, key, danceability, energy);
+            org.json.JSONObject scaleObj = highLevel.optJSONObject("key_scale");
+            if (scaleObj != null) {
+                keyScale = scaleObj.optString("value", null);
+            }
+
+            return new AcousticBrainzResult(bpm, key, keyScale, danceability, energy);
         } catch (Exception e) {
             LOGGER.error("Error parsing AcousticBrainz response", e);
         }

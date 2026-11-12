@@ -1,4 +1,4 @@
-﻿/**
+/**
  * music-bundle-loader.js ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â route-split loader for the music experience.
  *
  * The music bar engine (/js/musicBar/*) and the jmedia audio/music modules are
@@ -32,8 +32,8 @@
         '/js/musicBar/data/SongContextCache.js?v=2',
         '/js/musicBar/data/QueueManager.js?v=2',
         '/lib/howler.min.js',
-        '/js/musicBar/core/AudioEngine.js?v=9',
-        '/js/musicBar/core/DjTransitionManager.js?v=4',
+        '/js/musicBar/core/AudioEngine.js?v=11',
+        '/js/musicBar/core/DjTransitionManager.js?v=6',
         '/js/musicBar/core/WebSocketManager.js?v=3',
         '/js/musicBar/controls/PlaybackController.js?v=7',
         '/js/musicBar/controls/TimeController.js?v=2',
