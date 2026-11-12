@@ -8,6 +8,7 @@ import Services.VideoConversionService;
 import Services.VideoMetadataService;
 import Services.MetadataEnrichmentWorker;
 import Services.EpisodeSplitService;
+import Services.VideoDurationRepairService;
 import Services.AuthService;
 import Models.Video.Video;
 import Models.Video.Series;
@@ -51,6 +52,9 @@ public class VideoManagementApi {
 
     @Inject
     AuthService authService;
+
+    @Inject
+    VideoDurationRepairService durationRepairService;
 
     @Inject
     VideoConversionService videoConversionService;
@@ -348,6 +352,41 @@ public class VideoManagementApi {
         }
 
         return Response.ok("Rescan completed. Created/updated " + totalCreated + " videos.").build();
+    }
+
+    /**
+     * Starts the one-off duration repair pass (background): re-probes videos whose
+     * container duration is stretched by subtitle/attachment tracks so the stored
+     * duration is the length that actually plays.
+     */
+    @POST
+    @Path("/maintenance/repair-durations")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response startDurationRepair(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\":\"Admin access required\"}")
+                    .build();
+        }
+        boolean started = durationRepairService.start();
+        return Response.ok("{\"started\":" + started + "}").build();
+    }
+
+    /** Progress of the duration repair pass. */
+    @GET
+    @Path("/maintenance/repair-durations")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response durationRepairStatus(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\":\"Admin access required\"}")
+                    .build();
+        }
+        Map<String, Object> s = durationRepairService.status();
+        return Response.ok("{\"state\":\"" + s.get("state")
+                + "\",\"processed\":" + s.get("processed")
+                + ",\"repaired\":" + s.get("repaired")
+                + ",\"total\":" + s.get("total") + "}").build();
     }
 
     /**

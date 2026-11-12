@@ -9,6 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -119,6 +120,45 @@ public class MediaAnalysisService {
             return mediaEnd;
         }
         return containerSeconds;
+    }
+
+    /**
+     * One-off maintenance: re-probe a video whose stored duration may be the container
+     * length instead of the playable length, and persist the corrected value.
+     *
+     * <p>The probe shells out to ffprobe, so it runs outside any transaction; only the
+     * short read and the update are transactional.
+     *
+     * @return true when the stored duration was corrected
+     */
+    public boolean repairDurationIfStretched(Long videoId) {
+        Object[] row = QuarkusTransaction.requiringNew().call(() -> {
+            Video v = Video.findById(videoId);
+            if (v == null || v.path == null || v.duration == null || v.duration <= 0) {
+                return null;
+            }
+            return new Object[]{ v.path, v.duration / 1000.0 };
+        });
+        if (row == null) return false;
+
+        String path = (String) row[0];
+        double stored = (Double) row[1];
+
+        JsonNode root = probe(path);
+        if (root == null) return false;
+
+        double effective = resolveEffectiveDuration(root, path, stored);
+        if (effective <= 0 || stored - effective <= 30) return false;
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            Video v = Video.findById(videoId);
+            if (v == null) return;
+            v.duration = Math.round(effective * 1000);
+            v.persist();
+        });
+        LOG.info("Duration repaired for {} (id={}): {}s -> {}s",
+                path, videoId, Math.round(stored), Math.round(effective));
+        return true;
     }
 
     /** Last video packet timestamp, i.e. where the picture actually stops. */
