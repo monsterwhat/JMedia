@@ -4702,6 +4702,13 @@ function openSearch() {
 }
 
 function closeSearch() {
+  // TEMPORARY diagnostics: report who closed the search so the mobile focus loss can be
+  // traced without a device console.
+  try {
+    const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' | ').replace(/https?:\/\/[^/]+/g, '');
+    const img = new Image();
+    img.src = '/__searchdiag/closesearch/' + encodeURIComponent(stack.slice(0, 160)) + '/' + Date.now();
+  } catch (e) { /* diagnostics only */ }
   const dock = document.querySelector('.cinema-dock');
   if (dock) dock.classList.remove('searching');
   const input = document.getElementById('searchInput');
