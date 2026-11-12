@@ -354,7 +354,7 @@ public class SubtitleAPI {
     public Response streamSubtitle(@PathParam("trackId") Long trackId,
                                   @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double requestedOffset,
                                   @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction,
-                                  @QueryParam("exact") @jakarta.ws.rs.DefaultValue("false") boolean exactOffset) {
+                                  @QueryParam("exact") @jakarta.ws.rs.DefaultValue("") String exactParam) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -370,6 +370,9 @@ public class SubtitleAPI {
             // picture begins — a fragment boundary, which can sit a few tenths of a
             // second after the keyframe. Snapping it again would shift the cues by that
             // gap, which is why the drift only showed on some titles.
+            // JAX-RS parses a boolean query param with Boolean.valueOf, so the client's
+            // `exact=1` was silently false and the flag did nothing. Accept both spellings.
+            boolean exactOffset = "true".equalsIgnoreCase(exactParam) || "1".equals(exactParam);
             double offset = exactOffset ? requestedOffset : effectiveStreamStart(track, requestedOffset);
             LOGGER.info("Subtitle offset for track {}: requested={} exact={} used={}",
                     trackId, requestedOffset, exactOffset, offset);
