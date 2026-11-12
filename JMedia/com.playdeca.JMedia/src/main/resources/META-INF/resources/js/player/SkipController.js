@@ -73,7 +73,7 @@
                 // One attempt per playback session: there may be no next episode,
                 // and every failed attempt toasts.
                 p._autoSkipGuard = { section: 'outro', end: end, until: Date.now() + 6 * 60 * 60 * 1000 };
-                p.playNextEpisode();
+                this._skipOutro(end);
                 return;
             }
 
@@ -90,6 +90,41 @@
             }
 
             this._showAutoSkipNotice(section);
+        }
+
+        /**
+         * Ending a section is not always "episode over". An ED/credits block often has a
+         * preview or a post-credits scene after it — these episodes carry ~80s between
+         * outroEnd and the real end — so skipping the credits must not throw that away.
+         * When real tail content remains we seek past the outro and let the episode end
+         * itself; only when the markers already reach the end do we advance.
+         */
+        _skipOutro(end) {
+            const p = this.player;
+            const minTailSeconds = 20; // shorter than this is a fade/logo, not a scene
+
+            let mediaEnd = 0;
+            const elementDuration = p.video ? p.video.duration : 0;
+            if (isFinite(elementDuration) && elementDuration > 0) {
+                mediaEnd = (p.streamStartOffset || 0) + elementDuration;
+            }
+            if (!(mediaEnd > 0)) {
+                mediaEnd = p.totalDuration || 0;
+            }
+            const tail = mediaEnd > 0 ? mediaEnd - end : 0;
+
+            if (tail >= minTailSeconds) {
+                const target = end + 1;
+                console.log('[SimplePlayer] Outro skipped, ' + Math.round(tail)
+                        + 's of tail remains — resuming after the credits');
+                if (p.needsTranscode) {
+                    p.streamMgr.performServerSeek(target);
+                } else {
+                    p.video.currentTime = target;
+                }
+                return;
+            }
+            p.playNextEpisode();
         }
 
         _showAutoSkipNotice(section) {
@@ -171,7 +206,12 @@
             const p = this.player;
             if (e.target.closest('.skip-auto-toggle')) return;
             if (section === 'outro') {
-                p.playNextEpisode();
+                // A manual skip must not be re-triggered by the auto-skip check.
+                if (!p._autoSkippedSections) p._autoSkippedSections = new Set();
+                p._autoSkippedSections.add('outro');
+                p._autoSkipUndoTime = p.markers.outroStart;
+                p._autoSkipSection = 'outro';
+                this._skipOutro(p.markers.outroEnd);
             } else {
                 const endKey = section + 'End';
                 const end = p.markers[endKey];
