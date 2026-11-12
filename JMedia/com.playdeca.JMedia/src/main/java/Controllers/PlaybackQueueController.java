@@ -109,6 +109,24 @@ public void enforceQueueWindow(PlaybackState st) {
     }
 
 public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
+        return advance(state, forward, skippedEarly, manualAdvance, profileId, 0);
+    }
+
+    /**
+     * Depth-guarded implementation. A manual advance over a single-song cue
+     * removes the song and re-enters advance(), which refills and can land on a
+     * one-song cue again. Without this guard that mutual recursion overflowed the
+     * stack, marked the JTA transaction rollback-only and left the connection
+     * pool failing fast for every subsequent request (including login).
+     */
+    private Long advance(PlaybackState state, boolean forward, boolean skippedEarly,
+                         boolean manualAdvance, Long profileId, int depth) {
+        if (depth > 3) {
+            LOG.warn("Playback advance recursion exceeded depth {} (single-song cue, repeat={}); stopping instead of looping",
+                    depth, state.getRepeatMode());
+            state.setPlaying(false);
+            return null;
+        }
         // When the single queue is empty, refill from the song pool (DJ-filtered if active).
         // Refill is gated on RepeatMode.ALL OR a manual forward advance. A manual
         // next/play (manualAdvance && forward) with an empty cue starts a fresh
@@ -177,7 +195,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                     }
                 }
             }
-            return handleSingleSongCue(state, forward, skippedEarly, manualAdvance, profileId);
+            return handleSingleSongCue(state, forward, skippedEarly, manualAdvance, profileId, depth);
         }
 
         Long __r = advanceInQueue(state, forward, skippedEarly, manualAdvance, profileId);
@@ -185,7 +203,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         return __r;
     }
 
-    private Long handleSingleSongCue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId) {
+    private Long handleSingleSongCue(PlaybackState state, boolean forward, boolean skippedEarly, boolean manualAdvance, Long profileId, int depth) {
         // Single-song cue with Repeat OFF must NOT loop forever.
         // Natural end consumes the last song and stops; manual next
         // consumes it and refills via the empty-cue path above.
@@ -209,7 +227,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         state.setCueIndex(-1);
         if (manualAdvance) {
             enforceQueueWindow(state);
-            return advance(state, true, skippedEarly, true, profileId);
+            return advance(state, true, skippedEarly, true, profileId, depth + 1);
         }
         state.setPlaying(false);
         enforceQueueWindow(state);
