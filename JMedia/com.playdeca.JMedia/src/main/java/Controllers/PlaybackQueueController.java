@@ -127,6 +127,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             state.setPlaying(false);
             return null;
         }
+        LOG.info("[advance] depth={} forward={} manual={} cueSize={} cueIndex={} repeat={} shuffle={}",
+                depth, forward, manualAdvance,
+                state.getCue() == null ? -1 : state.getCue().size(),
+                state.getCueIndex(), state.getRepeatMode(), state.getShuffleMode());
         // When the single queue is empty, refill from the song pool (DJ-filtered if active).
         // Refill is gated on RepeatMode.ALL OR a manual forward advance. A manual
         // next/play (manualAdvance && forward) with an empty cue starts a fresh
@@ -1347,13 +1351,17 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return;
         }
         List<Long> poolIds = buildSongPool(state);
+        LOG.info("[refill] shuffle={} repeat={} manual={} originalCue={} pool={}",
+                state.getShuffleMode(), state.getRepeatMode(), manualAdvance,
+                state.getOriginalCue() == null ? 0 : state.getOriginalCue().size(), poolIds.size());
         boolean smartShuffle = state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE;
         // The user's original queue may be exhausted or hold ids that no longer
-        // exist. For a continuous shuffle that is not a reason to stop: fall back
-        // to the whole library and keep playing.
-        if (poolIds.isEmpty() && continuousSelection) {
-            LOG.info("Shuffle pool empty (originalCue={}); refilling from the full library",
-                    state.getOriginalCue() == null ? 0 : state.getOriginalCue().size());
+        // exist, and a one-song pool is just the selected track: refilling it
+        // hands back the same song forever. For a continuous shuffle, fall back to
+        // the whole library and keep playing.
+        if (continuousSelection && poolIds.size() <= 1) {
+            LOG.info("Shuffle pool too small ({} song(s), originalCue={}); refilling from the full library",
+                    poolIds.size(), state.getOriginalCue() == null ? 0 : state.getOriginalCue().size());
             poolIds = songService.findAll().stream()
                     .map(s -> s.id)
                     .collect(java.util.stream.Collectors.toList());
