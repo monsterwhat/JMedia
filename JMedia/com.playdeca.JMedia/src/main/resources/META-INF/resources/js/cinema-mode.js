@@ -4709,10 +4709,11 @@ function openSearch() {
   };
   if (input) {
     input.value = '';
-    focusInput();
-    setTimeout(focusInput, 350);
-    setTimeout(focusInput, 900);
-    setTimeout(focusInput, 1400);
+    // Do NOT focus while the dock is sliding: iOS cancels the keyboard when a focused
+    // element is repositioned, and re-focusing afterwards restores activeElement but not
+    // the keyboard. Wait for the slide to finish, then focus a stationary field.
+    setTimeout(focusInput, 320);
+    setTimeout(focusInput, 700);
   }
 }
 
