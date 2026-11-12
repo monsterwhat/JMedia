@@ -4695,10 +4695,25 @@ function openSearch() {
   const dock = document.querySelector('.cinema-dock');
   if (dock) dock.classList.add('searching');
   const input = document.getElementById('searchInput');
-  if (input) { input.value = ''; input.focus(); }
-  // Stamp open time so the outside-click handler can absorb the iOS
-  // ghost click that fires right after the keyboard opens.
   window._searchOpenedAt = Date.now();
+
+  // The dock slides to the bottom while the field holds focus. iOS cancels the keyboard
+  // when a focused element is repositioned, which is what made the search look like it
+  // minimised a second after opening. Re-assert focus once the move has finished, but
+  // only while the search is still open (closeSearch removes `.searching`, after which
+  // this must not steal focus back).
+  const focusInput = () => {
+    if (!input || !dock || !dock.classList.contains('searching')) return;
+    if (document.activeElement === input) return;
+    input.focus();
+  };
+  if (input) {
+    input.value = '';
+    focusInput();
+    setTimeout(focusInput, 350);
+    setTimeout(focusInput, 900);
+    setTimeout(focusInput, 1400);
+  }
 }
 
 function closeSearch() {
