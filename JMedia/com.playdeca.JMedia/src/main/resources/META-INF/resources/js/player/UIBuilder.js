@@ -64,6 +64,7 @@
                     </div>
                     <div class="progress-container">
                         <div class="progress-filled" style="width: 0%;"></div>
+                        <div class="progress-recap-marker" style="display: none;"></div>
                         <div class="progress-intro-marker" style="display: none;"></div>
                         <div class="progress-outro-marker" style="display: none;"></div>
                     </div>

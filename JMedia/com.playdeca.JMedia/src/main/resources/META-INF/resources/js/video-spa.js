@@ -1,4 +1,4 @@
-class VideoSPA {
+﻿class VideoSPA {
     constructor() {
         this.currentSection = 'home';
         this.currentParams = {};
@@ -287,7 +287,7 @@ class VideoSPA {
         const alts = v.alternativeUrls && Array.isArray(v.alternativeUrls) && v.alternativeUrls.length > 0
             ? JSON.stringify(v.alternativeUrls).replace(/"/g, '&quot;') : '';
         return `
-            <link rel="stylesheet" href="/css/player.css"/>
+            <link rel="stylesheet" href="/css/player.css?v=2"/>
             <div class="player-container paused" id="customPlayer"
                  data-external-url="${this.escapeAttr(proxyUrl)}"
                  data-external-original-url="${this.escapeAttr(v.url)}"
@@ -304,8 +304,8 @@ class VideoSPA {
             <script src="/js/player/Utils.js?v=3"><\/script>
             <script src="/js/player/StateManager.js"><\/script>
             <script src="/js/player/StreamManager.js?v=26"><\/script>
-            <script src="/js/player/UIBuilder.js?v=5"><\/script>
-            <script src="/js/player/ControlsManager.js"><\/script>
+            <script src="/js/player/UIBuilder.js?v=6"><\/script>
+            <script src="/js/player/ControlsManager.js?v=1"><\/script>
             <script src="/js/player/FullscreenManager.js"><\/script>
             <script src="/js/player/SubtitleController.js?v=4"><\/script>
             <script src="/js/player/AudioTrackSelector.js"><\/script>

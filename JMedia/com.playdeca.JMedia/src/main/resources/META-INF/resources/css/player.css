@@ -605,6 +605,7 @@ body[data-video-active="true"] .music-player {
 
 /* Intro/Outro Markers on Progress Bar */
 .progress-intro-marker,
+.progress-recap-marker,
 .progress-outro-marker {
     position: absolute !important;
     top: 0 !important;
@@ -616,6 +617,11 @@ body[data-video-active="true"] .music-player {
 .progress-intro-marker {
     background: rgba(255, 235, 59, 0.35) !important;
     border-left: 2px solid rgba(255, 235, 59, 0.8) !important;
+}
+
+.progress-recap-marker {
+    background: rgba(33, 150, 243, 0.35) !important;
+    border-left: 2px solid rgba(33, 150, 243, 0.8) !important;
 }
 
 .progress-outro-marker {

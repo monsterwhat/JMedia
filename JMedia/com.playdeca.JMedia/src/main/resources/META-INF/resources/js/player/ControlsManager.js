@@ -59,6 +59,7 @@
                     el.style.display = 'block';
                 }
             };
+            showMarker('.progress-recap-marker', p.markers.recapStart, p.markers.recapEnd);
             showMarker('.progress-intro-marker', p.markers.introStart, p.markers.introEnd);
             showMarker('.progress-outro-marker', p.markers.outroStart, dur);
         }

@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/css/player.css"/>
+﻿<link rel="stylesheet" href="/css/player.css?v=2"/>
 <link rel="stylesheet" href="/css/subtitle-styling.css"/>
 <style>
   /* Cinema page: no back button */
@@ -17,7 +17,7 @@
       data-season-number="{item.seasonNumber ?: 1}"
       data-episode-number="{item.episodeNumber ?: 0}"
       data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
-      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} Ã¢â‚¬Â¢ {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
+      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
       data-start-time="{resumeTime}"
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
@@ -52,8 +52,8 @@
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js?v=1"></script>
 <script src="/js/player/StreamManager.js?v=2"></script>
-<script src="/js/player/UIBuilder.js?v=5"></script>
-<script src="/js/player/ControlsManager.js"></script>
+<script src="/js/player/UIBuilder.js?v=6"></script>
+<script src="/js/player/ControlsManager.js?v=1"></script>
 <script src="/js/player/FullscreenManager.js"></script>
 <script src="/js/player/SubtitleController.js?v=5"></script>
 <script src="/js/player/AudioTrackSelector.js"></script>
