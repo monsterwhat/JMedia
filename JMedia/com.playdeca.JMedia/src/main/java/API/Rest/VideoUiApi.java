@@ -2287,14 +2287,27 @@ public class VideoUiApi {
                         TmdbCatalogService.CatalogSeason season =
                                 tmdbCatalogService.getSeason(series.tmdbId, sn);
                         if (season == null) continue;
+                        // Some TMDb shows number episodes absolutely across seasons
+                        // (season 2 starts at 63, season 3 at 137). Then the
+                        // catalogue number already is the absolute number.
+                        boolean catalogueAbsolute = usesAbsoluteEpisodeNumbers(
+                                season.episodes().stream()
+                                        .map(TmdbCatalogService.CatalogEpisode::number)
+                                        .collect(Collectors.toList()));
                         for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
-                            if (present.contains((long) sn * 1000 + ep.number())) continue;
+                            Integer absolute = null;
                             if (compareAbsolute && sn != null && sn > 0) {
-                                Integer absolute = absoluteEpisodeNumber(sn, ep.number(), tmdbCounts);
-                                if (absolute != null && localAbsolute.contains(absolute)) {
+                                absolute = catalogueAbsolute
+                                        ? (ep.number() > 0 ? ep.number() : null)
+                                        : absoluteEpisodeNumber(sn, ep.number(), tmdbCounts);
+                            }
+                            if (absolute != null) {
+                                if (localAbsolute.contains(absolute)) {
                                     suppressed++;
                                     continue;
                                 }
+                            } else if (present.contains((long) sn * 1000 + ep.number())) {
+                                continue;
                             }
                             Map<String, Object> item = new LinkedHashMap<>();
                             item.put("id", null);
@@ -2367,6 +2380,15 @@ public class VideoUiApi {
             offset += length;
         }
         return offset + episode;
+    }
+
+    /**
+     * True when a catalogue season numbers its episodes absolutely across the
+     * whole show (e.g. S02E01 is numbered 63), which TMDb does for some shows.
+     */
+    static boolean usesAbsoluteEpisodeNumbers(List<Integer> episodeNumbers) {
+        return episodeNumbers != null && !episodeNumbers.isEmpty()
+                && episodeNumbers.get(0) != null && episodeNumbers.get(0) != 1;
     }
 
     private String formatDateTime(java.time.LocalDateTime dt) {

@@ -169,7 +169,27 @@ public class SeriesService {
         initializeCollections(result.series);
         result.episodes = Video.find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", result.series)
                 .list();
+        // The id-based episodes API serializes these entities outside the
+        // transaction; initialize their lazy element collections first.
+        for (Video episode : result.episodes) {
+            initializeVideoCollections(episode);
+        }
         return result;
+    }
+
+    /**
+     * Initializes the lazy @ElementCollection fields on an episode so the entity
+     * can be serialized after the transaction closes.
+     */
+    private void initializeVideoCollections(Video video) {
+        if (video.genres != null) Hibernate.initialize(video.genres);
+        if (video.directors != null) Hibernate.initialize(video.directors);
+        if (video.writers != null) Hibernate.initialize(video.writers);
+        if (video.cast != null) Hibernate.initialize(video.cast);
+        if (video.productionCompanies != null) Hibernate.initialize(video.productionCompanies);
+        if (video.networks != null) Hibernate.initialize(video.networks);
+        if (video.akas != null) Hibernate.initialize(video.akas);
+        if (video.keywords != null) Hibernate.initialize(video.keywords);
     }
 
     /**

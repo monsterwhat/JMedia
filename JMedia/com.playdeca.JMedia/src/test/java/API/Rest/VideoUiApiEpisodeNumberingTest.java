@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -77,6 +78,15 @@ class VideoUiApiEpisodeNumberingTest {
         assertNull(VideoUiApi.absoluteEpisodeNumber(3, 1, Map.of(1, 58, 3, 12)));
         assertNull(VideoUiApi.absoluteEpisodeNumber(0, 1, Map.of(1, 58)));
         assertNull(VideoUiApi.absoluteEpisodeNumber(1, 0, Map.of(1, 58)));
+    }
+
+    @Test
+    void detectsAbsoluteCatalogueNumbering() {
+        assertTrue(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of(63, 64, 136)));
+        assertTrue(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of(137, 148)));
+        assertFalse(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of(1, 2, 62)));
+        assertFalse(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of()));
+        assertFalse(VideoUiApi.usesAbsoluteEpisodeNumbers(null));
     }
 
     @Test
