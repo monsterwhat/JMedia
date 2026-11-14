@@ -2579,9 +2579,15 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
   }
 
   // B. Franchise/collection movies
-  const currentSeries = currentVideo.series?.id ? seriesLookup.get(String(currentVideo.series.id)) : null;
-  const franchiseName = currentSeries?.franchiseName || currentVideo.franchiseName;
-  const collectionName = currentSeries?.collectionName || currentVideo.collectionName;
+  const seriesByTitle = new Map();
+  seriesLookup.forEach(s => {
+    if (s && s.title) seriesByTitle.set(String(s.title).trim().toLowerCase(), s);
+  });
+  const currentTitleKey = String(currentVideo.seriesTitle || '').trim().toLowerCase();
+  const currentSeries = (currentVideo.series?.id ? seriesLookup.get(String(currentVideo.series.id)) : null)
+    || (currentTitleKey ? seriesByTitle.get(currentTitleKey) : null);
+  const franchiseName = currentVideo.franchiseName || currentSeries?.franchiseName;
+  const collectionName = currentVideo.collectionName || currentSeries?.collectionName;
   const franchiseMovies = [];
   if (franchiseName || collectionName) {
     allVideos.forEach(v => {
@@ -2593,15 +2599,23 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
     });
   }
 
-  // A. Genre-matched series from seriesLookup
+  // A. Genre-matched series. The videos API returns only `seriesTitle` for
+  // episodes (no nested series object), so look the show up by title and fall
+  // back to the episode row itself. Requiring `v.series?.id` left this list
+  // empty and the section stuck on skeletons for every TV show.
   const seenSeries = new Map();
-  allVideos.filter(v => v.type === 'episode' && v.series?.id)
+  const currentKey = currentSeries ? 'id:' + currentSeries.id : 'title:' + currentTitleKey;
+  allVideos.filter(v => v.type === 'episode' && v.seriesTitle)
     .forEach(v => {
-      const sId = String(v.series.id);
-      if (sId === String(currentVideo.series?.id) || seenSeries.has(sId)) return;
-      const series = seriesLookup.get(sId);
-      if (series && series.genres?.some(g => videoGenres.includes(g))) {
-        seenSeries.set(sId, series);
+      const s = seriesByTitle.get(String(v.seriesTitle).trim().toLowerCase()) || null;
+      const key = s ? 'id:' + s.id : 'title:' + String(v.seriesTitle).trim().toLowerCase();
+      if (key === currentKey || seenSeries.has(key)) return;
+      const genres = (s && s.genres && s.genres.length ? s.genres : (v.genres || []));
+      if (genres.some(g => videoGenres.includes(g))) {
+        seenSeries.set(key, s
+          ? Object.assign({}, s, { __thumbId: v.id })
+          : { id: null, title: v.seriesTitle, releaseYear: v.releaseYear,
+              imdbRating: v.imdbRating, tmdbRating: v.tmdbRating, genres, __thumbId: v.id });
       }
     });
   const genreSeries = Array.from(seenSeries.values()).slice(0, 8);
@@ -2658,14 +2672,18 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
   genreSeries.forEach(series => {
     const title = series.title || 'Untitled';
     const year = series.releaseYear || '';
-    const img = series.id ? getSeriesImageUrl(series.id, 'poster') : '/logo.png';
+    const hasPoster = !!series.id;
+    const img = hasPoster ? getSeriesImageUrl(series.id, 'poster')
+      : (series.__thumbId ? getThumbnailUrl(series.__thumbId) : '/logo.png');
+    const cardSrc = hasPoster ? withArtWidth(img, 400) : img;
+    const cardSrcSet = hasPoster ? artSrcset(img) : '';
     const rating = series.imdbRating || series.tmdbRating || '';
     const ratingVal = rating ? parseFloat(rating) : 0;
   const ratingText = ratingVal > 0 ? ratingVal.toFixed(1) : '';
   const starColor = ratingText ? ratingColor(ratingVal) : '';
     allCards.push(`<div class="cinema-more-like-card" data-click="openSeriesDetailFromCard" data-series-title="${encodeURIComponent(series.title || '')}">
       <div class="cinema-more-like-img-wrap">
-        <img src="${img === '/logo.png' ? img : withArtWidth(img,400)}" srcset="${img === '/logo.png' ? '' : artSrcset(img)}" sizes="(min-width: 768px) 176px, 144px" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+        <img src="${cardSrc}" srcset="${cardSrcSet}" sizes="(min-width: 768px) 176px, 144px" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
         <div class="cinema-more-like-play-overlay">
           <div class="cinema-more-like-play-icon">
             <i class="fa-solid fa-play"></i>
