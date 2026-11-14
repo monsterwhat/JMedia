@@ -28,9 +28,9 @@ import java.util.concurrent.TimeUnit;
  * Converts embedded HDMV PGS (hdmv_pgs_subtitle) tracks to WebVTT via Tesseract OCR.
  * <p>
  * Flow: ffmpeg extracts the .sup stream with original timestamps, PgsSubtitleParser
- * decodes each display set to an ARGB bitmap, then each bitmap is binarized
- * (alpha >= threshold -&gt; black, else white), upscaled 2x and OCR'd with
- * {@code tesseract --psm 13}. Cues use the PGS 90 kHz PTS clock; the result is
+ * decodes each display set to an ARGB bitmap, then each bitmap keeps the bright glyph
+ * fill (dropping the dark outline), is upscaled 3x and OCR'd with
+ * {@code tesseract --psm 6 --oem 1}. Cues use the PGS 90 kHz PTS clock; the result is
  * cached per track so playback never re-runs OCR.
  */
 @ApplicationScoped
@@ -38,8 +38,9 @@ public class PgsOcrService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PgsOcrService.class);
 
-    private static final int ALPHA_THRESHOLD = 150;
-    private static final int UPSCALE_FACTOR = 2;
+    private static final int ALPHA_THRESHOLD = 64;
+    private static final int LUMINANCE_THRESHOLD = 100;
+    private static final int UPSCALE_FACTOR = 3;
 
     /**
      * Working-directory-relative cache folder for generated PGS VTT files, mirroring the
@@ -288,17 +289,30 @@ public class PgsOcrService {
             BufferedImage bin = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
             for (int y = 0; y < h; y++) {
                 for (int x = 0; x < w; x++) {
-                    int a = (src.getRGB(x, y) >> 24) & 0xFF;
-                    bin.setRGB(x, y, a >= ALPHA_THRESHOLD ? 0x000000 : 0xFFFFFF);
+                    int argb = src.getRGB(x, y);
+                    int a = (argb >>> 24) & 0xFF;
+                    int r = (argb >> 16) & 0xFF;
+                    int g = (argb >> 8) & 0xFF;
+                    int b = argb & 0xFF;
+                    int lum = (299 * r + 587 * g + 114 * b) / 1000;
+                    // PGS dialogue is bright text wrapped in a dark outline/shadow.
+                    // Alpha-only binarization keeps both and merges each glyph into a
+                    // blob; keep only the bright fill so Tesseract sees clean strokes.
+                    boolean text = a >= ALPHA_THRESHOLD && lum >= LUMINANCE_THRESHOLD;
+                    bin.setRGB(x, y, text ? 0x000000 : 0xFFFFFF);
                 }
             }
 
-            BufferedImage up = new BufferedImage(w * UPSCALE_FACTOR, h * UPSCALE_FACTOR, BufferedImage.TYPE_INT_RGB);
-            for (int y = 0; y < h * UPSCALE_FACTOR; y++) {
-                for (int x = 0; x < w * UPSCALE_FACTOR; x++) {
-                    up.setRGB(x, y, bin.getRGB(x / UPSCALE_FACTOR, y / UPSCALE_FACTOR));
-                }
-            }
+            int upW = w * UPSCALE_FACTOR;
+            int upH = h * UPSCALE_FACTOR;
+            BufferedImage up = new BufferedImage(upW, upH, BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g2 = up.createGraphics();
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                    java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+            g2.drawImage(bin, 0, 0, upW, upH, null);
+            g2.dispose();
 
             File png = new File(workDir, "img_" + System.nanoTime() + "_" + imgIdx + ".png");
             ImageIO.write(up, "png", png);
@@ -315,7 +329,9 @@ public class PgsOcrService {
     }
 
     private String runTesseract(String tesseract, File png) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(tesseract, png.getAbsolutePath(), "stdout", "--psm", "13");
+        ProcessBuilder pb = new ProcessBuilder(tesseract, png.getAbsolutePath(), "stdout",
+                "--psm", "6", "--oem", "1", "-l", "eng",
+                "-c", "preserve_interword_spaces=1");
         Process process = pb.start();
         StringBuilder out = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -347,9 +363,11 @@ public class PgsOcrService {
 
     private String cacheKey(SubtitleTrack track) {
         if (track.id != null) {
-            return "track_" + track.id;
+            // v2: bright-fill binarization + 3x bicubic upscale + PSM 6. Keeps the
+            // previous alpha-only OCR output from being served after the upgrade.
+            return "track_" + track.id + "_v2";
         }
-        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex;
+        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v2";
     }
 
     /**
