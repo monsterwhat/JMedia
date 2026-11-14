@@ -48,6 +48,9 @@ public class VideoImportService {
     private EntityManager em;
 
     @Inject
+    VideoImportService self;
+
+    @Inject
     SmartNamingService smartNamingService;
 
     @Inject
@@ -265,7 +268,7 @@ public class VideoImportService {
                         // cgroup from reaching the ~7GB that starved the host.
                         boolean held = mediaProcessLimiter.acquireBackground("scan:" + path.getFileName());
                         try {
-                            return processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles);
+                            return self.processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles);
                         } finally {
                             if (held) mediaProcessLimiter.releaseBackground();
                         }
@@ -357,7 +360,7 @@ public class VideoImportService {
         String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
         Path rootPath = libPathStr != null ? Paths.get(libPathStr) : filePath.getParent();
         ScanContext ctx = loadScanContext();
-        return processVideoFile(filePath, rootPath, true, ctx);
+        return self.processVideoFile(filePath, rootPath, true, ctx);
     }
 
     @Transactional
@@ -755,13 +758,13 @@ public class VideoImportService {
 
     @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
-    protected Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
+    public Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
         return processVideoFile(filePath, rootPath, metadataOnly, ctx, false, null);
     }
 
     @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
-    protected Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx, boolean forceFullScan, AtomicInteger skippedFiles) {
+    public Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx, boolean forceFullScan, AtomicInteger skippedFiles) {
         String filePathStr = filePath.toString();
         String filename = filePath.getFileName().toString();
         
