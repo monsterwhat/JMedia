@@ -1636,6 +1636,15 @@ public class SmartNamingService {
         
         String cleaned = stripProviderHint(name);
 
+        // Cut at the first technical/release tag, the same rule cleanTitle uses:
+        // "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER" -> "Solo Leveling".
+        // Without this the tags survive into the show title because they contain no
+        // season/part marker the later patterns could split on.
+        Matcher releaseCut = RELEASE_CLEAN_PATTERN.matcher(cleaned);
+        if (releaseCut.find() && releaseCut.start() > 1) {
+            cleaned = cleaned.substring(0, releaseCut.start()).trim();
+        }
+
         Matcher seasonMatcher = SEASON_SPLIT_PATTERN.matcher(cleaned);
         if (seasonMatcher.find()) {
             String[] parts = SEASON_SPLIT_PATTERN.split(cleaned, 2);

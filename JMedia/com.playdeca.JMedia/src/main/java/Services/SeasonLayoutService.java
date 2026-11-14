@@ -54,6 +54,12 @@ public class SeasonLayoutService {
         public final Map<Integer, Integer> expected = new LinkedHashMap<>();
         /** Video id -> episode number to show (only set when the split was re-mapped). */
         public final Map<Long, Integer> displayEpisodeNumber = new LinkedHashMap<>();
+        /** Video id -> absolute position in the series run (1-based). */
+        public final Map<Long, Integer> absoluteIndex = new LinkedHashMap<>();
+        /** Display season -> inclusive absolute range [start, end] when TMDb folds seasons. */
+        public final Map<Integer, int[]> absoluteRanges = new LinkedHashMap<>();
+        /** True when TMDb models fewer seasons than the folders (e.g. 51 episodes in one season). */
+        public boolean metadataFolded;
         /** True when the metadata split differed from the folder split and won. */
         public boolean regrouped;
 
@@ -104,12 +110,31 @@ public class SeasonLayoutService {
         boolean fits = !metadata.isEmpty() && fitsFolderLayout(local, metadata);
         long localTotal = normal.stream().filter(v -> v.seasonNumber != null && v.seasonNumber > 0).count();
         long metadataTotal = metadata.values().stream().mapToLong(Integer::longValue).sum();
+        long localSeasonCount = local.keySet().stream().filter(s -> s != null && s > 0).count();
+
+        // Absolute position of every episode in the run, used by both the
+        // re-split and the folded-metadata branches.
+        int absolute = 0;
+        for (Video v : normal) {
+            if (v.seasonNumber != null && v.seasonNumber > 0) {
+                layout.absoluteIndex.put(v.id, ++absolute);
+            }
+        }
 
         if (!fits && !metadata.isEmpty() && localTotal == metadataTotal) {
             remapByMetadata(layout, normal, metadata, local.get(0));
             layout.regrouped = true;
             LOG.info("Season layout for '{}': re-split {} episodes by TMDb counts {}", seriesTitle,
                     localTotal, metadata);
+        } else if (!fits && !metadata.isEmpty() && metadata.size() < localSeasonCount) {
+            // TMDb folds several folder seasons into one (e.g. Shangri-La Frontier:
+            // 51 episodes in "Season 1" while the release has two 25-episode folders).
+            // Keep the folders, but derive the expected count per display season from
+            // the absolute episode range instead of the metadata season number.
+            foldedFolderLayout(layout, local, metadata, metadataTotal);
+            layout.metadataFolded = true;
+            LOG.info("Season layout for '{}': TMDb folds {} seasons into {}; folder seasons kept with absolute counts",
+                    seriesTitle, localSeasonCount, metadata.size());
         } else {
             folderLayout(layout, local, metadata);
             if (!metadata.isEmpty() && !fits) {
@@ -157,14 +182,57 @@ public class SeasonLayoutService {
         return local.keySet().stream().anyMatch(s -> s > 0);
     }
 
-    private void folderLayout(Layout layout, Map<Integer, List<Video>> local, Map<Integer, Integer> metadata) {
-        for (Map.Entry<Integer, List<Video>> e : local.entrySet()) {
+    private void folderLayout(Layout layout, Map<Integer, List<Video>> local, Map<Integer, Integer> metadata) {        for (Map.Entry<Integer, List<Video>> e : local.entrySet()) {
             int season = e.getKey();
             layout.seasons.put(season, new ArrayList<>(e.getValue()));
             Integer expected = metadata.get(season);
             layout.expected.put(season, expected != null ? expected : e.getValue().size());
         }
         // Seasons TMDb knows but the library has no file for (aired or announced).
+        for (Map.Entry<Integer, Integer> e : metadata.entrySet()) {
+            if (!layout.seasons.containsKey(e.getKey())) {
+                layout.seasons.put(e.getKey(), new ArrayList<>());
+                layout.expected.put(e.getKey(), e.getValue());
+            }
+        }
+        orderSpecialsLast(layout);
+    }
+
+    /**
+     * Folder seasons kept, but TMDb groups them into fewer seasons: the expected
+     * count per display season comes from the absolute episode range instead of
+     * the metadata season number, so "Season 2" is not compared against the whole
+     * 51-episode metadata season.
+     */
+    private void foldedFolderLayout(Layout layout, Map<Integer, List<Video>> local,
+                                    Map<Integer, Integer> metadata, long metadataTotal) {
+        List<Integer> order = local.keySet().stream()
+                .filter(s -> s != null && s > 0)
+                .sorted()
+                .collect(java.util.stream.Collectors.toList());
+        for (int i = 0; i < order.size(); i++) {
+            int season = order.get(i);
+            List<Video> group = local.get(season);
+            layout.seasons.put(season, new ArrayList<>(group));
+            Integer first = group.isEmpty() ? null : layout.absoluteIndex.get(group.get(0).id);
+            int start = first != null ? first : 1;
+
+            int nextStart;
+            if (i + 1 < order.size()) {
+                List<Video> next = local.get(order.get(i + 1));
+                Integer nextAbs = next == null || next.isEmpty() ? null : layout.absoluteIndex.get(next.get(0).id);
+                nextStart = nextAbs != null ? nextAbs : start + group.size();
+            } else {
+                nextStart = (int) Math.max(start + group.size(), metadataTotal + 1);
+            }
+            int expected = Math.max(group.size(), nextStart - start);
+            layout.expected.put(season, expected);
+            layout.absoluteRanges.put(season, new int[]{start, nextStart - 1});
+        }
+        if (local.containsKey(0)) {
+            layout.seasons.put(0, new ArrayList<>(local.get(0)));
+            layout.expected.put(0, local.get(0).size());
+        }
         for (Map.Entry<Integer, Integer> e : metadata.entrySet()) {
             if (!layout.seasons.containsKey(e.getKey())) {
                 layout.seasons.put(e.getKey(), new ArrayList<>());

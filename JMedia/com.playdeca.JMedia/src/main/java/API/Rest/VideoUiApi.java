@@ -1093,8 +1093,16 @@ public class VideoUiApi {
                     .collect(Collectors.toList());
             }
             if (layout != null) {
+                int[] foldedRange = seasonNumber != null ? layout.absoluteRanges.get(seasonNumber) : null;
                 for (Models.Video.Video ep : episodes) {
-                    ep.displayEpisodeNumber = layout.displayEpisodeNumber.get(ep.id);
+                    if (layout.metadataFolded && foldedRange != null) {
+                        Integer abs = layout.absoluteIndex.get(ep.id);
+                        if (abs != null) {
+                            ep.displayEpisodeNumber = abs - foldedRange[0] + 1;
+                        }
+                    } else {
+                        ep.displayEpisodeNumber = layout.displayEpisodeNumber.get(ep.id);
+                    }
                 }
             }
 
@@ -1146,6 +1154,12 @@ public class VideoUiApi {
             }
 
             if (tmdbId != null) {
+                if (layout != null && layout.metadataFolded && layout.absoluteRanges.containsKey(seasonNumber)) {
+                    // TMDb folds the folder seasons into one: match by absolute
+                    // position so the trailing episode is not reported against
+                    // every folder season.
+                    missingEpisodes.addAll(buildFoldedMissingEpisodes(layout, seasonNumber, episodes, tmdbId));
+                } else {
                 TmdbCatalogService.CatalogSeason catalog =
                         tmdbCatalogService.getSeason(tmdbId, seasonNumber);
                 if (catalog != null) {
@@ -1169,6 +1183,7 @@ public class VideoUiApi {
                         missingEpisodes.add(item);
                     }
                 }
+                }
             }
 
             return episodeListContent
@@ -1187,6 +1202,68 @@ public class VideoUiApi {
             LOG.error("Error rendering episodes fragment for show {} season {}: {}", seriesTitle, seasonNumber, e.getMessage(), e);
             return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading episodes</h3><p>" + e.getMessage() + "</p></div>";
         }
+    }
+
+    /**
+     * Missing episodes when TMDb folds several folder seasons into one metadata
+     * season. Episodes are matched by absolute position in the run and the display
+     * number is rebased onto the requested folder season, so a 51-episode metadata
+     * season does not mark season 1's episodes 26-51 as missing.
+     */
+    private List<Map<String, Object>> buildFoldedMissingEpisodes(
+            Services.SeasonLayoutService.Layout layout, int displaySeason,
+            List<Models.Video.Video> localEpisodes, int tmdbId) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        int[] range = layout.absoluteRanges.get(displaySeason);
+        if (range == null) {
+            return out;
+        }
+        Set<Integer> present = new HashSet<>();
+        for (Models.Video.Video ep : localEpisodes) {
+            Integer abs = layout.absoluteIndex.get(ep.id);
+            if (abs != null) {
+                present.add(abs);
+            }
+        }
+        TmdbCatalogService.CatalogShow show = tmdbCatalogService.getShow(tmdbId);
+        if (show == null) {
+            return out;
+        }
+        int offset = 0;
+        for (Integer season : show.seasons()) {
+            if (season == null || season <= 0) {
+                continue;
+            }
+            int count = show.counts().getOrDefault(season, 0);
+            if (count <= 0) {
+                continue;
+            }
+            TmdbCatalogService.CatalogSeason catalog = tmdbCatalogService.getSeason(tmdbId, season);
+            if (catalog != null) {
+                for (TmdbCatalogService.CatalogEpisode ep : catalog.episodes()) {
+                    int abs = offset + ep.number();
+                    if (abs < range[0] || abs > range[1] || present.contains(abs)) {
+                        continue;
+                    }
+                    int number = abs - range[0] + 1;
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("number", number);
+                    item.put("title", ep.name() != null && !ep.name().isBlank()
+                            ? ep.name() : "Episode " + number);
+                    item.put("overview", ep.overview());
+                    item.put("airDate", ep.airDate());
+                    item.put("airDateDisplay", formatAirDate(ep.airDate()));
+                    item.put("stillUrl", ep.stillPath() != null && ep.stillPath().startsWith("/")
+                            ? "https://image.tmdb.org/t/p/w300" + ep.stillPath() : null);
+                    boolean future = isFutureDate(ep.airDate());
+                    item.put("state", future ? "UNRELEASED"
+                            : (ep.airDate() == null || ep.airDate().isBlank() ? "TBA" : "MISSING"));
+                    out.add(item);
+                }
+            }
+            offset += count;
+        }
+        return out;
     }
 
     private boolean isFutureDate(String isoDate) {
