@@ -437,7 +437,9 @@ public class SubtitleAPI {
 
             return Response.ok(webVTTContent)
                     .header("Content-Type", "text/vtt; charset=utf-8")
-                    .header("Cache-Control", "public, max-age=3600")
+                    // OCR/format output is regenerated as the pipeline changes; a stale
+                    // max-age entry used to keep serving a blank VTT after a fix.
+                    .header("Cache-Control", "no-store")
                     .build();
 
         } catch (Exception e) {

@@ -353,7 +353,7 @@
                                         const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
 
                                         const startOffset = p.streamStartOffset || 0;
-                                        let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                                        let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}&v=6`;
                                         // When the offset came from the stream's own
                                         // X-Stream-Origin it is already where the picture
                                         // begins (a fragment boundary). Re-snapping it to a
