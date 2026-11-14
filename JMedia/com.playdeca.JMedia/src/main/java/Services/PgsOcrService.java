@@ -41,6 +41,8 @@ public class PgsOcrService {
     private static final int ALPHA_THRESHOLD = 64;
     private static final int LUMINANCE_THRESHOLD = 100;
     private static final int UPSCALE_FACTOR = 3;
+    /** White margin around the bitmap: Tesseract reads blocks better with breathing room. */
+    private static final int OCR_BORDER = 24;
 
     /**
      * Working-directory-relative cache folder for generated PGS VTT files, mirroring the
@@ -276,80 +278,209 @@ public class PgsOcrService {
         return sb.toString();
     }
 
+    /** One binarization variant's reading plus the mean Tesseract word confidence. */
+    private static class OcrResult {
+        final String text;
+        final double confidence;
+
+        OcrResult(String text, double confidence) {
+            this.text = text;
+            this.confidence = confidence;
+        }
+    }
+
     private String ocrImages(List<BufferedImage> images, File workDir, String tesseract) throws Exception {
         List<String> lines = new ArrayList<>();
+        String tessdataDir = tessdataDirectory();
         for (int imgIdx = 0; imgIdx < images.size(); imgIdx++) {
             BufferedImage src = images.get(imgIdx);
-            int w = src.getWidth();
-            int h = src.getHeight();
-            if (w <= 0 || h <= 0) {
+            if (src.getWidth() <= 0 || src.getHeight() <= 0) {
                 continue;
             }
 
-            BufferedImage bin = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    int argb = src.getRGB(x, y);
-                    int a = (argb >>> 24) & 0xFF;
-                    int r = (argb >> 16) & 0xFF;
-                    int g = (argb >> 8) & 0xFF;
-                    int b = argb & 0xFF;
-                    int lum = (299 * r + 587 * g + 114 * b) / 1000;
-                    // PGS dialogue is bright text wrapped in a dark outline/shadow.
-                    // Alpha-only binarization keeps both and merges each glyph into a
-                    // blob; keep only the bright fill so Tesseract sees clean strokes.
-                    boolean text = a >= ALPHA_THRESHOLD && lum >= LUMINANCE_THRESHOLD;
-                    bin.setRGB(x, y, text ? 0x000000 : 0xFFFFFF);
+            OcrResult bright = ocrVariant(src, true, workDir, tesseract, tessdataDir, imgIdx);
+            OcrResult chosen = bright;
+            // Bright-on-dark dialogue is the norm. Only fall back to the dark fill
+            // when the bright pass read nothing at all: low-confidence bright text is
+            // still usually better than the outline-heavy dark variant.
+            if (bright.text.isBlank()) {
+                OcrResult dark = ocrVariant(src, false, workDir, tesseract, tessdataDir, imgIdx);
+                if (!dark.text.isBlank()) {
+                    chosen = dark;
                 }
             }
-
-            int upW = w * UPSCALE_FACTOR;
-            int upH = h * UPSCALE_FACTOR;
-            BufferedImage up = new BufferedImage(upW, upH, BufferedImage.TYPE_INT_RGB);
-            java.awt.Graphics2D g2 = up.createGraphics();
-            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
-                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            g2.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
-                    java.awt.RenderingHints.VALUE_RENDER_QUALITY);
-            g2.drawImage(bin, 0, 0, upW, upH, null);
-            g2.dispose();
-
-            File png = new File(workDir, "img_" + System.nanoTime() + "_" + imgIdx + ".png");
-            ImageIO.write(up, "png", png);
-            try {
-                String result = runTesseract(tesseract, png);
-                if (result != null && !result.isBlank()) {
-                    lines.add(result);
-                }
-            } finally {
-                png.delete();
+            if (!chosen.text.isBlank()) {
+                lines.add(chosen.text);
             }
         }
         return String.join("\n", lines);
     }
 
-    private String runTesseract(String tesseract, File png) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(tesseract, png.getAbsolutePath(), "stdout",
+    /**
+     * Binarizes the bitmap to dark text on white (keeping the bright fill for normal
+     * dialogue, or the dark fill for inverted signs), upscales it 3x, adds the white
+     * margin Tesseract expects, and reads it with TSV output so the caller can compare
+     * variants by word confidence.
+     */
+    private OcrResult ocrVariant(BufferedImage src, boolean bright, File workDir, String tesseract,
+                                 String tessdataDir, int imgIdx) throws Exception {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage bin = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int argb = src.getRGB(x, y);
+                int a = (argb >>> 24) & 0xFF;
+                int r = (argb >> 16) & 0xFF;
+                int g = (argb >> 8) & 0xFF;
+                int b = argb & 0xFF;
+                int lum = (299 * r + 587 * g + 114 * b) / 1000;
+                boolean opaque = a >= ALPHA_THRESHOLD;
+                // Bright variant: keep the glyph fill and drop the dark outline.
+                // Dark variant: keep dark glyphs, for inverted/white-box captions.
+                boolean text = opaque && (bright ? lum >= LUMINANCE_THRESHOLD : lum < LUMINANCE_THRESHOLD);
+                bin.setRGB(x, y, text ? 0x000000 : 0xFFFFFF);
+            }
+        }
+
+        int pad = OCR_BORDER;
+        int upW = w * UPSCALE_FACTOR + 2 * pad;
+        int upH = h * UPSCALE_FACTOR + 2 * pad;
+        BufferedImage up = new BufferedImage(upW, upH, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g2 = up.createGraphics();
+        g2.setColor(java.awt.Color.WHITE);
+        g2.fillRect(0, 0, upW, upH);
+        g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g2.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+        g2.drawImage(bin, pad, pad, w * UPSCALE_FACTOR, h * UPSCALE_FACTOR, null);
+        g2.dispose();
+
+        File png = new File(workDir, "img_" + System.nanoTime() + "_" + imgIdx + (bright ? "_b" : "_d") + ".png");
+        ImageIO.write(up, "png", png);
+        try {
+            return runTesseract(tesseract, png, tessdataDir);
+        } finally {
+            png.delete();
+        }
+    }
+
+    private OcrResult runTesseract(String tesseract, File png, String tessdataDir) throws Exception {
+        List<String> args = new ArrayList<>(List.of(tesseract, png.getAbsolutePath(), "stdout",
                 "--psm", "6", "--oem", "1", "-l", "eng",
-                "-c", "preserve_interword_spaces=1");
+                "-c", "preserve_interword_spaces=1"));
+        if (tessdataDir != null) {
+            args.add("--tessdata-dir");
+            args.add(tessdataDir);
+        }
+        args.add("tsv");
+
+        ProcessBuilder pb = new ProcessBuilder(args);
         Process process = pb.start();
-        StringBuilder out = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+
+        StringBuilder err = new StringBuilder();
+        Thread errReader = new Thread(() -> {
+            try (BufferedReader er = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = er.readLine()) != null) {
+                    if (err.length() > 0) err.append(' ');
+                    err.append(line.trim());
+                }
+            } catch (IOException e) {
+                LOG.debug("Could not read Tesseract stderr: {}", e.getMessage());
+            }
+        }, "pgs-ocr-stderr");
+        errReader.setDaemon(true);
+        errReader.start();
+
+        StringBuilder text = new StringBuilder();
+        double confSum = 0;
+        int wordCount = 0;
+        int lastBlock = -1, lastPar = -1, lastLine = -1;
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
+            boolean header = true;
             while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (!trimmed.isEmpty()) {
-                    out.append(trimmed).append("\n");
+                if (header) {
+                    header = false;
+                    continue;
+                }
+                String[] cols = line.split("\t", -1);
+                if (cols.length < 12) continue;
+                // level 5 = word; block/par/line/word/conf/text
+                if (!"5".equals(cols[0])) continue;
+                String word = cols[11].trim();
+                if (word.isEmpty()) continue;
+
+                int block, par, ln;
+                try {
+                    block = Integer.parseInt(cols[2]);
+                    par = Integer.parseInt(cols[3]);
+                    ln = Integer.parseInt(cols[4]);
+                } catch (NumberFormatException e) {
+                    LOG.debug("Skipping malformed Tesseract TSV row for track OCR: {}", line);
+                    continue;
+                }
+                if (block != lastBlock || par != lastPar || ln != lastLine) {
+                    if (text.length() > 0) text.append('\n');
+                    lastBlock = block;
+                    lastPar = par;
+                    lastLine = ln;
+                } else if (text.length() > 0) {
+                    text.append(' ');
+                }
+                text.append(word);
+
+                double conf = 0;
+                try {
+                    conf = Double.parseDouble(cols[10]);
+                } catch (NumberFormatException e) {
+                    LOG.debug("Unparseable Tesseract confidence '{}' for word '{}'", cols[10], word);
+                }
+                if (conf >= 0) {
+                    confSum += conf;
+                    wordCount++;
                 }
             }
         }
+
         boolean finished = process.waitFor(30, TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
             throw new IOException("Tesseract timed out");
         }
-        String result = out.toString().trim();
-        return result.isEmpty() ? null : result;
+        try {
+            errReader.join(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.debug("Interrupted while waiting for Tesseract stderr: {}", e.getMessage());
+        }
+        if (process.exitValue() != 0) {
+            LOG.warn("Tesseract failed (exit {}): {}", process.exitValue(), err);
+            return new OcrResult("", 0);
+        }
+        if (err.length() > 0) {
+            LOG.debug("Tesseract stderr: {}", err);
+        }
+        String result = text.toString().trim();
+        double confidence = wordCount > 0 ? confSum / wordCount : 0;
+        return new OcrResult(result, confidence);
+    }
+
+    /** The bundled tessdata_best model, when the operator placed one next to the app. */
+    private String tessdataDirectory() {
+        try {
+            Path dir = Paths.get("tessdata");
+            if (Files.isRegularFile(dir.resolve("eng.traineddata"))) {
+                return dir.toAbsolutePath().toString();
+            }
+        } catch (RuntimeException e) {
+            LOG.debug("Could not resolve the bundled tessdata directory: {}", e.getMessage());
+        }
+        return null;
     }
 
     private String formatTimestamp(double seconds) {
@@ -363,11 +494,11 @@ public class PgsOcrService {
 
     private String cacheKey(SubtitleTrack track) {
         if (track.id != null) {
-            // v2: bright-fill binarization + 3x bicubic upscale + PSM 6. Keeps the
-            // previous alpha-only OCR output from being served after the upgrade.
-            return "track_" + track.id + "_v2";
+            // v5: bright-fill binarization, 3x bicubic, white margin, TSV confidence;
+            // the dark-fill variant only fills cues the bright pass could not read.
+            return "track_" + track.id + "_v5";
         }
-        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v2";
+        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v5";
     }
 
     /**
