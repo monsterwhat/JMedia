@@ -31,6 +31,7 @@ public class Video extends PanacheEntity {
     public String filename;
     public String type; // "movie", "episode", "short", "documentary"
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "series_id")
     public Series series;

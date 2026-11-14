@@ -2251,12 +2251,51 @@ public class VideoUiApi {
 
                     TmdbCatalogService.CatalogShow show = tmdbCatalogService.getShow(series.tmdbId);
                     List<Integer> seasonNumbers = show != null ? show.seasons() : List.of();
+
+                    // The same run can be stored under different season boundaries
+                    // than TMDb's (e.g. 58/78/12 locally vs 62/74/12 on TMDb). Slot
+                    // matching would then flag episodes as "missing" even though
+                    // they exist under another local season. When the library holds
+                    // exactly as many episodes as TMDb lists, compare by absolute
+                    // episode number instead of by (season, episode) slot.
+                    Map<Integer, Integer> localLengths = inferLocalSeasonLengths(episodes);
+                    Set<Integer> localAbsolute = new HashSet<>();
+                    for (Video local : episodes) {
+                        if (local.seasonNumber == null || local.seasonNumber <= 0
+                                || local.episodeNumber == null || local.episodeNumber <= 0) {
+                            continue;
+                        }
+                        Integer absolute = absoluteEpisodeNumber(
+                                local.seasonNumber, local.episodeNumber, localLengths);
+                        if (absolute != null) localAbsolute.add(absolute);
+                    }
+                    Map<Integer, Integer> tmdbCounts = show != null ? show.counts() : Map.of();
+                    long tmdbEpisodeTotal = tmdbCounts.entrySet().stream()
+                            .filter(e -> e.getKey() != null && e.getKey() > 0 && e.getValue() != null)
+                            .mapToLong(Map.Entry::getValue)
+                            .sum();
+                    long localEpisodeTotal = episodes.stream()
+                            .filter(e -> e.seasonNumber != null && e.seasonNumber > 0
+                                    && e.episodeNumber != null && e.episodeNumber > 0)
+                            .map(e -> (long) e.seasonNumber * 1000 + e.episodeNumber)
+                            .distinct()
+                            .count();
+                    boolean compareAbsolute = localEpisodeTotal > 0 && localEpisodeTotal == tmdbEpisodeTotal;
+                    int suppressed = 0;
+
                     for (Integer sn : seasonNumbers) {
                         TmdbCatalogService.CatalogSeason season =
                                 tmdbCatalogService.getSeason(series.tmdbId, sn);
                         if (season == null) continue;
                         for (TmdbCatalogService.CatalogEpisode ep : season.episodes()) {
                             if (present.contains((long) sn * 1000 + ep.number())) continue;
+                            if (compareAbsolute && sn != null && sn > 0) {
+                                Integer absolute = absoluteEpisodeNumber(sn, ep.number(), tmdbCounts);
+                                if (absolute != null && localAbsolute.contains(absolute)) {
+                                    suppressed++;
+                                    continue;
+                                }
+                            }
                             Map<String, Object> item = new LinkedHashMap<>();
                             item.put("id", null);
                             item.put("missing", true);
@@ -2281,6 +2320,10 @@ public class VideoUiApi {
                             result.add(item);
                         }
                     }
+                    if (suppressed > 0) {
+                        LOG.debug("Aligned {} catalogue episode(s) for '{}' by absolute number "
+                                + "(library season split differs from TMDb)", suppressed, decodedTitle);
+                    }
                 }
             } catch (RuntimeException e) {
                 LOG.debug("TMDb episode catalogue failed for '{}': {}", decodedTitle, e.getMessage());
@@ -2291,6 +2334,39 @@ public class VideoUiApi {
             LOG.error("Error fetching episodes for series {}: {}", seriesTitle, e.getMessage(), e);
             return "[]";
         }
+    }
+
+    /**
+     * Highest episode number present per local season (season 0/specials excluded).
+     * Used to translate a local (season, episode) pair into an absolute number when
+     * the library's season boundaries differ from the metadata provider's.
+     */
+    static Map<Integer, Integer> inferLocalSeasonLengths(List<Video> episodes) {
+        Map<Integer, Integer> lengths = new HashMap<>();
+        if (episodes == null) return lengths;
+        for (Video v : episodes) {
+            if (v.seasonNumber == null || v.seasonNumber <= 0
+                    || v.episodeNumber == null || v.episodeNumber <= 0) {
+                continue;
+            }
+            lengths.merge(v.seasonNumber, v.episodeNumber, Math::max);
+        }
+        return lengths;
+    }
+
+    /**
+     * 1-based absolute episode number across seasons, or null when an earlier
+     * season has no known length (callers then fall back to slot matching).
+     */
+    static Integer absoluteEpisodeNumber(int season, int episode, Map<Integer, Integer> seasonLengths) {
+        if (season <= 0 || episode <= 0 || seasonLengths == null) return null;
+        int offset = 0;
+        for (int s = 1; s < season; s++) {
+            Integer length = seasonLengths.get(s);
+            if (length == null || length <= 0) return null;
+            offset += length;
+        }
+        return offset + episode;
     }
 
     private String formatDateTime(java.time.LocalDateTime dt) {

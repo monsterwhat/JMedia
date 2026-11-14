@@ -70,7 +70,7 @@
                     <div class="season-progress-track">
                         <div class="season-progress-bar" style="width: {season.availabilityPercent}%;"></div>
                     </div>
-                    {:else if season.total > 0}
+                    {#else if season.total > 0}
                     <div class="standard-card-meta">{season.watched}/{season.total} watched</div>
                     <div class="season-progress-track">
                         <div class="season-progress-bar" style="width: {season.percent}%;"></div>
