@@ -81,6 +81,14 @@ class VideoUiApiEpisodeNumberingTest {
     }
 
     @Test
+    void detectsACompleteRun() {
+        assertTrue(VideoUiApi.isCompleteRun(148, 148));
+        assertFalse(VideoUiApi.isCompleteRun(147, 148));
+        assertFalse(VideoUiApi.isCompleteRun(148, 147));
+        assertFalse(VideoUiApi.isCompleteRun(0, 0));
+    }
+
+    @Test
     void detectsAbsoluteCatalogueNumbering() {
         assertTrue(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of(63, 64, 136)));
         assertTrue(VideoUiApi.usesAbsoluteEpisodeNumbers(List.of(137, 148)));

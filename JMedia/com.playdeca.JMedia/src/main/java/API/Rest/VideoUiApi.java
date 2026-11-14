@@ -913,6 +913,22 @@ public class VideoUiApi {
                 LOG.debug("TMDb season list failed for '{}': {}", decodedTitle, e.getMessage());
             }
 
+            // A complete run stored under different season boundaries than TMDb
+            // (e.g. 58/78/12 locally vs 62/74/12 on TMDb) must not show the
+            // "N of M available" hint: those episodes are in the next local
+            // season, not missing. Compare absolute totals once here.
+            long localEpisodeTotal = normalEpisodes.stream()
+                    .filter(v -> v.seasonNumber != null && v.seasonNumber > 0
+                            && v.episodeNumber != null && v.episodeNumber > 0)
+                    .map(v -> (long) v.seasonNumber * 1000 + v.episodeNumber)
+                    .distinct()
+                    .count();
+            long catalogueEpisodeTotal = expectedCounts.entrySet().stream()
+                    .filter(e -> e.getKey() != null && e.getKey() > 0 && e.getValue() != null)
+                    .mapToLong(Map.Entry::getValue)
+                    .sum();
+            boolean completeRun = isCompleteRun(localEpisodeTotal, catalogueEpisodeTotal);
+
             List<SeasonEntry> seasons = new ArrayList<>();
             for (String key : sortedKeys) {
                 String[] parts = key.split("\\|", 2);
@@ -942,24 +958,28 @@ public class VideoUiApi {
                 }
 
                 seasons.add(new SeasonEntry(sn, sample.id, displayName, ss, watched, total,
-                        expectedCounts.getOrDefault(sn, total)));
+                        completeRun ? total : expectedCounts.getOrDefault(sn, total)));
             }
 
             // Merge external season numbers (no way to know suffix from external service, so add as separate card)
-            List<Integer> externalSeasonNumbers = externalVideoService.findSeasonNumbersForSeries(decodedTitle);
-            Set<Integer> existingSeasonNums = seasons.stream().map(s -> s.seasonNumber()).collect(Collectors.toSet());
-            for (Integer extSn : externalSeasonNumbers) {
-                if (!existingSeasonNums.contains(extSn)) {
-                    seasons.add(new SeasonEntry(extSn, null, "Season " + extSn, null, 0, 0,
-                            expectedCounts.getOrDefault(extSn, 0)));
+            // When the library is a complete run, the extra season cards would be false
+            // positives caused only by a different split, so they are skipped.
+            if (!completeRun) {
+                List<Integer> externalSeasonNumbers = externalVideoService.findSeasonNumbersForSeries(decodedTitle);
+                Set<Integer> existingSeasonNums = seasons.stream().map(s -> s.seasonNumber()).collect(Collectors.toSet());
+                for (Integer extSn : externalSeasonNumbers) {
+                    if (!existingSeasonNums.contains(extSn)) {
+                        seasons.add(new SeasonEntry(extSn, null, "Season " + extSn, null, 0, 0,
+                                expectedCounts.getOrDefault(extSn, 0)));
+                    }
                 }
-            }
-            // Seasons TMDb knows but the library has no file for (including specials).
-            for (Integer sn : catalogSeasonNumbers) {
-                if (!existingSeasonNums.contains(sn)) {
-                    seasons.add(new SeasonEntry(sn, null,
-                            sn == 0 ? "Specials" : "Season " + sn, null, 0, 0,
-                            expectedCounts.getOrDefault(sn, 0)));
+                // Seasons TMDb knows but the library has no file for (including specials).
+                for (Integer sn : catalogSeasonNumbers) {
+                    if (!existingSeasonNums.contains(sn)) {
+                        seasons.add(new SeasonEntry(sn, null,
+                                sn == 0 ? "Specials" : "Season " + sn, null, 0, 0,
+                                expectedCounts.getOrDefault(sn, 0)));
+                    }
                 }
             }
             seasons.sort(Comparator.comparingInt((SeasonEntry s) ->
@@ -2280,7 +2300,7 @@ public class VideoUiApi {
                             .map(e -> (long) e.seasonNumber * 1000 + e.episodeNumber)
                             .distinct()
                             .count();
-                    boolean compareAbsolute = localEpisodeTotal > 0 && localEpisodeTotal == tmdbEpisodeTotal;
+                    boolean compareAbsolute = isCompleteRun(localEpisodeTotal, tmdbEpisodeTotal);
                     int suppressed = 0;
 
                     for (Integer sn : seasonNumbers) {
@@ -2389,6 +2409,14 @@ public class VideoUiApi {
     static boolean usesAbsoluteEpisodeNumbers(List<Integer> episodeNumbers) {
         return episodeNumbers != null && !episodeNumbers.isEmpty()
                 && episodeNumbers.get(0) != null && episodeNumbers.get(0) != 1;
+    }
+
+    /**
+     * True when the library holds every episode the metadata provider lists, so a
+     * different season split is only a numbering difference, not missing content.
+     */
+    static boolean isCompleteRun(long localUniqueEpisodes, long catalogueEpisodeTotal) {
+        return localUniqueEpisodes > 0 && localUniqueEpisodes == catalogueEpisodeTotal;
     }
 
     private String formatDateTime(java.time.LocalDateTime dt) {
