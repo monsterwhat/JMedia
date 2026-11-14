@@ -154,6 +154,23 @@ var heroTimer = null;
 var HERO_INTERVAL = 15000;
 var allSeries = [];
 var seriesLookup = new Map();
+
+// Episode rows from /api/video/videos carry only `seriesTitle` (no nested
+// series object), so card rendering resolves the show — and therefore its
+// poster — through this title index instead of falling back to a frame grab.
+var _seriesTitleIndex = null;
+var _seriesTitleIndexSize = -1;
+function seriesByTitle(title) {
+  if (!title) return null;
+  if (!_seriesTitleIndex || _seriesTitleIndexSize !== seriesLookup.size) {
+    _seriesTitleIndex = new Map();
+    seriesLookup.forEach(s => {
+      if (s && s.title) _seriesTitleIndex.set(String(s.title).trim().toLowerCase(), s);
+    });
+    _seriesTitleIndexSize = seriesLookup.size;
+  }
+  return _seriesTitleIndex.get(String(title).trim().toLowerCase()) || null;
+}
 var _episodesCache = new Map();
 var _episodeById = new Map();
 var allContinueWatching = [];
@@ -829,13 +846,14 @@ function createCardHTML(video) {
   const id = video.id;
   const isTvCard = video.type === 'episode' && video.seriesTitle;
   const title = isTvCard ? video.seriesTitle : (video.title || video.seriesTitle || 'Untitled');
-  // Episode videos carry no rating/year (fields default to 0.0) — fall back to the series values
-  let year = video.releaseYear || (isTvCard ? video.series?.releaseYear : '') || '';
-  const ratingValue = parseFloat(video.imdbRating || video.tmdbRating || (isTvCard ? (video.series?.imdbRating || video.series?.tmdbRating) : '') || '') || 0;
+  const show = isTvCard ? seriesByTitle(video.seriesTitle) : null;
+  // Episode videos carry no rating/year (fields default to 0.0) - fall back to the series values
+  let year = video.releaseYear || (show ? show.releaseYear : '') || '';
+  const ratingValue = parseFloat(video.imdbRating || video.tmdbRating || (show ? (show.imdbRating || show.tmdbRating) : '') || '') || 0;
   const ratingText = ratingValue > 0 ? ratingValue.toFixed(1) : '';
   const starColor = ratingText ? ratingColor(ratingValue) : '';
-  const imgSrc = isTvCard && video.series?.id
-    ? getSeriesImageUrl(video.series.id, 'poster')
+  const imgSrc = isTvCard && show && show.id
+    ? getSeriesImageUrl(show.id, 'poster')
     : getThumbnailUrl(id);
   const progress = video.watchProgress || 0;
   const watched = video.watched;
@@ -1644,9 +1662,11 @@ async function loadCinemaData() {
   const params = new URLSearchParams(window.location.search);
   const section = params.get('section') || 'home';
 
-  // Fetch series data for lookup map (used by multiple features)
+  // Fetch series data for lookup map (used by multiple features). The default
+  // page size is 50, which left most shows out of the lookup and made cards
+  // fall back to episode frame grabs instead of the series poster.
   const [seriesResp, cwResp] = await Promise.all([
-    fetch('/api/series').then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch('/api/series?page=0&size=2000').then(r => r.ok ? r.json() : null).catch(() => null),
     fetch('/api/video/continue-watching').then(r => r.ok ? r.json() : null).catch(() => null)
   ]);
 
