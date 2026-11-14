@@ -121,16 +121,19 @@ public class SeasonLayoutService {
             }
         }
 
-        if (!fits && !metadata.isEmpty() && localTotal == metadataTotal) {
+        if (!fits && !metadata.isEmpty() && localTotal <= metadataTotal) {
+            // The metadata can describe this run, including partial seasons and
+            // folded ones (e.g. Shangri-La Frontier stores 51 episodes in one TMDb
+            // season while the release has two 25-episode folders). Lay the episodes
+            // out on the metadata seasons in absolute order; episodes the metadata
+            // has but the library does not are reported as missing/unreleased.
             remapByMetadata(layout, normal, metadata, local.get(0));
             layout.regrouped = true;
-            LOG.info("Season layout for '{}': re-split {} episodes by TMDb counts {}", seriesTitle,
+            LOG.info("Season layout for '{}': laid out {} episodes on TMDb counts {}", seriesTitle,
                     localTotal, metadata);
         } else if (!fits && !metadata.isEmpty() && metadata.size() < localSeasonCount) {
-            // TMDb folds several folder seasons into one (e.g. Shangri-La Frontier:
-            // 51 episodes in "Season 1" while the release has two 25-episode folders).
-            // Keep the folders, but derive the expected count per display season from
-            // the absolute episode range instead of the metadata season number.
+            // More files than the metadata describes: keep the folders so the extra
+            // episodes are not dropped, but derive expected counts from the ranges.
             foldedFolderLayout(layout, local, metadata, metadataTotal);
             layout.metadataFolded = true;
             LOG.info("Season layout for '{}': TMDb folds {} seasons into {}; folder seasons kept with absolute counts",

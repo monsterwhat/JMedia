@@ -1164,7 +1164,8 @@ public class VideoUiApi {
                         tmdbCatalogService.getSeason(tmdbId, seasonNumber);
                 if (catalog != null) {
                     Set<Integer> present = episodes.stream()
-                            .map(ep -> ep.episodeNumber != null ? ep.episodeNumber : -1)
+                            .map(ep -> ep.displayEpisodeNumber != null ? ep.displayEpisodeNumber
+                                    : (ep.episodeNumber != null ? ep.episodeNumber : -1))
                             .collect(Collectors.toSet());
                     for (TmdbCatalogService.CatalogEpisode ep : catalog.episodes()) {
                         if (present.contains(ep.number())) continue;
