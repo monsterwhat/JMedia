@@ -415,12 +415,14 @@ public class SubtitleFormatConverter {
     
     private String convertASSDialogueToWebVTT(String line, Map<String, String> styles) {
         // Parse ASS dialogue: Dialogue: Layer=0,Start=0:00:01.23,End=0:00:04.23,Style=Default,Name=Narrator,Text=Hello world
-        String[] parts = line.substring(10).split(",");
+        // Limit the split: subtitle text routinely contains commas (and override
+        // tags such as {\fad(500,500)} do too), which used to truncate the cue.
+        String[] parts = line.substring(10).split(",", 10);
         
         if (parts.length < 10) return "";
         
-        String startTime = convertASSTimeToWebVTT(parts[2]); // Start time
-        String endTime = convertASSTimeToWebVTT(parts[3]);     // End time
+        String startTime = convertASSTimeToWebVTT(parts[1]); // Start time
+        String endTime = convertASSTimeToWebVTT(parts[2]);   // End time
         
         // Extract text (last part)
         String text = parts[9];
@@ -463,6 +465,8 @@ public class SubtitleFormatConverter {
         // Remove ASS formatting codes like {\pos(x,y)} {\b1} text {\b0}
         return text.replaceAll("\\{[^}]*\\}", "")
                   .replaceAll("\\\\N", "\n")
+                  .replaceAll("\\\\n", "\n")
+                  .replaceAll("\\\\h", " ")
                   .replaceAll("&lt;", "<")
                   .replaceAll("&gt;", ">")
                   .replaceAll("&amp;", "&");

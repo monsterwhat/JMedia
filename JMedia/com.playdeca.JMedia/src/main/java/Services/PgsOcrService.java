@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * Converts embedded HDMV PGS (hdmv_pgs_subtitle) tracks to WebVTT via Tesseract OCR.
@@ -71,6 +72,16 @@ public class PgsOcrService {
     private static final long TRANSCODE_DEFER_MS = 120_000L;
     private volatile long deferStartedAt = 0;
 
+    /**
+     * Character confusions the stylized Blu-ray fonts produce. Only standalone
+     * tokens are rewritten so real text ("and/or", "N/A") is left alone.
+     */
+    private static final Pattern OCR_PIPE_AS_I =
+            Pattern.compile("(?<![\\p{L}\\p{N}])[|/](?![\\p{L}\\p{N}])");
+    /** {@code "fo leave the estate"} is "To leave the estate". */
+    private static final Pattern OCR_FO_AS_TO =
+            Pattern.compile("(?<![\\p{L}\\p{N}])fo(?![\\p{L}\\p{N}])");
+
     public static boolean isPgsCodec(String codec) {
         return codec != null && ("hdmv_pgs_subtitle".equals(codec) || "pgssub".equals(codec));
     }
@@ -87,7 +98,7 @@ public class PgsOcrService {
         Path diskFile = diskFileForKey(key);
         if (Files.exists(diskFile)) {
             try {
-                String vtt = Files.readString(diskFile, StandardCharsets.UTF_8);
+                String vtt = fixOcrConfusables(Files.readString(diskFile, StandardCharsets.UTF_8));
                 vttCache.put(key, vtt);
                 return vtt;
             } catch (IOException e) {
@@ -242,8 +253,20 @@ public class PgsOcrService {
         }
     }
 
-    private String buildWebVTT(List<PgsSubtitleParser.PgsSubtitle> subs, String tesseract) throws Exception {
-        StringBuilder sb = new StringBuilder("WEBVTT\n\n");
+    /**
+     * Fix the character confusions the Blu-ray font causes (a lone "|" or "/"
+     * read as I, "fo" read as "To"). Applied to fresh OCR and to cached VTT, so
+     * existing tracks pick the fix up without being re-OCR'd.
+     */
+    private String fixOcrConfusables(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String fixed = OCR_PIPE_AS_I.matcher(text).replaceAll("I");
+        return OCR_FO_AS_TO.matcher(fixed).replaceAll("To");
+    }
+
+    private String buildWebVTT(List<PgsSubtitleParser.PgsSubtitle> subs, String tesseract) throws Exception {        StringBuilder sb = new StringBuilder("WEBVTT\n\n");
         File workDir = Files.createTempDirectory("pgs_ocr_png_").toFile();
         try {
             for (int i = 0; i < subs.size(); i++) {
@@ -267,7 +290,7 @@ public class PgsOcrService {
                 }
 
                 sb.append(formatTimestamp(start)).append(" --> ").append(formatTimestamp(end)).append("\n");
-                sb.append(text).append("\n\n");
+                sb.append(fixOcrConfusables(text)).append("\n\n");
             }
         } finally {
             File[] files = workDir.listFiles();
@@ -281,8 +304,7 @@ public class PgsOcrService {
         return sb.toString();
     }
 
-    /** One binarization variant's reading plus the mean Tesseract word confidence. */
-    private static class OcrResult {
+    /** One binarization variant's reading plus the mean Tesseract word confidence. */    private static class OcrResult {
         final String text;
         final double confidence;
 
