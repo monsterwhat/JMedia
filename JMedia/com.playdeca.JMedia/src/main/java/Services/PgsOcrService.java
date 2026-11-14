@@ -257,14 +257,11 @@ public class PgsOcrService {
                 if (text == null || text.isBlank()) {
                     continue;
                 }
-                // The stream's own clear event is the truth; only fall back to the
-                // next line's start when the subtitle is replaced without a clear.
-                double end = (sub.endTicks > 0 && sub.endSeconds > start)
-                        ? sub.endSeconds
-                        : (i + 1 < subs.size() ? subs.get(i + 1).startSeconds : start + 3.0);
-                if (i + 1 < subs.size() && end > subs.get(i + 1).startSeconds) {
-                    end = subs.get(i + 1).startSeconds;
-                }
+                // Hold each cue until the next line starts. Tried ending at the
+                // PGS clear display set (1.37.47) but partial/fade display sets
+                // then stayed on screen as their own cues, which read worse than
+                // the occasional linger across a silence.
+                double end = (i + 1 < subs.size()) ? subs.get(i + 1).startSeconds : start + 3.0;
                 if (end <= start) {
                     end = start + 1.0;
                 }
@@ -500,12 +497,12 @@ public class PgsOcrService {
 
     private String cacheKey(SubtitleTrack track) {
         if (track.id != null) {
-            // v6: cues end at the stream's own clear display set, so a subtitle no
-            // longer stays on screen until the next line starts. v5 kept the OCR
-            // pipeline (bright fill, 3x bicubic, white margin, safe dark fallback).
-            return "track_" + track.id + "_v6";
+            // v5: bright-fill binarization, 3x bicubic, white margin, TSV confidence;
+            // the dark-fill variant only fills cues the bright pass could not read.
+            // Kept as v5 after the 1.37.47 timing experiment was reverted.
+            return "track_" + track.id + "_v5";
         }
-        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v6";
+        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v5";
     }
 
     /**

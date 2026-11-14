@@ -51,14 +51,6 @@ public final class PgsSubtitleParser {
         public long startTicks;
         /** Start time in seconds. */
         public double startSeconds;
-        /**
-         * PTS of the empty display set that clears this subtitle off screen, in
-         * 90 kHz ticks. Zero when the stream replaces the image with the next
-         * display set instead of clearing it explicitly.
-         */
-        public long endTicks;
-        /** Clear time in seconds; zero when the stream has no clear event. */
-        public double endSeconds;
         /** Decoded subtitle bitmap(s); usually one per event. */
         public List<BufferedImage> images = new ArrayList<>();
 
@@ -70,8 +62,7 @@ public final class PgsSubtitleParser {
 
     /**
      * Parse a complete .sup stream into ordered subtitle events.
-     * Empty display sets (no bitmap data) carry no image; they are used as the
-     * clear event that ends the cue currently on screen.
+     * Empty display sets (no bitmap data) are skipped.
      */
     public static List<PgsSubtitle> parse(byte[] data) {
         List<PgsSubtitle> subtitles = new ArrayList<>();
@@ -120,15 +111,6 @@ public final class PgsSubtitleParser {
                             sub.startSeconds = currentStartTicks / PTS_CLOCK;
                             sub.images.add(image);
                             subtitles.add(sub);
-                        } else if (!subtitles.isEmpty()) {
-                            // An empty display set is the "clear" event: the subtitle
-                            // that was on screen ends here. Without this the cue would
-                            // stay visible until the next line is spoken.
-                            PgsSubtitle previous = subtitles.get(subtitles.size() - 1);
-                            if (previous.endTicks == 0 && currentStartTicks > previous.startTicks) {
-                                previous.endTicks = currentStartTicks;
-                                previous.endSeconds = currentStartTicks / PTS_CLOCK;
-                            }
                         }
                         inDisplaySet = false;
                     }
