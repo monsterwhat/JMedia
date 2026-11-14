@@ -303,7 +303,7 @@
 
             <script src="/js/player/Utils.js?v=3"><\/script>
             <script src="/js/player/StateManager.js"><\/script>
-            <script src="/js/player/StreamManager.js?v=26"><\/script>
+            <script src="/js/player/StreamManager.js?v=27"><\/script>
             <script src="/js/player/UIBuilder.js?v=6"><\/script>
             <script src="/js/player/ControlsManager.js?v=1"><\/script>
             <script src="/js/player/FullscreenManager.js"><\/script>

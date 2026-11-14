@@ -1029,6 +1029,24 @@
 
             const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
 
+            // Rebuilding the active <track> after the swap is what keeps the cues on
+            // the new stream's clock: the element restarts at 0 for a ?start= stream,
+            // so a track still carrying the old ?start= is off by the whole position.
+            // This must survive the offset being re-derived after the reload, and it
+            // must not depend on one loadedmetadata event winning a race, so it is
+            // debounced and re-run once playback actually starts.
+            let subtitleReloadTimer = null;
+            const reloadSubtitlesAfterSwap = () => {
+                if (p._destroyed || !p.loadSubtitles) return;
+                if (subtitleReloadTimer) clearTimeout(subtitleReloadTimer);
+                subtitleReloadTimer = setTimeout(() => {
+                    subtitleReloadTimer = null;
+                    if (!p._destroyed) p.loadSubtitles();
+                }, 300);
+            };
+            p.video.addEventListener('loadedmetadata', reloadSubtitlesAfterSwap, { once: true });
+            p.video.addEventListener('playing', reloadSubtitlesAfterSwap, { once: true });
+
             // HLS local session: recreate the session at the current position so the
             // server transcodes the newly selected audio track. During the initial
             // audio-preference switch the stream hasn't started yet (currentTime 0),
@@ -1037,12 +1055,10 @@
                 const hlsSavedTime = savedTime > 0 ? savedTime : (p.initialResumeTime || 0);
                 this.recreateLocalHlsSession(hlsSavedTime);
                 // The session restarts at a new position and streamStartOffset changes,
-                // so the active <track> must be rebuilt with the matching ?start=. This
-                // branch returns before the progressive reload below, which is why
-                // subtitles drifted after an audio switch on HLS playback.
-                setTimeout(() => {
-                    if (!p._destroyed) p.loadSubtitles();
-                }, 500);
+                // so the active <track> must be rebuilt with the matching ?start=.
+                // The session origin is reported asynchronously, so reload again from
+                // the callback that learns it (see the effectiveStart block below).
+                reloadSubtitlesAfterSwap();
                 return;
             }
 
@@ -1092,12 +1108,8 @@
             p.video.addEventListener('loadeddata', onSeekReady, { once: true });
             p.video.addEventListener('error', onSeekReady, { once: true });
 
-            // The streamStartOffset changed (0 → savedTime for a 0-based stream):
-            // reload subtitles so the active track's ?start= matches the new offset.
-            // loadSubtitles re-clicks the saved track itself.
+            // F6: re-apply playbackRate after src+load reset
             p.video.addEventListener('loadedmetadata', () => {
-                if (!p._destroyed) p.loadSubtitles();
-                // F6: re-apply playbackRate after src+load reset
                 if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;
             }, { once: true });
 
