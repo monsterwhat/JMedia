@@ -111,10 +111,16 @@
             if (!(mediaEnd > 0)) {
                 mediaEnd = p.totalDuration || 0;
             }
-            const tail = mediaEnd > 0 ? mediaEnd - end : 0;
+
+            // IntroDB sometimes returns an outro with a start but no end. Treat
+            // that as "the credits run to the end of the file" instead of letting
+            // `end + 1` become 1 second and throwing the viewer back to the start.
+            let outroEnd = (Number.isFinite(end) && end > 0) ? end : mediaEnd;
+            if (mediaEnd > 0 && outroEnd > mediaEnd) outroEnd = mediaEnd;
+            const tail = mediaEnd > 0 && outroEnd > 0 ? mediaEnd - outroEnd : 0;
 
             if (tail >= minTailSeconds) {
-                const target = end + 1;
+                const target = Math.min(outroEnd + 1, Math.max(mediaEnd - 0.5, 0));
                 console.log('[SimplePlayer] Outro skipped, ' + Math.round(tail)
                         + 's of tail remains — resuming after the credits');
                 if (p.needsTranscode) {

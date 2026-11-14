@@ -238,8 +238,16 @@ public class VideoMetadataService {
                     });
                     m.outro.ifPresent(ts -> {
                         loadedVideo.outroStart = ts.start;
-                        loadedVideo.outroEnd = ts.end;
-                        LOG.info("Updated outro for video {}: {}-{}", loadedVideo.id, ts.start, ts.end);
+                        Double end = ts.end;
+                        // Some IntroDB entries carry only a start. Without an end
+                        // the player cannot tell how much tail remains, so treat
+                        // the credits as running to the end of the file.
+                        if ((end == null || end <= 0)
+                                && loadedVideo.duration != null && loadedVideo.duration > 0) {
+                            end = loadedVideo.duration / 1000.0;
+                        }
+                        loadedVideo.outroEnd = end;
+                        LOG.info("Updated outro for video {}: {}-{}", loadedVideo.id, ts.start, end);
                     });
                     m.recap.ifPresent(ts -> {
                         loadedVideo.recapStart = ts.start;
