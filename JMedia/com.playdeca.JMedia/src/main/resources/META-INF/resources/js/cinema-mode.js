@@ -157,6 +157,9 @@ var seriesLookup = new Map();
 var _episodesCache = new Map();
 var _episodeById = new Map();
 var allContinueWatching = [];
+// Throttle for the on-return home refresh (the fragment is fetched once at boot;
+// dock navigation used to reuse that stale DOM until a full page reload).
+var _lastHomeRefresh = 0;
 var _modalGeneration = 0;
 // True while the "not in your library" page owns the view. Blocks the late
 // showSection('home') from the boot render from painting over it.
@@ -1490,6 +1493,7 @@ async function showSection(section) {
       }
     });
     if (hero) hero.style.display = '';
+    refreshCinemaHome(false);
   } else {
     const targetCategory = section === 'movies' ? 'movies' : 'shows';
     allSections.forEach(s => {
@@ -1684,6 +1688,7 @@ async function loadCinemaData() {
         console.warn('Failed to parse cinema home data', e);
       }
     }
+    _lastHomeRefresh = Date.now();
     // Update hero badge
     updateContinueWatchingBadge();
     // Render continue-watching carousel if server didn't (server does include it)
@@ -1708,6 +1713,56 @@ async function loadCinemaData() {
   } else {
     document.querySelector('.cinema-dock-item')?.classList.add('active');
   }
+}
+
+/**
+ * Re-fetch the server-rendered home fragment (carousels + hero) so navigating
+ * back to Home or returning to the tab does not keep showing the DOM captured at
+ * page load. Throttled because the dock and the popstate/visibility handlers can
+ * all fire in quick succession.
+ */
+async function refreshCinemaHome(force) {
+  const now = Date.now();
+  if (!force && now - _lastHomeRefresh < 15000) return;
+  _lastHomeRefresh = now;
+
+  const [fragmentResp, cwResp] = await Promise.all([
+    fetch('/api/video/ui/cinema-home-fragment', { cache: 'no-store' }).catch(() => null),
+    fetch('/api/video/continue-watching', { cache: 'no-store' }).catch(() => null)
+  ]);
+
+  if (cwResp && cwResp.ok) {
+    try {
+      const cwJson = await cwResp.json();
+      const cwData = Array.isArray(cwJson) ? cwJson
+        : (cwJson && cwJson.data !== undefined ? cwJson.data : cwJson);
+      if (Array.isArray(cwData)) allContinueWatching = cwData;
+    } catch (e) {
+      console.warn('[cinema] continue-watching refresh failed', e);
+    }
+  }
+
+  if (!fragmentResp || !fragmentResp.ok) return;
+  const html = await fragmentResp.text();
+  const container = document.querySelector('.cinema-sections');
+  if (!container) return;
+  container.innerHTML = html;
+
+  const scriptTag = document.getElementById('cinema-home-data');
+  if (scriptTag) {
+    try {
+      const heroData = JSON.parse(scriptTag.textContent);
+      if (Array.isArray(heroData) && heroData.length > 0) {
+        heroItems = heroData;
+        updateHero(0);
+        if (!heroTimer) startHeroRotation();
+      }
+    } catch (e) {
+      console.warn('[cinema] failed to parse refreshed home data', e);
+    }
+  }
+  updateContinueWatchingBadge();
+  updateCarouselArrows();
 }
 
 // ============================================================
@@ -4582,7 +4637,15 @@ if (homeDockBtn) {
     this.classList.add('active');
   });
 }
-// Browser back/forward — deep links first, then the dock sections
+// Refresh the home when the tab comes back to the foreground (library changed
+// elsewhere, progress reported, etc.) instead of waiting for a manual reload.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const sec = new URLSearchParams(window.location.search).get('section') || 'home';
+  if (sec === 'home') refreshCinemaHome(false);
+});
+
+// Browser back/forward - deep links first, then the dock sections
 window.addEventListener('popstate', () => {
   // The player's own close button already restored the view before going back;
   // do not re-open it (avoids the details logo/title skeleton swap).
