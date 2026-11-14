@@ -252,13 +252,19 @@ public class PgsOcrService {
                     continue;
                 }
 
+                double start = sub.startSeconds;
                 String text = ocrImages(sub.images, workDir, tesseract);
                 if (text == null || text.isBlank()) {
                     continue;
                 }
-
-                double start = sub.startSeconds;
-                double end = (i + 1 < subs.size()) ? subs.get(i + 1).startSeconds : start + 3.0;
+                // The stream's own clear event is the truth; only fall back to the
+                // next line's start when the subtitle is replaced without a clear.
+                double end = (sub.endTicks > 0 && sub.endSeconds > start)
+                        ? sub.endSeconds
+                        : (i + 1 < subs.size() ? subs.get(i + 1).startSeconds : start + 3.0);
+                if (i + 1 < subs.size() && end > subs.get(i + 1).startSeconds) {
+                    end = subs.get(i + 1).startSeconds;
+                }
                 if (end <= start) {
                     end = start + 1.0;
                 }
@@ -494,11 +500,12 @@ public class PgsOcrService {
 
     private String cacheKey(SubtitleTrack track) {
         if (track.id != null) {
-            // v5: bright-fill binarization, 3x bicubic, white margin, TSV confidence;
-            // the dark-fill variant only fills cues the bright pass could not read.
-            return "track_" + track.id + "_v5";
+            // v6: cues end at the stream's own clear display set, so a subtitle no
+            // longer stays on screen until the next line starts. v5 kept the OCR
+            // pipeline (bright fill, 3x bicubic, white margin, safe dark fallback).
+            return "track_" + track.id + "_v6";
         }
-        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v5";
+        return (track.fullPath != null ? track.fullPath : "unknown") + "#" + track.trackIndex + "_v6";
     }
 
     /**
