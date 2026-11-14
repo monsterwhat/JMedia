@@ -1,4 +1,4 @@
-{#if external}
+﻿{#if external}
 <div class="episode-entry is-external" data-external-id="{video.id}" onclick="playExternalEntry({video.id})">
     <div class="episode-thumbnail">
         <div class="external-thumbnail-placeholder">
@@ -11,7 +11,7 @@
     </div>
     <div class="episode-details">
         <div class="episode-header-row">
-            <span class="episode-number-badge">E{video.episodeNumber ?: '0'}</span>
+            <span class="episode-number-badge">E{video.displayEpisodeNumber ?: video.episodeNumber ?: '0'}</span>
             <span class="episode-title-text">{video.episodeTitle ?: video.title}</span>
         </div>
         <div class="episode-meta-row">
@@ -20,7 +20,7 @@
     </div>
 </div>
 {#else}
-<div class="episode-entry{#if video.watched} is-watched{/if}" data-video-id="{video.id}" data-series-title="{video.seriesTitle}" data-season-number="{video.seasonNumber}" data-episode-number="{video.episodeNumber}" data-watch-progress="{video.watchProgressPercent ?: 0}" data-watched="{video.watched ?: false}" onclick="window.selectItem({video.id}, 'play')">
+<div class="episode-entry{#if video.watched} is-watched{/if}" data-video-id="{video.id}" data-series-title="{video.seriesTitle}" data-season-number="{video.seasonNumber}" data-episode-number="{video.displayEpisodeNumber ?: video.episodeNumber}" data-watch-progress="{video.watchProgressPercent ?: 0}" data-watched="{video.watched ?: false}" onclick="window.selectItem({video.id}, 'play')">
     <div class="episode-thumbnail">
         <img src="/api/video/thumbnail/{video.id}" srcset="/api/video/thumbnail/{video.id}?w=144 144w, /api/video/thumbnail/{video.id}?w=288 288w, /api/video/thumbnail/{video.id}?w=400 400w" sizes="(min-width: 768px) 220px, 160px" alt="{video.episodeTitle ?: video.title}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none'; this.classList.remove('is-skeleton')">
         <div class="episode-play-overlay">
@@ -41,7 +41,7 @@
     </div>
     <div class="episode-details">
         <div class="episode-header-row">
-            <span class="episode-number-badge">E{video.episodeNumber ?: '0'}</span>
+            <span class="episode-number-badge">E{video.displayEpisodeNumber ?: video.episodeNumber ?: '0'}</span>
             <span class="episode-title-text">{video.episodeTitle ?: video.title ?: video.filename}</span>
         </div>
         <div class="episode-meta-row">

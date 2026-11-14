@@ -71,6 +71,9 @@ public class VideoUiApi {
     Services.TmdbCatalogService tmdbCatalogService;
 
     @Inject
+    Services.SeasonLayoutService seasonLayoutService;
+
+    @Inject
     java.util.concurrent.ExecutorService executor;
 
     // Guard against repeated IntroDB enrichment submits for the same video (re-render thrash)
@@ -878,19 +881,20 @@ public class VideoUiApi {
                             || (v.contentType != null && !"episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
 
-            // Group by (seasonNumber, seasonSuffix) — Season 2 and Season 2 OVA are separate cards
-            Map<String, List<Models.Video.Video>> seasonGroups = new LinkedHashMap<>();
-            for (Models.Video.Video ep : normalEpisodes) {
-                String key = ep.seasonNumber + "|" + (ep.seasonSuffix != null ? ep.seasonSuffix : "");
-                seasonGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(ep);
-            }
+            // Display seasons come from metadata when it can describe this run, so a
+            // release split across four folders still shows as one season. Files and
+            // folder names are never rewritten; only the grouping here changes.
+            Services.SeasonLayoutService.Layout layout =
+                    seasonLayoutService.resolve(decodedTitle, normalEpisodes);
 
-            List<String> sortedKeys = seasonGroups.keySet().stream()
-                    .sorted(Comparator.comparing(k -> {
-                        String[] parts = k.split("\\|", 2);
-                        return Integer.parseInt(parts[0]);
-                    }))
-                    .collect(Collectors.toList());
+            // OVA/OAD seasons carry a suffix and stay their own cards.
+            Map<String, List<Models.Video.Video>> suffixGroups = new LinkedHashMap<>();
+            for (Models.Video.Video ep : normalEpisodes) {
+                if (ep.seasonSuffix != null && !ep.seasonSuffix.isBlank()) {
+                    String key = ep.seasonNumber + "|" + ep.seasonSuffix;
+                    suffixGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(ep);
+                }
+            }
 
             // Batch load video states for all normal episodes
             Map<Long, Models.Video.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
@@ -930,20 +934,18 @@ public class VideoUiApi {
             boolean completeRun = isCompleteRun(localEpisodeTotal, catalogueEpisodeTotal);
 
             List<SeasonEntry> seasons = new ArrayList<>();
-            for (String key : sortedKeys) {
-                String[] parts = key.split("\\|", 2);
-                int sn = Integer.parseInt(parts[0]);
-                String ss = parts[1].isEmpty() ? null : parts[1];
-                List<Models.Video.Video> group = seasonGroups.get(key);
-                Models.Video.Video sample = group.get(0);
+            for (Map.Entry<Integer, List<Models.Video.Video>> entry : layout.seasons.entrySet()) {
+                int sn = entry.getKey();
+                List<Models.Video.Video> group = entry.getValue();
+                Models.Video.Video sample = group.isEmpty() ? null : group.get(0);
 
                 String displayName;
                 if (sn == 0) {
-                    displayName = sample.seasonName != null ? sample.seasonName : "Specials";
-                } else if (ss != null) {
-                    displayName = sample.seasonName != null ? sample.seasonName : ("Season " + sn + " " + ss);
+                    displayName = (sample != null && sample.seasonName != null) ? sample.seasonName : "Specials";
+                } else if (sample != null && sample.seasonName != null) {
+                    displayName = sample.seasonName;
                 } else {
-                    displayName = sample.seasonName != null ? sample.seasonName : ("Season " + sn);
+                    displayName = "Season " + sn;
                 }
 
                 // Compute progress for THIS group only
@@ -957,7 +959,27 @@ public class VideoUiApi {
                     }
                 }
 
-                seasons.add(new SeasonEntry(sn, sample.id, displayName, ss, watched, total,
+                int expected = completeRun ? total : layout.expected.getOrDefault(sn, total);
+                seasons.add(new SeasonEntry(sn, sample != null ? sample.id : null,
+                        displayName, null, watched, total, expected));
+            }
+            for (Map.Entry<String, List<Models.Video.Video>> entry : suffixGroups.entrySet()) {
+                String[] parts = entry.getKey().split("\\|", 2);
+                int sn = Integer.parseInt(parts[0]);
+                String suffix = parts[1];
+                List<Models.Video.Video> group = entry.getValue();
+                Models.Video.Video sample = group.get(0);
+                int total = group.size();
+                int watched = 0;
+                for (Models.Video.Video ep : group) {
+                    Models.Video.VideoState vs = seasonStates.get(ep.id);
+                    if (vs != null && Boolean.TRUE.equals(vs.watched)) {
+                        watched++;
+                    }
+                }
+                String displayName = sample.seasonName != null
+                        ? sample.seasonName : ("Season " + sn + " " + suffix);
+                seasons.add(new SeasonEntry(sn, sample.id, displayName, suffix, watched, total,
                         completeRun ? total : expectedCounts.getOrDefault(sn, total)));
             }
 
@@ -1047,8 +1069,18 @@ public class VideoUiApi {
             String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
             LOG.info("Loading episodes for series: {}, season: {}", decodedTitle, seasonNumber);
             
-            List<Models.Video.Video> episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
-            
+            // Resolve the display season through the metadata layout so a release that
+            // splits a season across several folders still lists under one season.
+            Services.SeasonLayoutService.Layout layout = null;
+            List<Models.Video.Video> episodes = new ArrayList<>();
+            if (seasonNumber != null && seasonNumber > 0) {
+                layout = seasonLayoutService.resolve(decodedTitle);
+                episodes.addAll(layout.episodesFor(seasonNumber));
+            }
+            if (episodes.isEmpty()) {
+                episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
+            }
+
             // Fallback for case-insensitivity or null season numbers (mapped to season 1)
             if (episodes.isEmpty()) {
                 episodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
@@ -1059,6 +1091,11 @@ public class VideoUiApi {
                             (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(Collectors.toList());
+            }
+            if (layout != null) {
+                for (Models.Video.Video ep : episodes) {
+                    ep.displayEpisodeNumber = layout.displayEpisodeNumber.get(ep.id);
+                }
             }
 
             // Enrich episodes with per-profile progress (batch)

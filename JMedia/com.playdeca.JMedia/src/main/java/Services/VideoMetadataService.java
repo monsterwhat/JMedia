@@ -771,8 +771,13 @@ public class VideoMetadataService {
                 // short transaction, so no extra write path is needed here.
                 // The title/ID matching loop above is intentionally untouched.
                 try {
-                    Map<Integer, Integer> seasonCounts =
-                            accumulateSeasonEpisodeCounts(episodesRoot.path("episodes"));
+                    Map<Integer, Integer> seasonCounts = episodesRoot == null
+                            ? Map.of()
+                            : accumulateSeasonEpisodeCounts(episodesRoot.path("episodes"));
+                    if (seasonCounts.isEmpty() && episodesRoot == null) {
+                        LOG.debug("[SeasonLengths] No episode list for '{}' (IMDb fetch failed)",
+                                video.seriesTitle);
+                    }
                     if (!seasonCounts.isEmpty()) {
                         if (video.series != null) {
                             video.series.seasonEpisodeCounts = toSeasonEpisodeCountsJson(seasonCounts);

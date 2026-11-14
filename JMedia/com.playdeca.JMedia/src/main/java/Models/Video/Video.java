@@ -206,6 +206,8 @@ public class Video extends PanacheEntity {
     public transient Double watchProgress;
     public transient Integer watchProgressPercent;
     public transient Boolean watched;
+    /** UI-only episode number after the metadata season layout is applied. */
+    public transient Integer displayEpisodeNumber;
     
     // User Ratings and Preferences
     public Integer userRatingStars = 0; // 1-10 stars
