@@ -247,7 +247,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             // in every playback fragment.
             console.log('[SimplePlayer] Route ' + (wantsHls ? 'HLS/MSE' : 'direct') +
                 ' (needsTranscode=' + this.needsTranscode + ', audioCodec=' + (audioCodec || 'unknown') +
-                ', hlsEnabled=' + this.dataHlsEnabled + ')');
+                ', firefox=' + isFirefox +
+                ', hlsForced=' + (this.container.dataset.hlsForced === 'true') +
+                ', profileHlsFlag=' + this.dataHlsEnabled + ')');
             // Some browser/OS combinations (Windows N without the Media Feature
             // Pack, or Chromium builds without proprietary codecs) cannot decode
             // H.264 in MSE at all — only AV1/Opus. In that case every HLS
