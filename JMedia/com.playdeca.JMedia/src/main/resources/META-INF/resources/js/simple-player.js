@@ -575,6 +575,12 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Transcode resumes via server-side ?start= (streamStartOffset carries
                             // the offset); direct files start at 0 and seek client-side below.
                             this.videoId = newId;
+                            // The pause intent belonged to the previous video. Carrying it
+                            // over means the new episode starts "user paused" and every
+                            // server play is ignored ("Blocked server play — user pause
+                            // active"), so the switch looks like a dead player.
+                            this._userPaused = false;
+                            this._userPausedAt = 0;
                             // New video, new markers: let its own intro/outro skip fire.
                             this._autoSkipGuard = null;
                             // Keep the page chrome in sync: the player re-points itself at
@@ -647,11 +653,12 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // (cache-busted ?trace=, bounded error retry as on initial load).
                             // Pass newStateTime so transcode resumes via server-side ?start=.
                             this.streamMgr.initDirectStream(newStateTime);
-                            if (!state.playing) {
+                            if (!this._swapInProgress && !state.playing) {
                                 try { this.video.pause(); } catch (e) {}
                             }
                             return;  // still hits the finally block
                         }
+                        if (!this._swapInProgress) {
                         if (state.playing && this.video.paused) {
                             if (this._userPaused) {
                                 console.log('[SimplePlayer] Blocked server play — user pause active (stateSync playing=true ignored, _userPausedAt=' + this._userPausedAt + ')');
@@ -662,6 +669,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                         } else if (!state.playing && !this.video.paused) {
                             console.log('[SimplePlayer] Pausing playback from server state (playing=false)');
                             try { this.video.pause(); console.log('[SimplePlayer] video.pause() issued (server state)'); } catch (e) { console.error('[SimplePlayer] Server-triggered pause failed', e); }
+                        }
                         }
                         // Drift protection skipped during a swap window: the new element sits at 0
                         // while the server timer broadcasts growing time, which would seek-yank it.
