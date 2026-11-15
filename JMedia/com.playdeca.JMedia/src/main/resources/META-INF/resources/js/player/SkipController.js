@@ -101,13 +101,6 @@
          */
         _skipOutro(end) {
             const p = this.player;
-            // TEMPORARY: why did we get here, and what did we think the timeline was?
-            try {
-                console.log('[SimplePlayer] _skipOutro called end=' + end
-                    + ' totalDuration=' + p.totalDuration
-                    + ' offset=' + (p.streamStartOffset || 0)
-                    + ' elementDuration=' + (p.video ? p.video.duration : 'n/a'));
-            } catch (e) {}
             const minTailSeconds = 20; // shorter than this is a fade/logo, not a scene
 
             let mediaEnd = 0;

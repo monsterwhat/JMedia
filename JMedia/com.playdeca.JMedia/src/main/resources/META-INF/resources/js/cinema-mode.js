@@ -4803,14 +4803,7 @@ function openSearch() {
 }
 
 function closeSearch() {
-  // TEMPORARY diagnostics: report who closed the search so the mobile focus loss can be
-  // traced without a device console.
-  try {
-    const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' | ').replace(/https?:\/\/[^/]+/g, '');
-    const img = new Image();
-    img.src = '/__searchdiag/closesearch/' + encodeURIComponent(stack.slice(0, 160)) + '/' + Date.now();
-  } catch (e) { /* diagnostics only */ }
-  const dock = document.querySelector('.cinema-dock');
+    const dock = document.querySelector('.cinema-dock');
   if (dock) dock.classList.remove('searching');
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
@@ -4904,29 +4897,6 @@ async function performSearch(query) {
   dropdown.classList.add('visible');
 }
 
-// Temporary diagnosic: the mobile keyboard closes right after the search field is
-// focused. A 404 to /__searchdiag/... lands in nginx's access log with the event and
-// the element that took focus, so no device console is needed.
-(function () {
-const si = document.getElementById('searchInput');
-if (!si) return;
-const report = (event) => {
-try {
-const a = document.activeElement;
-const active = a ? (a.id || a.tagName || 'unknown') : 'null';
-const inp = document.getElementById('searchInput');
-const inDom = inp ? document.body.contains(inp) : false;
-const visible = inp ? (inp.offsetParent !== null && getComputedStyle(inp).display !== 'none') : false;
-const dock = document.querySelector('.cinema-dock');
-const dockClass = dock ? (dock.className || '').replace(/\s+/g, '.') : 'none';
-const img = new Image();
-img.src = '/__searchdiag/' + event + '/' + encodeURIComponent(active) + '/dom=' + inDom + '/vis=' + visible + '/dock=' + encodeURIComponent(dockClass.slice(0, 40)) + '/' + Date.now();
-} catch (e) { /* diagnostics only */ }
-};
-si.addEventListener('focus', () => report('focus'));
-si.addEventListener('blur', () => report('blur'));
-si.addEventListener('focusout', () => report('focusout'));
-})();
 
 document.getElementById('searchInput')?.addEventListener('input', debounce(function(e) {
   performSearch(e.target.value);
