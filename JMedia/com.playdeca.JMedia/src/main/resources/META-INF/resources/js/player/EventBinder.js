@@ -208,7 +208,7 @@
                 // that then stalled (ERR_CONTENT_LENGTH_MISMATCH).
                 const dbDuration = p.totalDuration || 0;
                 const absoluteEnd = (p.streamStartOffset || 0) + (isFinite(dur) && dur > 0 ? dur : 0);
-                if (!p._hlsInstance && isFinite(dur) && dur > 0 && dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
+                if (!p._hlsInstance && !p._truncatedStream && isFinite(dur) && dur > 0 && dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
                     console.warn('[SimplePlayer] Stream duration ' + Math.round(dur)
                         + 's is far shorter than the episode (' + Math.round(dbDuration)
                         + 's) — reloading as a direct stream');
