@@ -254,14 +254,27 @@
 
         async loadSubtitles(keepMenuOpen = false) {
             const p = this.player;
+            // Several callers can overlap (metadata, every seek, the restore retry
+            // interval, preload). Without a generation guard an older response can
+            // rebuild the menu after a newer one - or after a video switch - leaving the
+            // previous video's tracks on screen.
+            const gen = (p._subtitleLoadGen = (p._subtitleLoadGen || 0) + 1);
             try {
                 console.log('[SimplePlayer] Loading subtitles for video:', p.videoId);
                 const tracksRes = await fetch(`/api/video/subtitles/${p.videoId}`);
+                if (gen !== p._subtitleLoadGen) {
+                    console.log('[SimplePlayer] Subtitle response superseded by a newer load');
+                    return;
+                }
                 if (!tracksRes.ok) {
                     console.error('[SimplePlayer] Subtitle API error:', tracksRes.status);
                     return;
                 }
                 const tracksData = await tracksRes.json();
+                if (gen !== p._subtitleLoadGen) {
+                    console.log('[SimplePlayer] Subtitle payload superseded by a newer load');
+                    return;
+                }
                 console.log('[SimplePlayer] Subtitle response:', tracksData);
                 const tracks = tracksData.tracks || tracksData.data || [];
                 console.log('[SimplePlayer] Found tracks:', tracks.length);
