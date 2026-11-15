@@ -906,8 +906,17 @@
             }
             try {
                 const res = await fetch(`/api/settings/${profileId}/directories`);
+                if (!res.ok) {
+                    // Directory management is admin-only; a non-admin profile gets 403 with
+                    // an empty body, and calling .json() on it threw "Unexpected end of
+                    // JSON input" on every page load.
+                    if (res.status !== 403) {
+                        console.warn('Failed to load directories: HTTP ' + res.status);
+                    }
+                    return;
+                }
                 const json = await res.json();
-                if (res.ok && json.data) {
+                if (json.data) {
                     JMedia.Settings.renderDirectoryList(json.data);
                 }
             } catch (e) { console.error("Failed to load directories", e); }
