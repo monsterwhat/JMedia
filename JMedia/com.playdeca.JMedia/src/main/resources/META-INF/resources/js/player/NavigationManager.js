@@ -19,6 +19,8 @@
 
         _navigateToVideo(videoId) {
             console.log('[NavigationManager] Navigating to video:', videoId);
+            // TEMPORARY: name the caller of an unexpected navigation.
+            try { console.log('[NavigationManager] caller stack:', (new Error().stack || '').split('\n').slice(1, 6).join(' | ')); } catch (e) {}
             if (window.videoSPA) {
                 window.videoSPA.playVideo(videoId);
                 return;
