@@ -197,6 +197,27 @@
                     p.totalDuration = dur;
                 }
 
+                // A truncated stream (an HLS session that only produced a few seconds) is
+                // not a short episode: letting it play means it "ends" seconds later, the
+                // onended handler advances to the next episode and the stream the viewer
+                // asked for is torn down. Fall back to the direct stream instead.
+                const dbDuration = p.totalDuration || 0;
+                const absoluteEnd = (p.streamStartOffset || 0) + (isFinite(dur) && dur > 0 ? dur : 0);
+                if (isFinite(dur) && dur > 0 && dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
+                    console.warn('[SimplePlayer] Stream duration ' + Math.round(dur)
+                        + 's is far shorter than the episode (' + Math.round(dbDuration)
+                        + 's) — reloading as a direct stream');
+                    p._truncatedStream = true;
+                    if (p.streamMgr && p.streamMgr.fallbackToDirectStream) {
+                        try {
+                            p.streamMgr.fallbackToDirectStream(p.streamStartOffset || 0);
+                        } catch (e) {
+                            console.error('[SimplePlayer] Direct-stream fallback failed', e);
+                        }
+                    }
+                    return;
+                }
+
                 p.controlsManager.applyInitialState();
                 p.controlsManager.updateMarkers();
 
@@ -259,6 +280,19 @@
                 const d = p.video.duration;
                 if (!(d > 0) || p.video.currentTime < d - 1) return;
                 if (p.video.readyState < 3 || p.video.error) return;
+                // A truncated stream ends far before the episode does. Advancing here is
+                // what tore down the stream the viewer asked for and jumped episodes.
+                const dbDuration = p.totalDuration || 0;
+                const absoluteEnd = (p.streamStartOffset || 0) + d;
+                if (dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
+                    console.warn('[SimplePlayer] Stream ended at ' + Math.round(absoluteEnd)
+                        + 's of a ' + Math.round(dbDuration) + 's episode — truncated stream, not an episode end');
+                    p._truncatedStream = true;
+                    if (p.streamMgr && p.streamMgr.fallbackToDirectStream) {
+                        p.streamMgr.fallbackToDirectStream(p.streamStartOffset || 0);
+                    }
+                    return;
+                }
                 console.log('[SimplePlayer] Video ended, playing next episode...');
                 p.navMgr.playNextEpisode();
             };
