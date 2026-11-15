@@ -306,7 +306,20 @@
 <script src="/js/createEpisodeSidebar.js"></script>
 <script src="/js/createSubtitleSearchSidebar.js"></script>
 <script src="/js/video-routes.js?v=2"></script>
-<script src="/js/cinema-mode.js?v=22"></script>
+<!-- Cinema view, split by concern. Classic scripts sharing one global scope:
+     the order below is load-order sensitive. core.js installs the observer and
+     shared state; bootstrap.js runs last because it wires listeners and starts
+     the data load against functions defined by the other files. -->
+<script src="/js/cinema/core.js?v=23"></script>
+<script src="/js/cinema/collections.js?v=23"></script>
+<script src="/js/cinema/home.js?v=23"></script>
+<script src="/js/cinema/detail.js?v=23"></script>
+<script src="/js/cinema/settings.js?v=23"></script>
+<script src="/js/cinema/player.js?v=23"></script>
+<script src="/js/cinema/sidebars.js?v=23"></script>
+<script src="/js/cinema/subtitles.js?v=23"></script>
+<script src="/js/cinema/search.js?v=23"></script>
+<script src="/js/cinema/bootstrap.js?v=23"></script>
 
 
 

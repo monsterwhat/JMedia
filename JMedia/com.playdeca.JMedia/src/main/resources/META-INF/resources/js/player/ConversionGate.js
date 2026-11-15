@@ -28,6 +28,7 @@ if (typeof window.ConversionGate === 'undefined') {
             overlayLabel: null,
             overlayBar: null,
             pollTimer: null,
+            reloadTimer: null,
             forcedRelative: false
         };
         var lastRunKey = null;
@@ -233,8 +234,10 @@ if (typeof window.ConversionGate === 'undefined') {
             if (window.Toast) {
                 window.Toast.progress('Conversion complete - loading video...', 100, { id: CONVERSION_TOAST_ID });
             }
-            setTimeout(function() {
+            if (state.reloadTimer) { clearTimeout(state.reloadTimer); state.reloadTimer = null; }
+            state.reloadTimer = setTimeout(function() {
                 if (state.destroyed) return;
+                state.reloadTimer = null;
                 reloadFragment();
             }, 800);
         }
@@ -252,6 +255,7 @@ if (typeof window.ConversionGate === 'undefined') {
 
         function destroy() {
             stopPolling();
+            if (state.reloadTimer) { clearTimeout(state.reloadTimer); state.reloadTimer = null; }
             state.destroyed = true;
             state.blocking = false;
             hideOverlay();
@@ -261,6 +265,7 @@ if (typeof window.ConversionGate === 'undefined') {
             state.container = null;
             state.videoId = null;
             state.jobId = null;
+            lastRunKey = null;
         }
 
         function run() {

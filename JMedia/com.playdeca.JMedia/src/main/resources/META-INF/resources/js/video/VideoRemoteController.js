@@ -7,9 +7,10 @@
             if (!this.container) return;
 
             this.profileId = profileId;
-            this.deviceToken = sessionStorage.getItem('jmedia_device_token') || '';
             this.state = {};
             this._pollInterval = null;
+            this._pollInFlight = false;
+            this._pollSeq = 0;
 
             this._lastServerTime = 0;
             this._lastRenderTime = 0;
@@ -37,14 +38,22 @@
             this._startAnimationLoop();
 
             this._pollInterval = setInterval(async () => {
+                if (this._pollInFlight) return;
+                this._pollInFlight = true;
+                const seq = ++this._pollSeq;
                 try {
                     const resp = await fetch('/api/video/playback/current' + (this.profileId ? '?profileId=' + this.profileId : ''));
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
                     const data = await resp.json();
+                    if (seq !== this._pollSeq) return; // stale
                     this.updateState(data.video != null ? data.video : null);
                     this._hideDisconnected();
                 } catch (err) {
+                    if (seq !== this._pollSeq) return;
+                    console.error('[VideoRemoteController] poll failed', err);
                     this._showDisconnected();
+                } finally {
+                    if (seq === this._pollSeq) this._pollInFlight = false;
                 }
             }, 300);
         }
@@ -468,17 +477,18 @@
                 const epTitle = ep.episodeTitle || ep.title || '';
                 const dur = ep.duration ? Math.floor(ep.duration / 1000) : 0;
                 const progress = ep.watchProgressPercent || 0;
+                const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
                 item.innerHTML =
                     '<div class="remote-episode-thumb">' +
-                        '<img src="/api/video/thumbnail/' + ep.id + '" alt="" loading="lazy">' +
+                        '<img src="/api/video/thumbnail/' + esc(ep.id) + '" alt="" loading="lazy">' +
                         (progress > 0 && progress < 95 ?
                             '<div class="remote-episode-progress"><div class="remote-episode-progress-bar" style="width:' + progress + '%"></div></div>' : '') +
                         '<div class="remote-episode-play-overlay"><svg viewBox="0 0 24 24" width="28" height="28" fill="white"><polygon points="8,4 20,12 8,20"/></svg></div>' +
                     '</div>' +
                     '<div class="remote-episode-info">' +
                         '<span class="remote-episode-badge">E' + epNum + '</span>' +
-                        '<span class="remote-episode-title">' + epTitle + '</span>' +
+                        '<span class="remote-episode-title">' + esc(epTitle) + '</span>' +
                         (dur > 0 ? '<span class="remote-episode-duration">' + this.formatTime(dur) + '</span>' : '') +
                     '</div>';
 
@@ -501,12 +511,6 @@
                     break;
                 case 'seek':
                     url += 'seek/' + encodeURIComponent(payload.value);
-                    break;
-                case 'next':
-                    url += 'next';
-                    break;
-                case 'previous':
-                    url += 'previous';
                     break;
                 case 'play-video':
                     url += 'play/' + encodeURIComponent(payload.videoId);

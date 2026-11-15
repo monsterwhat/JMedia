@@ -64,7 +64,7 @@ function createSubtitleSearchSidebarHTML() {
         <select class="subtitle-search-lang" id="subtitleSearchAiLang">\
           <option value="en">English</option>\
           <option value="es">Español</option>\
-          <option value="es">Español (Latinoamérica)</option>\
+          <option value="es-419">Español (Latinoamérica)</option>\
           <option value="fr">Français</option>\
           <option value="de">Deutsch</option>\
           <option value="it">Italiano</option>\
@@ -89,7 +89,7 @@ function createSubtitleSearchSidebarHTML() {
         <select class="subtitle-search-lang" id="subtitleSearchTranslateLang">\
           <option value="en">English</option>\
           <option value="es">Español</option>\
-          <option value="es">Español (Latinoamérica)</option>\
+          <option value="es-419">Español (Latinoamérica)</option>\
           <option value="fr">Français</option>\
           <option value="de">Deutsch</option>\
           <option value="it">Italiano</option>\

@@ -1,5 +1,14 @@
 // AI Subtitle Generator - Settings Tab Logic
 
+function escapeHtml(str) {
+    return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 window.aiSubState = {
     selectedIds: new Set(),
     currentPage: 0,
@@ -101,7 +110,7 @@ window.loadAiSubtitleVideos = async function(page) {
                     <i class="pi pi-video" style="opacity:0.3;"></i>
                 </div>
                 ${aiBadge}
-                <div class="is-size-7" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2;">${v.title || v.filename}</div>
+                <div class="is-size-7" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2;">${escapeHtml(v.title || v.filename)}</div>
                 <div class="is-size-7 has-text-grey">${v.type || 'unknown'}</div>
             </div>`;
         }).join('');
@@ -145,12 +154,12 @@ window.loadAiShows = async function() {
             const noneAi = s.aiEpisodes === 0;
             const badgeColor = allAi ? 'is-success' : (noneAi ? 'is-danger' : 'is-warning');
             const badgeText = allAi ? 'All AI' : (s.aiEpisodes + '/' + s.totalEpisodes + ' AI');
-            return `<div class="ai-show-card" onclick="window.openShowEpisodes('${encodeURIComponent(s.seriesTitle)}')" 
+            return `<div class="ai-show-card" onclick="window.openShowEpisodes('${encodeURIComponent(s.seriesTitle).replace(/'/g, '%27')}')" 
                         style="cursor:pointer;border:2px solid transparent;border-radius:8px;padding:10px;background:rgba(255,255,255,0.03);transition:0.2s;position:relative;">
                 <div style="aspect-ratio:16/9;background:rgba(0,0,0,0.3);border-radius:4px;margin-bottom:6px;display:flex;align-items:center;justify-content:center;font-size:2rem;">
                     <i class="pi pi-play-circle" style="opacity:0.3;"></i>
                 </div>
-                <div class="is-size-7 has-text-weight-semibold" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2;">${s.seriesTitle}</div>
+                <div class="is-size-7 has-text-weight-semibold" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2;">${escapeHtml(s.seriesTitle)}</div>
                 <div class="is-size-7 has-text-grey">${s.totalEpisodes} episodes</div>
                 <span class="tag ${badgeColor} is-small is-light" style="margin-top:4px;">${badgeText}</span>
             </div>`;
@@ -255,8 +264,8 @@ window.loadShowEpisodes = async function(seriesTitle, page) {
                         : (e.hasSubtitles ? '<span class="tag is-warning is-small is-light">Has</span>' : '<span class="tag is-danger is-small is-light">None</span>');
                     return `<tr class="ai-episode-row ${checked ? 'is-selected' : ''}" data-index="${i}" data-id="${e.id}" style="cursor:pointer;${checked ? 'background:rgba(72,199,116,0.1);' : ''}">
                         <td><input type="checkbox" class="ai-episode-check" data-id="${e.id}" ${checked ? 'checked' : ''}></td>
-                        <td><span class="has-text-grey">${epLabel}</span></td>
-                        <td>${e.episodeTitle || e.title || e.filename}</td>
+                        <td><span class="has-text-grey">${escapeHtml(epLabel)}</span></td>
+                        <td>${escapeHtml(e.episodeTitle || e.title || e.filename)}</td>
                         <td>${statusBadge}</td>
                     </tr>`;
                 }).join('')}
@@ -528,7 +537,7 @@ window.pollAiProgress = async function() {
         if (errorsDiv && data.errors && data.errors.length > 0) {
             errorsDiv.style.display = 'block';
             errorsDiv.innerHTML = data.errors.map(e =>
-                '<div class="notification is-danger is-light py-2 px-3 mb-1 is-size-7">' + e + '</div>'
+                '<div class="notification is-danger is-light py-2 px-3 mb-1 is-size-7">' + escapeHtml(e) + '</div>'
             ).join('');
         }
 
@@ -600,14 +609,14 @@ window.loadCompletedAiSubtitles = async function(page) {
             <tbody>
                 ${data.videos.map(v => {
                     const tracks = v.aiTracks || [];
-                    if (tracks.length === 0) return `<tr><td>${v.title || v.filename}</td><td colspan="3"><span class="tag is-warning is-light">Track info unavailable</span></td></tr>`;
+                    if (tracks.length === 0) return `<tr><td>${escapeHtml(v.title || v.filename)}</td><td colspan="3"><span class="tag is-warning is-light">Track info unavailable</span></td></tr>`;
                     return tracks.map(t => `<tr>
-                        <td>${v.title || v.filename}</td>
-                        <td><span class="tag">${t.languageName || t.languageCode || 'unknown'}</span></td>
-                        <td class="is-size-7 has-text-grey">${t.filename || ''}</td>
+                        <td>${escapeHtml(v.title || v.filename)}</td>
+                        <td><span class="tag">${escapeHtml(t.languageName || t.languageCode || 'unknown')}</span></td>
+                        <td class="is-size-7 has-text-grey">${escapeHtml(t.filename || '')}</td>
                         <td>
                             <div class="buttons">
-                                <button class="button is-small is-info is-outlined" onclick="window.regenAiSubtitle(${v.id}, '${t.languageCode || 'en'}')"><i class="pi pi-refresh"></i> Regen</button>
+                                <button class="button is-small is-info is-outlined" onclick="window.regenAiSubtitle(${v.id}, '${(t.languageCode || 'en').replace(/'/g, '%27')}')"><i class="pi pi-refresh"></i> Regen</button>
                                 <button class="button is-small is-danger is-outlined" onclick="window.deleteAiSubtitleTrack(${t.id})"><i class="pi pi-trash"></i></button>
                             </div>
                         </td>

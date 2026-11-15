@@ -20,7 +20,9 @@
     var SEASON_EPISODE_RE = /^s(\d{1,2})e(\d{1,3})$/i;
 
     function pad(n) {
-        return (n < 10 ? '0' : '') + n;
+        var num = Number(n);
+        if (!isFinite(num)) return '';
+        return (num < 10 ? '0' : '') + num;
     }
 
     /** Best available id token for a series/video payload. */

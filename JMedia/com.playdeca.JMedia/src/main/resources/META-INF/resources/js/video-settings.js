@@ -1,4 +1,9 @@
 window.initVideoSettingsView = function() {
+    if (window.__videoSettingsInitialized) {
+        console.log("[VideoSettings] Already initialized; skipping");
+        return;
+    }
+    window.__videoSettingsInitialized = true;
     console.log("[VideoSettings] Initializing...");
     
     const browseVideoFolderBtn = document.getElementById("browseVideoFolderBtn");
@@ -26,10 +31,6 @@ window.initVideoSettingsView = function() {
         saveVideoLibraryPathBtn.addEventListener('htmx:configRequest', function(evt) {
             const tmdbApiKey = document.getElementById('tmdbApiKeyInput')?.value;
             if (tmdbApiKey) evt.detail.parameters['tmdbApiKey'] = tmdbApiKey;
-        });
-        saveVideoLibraryPathBtn.addEventListener('htmx:afterRequest', function(evt) {
-            if (evt.detail.successful) Toast.success("Video settings saved");
-            else Toast.error("Failed to save video settings");
         });
     }
 
@@ -159,6 +160,7 @@ window.initVideoSettingsView = function() {
     if (saveVideoBtn) {
         saveVideoBtn.addEventListener('htmx:afterRequest', function(evt) {
             if (evt.detail.successful) {
+                Toast.success("Video settings saved");
                 var toggles = {};
                 metadataToggles.forEach(function(id) {
                     var el = document.getElementById(id);
@@ -172,7 +174,17 @@ window.initVideoSettingsView = function() {
                 }).catch(function(err) {
                     console.error('[VideoSettings] Failed to save metadata toggles:', err);
                 });
+            } else {
+                Toast.error("Failed to save video settings");
             }
         });
     }
+};
+
+window.teardownVideoSettingsView = function() {
+    if (window.scanPollingInterval) {
+        clearInterval(window.scanPollingInterval);
+        window.scanPollingInterval = null;
+    }
+    window.__videoSettingsInitialized = false;
 };

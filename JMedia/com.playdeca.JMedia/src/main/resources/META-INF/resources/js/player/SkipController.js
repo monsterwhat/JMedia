@@ -187,7 +187,7 @@
                         p.autoSkipNotice.style.display = 'none';
                     }
                 }, 8000);
-                setTimeout(() => { p._isUndoing = false; }, 1000);
+                p._autoSkipTimer = setTimeout(() => { p._isUndoing = false; }, 1000);
             }
         }
 
@@ -206,6 +206,14 @@
             if (toggle) {
                 toggle.classList.remove('active');
                 toggle.querySelector('input[type="checkbox"]').checked = false;
+            }
+        }
+
+        destroy() {
+            const p = this.player;
+            if (p && p._autoSkipTimer) {
+                clearTimeout(p._autoSkipTimer);
+                p._autoSkipTimer = null;
             }
         }
 

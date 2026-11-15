@@ -312,11 +312,13 @@
                 };
             }
 
-            p.debugDialog.onclick = (e) => {
-                if (e.target === p.debugDialog) {
-                    p.closeDebugDialog();
-                }
-            };
+            if (p.debugDialog) {
+                p.debugDialog.onclick = (e) => {
+                    if (e.target === p.debugDialog) {
+                        p.closeDebugDialog();
+                    }
+                };
+            }
 
             if (p.debugSaveBtn) {
                 p.debugSaveBtn.onclick = (e) => {

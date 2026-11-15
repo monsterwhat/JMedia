@@ -15,6 +15,13 @@
     // selection until the page is reloaded. Bound it and kill the worker ourselves.
     const ASS_DESTROY_TIMEOUT_MS = 800;
 
+    function warnSubtitleApiOnce() {
+        if (!window.__subtitleApiMissingWarned) {
+            window.__subtitleApiMissingWarned = true;
+            console.warn('[SubtitleApi] window.SubtitleApi not available; falling back to inline fetch');
+        }
+    }
+
     window.PlayerSubtitleController = class {
         constructor(player) {
             this.player = player;
@@ -78,7 +85,7 @@
                 dbg('[SimplePlayer] Destroying ASS subtitle renderer');
                 await this._destroyRenderer(stale, 'teardown');
             };
-            p._assChain = (p._assChain || Promise.resolve()).then(run, run);
+            p._assChain = (p._assChain || Promise.resolve()).then(run, run).catch(err => console.error('[Subtitles] ASS chain failed', err));
             return p._assChain;
         }
 
@@ -140,7 +147,7 @@
             // The teardown runs inline (not via destroyAssSubtitle, which would
             // wait on this same chain and deadlock).
             const run = () => this._initAssSubtitleInner(trackId);
-            p._assChain = (p._assChain || Promise.resolve()).then(run, run);
+            p._assChain = (p._assChain || Promise.resolve()).then(run, run).catch(err => console.error('[Subtitles] ASS chain failed', err));
             return p._assChain;
         }
 
@@ -148,8 +155,7 @@
             const p = this.player;
             dbg('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
             // Clear any stale Firefox overlay so a previous native-track cue can't linger.
-            try { const ov = document.getElementById('firefox-subtitle-overlay'); if (ov) { ov.innerHTML = ''; ov.classList.remove('active'); } } catch (e) {}
-            await this.loadJassub();
+            try { const ov = document.getElementById('firefox-subtitle-overlay'); if (ov) { ov.innerHTML = ''; ov.classList.remove('active'); } } catch (e) { console.warn('[SimplePlayer] Firefox overlay clear failed:', e); }
             // Inline teardown: this already runs inside the serialized chain, so
             // awaiting the previous renderer here guarantees it is fully gone
             // (worker terminated, canvas released) before the new one starts.
@@ -161,6 +167,7 @@
             // A chained destroyAssSubtitle() queued while this init was fetching
             // may have cleared the slot; the chain order guarantees it already ran.
             try {
+                await this.loadJassub();
                 const res = await fetch(`/api/video/subtitles/track/${trackId}/raw`);
                 if (!res.ok) {
                     console.error('[SimplePlayer] Failed to fetch raw subtitle:', res.status);
@@ -178,7 +185,7 @@
                 // under the new renderer (Firefox in particular kept the old frame).
                 const staleCanvas = document.getElementById('assCanvas');
                 if (staleCanvas) {
-                    try { const ctx = staleCanvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, staleCanvas.width, staleCanvas.height); } catch (e) {}
+                    try { const ctx = staleCanvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, staleCanvas.width, staleCanvas.height); } catch (e) { console.warn('[SimplePlayer] Canvas clear failed:', e); }
                     staleCanvas.remove();
                 }
                 const wrapper = p.container.querySelector('.video-wrapper');
@@ -268,22 +275,33 @@
             const gen = (p._subtitleLoadGen = (p._subtitleLoadGen || 0) + 1);
             try {
                 dbg('[SimplePlayer] Loading subtitles for video:', p.videoId);
-                const tracksRes = await fetch(`/api/video/subtitles/${p.videoId}`);
-                if (gen !== p._subtitleLoadGen) {
-                    dbg('[SimplePlayer] Subtitle response superseded by a newer load');
-                    return;
+                let tracks;
+                if (window.SubtitleApi) {
+                    tracks = await window.SubtitleApi.getTracks(p.videoId);
+                } else {
+                    warnSubtitleApiOnce();
+                    const tracksRes = await fetch(`/api/video/subtitles/${p.videoId}`);
+                    if (gen !== p._subtitleLoadGen) {
+                        dbg('[SimplePlayer] Subtitle response superseded by a newer load');
+                        return;
+                    }
+                    if (!tracksRes.ok) {
+                        console.error('[SimplePlayer] Subtitle API error:', tracksRes.status);
+                        return;
+                    }
+                    const tracksData = await tracksRes.json();
+                    if (gen !== p._subtitleLoadGen) {
+                        dbg('[SimplePlayer] Subtitle payload superseded by a newer load');
+                        return;
+                    }
+                    dbg('[SimplePlayer] Subtitle response:', tracksData);
+                    tracks = tracksData.tracks || tracksData.data || [];
                 }
-                if (!tracksRes.ok) {
-                    console.error('[SimplePlayer] Subtitle API error:', tracksRes.status);
-                    return;
-                }
-                const tracksData = await tracksRes.json();
                 if (gen !== p._subtitleLoadGen) {
                     dbg('[SimplePlayer] Subtitle payload superseded by a newer load');
                     return;
                 }
-                dbg('[SimplePlayer] Subtitle response:', tracksData);
-                const tracks = tracksData.tracks || tracksData.data || [];
+                dbg('[SimplePlayer] Subtitle response:', tracks);
                 dbg('[SimplePlayer] Found tracks:', tracks.length);
 
                 const list = p.container.querySelector('#subtitleList');
@@ -373,18 +391,28 @@
                                         const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
 
                                         const startOffset = p.streamStartOffset || 0;
-                                        let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}&v=6`;
-                                        // When the offset came from the stream's own
-                                        // X-Stream-Origin it is already where the picture
-                                        // begins (a fragment boundary). Re-snapping it to a
-                                        // keyframe on the server shifts the cues by the gap
-                                        // between the two — the few-tenths-of-a-second drift
-                                        // that only some titles show.
-                                        if (p._streamOriginAuthoritative) {
-                                            src += '&exact=1';
-                                        }
-                                        if (parseFloat(correction) !== 0) {
-                                            src += `&correction=${correction}`;
+                                        let src;
+                                        if (window.SubtitleApi) {
+                                            src = window.SubtitleApi.trackSrc(p.videoId, t, {
+                                                start: startOffset,
+                                                exact: !!p._streamOriginAuthoritative,
+                                                correction: parseFloat(correction) !== 0 ? correction : undefined
+                                            });
+                                        } else {
+                                            warnSubtitleApiOnce();
+                                            src = `/api/video/subtitles/track/${t.id}?start=${startOffset}&v=6`;
+                                            // When the offset came from the stream's own
+                                            // X-Stream-Origin it is already where the picture
+                                            // begins (a fragment boundary). Re-snapping it to a
+                                            // keyframe on the server shifts the cues by the gap
+                                            // between the two — the few-tenths-of-a-second drift
+                                            // that only some titles show.
+                                            if (p._streamOriginAuthoritative) {
+                                                src += '&exact=1';
+                                            }
+                                            if (parseFloat(correction) !== 0) {
+                                                src += `&correction=${correction}`;
+                                            }
                                         }
 
                                         track.src = src;
@@ -394,7 +422,26 @@
                                         track.id = 'subtitle-track-' + t.id;
                                         p.video.appendChild(track);
 
+                                        const capturedVideoId = p.videoId;
+                                        let setupAttempts = 0;
+                                        const MAX_SETUP_ATTEMPTS = 25;
+                                        let setupWarned = false;
+                                        const scheduleSetup = (delay) => {
+                                            if (p._destroyed) return;
+                                            if (p.videoId !== capturedVideoId) return;
+                                            if (setupAttempts >= MAX_SETUP_ATTEMPTS) {
+                                                if (!setupWarned) {
+                                                    setupWarned = true;
+                                                    console.warn('[SimplePlayer] Subtitle track setup exceeded max attempts (' + MAX_SETUP_ATTEMPTS + '), stopping');
+                                                }
+                                                return;
+                                            }
+                                            setupAttempts++;
+                                            p._setupTrackTimer = setTimeout(setupTrack, delay);
+                                        };
                                         const setupTrack = () => {
+                                            if (p._destroyed) return;
+                                            if (p.videoId !== capturedVideoId) return;
                                             const tracksArr = Array.from(p.video.textTracks || []);
                                             dbg('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
 
@@ -441,20 +488,20 @@
                                                 updateFF();
                                             } else {
                                                 dbg('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracksArr.length);
-                                                setTimeout(setupTrack, 200);
+                                                scheduleSetup(200);
                                             }
                                         };
 
                                         track.addEventListener('load', () => {
                                             dbg('[SimplePlayer] Track element loaded');
-                                            setTimeout(setupTrack, 100);
+                                            scheduleSetup(100);
                                         });
 
                                         track.addEventListener('error', (err) => {
                                             console.error('[SimplePlayer] Track load error:', err);
                                         });
 
-                                        setTimeout(setupTrack, 500);
+                                        scheduleSetup(500);
                                     }
                                 } else {
                                     dbg('[SimplePlayer] Subtitles turned OFF');
@@ -466,7 +513,6 @@
                         if (!keepMenuOpen) p.subtitleMenu.classList.remove('active');
                         localStorage.setItem('jmedia_last_track_' + p.videoId, t.id);
 
-                        p.currentSubtitleTrackId = t.id;
                         // The canonical "active track" used by loadSubtitles() to
                         // re-select on a rebuild (seek/quality) and by the seek path.
                         // Without this a fresh selection was never restorable.

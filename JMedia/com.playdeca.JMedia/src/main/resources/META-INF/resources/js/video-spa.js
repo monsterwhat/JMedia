@@ -1,9 +1,41 @@
-﻿class VideoSPA {
+﻿window.FetchFragment = window.FetchFragment || {
+    async fetchHtml(url, opts) {
+        const resp = await fetch(url, opts);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
+        return resp.text();
+    },
+    injectScripts(container) {
+        const scripts = container.querySelectorAll('script');
+        scripts.forEach(script => {
+            const newScript = document.createElement('script');
+            if (script.src) {
+                newScript.src = script.src;
+                newScript.async = false; // preserve document order: ConversionGate must run before player libs
+            } else {
+                newScript.textContent = script.textContent;
+            }
+            document.head.appendChild(newScript).parentNode.removeChild(newScript);
+        });
+    },
+    async loadInto(container, url, options) {
+        options = options || {};
+        const html = await this.fetchHtml(url, options.fetch);
+        container.innerHTML = html;
+        if (options.htmx !== false && window.htmx) htmx.process(container);
+        if (options.runScripts !== false) this.injectScripts(container);
+        return html;
+    }
+};
+
+let _fetchFragmentFallbackWarned = false;
+
+class VideoSPA {
     constructor() {
         this.currentSection = 'home';
         this.currentParams = {};
         this.backDestination = null;
         this.transitionType = 'slide-forward';
+        this._wired = false;
         this.sections = {
             home: 'home',
             movies: '/api/video/ui/movies-fragment',
@@ -33,6 +65,21 @@
     }
     
     buildSpaUrl(section, params = {}) {
+        // Prefer the shared VideoRoutes helpers where the parameters fit, so the
+        // SPA's address bar stays consistent with shareable deep links.
+        if (window.VideoRoutes) {
+            if (section === 'details' && params.videoId != null) {
+                const url = window.VideoRoutes.infoUrl('db' + params.videoId);
+                if (url) return url;
+            }
+            if (section === 'playback' && params.videoId != null
+                && !params.externalVideoId && !params.liveChannelId) {
+                const season = params.seasonNumber != null ? params.seasonNumber : params.season;
+                const episode = params.episodeNumber != null ? params.episodeNumber : params.episode;
+                const url = window.VideoRoutes.watchUrl('db' + params.videoId, season, episode);
+                if (url) return url;
+            }
+        }
         const queryParams = new URLSearchParams();
         if (section !== 'home') {
             queryParams.set('section', section);
@@ -77,6 +124,7 @@
         }
         
         if (section === 'home') {
+            if (navGen !== this._navGen) return;
             this.goHome(bypassHistory);
             return;
         }
@@ -259,6 +307,8 @@
             this.hideLoading();
 
             if (!bypassHistory) {
+                // VideoRoutes cannot express an external id (no infoUrl/watchUrl param for it),
+                // so the query-string literal is retained here.
                 history.pushState({ section: 'playback', params: { externalVideoId: externalId }, view: 'video' }, '', `/video?section=playback&externalVideoId=${externalId}`);
             }
             this.currentSection = 'playback';
@@ -283,6 +333,8 @@
             this.hideLoading();
 
             if (!bypassHistory) {
+                // VideoRoutes cannot express a live channel id (no infoUrl/watchUrl param for it),
+                // so the query-string literal is retained here.
                 history.pushState({ section: 'playback', params: { liveChannelId: channelId }, view: 'video' }, '', `/video?section=playback&liveChannelId=${channelId}`);
             }
             this.currentSection = 'playback';
@@ -378,6 +430,10 @@
         if (window.ConversionGate) window.ConversionGate.destroy();
         const instance = window.currentPlayerInstance;
         const legacy = window.player;
+        // Capture the sidebar controller at entry so a controller created while
+        // destroy() is awaiting (a fast second navigation) is not torn down or
+        // nulled out from under the newer view.
+        const sidebarController = window.videoSidebarController;
         if (instance && typeof instance.destroy === 'function') {
             await instance.destroy();
         }
@@ -391,9 +447,15 @@
         if (window.currentPlayerInstance === instance) window.currentPlayerInstance = null;
         if (window.player === legacy) window.player = null;
 
-        if (window.videoSidebarController) {
-            window.videoSidebarController.destroy();
-            window.videoSidebarController = null;
+        if (sidebarController) {
+            if (typeof sidebarController.destroy === 'function') {
+                await sidebarController.destroy();
+            }
+            if (window.videoSidebarController === sidebarController) {
+                window.videoSidebarController = null;
+            } else {
+                console.warn('[VideoSPA] videoSidebarController changed during teardown; leaving newer controller intact');
+            }
         }
     }
     
@@ -452,7 +514,7 @@
         if (contentDiv) {
             // Destroy existing player instance if it exists to clean up event listeners and intervals
             // Fire-and-forget since this may be called from non-async contexts (goHome)
-            this.destroyCurrentPlayer();
+            this.destroyCurrentPlayer().catch(err => console.error('[VideoSPA] player teardown failed', err));
 
             // Preservation of global modals that might have been moved into the content (e.g. by SimplePlayer for fullscreen)
             ['subtitleManagementModal', 'editVideoModal'].forEach(id => {
@@ -538,6 +600,13 @@
     }
     
     executeScripts(container) {
+        if (window.FetchFragment && typeof window.FetchFragment.injectScripts === 'function') {
+            return window.FetchFragment.injectScripts(container);
+        }
+        if (!_fetchFragmentFallbackWarned) {
+            console.warn('[VideoSPA] window.FetchFragment unavailable; falling back to inline executeScripts');
+            _fetchFragmentFallbackWarned = true;
+        }
         const scripts = container.querySelectorAll('script');
         scripts.forEach(script => {
             const newScript = document.createElement('script');
@@ -554,7 +623,7 @@
     _decodeBcParam(str) {
         if (!str) return '';
         try { return decodeURIComponent(String(str).replace(/\+/g, ' ')); }
-        catch (e) { return String(str).replace(/\+/g, ' '); }
+        catch (e) { console.warn('[VideoSPA] _decodeBcParam failed to decode', e); return String(str).replace(/\+/g, ' '); }
     }
 
     _ensureBreadcrumbInSpa() {
@@ -775,7 +844,7 @@
         this.hideLoading();
         const contentDiv = document.getElementById('spa-content');
         if (contentDiv) {
-            contentDiv.innerHTML = '<div class="notification is-danger"><strong>Error:</strong> ' + error.message + '</div>';
+            contentDiv.innerHTML = '<div class="notification is-danger"><strong>Error:</strong> ' + this.escapeAttr(error && error.message ? error.message : String(error)) + '</div>';
         }
     }
 
@@ -836,9 +905,12 @@
         }
         
         this.applySidebarPreference();
-        this.initKeyboardNavigation();
-        this.initSearchClear();
-        this.initWatchedToggleDelegate();
+        if (!this._wired) {
+            this.initKeyboardNavigation();
+            this.initSearchClear();
+            this.initWatchedToggleDelegate();
+            this._wired = true;
+        }
         
         const urlParams = new URLSearchParams(window.location.search);
         const section = urlParams.get('section');
@@ -1015,7 +1087,7 @@ window.handleAdminVideoSearch = function(query) {
         if (!input) return;
         input.focus({ preventScroll: true });
         if (caret != null) {
-            try { input.setSelectionRange(caret, caret); } catch (e) { /* caret is best-effort */ }
+            try { input.setSelectionRange(caret, caret); } catch (e) { console.warn('[VideoSPA] could not restore caret position', e); }
         }
     }, 600);
 };

@@ -21,6 +21,8 @@
         this.connected = false;
         this.reconnectTimer = null;
         this.closedByUser = false;
+        this.reconnectDelay = 1500;
+        this.maxReconnectDelay = 30000;
     }
 
     VideoWebSocketManager.prototype.connect = function () {
@@ -39,6 +41,7 @@
                 self.connected = true;
                 console.log('[VideoWebSocketManager] WebSocket connected (video)');
                 if (self.reconnectTimer) { clearTimeout(self.reconnectTimer); self.reconnectTimer = null; }
+                self.reconnectDelay = 1500;
                 if (self.onOpen) { try { self.onOpen(); } catch (e) { console.error('[VideoWebSocketManager] onOpen error', e); } }
             };
             this.ws.onclose = function (event) {
@@ -46,7 +49,7 @@
                 console.log('[VideoWebSocketManager] WebSocket disconnected (video)');
                 if (self.onClose) { try { self.onClose(); } catch (e) { console.error('[VideoWebSocketManager] onClose error', e); } }
                 var code = event ? event.code : null;
-                if (!self.closedByUser && code !== 1008 && code !== 1003) { self.scheduleReconnect(1500); }
+                if (!self.closedByUser && code !== 1008 && code !== 1003) { self.scheduleReconnect(); }
             };
             this.ws.onerror = function (error) {
                 console.error('[VideoWebSocketManager] WebSocket error (video)', error);
@@ -91,13 +94,22 @@
     VideoWebSocketManager.prototype.scheduleReconnect = function (delay) {
         var self = this;
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = setTimeout(function () { self.connect(); }, delay);
+        var d = (delay != null) ? delay : this.reconnectDelay;
+        this.reconnectTimer = setTimeout(function () { self.connect(); }, d);
+        if (delay == null) {
+            this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+        }
     };
 
     VideoWebSocketManager.prototype.disconnect = function () {
         this.closedByUser = true;
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-        if (this.ws) { try { this.ws.close(); } catch (e) {} this.ws = null; }
+        if (this.ws) {
+            try { this.ws.close(); } catch (e) {
+                console.warn('[VideoWebSocketManager] socket close failed during disconnect', e);
+            }
+            this.ws = null;
+        }
         this.connected = false;
     };
 

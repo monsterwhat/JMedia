@@ -231,6 +231,9 @@ if (typeof window.SimplePlayer === 'undefined') {
         /** Opens the media stream. Run once, after the audio preference is known. */
         async _openStream() {
             this._streamOpened = true;
+            // New video/open: drop stale per-stream flags from any previous load.
+            this._truncatedStream = false;
+            this._streamOriginAuthoritative = false;
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
             // Hybrid routing:
             //  - faststart H.264/AAC MP4 -> progressive <video src> (works everywhere)
@@ -321,8 +324,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                     // segment starts deep inside that segment's own timeline). Use the
                     // origin the server reports so the clock and subtitle offset match
                     // the picture instead of the request.
+                    const probeVideoId = this.videoId;
                     this.streamMgr.resolveStreamOrigin(streamUrl).then((origin) => {
-                        if (this._destroyed) return;
+                        if (this._destroyed || this.videoId !== probeVideoId) return;
                         if (origin !== null) {
                             this.streamStartOffset = origin;
                             this._streamOriginAuthoritative = true;
@@ -586,6 +590,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Transcode resumes via server-side ?start= (streamStartOffset carries
                             // the offset); direct files start at 0 and seek client-side below.
                             this.videoId = newId;
+                            // New video: drop stale per-stream flags inherited from the
+                            // previous episode (truncated-stream latch and origin authority).
+                            this._truncatedStream = false;
+                            this._streamOriginAuthoritative = false;
                             // The pause intent belonged to the previous video. Carrying it
                             // over means the new episode starts "user paused" and every
                             // server play is ignored ("Blocked server play — user pause
@@ -653,7 +661,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // transcode was positioned by ?start= (streamStartOffset > 0) (B10).
                             this.video.addEventListener('loadedmetadata', () => {
                                 if (newStateTime > 0 && this.streamStartOffset === 0 && this.video && !this._destroyed) {
-                                    try { this.video.currentTime = newStateTime; } catch (e) {}
+                                    try { this.video.currentTime = newStateTime; } catch (e) {
+                                        console.warn('[SimplePlayer] resume seek after source swap failed', e);
+                                    }
                                 }
                             }, { once: true });
 
@@ -672,7 +682,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Pass newStateTime so transcode resumes via server-side ?start=.
                             this.streamMgr.initDirectStream(newStateTime);
                             if (!this._swapInProgress && !state.playing) {
-                                try { this.video.pause(); } catch (e) {}
+                                try { this.video.pause(); } catch (e) {
+                                    console.warn('[SimplePlayer] pause during source swap failed', e);
+                                }
                             }
                             return;  // still hits the finally block
                         }
@@ -918,10 +930,18 @@ if (typeof window.SimplePlayer === 'undefined') {
             if (this.audioTrackSelector && typeof this.audioTrackSelector.destroy === 'function') {
                 this.audioTrackSelector.destroy();
             }
-            if (this._bigPlayGuardTimer) {
-                clearInterval(this._bigPlayGuardTimer);
-                this._bigPlayGuardTimer = null;
-            }
+            // Clear every timer that can outlive teardown (double-clear is harmless).
+            const _timerKeys = ['_waitingTimer', '_toastTimer', '_broadcastTimer', '_qualityResetTimer',
+                '_touchToggleTimer', '_fsBufferTimer', '_fsBufferTimeout', '_fsRestoreTimer',
+                '_storyboardRetryTimer', '_swapSafetyTimer', '_bigPlayGuardTimer'];
+            _timerKeys.forEach((k) => {
+                const h = this[k];
+                if (h) {
+                    try { clearTimeout(h); } catch (e) { console.warn('[SimplePlayer] clearTimeout failed for ' + k + ':', e); }
+                    try { clearInterval(h); } catch (e) { console.warn('[SimplePlayer] clearInterval failed for ' + k + ':', e); }
+                    this[k] = null;
+                }
+            });
             this.video.pause();
             this.video.src = "";
             this.video.load();

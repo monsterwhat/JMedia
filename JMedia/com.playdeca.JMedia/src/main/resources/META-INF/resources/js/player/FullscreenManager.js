@@ -16,7 +16,7 @@
                 p.isCssFullscreen = false;
 
                 if (screen.orientation && screen.orientation.unlock) {
-                    screen.orientation.unlock().catch(() => {});
+                    screen.orientation.unlock().catch((e) => { console.warn('[FullscreenManager] orientation unlock failed:', e); });
                 }
 
                 console.log('[SimplePlayer] CSS fullscreen exited');
@@ -28,7 +28,7 @@
                 window.scrollTo(0, 0);
 
                 if (screen.orientation && screen.orientation.lock) {
-                    screen.orientation.lock('landscape').catch(() => {});
+                    screen.orientation.lock('landscape').catch((e) => { console.warn('[FullscreenManager] orientation lock failed:', e); });
                 }
 
                 console.log('[SimplePlayer] CSS fullscreen entered');
@@ -65,7 +65,7 @@
                 if (isNativeFullscreen) {
                     if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Exiting native fullscreen');
                     if (document.exitFullscreen) {
-                        document.exitFullscreen().catch(() => {});
+                        document.exitFullscreen().catch((e) => { console.warn('[FullscreenManager] exitFullscreen failed:', e); });
                     } else if (document.webkitExitFullscreen) {
                         document.webkitExitFullscreen();
                     }
@@ -125,19 +125,22 @@
                 if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Buffer check: bufferedEnd=' + bufferedEnd + ' currentTime=' + p.video.currentTime + ' diff=' + (bufferedEnd - p.video.currentTime));
                 if (bufferedEnd - p.video.currentTime < 30) {
                     if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Less than 30s buffered, waiting for buffer...');
-                    const bufferTimer = setInterval(() => {
+                    if (p._fsBufferTimer) { clearInterval(p._fsBufferTimer); p._fsBufferTimer = null; }
+                    if (p._fsBufferTimeout) { clearTimeout(p._fsBufferTimeout); p._fsBufferTimeout = null; }
+                    p._fsBufferTimer = setInterval(() => {
                         try {
                             const end = p.video.buffered.length > 0 ? p.video.buffered.end(p.video.buffered.length - 1) : 0;
                             if (end - p.video.currentTime >= 30 || p.video.paused || p.video.ended) {
-                                clearInterval(bufferTimer);
+                                clearInterval(p._fsBufferTimer);
+                                p._fsBufferTimer = null;
                                 doEnterFullscreen();
                             }
                         } catch (err) {
-                            clearInterval(bufferTimer);
+                            if (p._fsBufferTimer) { clearInterval(p._fsBufferTimer); p._fsBufferTimer = null; }
                             doEnterFullscreen();
                         }
                     }, 200);
-                    setTimeout(() => { clearInterval(bufferTimer); doEnterFullscreen(); }, 10000);
+                    p._fsBufferTimeout = setTimeout(() => { if (p._fsBufferTimer) { clearInterval(p._fsBufferTimer); p._fsBufferTimer = null; } p._fsBufferTimeout = null; doEnterFullscreen(); }, 10000);
                 } else {
                     if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Sufficient buffer, entering fullscreen immediately');
                     doEnterFullscreen();
@@ -189,8 +192,12 @@
                 };
                 p.video.addEventListener('canplay', () => { canplayFired = true; onReady(); }, { once: true });
                 p.video.addEventListener('loadeddata', () => { loadeddataFired = true; onReady(); }, { once: true });
-                setTimeout(() => { if (!restored) doRestore(); }, 5000);
-                setTimeout(() => { p._preFullscreenTime = null; }, 3000);
+                if (p._fsRestoreTimer) { clearTimeout(p._fsRestoreTimer); p._fsRestoreTimer = null; }
+                p._fsRestoreTimer = setTimeout(() => {
+                    if (!restored) doRestore();
+                    p._preFullscreenTime = null;
+                    p._fsRestoreTimer = null;
+                }, 5000);
             }
 
             if (p.controlsVisible) p.controlsManager.showControls();

@@ -2,6 +2,7 @@
     'use strict';
 
     const JMedia = window.JMedia = window.JMedia || {};
+    let _fetchFragmentFallbackWarned = false;
 
     class App {
         constructor() {
@@ -339,6 +340,13 @@
         }
 
         executeScripts(container) {
+            if (window.FetchFragment && typeof window.FetchFragment.injectScripts === 'function') {
+                return window.FetchFragment.injectScripts(container);
+            }
+            if (!_fetchFragmentFallbackWarned) {
+                console.warn('[App] window.FetchFragment unavailable; falling back to inline executeScripts');
+                _fetchFragmentFallbackWarned = true;
+            }
             const scripts = container.querySelectorAll('script');
             scripts.forEach(script => {
                 const newScript = document.createElement('script');

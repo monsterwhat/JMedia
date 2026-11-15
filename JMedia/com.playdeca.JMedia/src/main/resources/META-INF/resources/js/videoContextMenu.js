@@ -2,18 +2,18 @@
  * Video Context Menu Manager
  * Handles right-click context menus for video cards with playback, navigation, and metadata operations
  */
+let _fetchFragmentFallbackWarned = false;
+
 class VideoContextMenu {
     constructor() {
         this.currentVideoId = null;
         this.currentVideoData = null;
         this.contextMenu = null;
-        this.uploadInput = null;
         this.init();
     }
 
     init() {
         this.createContextMenu();
-        this.createUploadInput();
         this.bindEvents();
     }
 
@@ -59,10 +59,6 @@ class VideoContextMenu {
                 <i class="pi pi-image"></i>
                 <span>Extract Thumbnail</span>
             </div>
-            <div class="context-menu-item" data-action="upload-thumbnail">
-                <i class="pi pi-upload"></i>
-                <span>Upload Thumbnail</span>
-            </div>
             <div class="context-menu-separator"></div>
             <div class="context-menu-item" data-action="reload-metadata">
                 <i class="pi pi-refresh"></i>
@@ -77,14 +73,6 @@ class VideoContextMenu {
         `;
     }
 
-    createUploadInput() {
-        this.uploadInput = document.createElement('input');
-        this.uploadInput.type = 'file';
-        this.uploadInput.accept = 'image/*';
-        this.uploadInput.style.display = 'none';
-        document.body.appendChild(this.uploadInput);
-    }
-
     bindEvents() {
         // Context menu item clicks
         this.contextMenu.addEventListener('click', (e) => {
@@ -93,14 +81,6 @@ class VideoContextMenu {
                 const action = item.dataset.action;
                 this.handleAction(action);
                 this.hide();
-            }
-        });
-
-        // File input change
-        this.uploadInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                this.uploadThumbnail(file);
             }
         });
 
@@ -185,9 +165,6 @@ class VideoContextMenu {
             case 'extract-thumbnail':
                 this.extractThumbnail();
                 break;
-            case 'upload-thumbnail':
-                this.uploadInput.click();
-                break;
             case 'reload-metadata':
                 this.reloadMetadata();
                 break;
@@ -231,11 +208,6 @@ class VideoContextMenu {
         } catch (error) {
             console.error('Error extracting thumbnail:', error);
         }
-    }
-
-    async uploadThumbnail(file) {
-        this.showNotification('Upload feature coming soon', 'info');
-        this.uploadInput.value = '';
     }
 
     async reloadMetadata() {
@@ -286,24 +258,38 @@ class VideoContextMenu {
         const maxWaitMs = 30000;
         const pollIntervalMs = 1000;
         const startTime = Date.now();
+        const startToken = window.location.href;
         
         while (Date.now() - startTime < maxWaitMs) {
+            if (window.location.href !== startToken) {
+                console.warn('[VideoContextMenu] navigation detected; aborting audio-track reload loop');
+                return;
+            }
             try {
                 const response = await fetch(`/api/video/${videoId}/audio-tracks`);
                 if (response.ok) {
                     const data = await response.json();
                     const tracks = data.data || data;
                     if (tracks && tracks.length > 0) {
+                        if (window.location.href !== startToken) {
+                            console.warn('[VideoContextMenu] navigation detected; skipping reload');
+                            return;
+                        }
                         window.location.reload();
                         return;
                     }
                 }
             } catch (e) {
                 // Ignore network errors, keep polling
+                console.warn('[VideoContextMenu] audio-track poll error', e);
             }
             await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
         }
         
+        if (window.location.href !== startToken) {
+            console.warn('[VideoContextMenu] navigation detected; skipping final reload');
+            return;
+        }
         // Timeout reached - reload anyway
         window.location.reload();
     }
@@ -337,16 +323,31 @@ class VideoContextMenu {
         modal.classList.add('is-active');
 
         try {
-            const response = await fetch(editUrl);
-            if (response.ok) {
-                const html = await response.text();
-                modalBody.innerHTML = html;
-                
-                // Process HTMX for the newly added content
-                if (window.htmx) {
-                    window.htmx.process(modalBody);
+            let loaded = false;
+            if (window.FetchFragment && typeof window.FetchFragment.loadInto === 'function') {
+                await window.FetchFragment.loadInto(modalBody, editUrl, { runScripts: false, htmx: true });
+                loaded = true;
+            } else {
+                if (!_fetchFragmentFallbackWarned) {
+                    console.warn('[VideoContextMenu] window.FetchFragment unavailable; falling back to inline editMetadata');
+                    _fetchFragmentFallbackWarned = true;
                 }
-                
+                const response = await fetch(editUrl);
+                if (response.ok) {
+                    const html = await response.text();
+                    modalBody.innerHTML = html;
+
+                    // Process HTMX for the newly added content
+                    if (window.htmx) {
+                        window.htmx.process(modalBody);
+                    }
+                    loaded = true;
+                } else {
+                    modalBody.innerHTML = '<div class="notification is-danger">Failed to load edit form</div>';
+                }
+            }
+
+            if (loaded) {
                 // Add success listener for the form
                 const form = modalBody.querySelector('form');
                 if (form) {
@@ -363,8 +364,6 @@ class VideoContextMenu {
                         }
                     });
                 }
-            } else {
-                modalBody.innerHTML = '<div class="notification is-danger">Failed to load edit form</div>';
             }
         } catch (error) {
             console.error('Error loading edit form:', error);
@@ -378,7 +377,9 @@ class VideoContextMenu {
         
         allImages.forEach(img => {
             const src = img.src;
-            if (src.includes(videoId) && !src.includes('picsum.photos')) {
+            const idStr = String(videoId);
+            const idRe = new RegExp('(^|\\/|_)' + idStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^0-9]|$)');
+            if (idRe.test(src) && !src.includes('picsum.photos')) {
                 const separator = src.includes('?') ? '&' : '?';
                 img.src = src.split(/[?&]t=/)[0] + separator + 't=' + Date.now();
             }
@@ -468,27 +469,38 @@ function extractVideoData(el) {
     }
 }
 
-// Initialize and setup observers
+// Initialize and setup delegated handlers
 document.addEventListener('DOMContentLoaded', () => {
     if (!window.videoContextMenu) window.videoContextMenu = new VideoContextMenu();
-    addContextMenuHandlers();
-    
+
+    const cardSelectors = [
+        '.standard-card',
+        '.streaming-card',
+        '.episode-entry',
+        '.content-card',
+        '.video-entry',
+        '.show-tile',
+        '.video-card',
+        '.series-hero-title',
+        '.player-container',
+        '#videoElement'
+    ];
+    const selectorString = cardSelectors.join(',');
+
     // Support HTMX dynamic loading
     document.addEventListener('htmx:afterSettle', () => {
-        addContextMenuHandlers();
+        if (!window.videoContextMenu) window.videoContextMenu = new VideoContextMenu();
     });
-    
-    // Support other dynamic content via MutationObserver
-    const observer = new MutationObserver((mutations) => {
-        let shouldRefresh = false;
-        for (const mutation of mutations) {
-            if (mutation.addedNodes.length > 0) {
-                shouldRefresh = true;
-                break;
-            }
+
+    // Single delegated contextmenu listener (replaces per-element binding + MutationObserver)
+    document.addEventListener('contextmenu', (e) => {
+        const el = e.target && e.target.closest ? e.target.closest(selectorString) : null;
+        if (!el) return;
+        const videoData = extractVideoData(el);
+        if (videoData && videoData.id) {
+            if (!window.videoContextMenu) window.videoContextMenu = new VideoContextMenu();
+            e.preventDefault();
+            window.videoContextMenu.show(e, videoData);
         }
-        if (shouldRefresh) addContextMenuHandlers();
     });
-    
-    observer.observe(document.body, { childList: true, subtree: true });
 });

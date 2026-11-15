@@ -22,5 +22,11 @@
         setTimeout(tryInit, 50);
     }
     tryInit();
+    window.addEventListener('pagehide', function () {
+        if (window.videoRemoteInstance && typeof window.videoRemoteInstance.destroy === 'function') {
+            try { window.videoRemoteInstance.destroy(); } catch (e) { console.error('[VideoRemote] destroy failed', e); }
+            window.videoRemoteInstance = null;
+        }
+    });
 })();
 </script>

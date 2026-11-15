@@ -54,7 +54,7 @@
                     try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after touch pause failed', e3); }
                 }
                 p.controlsManager.showControls();
-                setTimeout(function() { p._touchToggled = false; }, 500);
+                p._touchToggleTimer = setTimeout(function() { p._touchToggled = false; p._touchToggleTimer = null; }, 500);
             };
 
             p.clickOverlay.addEventListener('touchstart', touchToggle, { passive: false });
@@ -143,7 +143,8 @@
                 };
                 armStallTimer((p.streamMgr && typeof p.streamMgr._bufferedEnd === 'function')
                     ? p.streamMgr._bufferedEnd(p.video) : 0);
-                setTimeout(() => {
+                p._toastTimer = setTimeout(() => {
+                    p._toastTimer = null;
                     if (p._stallTimer && p.video.currentTime === 0 && !p._hasPlayedData) {
                         if (window.Toast) window.Toast.info('Server is preparing your video, please wait...');
                     }
@@ -195,7 +196,7 @@
                 p._localSeekAt = Date.now();
                 p._localSeekPos = p.video.currentTime || 0;
                 p._broadcastState();
-                setTimeout(() => p._broadcastState(), 150);
+                p._broadcastTimer = setTimeout(() => { p._broadcastTimer = null; p._broadcastState(); }, 150);
             });
 
             p.video.addEventListener('loadedmetadata', () => {
@@ -450,7 +451,7 @@
                     var _resetQualityFlag = function() { p._qualitySwitching = false; };
                     p.video.addEventListener('playing', _resetQualityFlag, { once: true });
                     p.video.addEventListener('error', _resetQualityFlag, { once: true });
-                    setTimeout(_resetQualityFlag, 10000);
+                    p._qualityResetTimer = setTimeout(() => { p._qualityResetTimer = null; _resetQualityFlag(); }, 10000);
 
                     (async () => {
                         try {

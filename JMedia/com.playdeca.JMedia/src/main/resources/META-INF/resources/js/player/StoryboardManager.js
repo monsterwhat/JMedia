@@ -13,6 +13,11 @@
             // Pin the video: the retry loop below can outlive a switch, and applying
             // one episode's storyboard to another shows the wrong preview frames.
             const storyboardVideoId = p.videoId;
+            if (p._storyboardRetryVideoId !== storyboardVideoId) {
+                p._storyboardRetryVideoId = storyboardVideoId;
+                p._storyboardRetryCount = 0;
+                if (p._storyboardRetryTimer) { clearTimeout(p._storyboardRetryTimer); p._storyboardRetryTimer = null; }
+            }
             try {
                 const res = await fetch(`/api/video/storyboard/${storyboardVideoId}/metadata`);
                 if (p._destroyed || p.videoId !== storyboardVideoId) return;
@@ -25,12 +30,22 @@
                     if (p.storyboard.loaded && !wasReady) {
                         console.log('[SimplePlayer] Storyboard generation complete, refreshing preview');
                         p._storyboardUrl = `/api/video/storyboard/${p.videoId}?t=${Date.now()}`;
+                        p._storyboardRetryCount = 0;
+                        if (p._storyboardRetryTimer) { clearTimeout(p._storyboardRetryTimer); p._storyboardRetryTimer = null; }
                     }
 
                     if (!p.storyboard.loaded) {
-                        // Keep waiting for generation, but never after teardown: this
-                        // used to poll every 2s forever on a destroyed player.
-                        setTimeout(() => this.loadStoryboard(), 2000);
+                        if ((p._storyboardRetryCount || 0) >= 30) {
+                            console.warn('[SimplePlayer] Storyboard retry cap (30) reached');
+                            return;
+                        }
+                        p._storyboardRetryCount = (p._storyboardRetryCount || 0) + 1;
+                        if (p._storyboardRetryTimer) { clearTimeout(p._storyboardRetryTimer); p._storyboardRetryTimer = null; }
+                        p._storyboardRetryTimer = setTimeout(() => {
+                            p._storyboardRetryTimer = null;
+                            if (p._destroyed || p.videoId !== storyboardVideoId) return;
+                            this.loadStoryboard();
+                        }, 2000);
                     }
                 }
             } catch (e) {

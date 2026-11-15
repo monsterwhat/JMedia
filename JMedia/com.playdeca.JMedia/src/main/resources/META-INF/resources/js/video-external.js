@@ -1,5 +1,7 @@
-let externalHlsInstance = null;
-let externalProgressInterval = null;
+var externalHlsInstance = (window.externalHlsInstance != null ? window.externalHlsInstance : null);
+var externalProgressInterval = (window.externalProgressInterval != null ? window.externalProgressInterval : null);
+window.externalHlsInstance = externalHlsInstance;
+window.externalProgressInterval = externalProgressInterval;
 
 function getProfileId() {
     return localStorage.getItem('activeProfileId');
@@ -17,17 +19,27 @@ function onEntryTypeChange() {
 }
 
 function resetExternalForm() {
-    document.getElementById('externalEntryType').value = '';
-    document.getElementById('externalMovieFields').classList.add('is-hidden');
-    document.getElementById('externalEpisodeFields').classList.add('is-hidden');
-    document.getElementById('externalMovieNameInput').value = '';
-    document.getElementById('externalSeriesTitleInput').value = '';
-    document.getElementById('externalSeasonInput').value = '';
-    document.getElementById('externalEpisodeInput').value = '';
-    document.getElementById('externalEpisodeTitleInput').value = '';
-    document.getElementById('externalTitleInput').value = '';
+    const entryType = document.getElementById('externalEntryType');
+    if (entryType) entryType.value = '';
+    const movieFields = document.getElementById('externalMovieFields');
+    if (movieFields) movieFields.classList.add('is-hidden');
+    const episodeFields = document.getElementById('externalEpisodeFields');
+    if (episodeFields) episodeFields.classList.add('is-hidden');
+    const movieName = document.getElementById('externalMovieNameInput');
+    if (movieName) movieName.value = '';
+    const seriesTitle = document.getElementById('externalSeriesTitleInput');
+    if (seriesTitle) seriesTitle.value = '';
+    const season = document.getElementById('externalSeasonInput');
+    if (season) season.value = '';
+    const episode = document.getElementById('externalEpisodeInput');
+    if (episode) episode.value = '';
+    const episodeTitle = document.getElementById('externalEpisodeTitleInput');
+    if (episodeTitle) episodeTitle.value = '';
+    const title = document.getElementById('externalTitleInput');
+    if (title) title.value = '';
     const container = document.getElementById('externalUrlFields');
-    container.innerHTML = `
+    if (container) {
+        container.innerHTML = `
         <div class="field has-addons mb-2 url-row">
             <div class="control is-expanded">
                 <input class="input url-input" type="url" placeholder="https://example.com/stream/video.m3u8">
@@ -37,7 +49,9 @@ function resetExternalForm() {
             </div>
         </div>
     `;
-    document.getElementById('externalSaveFeedback').style.display = 'none';
+    }
+    const feedback = document.getElementById('externalSaveFeedback');
+    if (feedback) feedback.style.display = 'none';
 }
 
 function addExternalUrlField() {
@@ -78,8 +92,10 @@ function collectUrls() {
 }
 
 async function saveExternalVideo() {
-    const entryType = document.getElementById('externalEntryType').value;
-    const title = document.getElementById('externalTitleInput').value.trim();
+    const entryTypeEl = document.getElementById('externalEntryType');
+    const titleEl = document.getElementById('externalTitleInput');
+    const entryType = entryTypeEl ? entryTypeEl.value : '';
+    const title = titleEl ? titleEl.value.trim() : '';
     const urls = collectUrls();
     const feedback = document.getElementById('externalSaveFeedback');
 
@@ -122,7 +138,7 @@ async function saveExternalVideo() {
     }
 
     const btn = document.getElementById('saveExternalBtn');
-    btn.classList.add('is-loading');
+    if (btn) btn.classList.add('is-loading');
 
     try {
         const res = await fetch('/api/video/external/create', {
@@ -141,16 +157,17 @@ async function saveExternalVideo() {
     } catch (e) {
         showFeedback('Error: ' + e.message, 'danger');
     } finally {
-        btn.classList.remove('is-loading');
+        if (btn) btn.classList.remove('is-loading');
     }
 }
 
 function showFeedback(msg, type) {
     const el = document.getElementById('externalSaveFeedback');
+    if (!el) return;
     el.textContent = msg;
     el.className = 'mt-2 notification is-' + type + ' is-light py-2 px-3';
     el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 3000);
+    setTimeout(() => { if (el) el.style.display = 'none'; }, 3000);
 }
 
 async function loadExternalVideos() {
@@ -211,7 +228,7 @@ function renderExternalVideoCard(v) {
             <div class="external-video-card-body">
                 <div class="external-video-card-info">
                     <div class="external-video-card-title-row">
-                        <span class="external-video-source-badge">${sourceIcon} ${v.sourceType || 'direct'}</span>
+                        <span class="external-video-source-badge">${sourceIcon} ${escapeHtml(v.sourceType || 'direct')}</span>
                         ${isEpisode ? '<span class="tag is-info is-light is-small ml-1">TV</span>' : (entryType === 'MOVIE' ? '<span class="tag is-success is-light is-small ml-1">Movie</span>' : '')}
                         <span class="external-video-title">${escapeHtml(v.title)}</span>
                     </div>
@@ -329,13 +346,8 @@ function truncateUrl(url, max) {
 }
 
 async function playExternalVideo(id) {
+    // The SPA refetches the payload itself; the previous existence check was redundant.
     try {
-        const res = await fetch('/api/video/external/' + id);
-        const json = await res.json();
-        if (!json.success || !json.data) {
-            if (window.showToast) window.showToast('Failed to load video', 'danger');
-            return;
-        }
         window.videoSPA.switchSection('playback', { externalVideoId: id });
     } catch (e) {
         console.error('[ExternalVideo] Error playing:', e);
@@ -426,13 +438,4 @@ function cancelEditExternalVideo(id) {
     if (form) form.style.display = 'none';
 }
 
-function destroyExternalPlayer() {
-    if (externalHlsInstance) {
-        externalHlsInstance.destroy();
-        externalHlsInstance = null;
-    }
-    if (externalProgressInterval) {
-        clearInterval(externalProgressInterval);
-        externalProgressInterval = null;
-    }
-}
+

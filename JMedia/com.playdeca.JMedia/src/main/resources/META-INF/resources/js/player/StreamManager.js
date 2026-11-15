@@ -262,106 +262,6 @@
                    MediaSource.isTypeSupported('audio/mp4; codecs="opus"');
         }
 
-        /**
-         * Initialize HEVC playback using hevc.js (WASM decoder + WebCodecs H.264 encoder)
-         * This intercepts the HLS path and uses direct MP4 with client-side transcoding
-         */
-        async initHevcJsStream(savedTime) {
-            const p = this.player;
-            if (p._destroyed || !document.body.contains(p.container)) return;
-
-            dbg('[SimplePlayer] Initializing hevc.js stream for HEVC playback');
-
-            // Get the direct MP4 URL
-            const videoUrl = this.buildStreamUrl(savedTime);
-            
-            p.streamStartOffset = savedTime || 0;
-            p._showLoading('Loading HEVC video (client-side transcoding)...');
-
-            // Check if hevc.js is loaded
-            if (typeof installMSEIntercept === 'undefined') {
-                console.error('[SimplePlayer] hevc.js not loaded, falling back to direct stream');
-                this.initDirectStream(savedTime);
-                return;
-            }
-
-            try {
-                // Install MSE intercept from hevc.js core
-                // This patches MediaSource.addSourceBuffer to transcode HEVC to H.264
-                const cleanup = installMSEIntercept({
-                    workerUrl: '/lib/hevc/transcode-worker.js',
-                    wasmUrl: '/lib/hevc/hevc.js',
-                    wasmBinaryUrl: '/lib/hevc/hevc-decoder.wasm'
-                });
-
-                // Store cleanup function for later removal
-                p._hevcJsCleanup = cleanup;
-
-                // Set up video source - the MSE intercept will handle transcoding transparently
-                const mediaSource = new MediaSource();
-                p.video.src = URL.createObjectURL(mediaSource);
-
-                mediaSource.addEventListener('sourceopen', async () => {
-                    if (p._destroyed) return;
-                    
-                    try {
-                        // Create source buffer for H.264 (hevc.js intercepts HEVC and feeds H.264)
-                        const sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
-                        
-                        // Fetch and append the init segment first
-                        const initResponse = await fetch(videoUrl.replace('.mp4', '_init.mp4').replace('?start=', '_init?start='));
-                        if (initResponse.ok) {
-                            const initData = await initResponse.arrayBuffer();
-                            sourceBuffer.appendBuffer(initData);
-                        }
-
-                        // For now, use a simpler approach: fetch the whole video and let hevc.js transcode
-                        // In practice, hevc.js works with segmented content. For MP4, we may need to segment it.
-                        // Let's try the direct approach first - hevc.js may handle full MP4
-                        
-                        p.video.addEventListener('loadedmetadata', () => {
-                            dbg('[SimplePlayer] hevc.js stream metadata loaded');
-                            p.applyInitialState();
-                            p.loadSubtitles();
-                        }, { once: true });
-
-                        p.video.addEventListener('playing', () => {
-                            p._hideLoading();
-                        }, { once: true });
-
-                        p.video.addEventListener('error', (e) => {
-                            console.error('[SimplePlayer] hevc.js playback error:', p.video.error);
-                            if (p._hevcJsCleanup) {
-                                p._hevcJsCleanup();
-                                p._hevcJsCleanup = null;
-                            }
-                            URL.revokeObjectURL(p.video.src);
-                            this.initDirectStream(savedTime);
-                        }, { once: true });
-
-                        p.video.play().catch(e => dbg('[SimplePlayer] Play requires user gesture:', e));
-                    } catch (err) {
-                        console.error('[SimplePlayer] hevc.js sourceopen error:', err);
-                        if (p._hevcJsCleanup) {
-                            p._hevcJsCleanup();
-                            p._hevcJsCleanup = null;
-                        }
-                        URL.revokeObjectURL(p.video.src);
-                        this.initDirectStream(savedTime);
-                    }
-                });
-
-            } catch (err) {
-                console.error('[SimplePlayer] hevc.js initialization failed:', err);
-                if (p._hevcJsCleanup) {
-                    p._hevcJsCleanup();
-                    p._hevcJsCleanup = null;
-                }
-                this.initDirectStream(savedTime);
-            }
-        }
-
-        
 
         initDirectStream(savedTime) {
             const p = this.player;
@@ -370,14 +270,10 @@
             if (p._destroyed || !document.body.contains(p.container)) return;
             // Defensive: a WS source-reload or fallback into the direct path must
             // never leave a server-side HLS session running (encoder leak).
-            this.destroyLocalHlsSession();
             /* Clear any previously painted frame (e.g. the previous video's last
              * frame) so a frozen frame from an old movie cannot linger while the
              * new source loads. No-op on initial load (fresh element, no src). */
-            try {
-                p.video.removeAttribute('src');
-                p.video.load();
-            } catch (e) {}
+            this._teardownSource({ keepHlsSession: false });
             if (p.needsTranscode && savedTime > 0) {
                 dbg('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
                 p.video.src = this.buildStreamUrl(savedTime);
@@ -418,7 +314,7 @@
                         dbg('[SimplePlayer] Direct stream error suppressed — user pause active, not retrying');
                         return;
                     }
-                    p._streamFallbackCount++;
+                    p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
                     console.error('[SimplePlayer] Direct stream error (fallback ' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + '):', p.video.error);
                     if (p._streamFallbackCount < p._maxStreamFallbacks) {
                         p._showLoading('Stream error, retrying...');
@@ -609,7 +505,8 @@
                     // clock). If no decodable video appears, fall back to the
                     // progressive transcode instead of leaving a silent black screen.
                     let nativeHlsOk = false;
-                    const nativeHlsWatchdog = setTimeout(() => {
+                    p._nativeHlsWatchdog = setTimeout(() => {
+                        p._nativeHlsWatchdog = null;
                         if (p._destroyed || nativeHlsOk || !p._hlsNative) return;
                         const v = p.video;
                         if (v && v.videoWidth > 0 && v.readyState >= 2) return;
@@ -622,7 +519,8 @@
                     const markNativeHlsOk = () => {
                         if (p.video && p.video.videoWidth > 0) {
                             nativeHlsOk = true;
-                            clearTimeout(nativeHlsWatchdog);
+                            clearTimeout(p._nativeHlsWatchdog);
+                            p._nativeHlsWatchdog = null;
                         }
                     };
                     p.video.addEventListener('loadedmetadata', () => {
@@ -636,7 +534,8 @@
                     p.video.addEventListener('playing', markNativeHlsOk);
                     p.video.addEventListener('error', () => {
                         console.error('[SimplePlayer] Native HLS error:', p.video.error);
-                        clearTimeout(nativeHlsWatchdog);
+                        clearTimeout(p._nativeHlsWatchdog);
+                        p._nativeHlsWatchdog = null;
                         p._hlsNative = false;
                         this.fallbackToDirectStream(savedTime);
                     }, { once: true });
@@ -781,7 +680,7 @@
             };
         }
 
-        // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
+        // Instance is stored on the player so destroy() can tear it down.
         // opts.fallbackToDirect: fall back to the direct stream on fatal error
         // (local HLS sessions) instead of the external-stream 'Playback error'
         // dead-end. opts.loadingMessage overrides the toast text.
@@ -1027,6 +926,81 @@
             }
         }
 
+        /**
+         * Centralised teardown for a stream source swap. Pauses the element,
+         * drops the current src, reloads, clears handlers/watchdog, and (unless
+         * keepHlsSession is set) destroys the server-side HLS session.
+         *
+         * @param {Object} [opts]
+         * @param {boolean} [opts.keepHlsSession] keep the HLS session alive
+         *   (recreateLocalHlsSession destroys it itself via initLocalHlsStream)
+         */
+        _teardownSource(opts) {
+            const p = this.player;
+            opts = opts || {};
+            p.video.pause();
+            try { p.video.removeAttribute('src'); } catch (e) {
+                console.error('[StreamManager] removeAttribute(src) failed during teardown', e);
+            }
+            try { p.video.load(); } catch (e) {
+                console.error('[StreamManager] load() failed during teardown', e);
+            }
+            this.clearStreamErrorHandlers();
+            this._clearPlaybackWatchdog();
+            if (!opts.keepHlsSession) this.destroyLocalHlsSession();
+        }
+
+        /**
+         * Arm the 10s swap-in-progress safety timer. Shared by switchAudioTrack,
+         * recreateLocalHlsSession and _doServerSeek.
+         */
+        _beginSwapGuard() {
+            const p = this.player;
+            p._swapInProgress = true;
+            clearTimeout(p._swapSafetyTimer);
+            p._swapSafetyTimer = setTimeout(() => {
+                p._swapInProgress = false;
+                p._swapSafetyTimer = null;
+            }, 10000);
+        }
+
+        /**
+         * Register the playing/loadeddata/error one-shot listeners that release
+         * the swap guard and (on playing) send a single confirmation broadcast.
+         * Pass seekGen to preserve the seek-generation guard used by _doServerSeek.
+         */
+        _confirmSeekPosition(seekGen) {
+            const p = this.player;
+            const guard = () => (seekGen == null || seekGen === p._seekGen);
+            const onSeekPlaying = () => {
+                if (!guard()) return;
+                p._clearSwapInProgress();
+                if (!p._destroyed) p._broadcastState();
+            };
+            const onSeekReady = () => {
+                if (!guard()) return;
+                p._clearSwapInProgress();
+            };
+            p.video.addEventListener('playing', onSeekPlaying, { once: true });
+            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
+            p.video.addEventListener('error', onSeekReady, { once: true });
+        }
+
+        /**
+         * Reset per-stream stall/fallback bookkeeping. Shared by switchAudioTrack,
+         * recreateLocalHlsSession and _doServerSeek.
+         */
+        _resetStreamBookkeeping() {
+            const p = this.player;
+            p._hasPlayedData = false;
+            p.lastKnownGoodPosition = 0;
+            p._streamFallbackCount = 0;
+            if (p._stallTimer) {
+                clearTimeout(p._stallTimer);
+                p._stallTimer = null;
+            }
+        }
+
         switchAudioTrack(trackIndex) {
             const p = this.player;
             dbg('[SimplePlayer] Switching audio track to:', trackIndex);
@@ -1091,17 +1065,10 @@
             // Direct streams are the opposite: server-side ?start= is unreliable for them
             // (simple-player resume uses client-side seek for the same reason), so load from
             // 0 (absolute timeline) and seek client-side once metadata is ready.
-            p._swapInProgress = true;
-            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
-            p._swapSafetyTimer = setTimeout(() => {
-                p._swapInProgress = false;
-                p._swapSafetyTimer = null;
-            }, 10000);
+            const wasPlaying = !p.video.paused;
 
-            p.video.pause();
-            p.video.pause();
-            try { p.video.removeAttribute('src'); } catch (e) {}
-            try { p.video.load(); } catch (e) {}
+            this._beginSwapGuard();
+            this._teardownSource({ keepHlsSession: false });
 
             if (p.needsTranscode) {
                 p.streamStartOffset = Math.max(0, savedTime);
@@ -1112,7 +1079,9 @@
                 p.video.addEventListener('loadedmetadata', () => {
                     if (!p._destroyed && savedTime > 0) {
                         const target = Math.min(savedTime, (isFinite(p.video.duration) ? p.video.duration : savedTime) || savedTime);
-                        try { p.video.currentTime = target; } catch (e) {}
+                        try { p.video.currentTime = target; } catch (e) {
+                            console.warn('[SimplePlayer] seek to saved position after audio switch failed', e);
+                        }
                     }
                 }, { once: true });
             }
@@ -1120,27 +1089,17 @@
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
             // the server's phantom clock snaps to the new absolute position.
-            const onSeekPlaying = () => {
-                p._clearSwapInProgress();
-                if (!p._destroyed) p._broadcastState();
-            };
-            const onSeekReady = () => p._clearSwapInProgress();
-            p.video.addEventListener('playing', onSeekPlaying, { once: true });
-            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
-            p.video.addEventListener('error', onSeekReady, { once: true });
+            this._confirmSeekPosition();
 
             // F6: re-apply playbackRate after src+load reset
             p.video.addEventListener('loadedmetadata', () => {
                 if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;
+                if (wasPlaying) {
+                    p.video.play().catch(err => console.error('[StreamManager] resume after audio switch failed', err));
+                }
             }, { once: true });
 
-            p._hasPlayedData = false;
-            p.lastKnownGoodPosition = 0;
-            p._streamFallbackCount = 0;
-            if (p._stallTimer) {
-                clearTimeout(p._stallTimer);
-                p._stallTimer = null;
-            }
+            this._resetStreamBookkeeping();
         }
 
         setAudioTrack(trackId) {
@@ -1232,41 +1191,20 @@
             const wasPlaying = !p._userPaused
                 && (!p.video.paused || (p.state ? p.state.playing !== false : false));
 
-            p._swapInProgress = true;
-            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
-            p._swapSafetyTimer = setTimeout(() => {
-                p._swapInProgress = false;
-                p._swapSafetyTimer = null;
-            }, 10000);
-
-            p.video.pause();
-            p.video.pause();
-            try { p.video.removeAttribute('src'); } catch (e) {}
-            try { p.video.load(); } catch (e) {}
+            this._beginSwapGuard();
+            this._teardownSource({ keepHlsSession: true });
 
             // The new session's encoder starts at `time`, so element time 0 is that
             // content position: the absolute clock and subtitle ?start= use it as the
             // offset. Reset the stall/fallback bookkeeping like _doServerSeek.
             p.streamStartOffset = Math.max(0, time);
-            p._hasPlayedData = false;
-            p.lastKnownGoodPosition = 0;
-            if (p._stallTimer) {
-                clearTimeout(p._stallTimer);
-                p._stallTimer = null;
-            }
+            this._resetStreamBookkeeping();
 
             this.initLocalHlsStream(Math.max(0, time));
 
             // On playing, clear the swap guard and send ONE confirmation broadcast
             // so the server's phantom clock snaps to the new absolute position.
-            const onSeekPlaying = () => {
-                p._clearSwapInProgress();
-                if (!p._destroyed) p._broadcastState();
-            };
-            const onSeekReady = () => p._clearSwapInProgress();
-            p.video.addEventListener('playing', onSeekPlaying, { once: true });
-            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
-            p.video.addEventListener('error', onSeekReady, { once: true });
+            this._confirmSeekPosition();
 
             // The rebuilt session goes through MANIFEST_PARSED -> play(), but a
             // stale `state.playing === false` from the swap guard can pause it
@@ -1293,7 +1231,10 @@
             this.clearStreamErrorHandlers();
             if (p) {
                 ['_seekRetryTimer', '_swapSafetyTimer', '_stallTimer', '_midStallTimer',
-                 '_nativeHlsWatchdog', '_autoSkipTimer'].forEach((key) => {
+                 '_nativeHlsWatchdog', '_autoSkipTimer', '_waitingTimer', '_toastTimer',
+                 '_broadcastTimer', '_qualityResetTimer', '_touchToggleTimer',
+                 '_fsBufferTimer', '_fsBufferTimeout', '_fsRestoreTimer',
+                 '_storyboardRetryTimer', '_setupTrackTimer'].forEach((key) => {
                     if (p[key]) {
                         clearTimeout(p[key]);
                         p[key] = null;
@@ -1306,19 +1247,6 @@
                 }
             }
             this.destroyLocalHlsSession();
-        }
-
-        cleanupHls() {
-            const p = this.player;
-            this._clearPlaybackWatchdog();
-            if (p._hlsInstance) {
-                p._hlsInstance.destroy();
-                p._hlsInstance = null;
-            }
-            this.destroyLocalHlsSession();
-            p.video.pause();
-            try { p.video.removeAttribute('src'); } catch (e) {}
-            try { p.video.load(); } catch (e) {}
         }
 
         performServerSeek(time) {
@@ -1346,7 +1274,9 @@
                 const relTime = time - (p.streamStartOffset || 0);
                 if (p.video.readyState > 0 && relTime >= 0 && relTime <= seekableEnd + 2) {
                     dbg(`[SimplePlayer] HLS in-manifest seek to ${time}s (relative ${relTime}s, seekable to ${seekableEnd}s)`);
-                    try { p.video.currentTime = relTime; } catch (e) {}
+                    try { p.video.currentTime = relTime; } catch (e) {
+                        console.warn('[SimplePlayer] HLS in-manifest seek failed', e);
+                    }
                     p.video.play().catch(function (e) {
                         console.warn('[SimplePlayer] play() after HLS in-manifest seek was blocked:', e);
                     });
@@ -1553,24 +1483,15 @@
             // broadcast the OLD absolute position — drift-sync would seek-yank it into
             // a snap-back loop (B11). Suppress broadcasts/drift-sync during the reload
             // window, exactly like the remote-swap path; cleared on playing/loadeddata/error.
-            p._swapInProgress = true;
-            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
-            p._swapSafetyTimer = setTimeout(() => {
-                p._swapInProgress = false;
-                p._swapSafetyTimer = null;
-            }, 10000);
+            this._beginSwapGuard();
 
             const resumeAfterSeek = !p.video.paused && !p.video.ended;
-            p.video.pause();
-            p.video.pause();
-            try { p.video.removeAttribute('src'); } catch (e) {}
-            try { p.video.load(); } catch (e) {}
+            this._teardownSource({ keepHlsSession: false });
 
             p.streamStartOffset = Math.max(0, time);
             p._streamOriginAuthoritative = false;
             // F7: Reset stall-detection state (mirror switchAudioTrack)
-            p._hasPlayedData = false;
-            p.lastKnownGoodPosition = 0;
+            this._resetStreamBookkeeping();
             const seekUrl = this.buildStreamUrl(Math.max(0, time));
             // Assign the source immediately and correct the clock when the origin probe
             // answers. Waiting for that probe before setting src left the player black
@@ -1601,18 +1522,7 @@
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
             // the server's phantom clock snaps to the new absolute position (element + offset).
-            const onSeekPlaying = () => {
-                if (seekGen !== p._seekGen) return;
-                p._clearSwapInProgress();
-                if (!p._destroyed) p._broadcastState();
-            };
-            const onSeekReady = () => {
-                if (seekGen !== p._seekGen) return;
-                p._clearSwapInProgress();
-            };
-            p.video.addEventListener('playing', onSeekPlaying, { once: true });
-            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
-            p.video.addEventListener('error', onSeekReady, { once: true });
+            this._confirmSeekPosition(seekGen);
 
             // Mid-segment coverage serve lands the element clock at relTarget (segment
             // timeline restarts at its head), not at the requested seek point — re-derive

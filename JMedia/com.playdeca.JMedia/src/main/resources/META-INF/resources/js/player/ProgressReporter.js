@@ -55,7 +55,7 @@
                     keepalive: true,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
-                }).then(r => { if (!r.ok) console.warn('[SimplePlayer] External progress returned', r.status); }).catch(() => {});
+                }).then(r => { if (!r.ok) console.warn('[SimplePlayer] External progress returned', r.status); }).catch((err) => { console.error('[SimplePlayer] External progress report failed:', err); });
             } else {
                 const url = `/api/video/playback/progress?videoId=${p.videoId}&time=${time}&playing=${playing}&profileId=${p.profileId}`;
                 fetch(url, {

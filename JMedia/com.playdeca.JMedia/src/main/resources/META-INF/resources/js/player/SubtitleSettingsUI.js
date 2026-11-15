@@ -1,6 +1,13 @@
 (function(window) {
     'use strict';
 
+    function warnSubtitleApiOnce() {
+        if (!window.__subtitleApiMissingWarned) {
+            window.__subtitleApiMissingWarned = true;
+            console.warn('[SubtitleApi] window.SubtitleApi not available; falling back to inline fetch');
+        }
+    }
+
     window.PlayerSubtitleSettingsUI = class {
         constructor(player) {
             this.player = player;
@@ -85,24 +92,39 @@
         }
 
         setColor(color) {
-            document.getElementById('subtitleColor').value = color;
+            const el = document.getElementById('subtitleColor');
+            if (!el) { console.warn('[SubtitleSettings] #subtitleColor not found'); return; }
+            el.value = color;
             this._updatePreview();
         }
 
         _updatePreview() {
-            const size = document.getElementById('subtitleSize').value;
-            const color = document.getElementById('subtitleColor').value;
-            const opacity = document.getElementById('subtitleBgOpacity').value;
-            const bottom = document.getElementById('subtitleBottom').value;
+            const sizeEl = document.getElementById('subtitleSize');
+            const colorEl = document.getElementById('subtitleColor');
+            const opacityEl = document.getElementById('subtitleBgOpacity');
+            const bottomEl = document.getElementById('subtitleBottom');
+            if (!sizeEl || !colorEl || !opacityEl || !bottomEl) {
+                console.warn('[SubtitleSettings] preview controls not found');
+                return;
+            }
+            const size = sizeEl.value;
+            const color = colorEl.value;
+            const opacity = opacityEl.value;
+            const bottom = bottomEl.value;
 
-            document.getElementById('subtitleSizeValue').textContent = size + 'px';
-            document.getElementById('subtitleBgOpacityValue').textContent = opacity;
-            document.getElementById('subtitleBottomValue').textContent = bottom + 'px';
+            const sizeValEl = document.getElementById('subtitleSizeValue');
+            const opacityValEl = document.getElementById('subtitleBgOpacityValue');
+            const bottomValEl = document.getElementById('subtitleBottomValue');
+            if (sizeValEl) sizeValEl.textContent = size + 'px';
+            if (opacityValEl) opacityValEl.textContent = opacity;
+            if (bottomValEl) bottomValEl.textContent = bottom + 'px';
 
             const preview = document.getElementById('subSettingsPreviewText');
-            preview.style.fontSize = (size * 0.8) + 'px';
-            preview.style.color = color;
-            preview.style.backgroundColor = 'rgba(0,0,0,' + opacity + ')';
+            if (preview) {
+                preview.style.fontSize = (size * 0.8) + 'px';
+                preview.style.color = color;
+                preview.style.backgroundColor = 'rgba(0,0,0,' + opacity + ')';
+            }
 
             if (window.subtitleManager) {
                 window.subtitleManager.applyGlobalStyle({
@@ -128,17 +150,31 @@
             }
 
             try {
-                const res = await fetch('/api/video/subtitles/' + videoId);
+                let tracks;
+                if (window.SubtitleApi) {
+                    tracks = await window.SubtitleApi.getTracks(videoId);
+                } else {
+                    warnSubtitleApiOnce();
+                    const res = await fetch('/api/video/subtitles/' + videoId);
+                    // The options list is shared UI: a response for the previous episode must
+                    // not repopulate it while a different one is playing.
+                    if (!this.player || this.player._destroyed || String(this.player.videoId) !== String(videoId)) {
+                        console.warn('[SubtitleSettings] stale player; discarding track options');
+                        return;
+                    }
+                    if (!res.ok) {
+                        console.warn('[SubtitleSettings] Track list request failed with HTTP ' + res.status);
+                        return;
+                    }
+                    const data = await res.json();
+                    tracks = data.tracks || data.data || [];
+                }
                 // The options list is shared UI: a response for the previous episode must
                 // not repopulate it while a different one is playing.
-                const p = window.currentPlayerInstance;
-                if (p && (p._destroyed || String(p.videoId) !== String(videoId))) return;
-                if (!res.ok) {
-                    console.warn('[SubtitleSettings] Track list request failed with HTTP ' + res.status);
+                if (!this.player || this.player._destroyed || String(this.player.videoId) !== String(videoId)) {
+                    console.warn('[SubtitleSettings] stale player; discarding track options');
                     return;
                 }
-                const data = await res.json();
-                const tracks = data.tracks || [];
 
                 select.innerHTML = '<option value="off">Off</option>';
 
@@ -207,10 +243,18 @@
                     bottom: 60
                 };
 
-                document.getElementById('subtitleSize').value = defaults.size;
-                document.getElementById('subtitleColor').value = defaults.color;
-                document.getElementById('subtitleBgOpacity').value = defaults.bgOpacity;
-                document.getElementById('subtitleBottom').value = defaults.bottom;
+                const sizeEl = document.getElementById('subtitleSize');
+                const colorEl = document.getElementById('subtitleColor');
+                const opacityEl = document.getElementById('subtitleBgOpacity');
+                const bottomEl = document.getElementById('subtitleBottom');
+                if (!sizeEl || !colorEl || !opacityEl || !bottomEl) {
+                    console.warn('[SubtitleSettings] reset controls not found');
+                    return;
+                }
+                sizeEl.value = defaults.size;
+                colorEl.value = defaults.color;
+                opacityEl.value = defaults.bgOpacity;
+                bottomEl.value = defaults.bottom;
 
                 this._updatePreview();
             }
@@ -218,13 +262,21 @@
 
         save() {
             if (window.subtitleManager) {
+                const sizeEl = document.getElementById('subtitleSize');
+                const colorEl = document.getElementById('subtitleColor');
+                const opacityEl = document.getElementById('subtitleBgOpacity');
+                const bottomEl = document.getElementById('subtitleBottom');
+                if (!sizeEl || !colorEl || !opacityEl || !bottomEl) {
+                    console.warn('[SubtitleSettings] save controls not found');
+                    return;
+                }
                 window.subtitleManager.saveStyle({
                     font: "'Segoe UI', sans-serif",
-                    size: parseInt(document.getElementById('subtitleSize').value),
-                    color: document.getElementById('subtitleColor').value,
-                    bgOpacity: parseFloat(document.getElementById('subtitleBgOpacity').value),
+                    size: parseInt(sizeEl.value),
+                    color: colorEl.value,
+                    bgOpacity: parseFloat(opacityEl.value),
                     lineHeight: 1.4,
-                    bottom: parseInt(document.getElementById('subtitleBottom').value)
+                    bottom: parseInt(bottomEl.value)
                 });
             }
             if (typeof window.reapplyAssSubtitleStyles === 'function') {

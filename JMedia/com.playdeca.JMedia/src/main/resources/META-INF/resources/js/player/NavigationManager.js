@@ -7,7 +7,6 @@
         }
 
         goBack() {
-            const p = this.player;
             if (window.videoSPA) window.videoSPA.goBack();
             else window.history.back();
         }

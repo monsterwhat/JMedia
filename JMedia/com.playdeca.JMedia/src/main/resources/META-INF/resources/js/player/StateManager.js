@@ -43,7 +43,6 @@
                 playing: false,
                 volume: parseFloat(localStorage.getItem(p.volumeKey) || '0.7'),
                 muted: localStorage.getItem(p.muteKey) === 'true',
-                lastSeekTime: 0,
                 playbackRate: 1
             };
 

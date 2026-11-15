@@ -1,6 +1,7 @@
 (function() {
     'use strict';
     const LOG = (...a) => console.log('[VSC]', ...a);
+    let _fetchFragmentFallbackWarned = false;
 
     const VideoSidebarController = class {
         constructor() {
@@ -90,13 +91,16 @@
         }
 
         async fetchTracks(videoId) {
+            const capturedId = videoId;
             try {
                 const [subRes, audioRes] = await Promise.all([
                     fetch('/api/video/playback/subtitle-tracks?videoId=' + videoId),
                     fetch('/api/video/playback/audio-tracks?videoId=' + videoId)
                 ]);
+                if (!this.state || this.state.id !== capturedId) return;
                 const subData = await subRes.json();
                 const audioData = await audioRes.json();
+                if (!this.state || this.state.id !== capturedId) return;
                 this.subtitleTracks = subData.tracks || [];
                 this.audioTracks = audioData.tracks || [];
                 this.renderTracks();
@@ -106,6 +110,7 @@
         }
 
         async fetchCarousel(videoId) {
+            const capturedId = videoId;
             try {
                 if (this._carouselVideoId === videoId) {
                     var existing = document.getElementById('np-carousel');
@@ -115,9 +120,22 @@
                     }
                 }
                 this._carouselVideoId = videoId;
-                var res = await fetch('/api/video/ui/now-playing-carousel?videoId=' + videoId);
-                var html = await res.text();
+                var url = '/api/video/ui/now-playing-carousel?videoId=' + videoId;
                 var el = document.getElementById('np-carousel');
+                if (window.FetchFragment && typeof window.FetchFragment.loadInto === 'function') {
+                    await window.FetchFragment.loadInto(el, url, { runScripts: false, htmx: true });
+                    if (!this.state || this.state.id !== capturedId) return;
+                    LOG('carousel loaded via FetchFragment #np-carousel exists=' + (!!el));
+                    this.centerNpCarousel();
+                    return;
+                }
+                if (!_fetchFragmentFallbackWarned) {
+                    console.warn('[VideoSidebarController] window.FetchFragment unavailable; falling back to inline fetchCarousel');
+                    _fetchFragmentFallbackWarned = true;
+                }
+                var res = await fetch(url);
+                var html = await res.text();
+                if (!this.state || this.state.id !== capturedId) return;
                 LOG('carousel bytes=' + html.length + ' #np-carousel exists=' + (!!el));
                 if (el) el.innerHTML = html;
                 this.centerNpCarousel();
@@ -285,7 +303,7 @@
                                         if (String(this.subtitleTracks[k2].id) === String(stored)) { activeIdx = k2; break; }
                                     }
                                 }
-                            } catch (e) {}
+                            } catch (e) { console.warn('[VSC] failed to read stored subtitle track', e); }
                         }
                         if (activeIdx >= 0) {
                             var actSel = subtitleListEl.querySelector('.vsp-subtitle-select');
@@ -456,6 +474,8 @@
                 clearInterval(this.pollInterval);
                 this.pollInterval = null;
             }
+            this._lastStructKey = null;
+            this._carouselVideoId = null;
             var ids = ['np-title', 'np-subtitle', 'np-controls', 'np-play-pause', 'np-time', 'np-carousel', 'np-subtitle-section', 'np-subtitle-list', 'np-audio-section', 'np-audio-list', 'np-hero-backdrop'];
             ids.forEach(function(id) {
                 var el = document.getElementById(id);
@@ -480,16 +500,5 @@
         if (c) c.scrollBy({ left: direction === 'left' ? -400 : 400, behavior: 'smooth' });
     };
 
-    if (!window.underplayerPlayCard) {
-        window.underplayerPlayCard = function(card) {
-            var videoId = card.getAttribute('data-video-id');
-            if (window.openPlayerModal) {
-                window.openPlayerModal(videoId);
-                return;
-            }
-            if (window.__npIsRemoteController && window.npRemoteSwitchVideo) {
-                window.npRemoteSwitchVideo(videoId);
-            }
-        };
-    }
+
 })();
