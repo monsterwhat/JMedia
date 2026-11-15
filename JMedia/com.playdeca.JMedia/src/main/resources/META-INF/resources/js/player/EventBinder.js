@@ -221,6 +221,16 @@
                 p.controlsManager.applyInitialState();
                 p.controlsManager.updateMarkers();
 
+                // Resuming inside the outro (a saved position past outroStart) must not
+                // auto-advance: the skip fires on the first timeupdate, sees no tail left
+                // and jumps to the next episode before the viewer has seen anything.
+                const startPos = p.streamStartOffset || 0;
+                if (p.markers && p.markers.outroStart > 0 && startPos >= p.markers.outroStart - 2) {
+                    p._outroSkipDisabled = true;
+                    console.log('[SimplePlayer] Resumed inside the outro (' + Math.round(startPos)
+                        + 's >= ' + Math.round(p.markers.outroStart) + 's) — auto-skip disabled for this playback');
+                }
+
                 if (p.initialResumeTime > 0 && (!p.streamStartOffset || p.streamStartOffset === 0)) {
                     console.log(`[SimplePlayer] Performing client-side seek to ${p.initialResumeTime}s`);
                     p.video.currentTime = p.initialResumeTime;

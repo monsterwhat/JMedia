@@ -48,7 +48,7 @@
                 this._performAutoSkip('recap', p.markers.recapStart, p.markers.recapEnd);
                 return;
             }
-            if (p.autoSkipOutro && !alreadySkipped('outro') && !inSkipGuard('outro', p.markers.outroEnd) && t >= p.markers.outroStart && p.markers.outroStart > 0) {
+            if (p.autoSkipOutro && !p._outroSkipDisabled && !alreadySkipped('outro') && !inSkipGuard('outro', p.markers.outroEnd) && t >= p.markers.outroStart && p.markers.outroStart > 0) {
                 this._performAutoSkip('outro', p.markers.outroStart, p.markers.outroEnd);
                 return;
             }
