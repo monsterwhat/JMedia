@@ -201,9 +201,14 @@
                 // not a short episode: letting it play means it "ends" seconds later, the
                 // onended handler advances to the next episode and the stream the viewer
                 // asked for is torn down. Fall back to the direct stream instead.
+                //
+                // HLS is excluded: its playlist duration reflects the segments encoded so
+                // far and grows while you watch. Treating that snapshot as the media
+                // length abandoned healthy streams and fell back to a direct transcode
+                // that then stalled (ERR_CONTENT_LENGTH_MISMATCH).
                 const dbDuration = p.totalDuration || 0;
                 const absoluteEnd = (p.streamStartOffset || 0) + (isFinite(dur) && dur > 0 ? dur : 0);
-                if (isFinite(dur) && dur > 0 && dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
+                if (!p._hlsInstance && isFinite(dur) && dur > 0 && dbDuration > 0 && absoluteEnd < dbDuration * 0.9) {
                     console.warn('[SimplePlayer] Stream duration ' + Math.round(dur)
                         + 's is far shorter than the episode (' + Math.round(dbDuration)
                         + 's) — reloading as a direct stream');
