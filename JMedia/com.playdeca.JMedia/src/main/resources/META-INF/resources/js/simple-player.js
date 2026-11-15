@@ -583,6 +583,28 @@ if (typeof window.SimplePlayer === 'undefined') {
                             if (typeof window.syncEpisodeSidebarForVideo === 'function') {
                                 window.syncEpisodeSidebarForVideo(newId);
                             }
+                            // The player re-points itself at a new video, so its header must
+                            // follow: the title and logo were rendered for the previous
+                            // episode and stayed there (switching from Now Playing changed
+                            // the stream but not the chrome).
+                            try {
+                                const titleEl = document.getElementById('player-modal-title');
+                                if (titleEl) {
+                                    const label = (state.seriesTitle && state.seasonNumber && state.episodeNumber)
+                                        ? state.seriesTitle + ' S' + state.seasonNumber + 'E' + state.episodeNumber
+                                          + (state.episodeTitle ? ' \u2014 ' + state.episodeTitle : '')
+                                        : (state.title || '');
+                                    if (label) titleEl.textContent = label;
+                                }
+                                const logoEl = document.getElementById('modal-logo-hero-img');
+                                if (logoEl) {
+                                    logoEl.onerror = function () { logoEl.style.display = 'none'; };
+                                    logoEl.onload = function () { logoEl.style.display = ''; };
+                                    logoEl.src = '/api/video/logo/' + newId;
+                                }
+                            } catch (e) {
+                                console.warn('[SimplePlayer] Could not refresh the player header:', e);
+                            }
                             this.streamStartOffset = (this.needsTranscode && newStateTime > 0) ? Math.max(0, newStateTime) : 0;
                             this.lastKnownGoodPosition = 0;
                             this.initialResumeTime = 0;
