@@ -98,6 +98,9 @@
             const p = this.player;
             const videoId = p.videoId;
             if (!videoId) return;
+            // The deferred retry below can fire long after teardown; switching audio
+            // on a destroyed player re-inits the stream (audio after close).
+            if (p._isAlive && !p._isAlive()) return;
 
             const savedTrack = localStorage.getItem('jmedia_audio_track_' + videoId);
             let trackId = savedTrack;
@@ -136,7 +139,12 @@
                 if (stillLoading) {
                     this._audioPrefRetries = (this._audioPrefRetries || 0) + 1;
                     if (this._audioPrefRetries <= 50) {
-                        setTimeout(() => this.applyAudioPreference(), 100);
+                        // Pin the video: this retry belongs to the track preference of
+                        // the episode that scheduled it, not to whatever plays next.
+                        setTimeout(() => {
+                            if (p.videoId !== videoId) return;
+                            this.applyAudioPreference();
+                        }, 100);
                         return;
                     }
                     console.warn('[SimplePlayer] Audio tracks never loaded; skipping audio preference', trackId);
@@ -243,9 +251,14 @@
 
         async refreshMarkers(retries = 3) {
             const p = this.player;
+            if (!p._isAlive()) return;
+            // Pin the video: the fetch can outlive a switch, and applying episode A's
+            // markers to episode B produced wrong intro/outro skips.
+            const markerVideoId = p.videoId;
             console.log('[SimplePlayer] Refreshing markers for episode...');
             try {
-                const res = await fetch(`/api/video/${p.videoId}`);
+                const res = await fetch(`/api/video/${markerVideoId}`);
+                if (p._destroyed || p.videoId !== markerVideoId) return;
                 if (res.ok) {
                     const json = await res.json();
                     const data = json.data || json;
@@ -394,7 +407,9 @@
 
                     await new Promise(r => setTimeout(r, 2000));
 
-                    const videoRes = await fetch(`/api/video/${p.videoId}`);
+                    const debugVideoId = p.videoId;
+                    const videoRes = await fetch(`/api/video/${debugVideoId}`);
+                    if (p._destroyed || p.videoId !== debugVideoId) return;
                     if (videoRes.ok) {
                         const json = await videoRes.json();
                         const data = json.data || json;

@@ -80,6 +80,10 @@
             // ?audioTrack= resolution. Element tracks are display-only fallback.
             try {
                 const response = await fetch('/api/video/' + videoId + '/audio-tracks');
+                // The menu is global (window.availableAudioTracks); a slow response for
+                // the previous episode must not repopulate it over the current one.
+                const p = this.player;
+                if (p && (p._destroyed || String(p.videoId) !== String(videoId))) return;
                 if (response.ok) {
                     const data = await response.json();
                     const payload = data.data || data;
@@ -247,6 +251,18 @@
             if (!this._repositionHandler) {
                 this._repositionHandler = () => this._reposition();
                 window.addEventListener('resize', this._repositionHandler);
+            }
+        }
+
+        destroy() {
+            if (this._repositionHandler) {
+                window.removeEventListener('resize', this._repositionHandler);
+                this._repositionHandler = null;
+            }
+            if (this.menu) {
+                this.menu.style.display = 'none';
+                const selector = this.selector;
+                if (selector && this.menu.parentElement !== selector) selector.appendChild(this.menu);
             }
         }
 
@@ -437,7 +453,7 @@
             const videoId = p.videoId;
             if (!videoId) return;
 
-            const trackInfo = window.availableAudioTracks.find(t => t.id == trackId);
+            const trackInfo = (window.availableAudioTracks || []).find(t => t.id == trackId);
 
             const url = '/api/video/playback/audio-preference?videoId=' + videoId +
                 '&trackId=' + (trackId !== 'default' ? trackId : '') +
@@ -451,16 +467,22 @@
         }
     };
 
-    document.addEventListener('click', function(e) {
-        const inst = window.__audioTrackSelectorInstance;
-        const selector = inst ? inst.selector : document.getElementById('audioTrackSelector');
-        const menu = inst ? inst.menu : document.getElementById('audioTrackMenu');
-        if (!selector || !menu || menu.style.display === 'none') return;
-        if (selector.contains(e.target) || menu.contains(e.target)) return;
-        if (inst) {
-            inst._close(menu);
-        } else {
-            menu.style.display = 'none';
-        }
-    });
+    // Registered once per document: this file is re-executed every time a player
+    // fragment is injected, and an unguarded listener accumulated one closure per
+    // episode switch.
+    if (!window.__audioTrackDocClickBound) {
+        window.__audioTrackDocClickBound = true;
+        document.addEventListener('click', function(e) {
+            const inst = window.__audioTrackSelectorInstance;
+            const selector = inst ? inst.selector : document.getElementById('audioTrackSelector');
+            const menu = inst ? inst.menu : document.getElementById('audioTrackMenu');
+            if (!selector || !menu || menu.style.display === 'none') return;
+            if (selector.contains(e.target) || menu.contains(e.target)) return;
+            if (inst) {
+                inst._close(menu);
+            } else {
+                menu.style.display = 'none';
+            }
+        });
+    }
 })(window);

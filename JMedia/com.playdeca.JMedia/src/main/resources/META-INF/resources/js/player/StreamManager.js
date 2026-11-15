@@ -1,6 +1,13 @@
 (function(window) {
     'use strict';
 
+    // Logging gate: verbose player tracing is off unless localStorage.jmedia_debug
+    // is "1". warn/error stay unconditional so real failures are never hidden.
+    const JMEDIA_DEBUG = (function () {
+        try { return localStorage.getItem('jmedia_debug') === '1'; } catch (e) { return false; }
+    })();
+    const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
+
     window.PlayerStreamManager = class {
         constructor(player) {
             this.player = player;
@@ -263,7 +270,7 @@
             const p = this.player;
             if (p._destroyed || !document.body.contains(p.container)) return;
 
-            console.log('[SimplePlayer] Initializing hevc.js stream for HEVC playback');
+            dbg('[SimplePlayer] Initializing hevc.js stream for HEVC playback');
 
             // Get the direct MP4 URL
             const videoUrl = this.buildStreamUrl(savedTime);
@@ -313,7 +320,7 @@
                         // Let's try the direct approach first - hevc.js may handle full MP4
                         
                         p.video.addEventListener('loadedmetadata', () => {
-                            console.log('[SimplePlayer] hevc.js stream metadata loaded');
+                            dbg('[SimplePlayer] hevc.js stream metadata loaded');
                             p.applyInitialState();
                             p.loadSubtitles();
                         }, { once: true });
@@ -332,7 +339,7 @@
                             this.initDirectStream(savedTime);
                         }, { once: true });
 
-                        p.video.play().catch(e => console.log('[SimplePlayer] Play requires user gesture:', e));
+                        p.video.play().catch(e => dbg('[SimplePlayer] Play requires user gesture:', e));
                     } catch (err) {
                         console.error('[SimplePlayer] hevc.js sourceopen error:', err);
                         if (p._hevcJsCleanup) {
@@ -372,7 +379,7 @@
                 p.video.load();
             } catch (e) {}
             if (p.needsTranscode && savedTime > 0) {
-                console.log('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
+                dbg('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
                 p.video.src = this.buildStreamUrl(savedTime);
             } else {
                 p.video.src = this.buildStreamUrl(null);
@@ -393,7 +400,7 @@
             }, 15000);
 
             p.video.addEventListener('loadedmetadata', () => {
-                console.log('[SimplePlayer] Direct stream metadata loaded, duration:', p.video.duration);
+                dbg('[SimplePlayer] Direct stream metadata loaded, duration:', p.video.duration);
                 p.applyInitialState();
                 p.loadSubtitles();
             }, { once: true });
@@ -408,7 +415,7 @@
             if (!p._setupStreamErrorHandler) {
                 p._streamErrorHandler = (e) => {
                     if (p._userPaused) {
-                        console.log('[SimplePlayer] Direct stream error suppressed — user pause active, not retrying');
+                        dbg('[SimplePlayer] Direct stream error suppressed — user pause active, not retrying');
                         return;
                     }
                     p._streamFallbackCount++;
@@ -417,7 +424,7 @@
                         p._showLoading('Stream error, retrying...');
                         setTimeout(() => {
                             if (p._userPaused) {
-                                console.log('[SimplePlayer] Blocked stream-error retry play — user pause active');
+                                dbg('[SimplePlayer] Blocked stream-error retry play — user pause active');
                                 return;
                             }
                             const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
@@ -425,7 +432,7 @@
                             p.lastKnownGoodPosition = 0;
                             p.video.src = this.buildStreamUrl(currentTime);
                             p.video.load();
-                            console.log('[SimplePlayer] Stream-error retry play()');
+                            dbg('[SimplePlayer] Stream-error retry play()');
                             p.video.play().catch(function(e) { console.error('[SimplePlayer] Stream-error retry play failed', e); });
                         }, 1000);
                     } else {
@@ -436,10 +443,10 @@
             }
 
             if (p._userPaused) {
-                console.log('[SimplePlayer] Initial auto-play suppressed — user pause active');
+                dbg('[SimplePlayer] Initial auto-play suppressed — user pause active');
             } else {
-                console.log('[SimplePlayer] Initial auto-play()');
-                p.video.play().catch(function(e) { console.log('[SimplePlayer] Play requires user gesture:', e); });
+                dbg('[SimplePlayer] Initial auto-play()');
+                p.video.play().catch(function(e) { dbg('[SimplePlayer] Play requires user gesture:', e); });
             }
         }
 
@@ -449,7 +456,7 @@
             const savedTime = parseFloat(p.container.dataset.startTime || 0);
             const isIOS = p.utils.isIOS();
 
-            console.log('[SimplePlayer] External stream:', url);
+            dbg('[SimplePlayer] External stream:', url);
 
             // HLS (m3u8) requires hls.js (MSE) in Chromium/Firefox — only Safari/iOS
             // plays it natively in a <video> element. Fall back to native for those.
@@ -484,7 +491,7 @@
             });
 
             p.video.play().catch(e => {
-                console.log('[SimplePlayer] Play requires user gesture:', e);
+                dbg('[SimplePlayer] Play requires user gesture:', e);
             });
 
             p.setMusicSuspended(true);
@@ -510,9 +517,13 @@
                 // container to be attached and continue, then give up to direct play.
                 if (!p._hlsAttachRetry) {
                     p._hlsAttachRetry = true;
+                    // Pin the video: if the viewer switches episodes during this 250ms
+                    // window, retrying with the old savedTime would create a session for
+                    // the new video at the previous video's position.
+                    const attachVideoId = p.videoId;
                     console.warn('[SimplePlayer] HLS start deferred: container not attached yet');
                     setTimeout(() => {
-                        if (p._destroyed) return;
+                        if (p._destroyed || p.videoId !== attachVideoId) return;
                         p._hlsAttachRetry = false;
                         this.initLocalHlsStream(savedTime);
                     }, 250);
@@ -571,7 +582,7 @@
                 const effectiveStart = (typeof data.startTime === 'number' && data.startTime > 0)
                     ? data.startTime : savedTime;
                 if (Math.abs(effectiveStart - (p.streamStartOffset || 0)) > 0.05) {
-                    console.log('[SimplePlayer] HLS content starts at ' + effectiveStart +
+                    dbg('[SimplePlayer] HLS content starts at ' + effectiveStart +
                         's (requested ' + savedTime + 's); realigning clock and subtitles');
                     p.streamStartOffset = effectiveStart;
                     if (p.subtitleController) {
@@ -590,7 +601,7 @@
                 // HLS natively (HEVC Main 10 and AC-3 included). Hand the master
                 // playlist straight to the element instead of hls.js.
                 if (p.utils.isIOS()) {
-                    console.log('[SimplePlayer] iOS: native HLS playback (no MSE)', data.playlistUrl);
+                    dbg('[SimplePlayer] iOS: native HLS playback (no MSE)', data.playlistUrl);
                     p._hlsNative = true;
                     p.video.src = data.playlistUrl;
                     // Safari advances currentTime on an EVENT playlist even when the
@@ -631,7 +642,7 @@
                     }, { once: true });
                     p.video.addEventListener('playing', () => p._hideLoading(), { once: true });
                     p.video.play().catch((e) => {
-                        console.log('[SimplePlayer] iOS native HLS play blocked, awaiting gesture:', e);
+                        dbg('[SimplePlayer] iOS native HLS play blocked, awaiting gesture:', e);
                     });
                     return;
                 }
@@ -715,14 +726,14 @@
                         // because a deep link opened it without a user gesture and Chrome
                         // blocked autoplay. Reloading here aborts a healthy stream and
                         // produces "play() interrupted by a new load request" in a loop.
-                        console.log('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
+                        dbg('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
                         if (typeof p._hideLoading === 'function') p._hideLoading();
                         return;
                     }
                     const bufferedNow = this._bufferedEnd(v);
                     if (bufferedNow > bufferedAtWindowStart + 0.05 && extensions < MAX_EXTENSIONS) {
                         extensions++;
-                        console.log('[SimplePlayer] Watchdog: no playback yet but the stream is still arriving (' +
+                        dbg('[SimplePlayer] Watchdog: no playback yet but the stream is still arriving (' +
                             bufferedNow.toFixed(1) + 's buffered, window ' + extensions + '/' + MAX_EXTENSIONS +
                             ') - waiting instead of restarting');
                         arm(bufferedNow);
@@ -776,6 +787,9 @@
         // dead-end. opts.loadingMessage overrides the toast text.
         _initHlsExternalStream(url, savedTime, opts) {
             const p = this.player;
+            // Same contract as initDirectStream: never start a session for a player that
+            // is gone or whose container has been detached.
+            if (p._destroyed || !document.body.contains(p.container)) return;
             const fallbackToDirect = !!(opts && opts.fallbackToDirect);
             const loadingMessage = (opts && opts.loadingMessage) || 'Loading live stream...';
             // Local library sessions can start the encoder at a seek origin. In that
@@ -820,7 +834,7 @@
             p._showLoading(loadingMessage);
             hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
                 if (!data || !Array.isArray(data.levels)) return;
-                console.log('[SimplePlayer] HLS manifest levels (raw):', data.levels.map(function(l) {
+                dbg('[SimplePlayer] HLS manifest levels (raw):', data.levels.map(function(l) {
                     return {
                         codecs: l.attrs && l.attrs.CODECS,
                         videoCodec: l.videoCodec,
@@ -853,15 +867,15 @@
                 // 0:00 and the resume position is a client seek.
                 const initialSeek = contentOffset != null ? 0 : savedTime;
                 if (p._userPaused) {
-                    console.log('[SimplePlayer] HLS manifest parsed — user pause active, skipping auto-play');
+                    dbg('[SimplePlayer] HLS manifest parsed — user pause active, skipping auto-play');
                     if (initialSeek > 0) p.video.currentTime = initialSeek;
                     p.applyInitialState();
                     return;
                 }
-                console.log('[SimplePlayer] HLS manifest parsed, starting playback');
+                dbg('[SimplePlayer] HLS manifest parsed, starting playback');
                 if (initialSeek > 0) p.video.currentTime = initialSeek;
                 p.applyInitialState();
-                console.log('[SimplePlayer] HLS auto-play()');
+                dbg('[SimplePlayer] HLS auto-play()');
                 p.video.play().catch(function(e) { console.error('[SimplePlayer] HLS play failed', e); });
             });
 
@@ -881,13 +895,13 @@
                 }
                 this._clearPlaybackWatchdog();
                 if (p._userPaused) {
-                    console.log('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
+                    dbg('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
                     return;
                 }
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                     p._hlsNetworkRetries = (p._hlsNetworkRetries || 0) + 1;
                     if (p._hlsNetworkRetries < 3) {
-                        console.log('[SimplePlayer] HLS network retry ' + p._hlsNetworkRetries + '/3 — startLoad()');
+                        dbg('[SimplePlayer] HLS network retry ' + p._hlsNetworkRetries + '/3 — startLoad()');
                         hls.startLoad();
                     } else {
                         hls.destroy();
@@ -920,9 +934,9 @@
 
         fallbackToDirectStream(savedTime) {
             const p = this.player;
-            if (p._fallbackInProgress || p._destroyed) return;
+            if (p._fallbackInProgress || p._destroyed || !document.body.contains(p.container)) return;
             p._fallbackInProgress = true;
-            console.log('[SimplePlayer] Falling back to direct stream');
+            dbg('[SimplePlayer] Falling back to direct stream');
 
             this.clearStreamErrorHandlers();
 
@@ -972,8 +986,10 @@
             const selector = document.getElementById('audioTrackSelector');
             if (!selector) return;
 
+            const selectorVideoId = p.videoId;
             try {
-                const resp = await fetch(`/api/video/${p.videoId}/audio-tracks`);
+                const resp = await fetch(`/api/video/${selectorVideoId}/audio-tracks`);
+                if (p._destroyed || p.videoId !== selectorVideoId) return;
                 const json = await resp.json();
                 const tracks = json.data || [];
 
@@ -1005,7 +1021,7 @@
                 };
 
                 selector.style.display = 'block';
-                console.log(`[SimplePlayer] Audio track selector loaded with ${tracks.length} tracks`);
+                dbg(`[SimplePlayer] Audio track selector loaded with ${tracks.length} tracks`);
             } catch (e) {
                 console.error('[SimplePlayer] Failed to load audio tracks:', e);
             }
@@ -1013,7 +1029,7 @@
 
         switchAudioTrack(trackIndex) {
             const p = this.player;
-            console.log('[SimplePlayer] Switching audio track to:', trackIndex);
+            dbg('[SimplePlayer] Switching audio track to:', trackIndex);
 
             // A reload is about to happen: every handler from the previous load
             // (including the initial-open one, which retries at its closure-captured
@@ -1028,7 +1044,7 @@
             // transcode mid-write. Once open, a switch is a real switch (the HLS path
             // never sets video.src, so an explicit flag is the only reliable test).
             if (!p._streamOpened) {
-                console.log('[SimplePlayer] Audio track recorded before the stream opens:', trackIndex);
+                dbg('[SimplePlayer] Audio track recorded before the stream opens:', trackIndex);
                 return;
             }
 
@@ -1129,7 +1145,7 @@
 
         setAudioTrack(trackId) {
             const p = this.player;
-            console.log('[SimplePlayer] Setting audio track:', trackId);
+            dbg('[SimplePlayer] Setting audio track:', trackId);
 
             if (trackId === 'default') {
                 this.switchAudioTrack(-1);
@@ -1187,7 +1203,7 @@
             const sessionId = p._hlsSessionId;
             if (!sessionId) return;
             p._hlsSessionId = null;
-            console.log('[SimplePlayer] Destroying HLS session:', sessionId);
+            dbg('[SimplePlayer] Destroying HLS session:', sessionId);
             fetch(`/api/hls/session/${sessionId}`, {
                 method: 'DELETE',
                 credentials: 'include',
@@ -1259,7 +1275,7 @@
                 if (p._destroyed || p._userPaused || !wasPlaying) return;
                 if (!p.video.paused) return;
                 p.video.play().catch(function(e) {
-                    console.log('[SimplePlayer] Resume after HLS rebuild blocked:', e);
+                    dbg('[SimplePlayer] Resume after HLS rebuild blocked:', e);
                 });
             };
             p.video.addEventListener('canplay', resumeAfterRebuild, { once: true });
@@ -1307,7 +1323,7 @@
 
         performServerSeek(time) {
             const p = this.player;
-            console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
+            dbg(`[SimplePlayer] Performing server-side seek to ${time}s`);
 
             // Local HLS session: prefer a cheap client-side seek when the target is
             // already in the encoded manifest, so small skips (back/forward a few
@@ -1329,7 +1345,7 @@
                 // that earlier position (the server now honours start=).
                 const relTime = time - (p.streamStartOffset || 0);
                 if (p.video.readyState > 0 && relTime >= 0 && relTime <= seekableEnd + 2) {
-                    console.log(`[SimplePlayer] HLS in-manifest seek to ${time}s (relative ${relTime}s, seekable to ${seekableEnd}s)`);
+                    dbg(`[SimplePlayer] HLS in-manifest seek to ${time}s (relative ${relTime}s, seekable to ${seekableEnd}s)`);
                     try { p.video.currentTime = relTime; } catch (e) {}
                     p.video.play().catch(function (e) {
                         console.warn('[SimplePlayer] play() after HLS in-manifest seek was blocked:', e);
@@ -1360,12 +1376,12 @@
                 const inBuffer = p.video.readyState > 0 && relativeTime <= bufferedEnd;
                 // F1b: Quality-switching needs a real reload (client seek won't change quality)
                 if (inBuffer && !p._qualitySwitching) {
-                    console.log(`[SimplePlayer] Client-side seek to ${time}s (relative ${relativeTime}s in buffer)`);
+                    dbg(`[SimplePlayer] Client-side seek to ${time}s (relative ${relativeTime}s in buffer)`);
                     p.video.currentTime = relativeTime;
-                    p.video.play().catch(e => console.log('[SimplePlayer] Play after seek requires gesture:', e));
+                    p.video.play().catch(e => dbg('[SimplePlayer] Play after seek requires gesture:', e));
                     return;
                 }
-                console.log(`[SimplePlayer] Past buffer (buffered to ${bufferedEnd}s), using server-side seek`);
+                dbg(`[SimplePlayer] Past buffer (buffered to ${bufferedEnd}s), using server-side seek`);
             }
 
             this._doServerSeek(time);
@@ -1378,7 +1394,7 @@
                 const seekVideoId = p.videoId;
                 const reloadSubtitles = async () => {
                     if (p._destroyed || p.videoId !== seekVideoId) return;
-                    console.log('[SimplePlayer] Reloading subtitles after seek, track:', p.lastSelectedTrackId);
+                    dbg('[SimplePlayer] Reloading subtitles after seek, track:', p.lastSelectedTrackId);
                     await p.loadSubtitles(true);
 
                     const checkAndRestore = () => {
@@ -1387,7 +1403,7 @@
                         }
                         const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
                         if (activeOpt) {
-                            console.log('[SimplePlayer] Restoring subtitle track after seek:', p.lastSelectedTrackId);
+                            dbg('[SimplePlayer] Restoring subtitle track after seek:', p.lastSelectedTrackId);
                             activeOpt.click();
                             return true;
                         }
@@ -1474,7 +1490,7 @@
 
         _doServerSeek(time) {
             const p = this.player;
-            console.log(`[SimplePlayer] Server-side seek to ${time}s starting new transcode`);
+            dbg(`[SimplePlayer] Server-side seek to ${time}s starting new transcode`);
 
             // Local HLS session: recreate the session at the target position.
             if (p._hlsSessionId || p._hlsSessionPending) {
@@ -1522,10 +1538,10 @@
                     // streamStartOffset may have been corrected down to the real
                     // keyframe/segment origin: that is the safe place to resume.
                     const retryTarget = Math.max(0, p.streamStartOffset || time);
-                    console.log(`[SimplePlayer] Retrying seek at ${retryTarget}s (attempt ${p._streamFallbackCount}/${maxFallbacks})`);
+                    dbg(`[SimplePlayer] Retrying seek at ${retryTarget}s (attempt ${p._streamFallbackCount}/${maxFallbacks})`);
                     p.video.src = this.buildStreamUrl(retryTarget);
                     p.video.load();
-                    p.video.play().catch((e) => console.log('[SimplePlayer] Seek retry play blocked, awaiting gesture:', e));
+                    p.video.play().catch((e) => dbg('[SimplePlayer] Seek retry play blocked, awaiting gesture:', e));
                 }, Math.min(8000, 2000 * p._streamFallbackCount));
             };
             p._seekErrorHandler = onSeekError;
@@ -1556,32 +1572,31 @@
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
             const seekUrl = this.buildStreamUrl(Math.max(0, time));
-            // Learn where the picture actually begins before assigning src: a seek into
-            // an existing segment starts the browser deep into that file, and using the
-            // requested time as the origin puts the clock (and the subtitle offset) out
-            // by the segment start.
+            // Assign the source immediately and correct the clock when the origin probe
+            // answers. Waiting for that probe before setting src left the player black
+            // for up to 18s (6s then 12s) on a cold encoder, because the probe is served
+            // through the same transcode path as the stream.
+            seekSrcAssigned = true;
+            p.video.src = seekUrl;
+            p.video.load();
+            // Autoplay attribute alone is unreliable here: the reload happens outside
+            // the original user gesture (remote/keyboard/auto seeks), so the browser may
+            // block it silently with no pause event — leaving the playing icon over a
+            // frozen frame. Resume explicitly instead.
+            if (resumeAfterSeek) {
+                p.video.play().catch((e) => dbg('[SimplePlayer] Resume after seek blocked, awaiting gesture:', e));
+            }
+
             this.resolveStreamOrigin(seekUrl).then((origin) => {
                 if (p._destroyed || seekGen !== p._seekGen) return;
-                if (origin !== null) {
-                    p.streamStartOffset = origin;
-                    p._streamOriginAuthoritative = true;
-                    console.log('[SimplePlayer] Seek origin from stream:', origin);
-                    if (p.loadSubtitles) p.loadSubtitles();
-                }
-
-                // The seek-scoped error handler is already attached before teardown;
-                // mark the real request as live so it starts counting failures here.
-                seekSrcAssigned = true;
-
-                p.video.src = seekUrl;
-                p.video.load();
-                // Autoplay attribute alone is unreliable here: the reload happens
-                // outside the original user gesture (remote/keyboard/auto seeks),
-                // so the browser may block it silently with no pause event — leaving
-                // the playing icon over a frozen frame. Resume explicitly instead.
-                if (resumeAfterSeek) {
-                    p.video.play().catch((e) => console.log('[SimplePlayer] Resume after seek blocked, awaiting gesture:', e));
-                }
+                if (origin === null) return;
+                if (Math.abs(origin - (p.streamStartOffset || 0)) < 0.05) return;
+                p.streamStartOffset = origin;
+                p._streamOriginAuthoritative = true;
+                dbg('[SimplePlayer] Seek origin from stream:', origin);
+                // Subtitles were requested with the pre-probe offset; rebuild them now
+                // that the real content start is known.
+                if (p.loadSubtitles) p.loadSubtitles();
             });
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
@@ -1607,7 +1622,7 @@
                 const ct = p.video.currentTime || 0;
                 const base = Math.max(0, p.streamStartOffset - ct);
                 if (Math.abs(base - p.streamStartOffset) > 0.1) {
-                    console.log(`[SimplePlayer] Correcting streamStartOffset from ${p.streamStartOffset} to ${base} (keyframe gap: ${ct}s)`);
+                    dbg(`[SimplePlayer] Correcting streamStartOffset from ${p.streamStartOffset} to ${base} (keyframe gap: ${ct}s)`);
                     p.streamStartOffset = base;
                 }
                 // Rebuild the active subtitle track after EVERY server seek, not only
@@ -1635,7 +1650,7 @@
                 if (!tracksRes.ok) return;
                 const tracksData = await tracksRes.json();
                 const tracks = tracksData.tracks || tracksData.data || [];
-                console.log('[SimplePlayer] Pre-loaded', tracks.length, 'subtitle tracks for direct stream');
+                dbg('[SimplePlayer] Pre-loaded', tracks.length, 'subtitle tracks for direct stream');
                 p._subtitleTracksData = tracks;
 
                 p.video.querySelectorAll('track').forEach(el => el.remove());

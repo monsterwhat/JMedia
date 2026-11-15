@@ -55,6 +55,7 @@
         async playNextEpisode() {
             const p = this.player;
             if (p._isAlive && !p._isAlive()) return;
+            const navVideoId = p.videoId;
             const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement ||
                                 p.container.classList.contains('is-css-fullscreen') || p.isIOSNativeFullscreen;
             if (isFullscreen) {
@@ -73,6 +74,9 @@
                     return;
                 }
                 const data = await res.json();
+                // The viewer may have switched episodes while this was in flight;
+                // auto-advancing them away now would fight their choice.
+                if (p._destroyed || p.videoId !== navVideoId) return;
                 if (data.nextVideoId) {
                     this._navigateToVideo(data.nextVideoId);
                 } else if (window.Toast) {
@@ -87,6 +91,7 @@
         async playPreviousEpisode() {
             const p = this.player;
             if (p._isAlive && !p._isAlive()) return;
+            const navVideoId = p.videoId;
             const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement ||
                                 p.container.classList.contains('is-css-fullscreen') || p.isIOSNativeFullscreen;
             if (isFullscreen) {
@@ -105,6 +110,7 @@
                     return;
                 }
                 const data = await res.json();
+                if (p._destroyed || p.videoId !== navVideoId) return;
                 if (data.previousVideoId) {
                     this._navigateToVideo(data.previousVideoId);
                 } else if (window.Toast) {

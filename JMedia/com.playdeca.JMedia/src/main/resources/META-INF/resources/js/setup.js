@@ -123,7 +123,7 @@ document.addEventListener('alpine:init', () => {
                         this.runAsService = result.data.runAsService || false;
                     }
                 }
-            } catch (e) {}
+            } catch (e) { console.warn('[setup] could not load existing settings', e); }
         },
 
         async checkSetupStatus() {
@@ -133,7 +133,7 @@ document.addEventListener('alpine:init', () => {
                 if (result.success && !result.data.isFirstTimeSetup) {
                     window.location.href = '/';
                 }
-            } catch (e) {}
+            } catch (e) { console.warn('[setup] could not read setup status', e); }
         },
 
         async validateAndNext() {
@@ -154,7 +154,7 @@ document.addEventListener('alpine:init', () => {
                     const isInst = status[`${c}Installed`];
                     this.updateComponentStatus(c, isInst ? '✅ Installed' : '❌ Not installed');
                 });
-            } catch (e) {}
+            } catch (e) { console.warn('[setup] could not read install status', e); }
         },
 
         async completeSetup() {

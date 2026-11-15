@@ -493,7 +493,7 @@ class SubtitleManager {
                 if (currentTrack && currentTrack.languageCode) {
                     currentLang = currentTrack.languageCode.toLowerCase();
                 }
-            } catch (e) {}
+            } catch (e) { console.debug('[SubtitleManager] could not read the default audio track language', e); }
 
             let selectedPart = parts.find(p => p.lang === currentLang);
             if (!selectedPart) {
@@ -603,7 +603,10 @@ class SubtitleManager {
                     <td><button class="button is-small is-info" onclick="subtitleManager.addLocal('${file.fullPath.replace(/\\/g, '\\\\')}', this)">Add</button></td>
                 </tr>
             `).join('');
-        } catch (e) { body.innerHTML = '<tr><td colspan="4">Error</td></tr>'; }
+        } catch (e) {
+            console.warn('[SubtitleManager] local subtitle scan failed', e);
+            body.innerHTML = '<tr><td colspan="4">Error</td></tr>';
+        }
     }
 
     async addLocal(filePath, btn) {
@@ -617,8 +620,16 @@ class SubtitleManager {
             if (res.ok) {
                 if (window.showToast) window.showToast('Added!', 'success');
                 this.refreshSubtitleList();
+            } else {
+                // The button used to just stop spinning on failure, so "Add" looked
+                // like it did nothing. Surface the reason instead.
+                console.warn('[SubtitleManager] add-local failed with HTTP ' + res.status);
+                if (window.showToast) window.showToast('Could not add that subtitle', 'error');
             }
-        } catch (e) {} finally { btn.classList.remove('is-loading'); }
+        } catch (e) {
+            console.error('[SubtitleManager] add-local request failed', e);
+            if (window.showToast) window.showToast('Could not add that subtitle', 'error');
+        } finally { btn.classList.remove('is-loading'); }
     }
 
     async generateAiSubtitles() {
@@ -658,7 +669,7 @@ class SubtitleManager {
                 try {
                     const errData = await res.json();
                     if (errData && errData.error) message = errData.error;
-                } catch (e) {}
+                } catch (e) { console.debug('[SubtitleManager] error body was not JSON', e); }
                 if (window.showToast) window.showToast(message, 'error');
                 btn.classList.remove('is-loading');
                 btn.disabled = false;

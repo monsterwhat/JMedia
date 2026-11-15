@@ -15,14 +15,31 @@
             window.changeSubtitleTrack = (trackId) => this.changeTrack(trackId);
             window.resetSubtitleStyles = () => this.resetStyles();
 
-            document.addEventListener('DOMContentLoaded', () => {
-                if (window.subtitleManager) this.init();
-            });
+            // Populate the panel for THIS player as soon as it exists. DOMContentLoaded
+            // only fires on the initial document load, so every player opened later
+            // (cinema modal, SPA playback switch) used to keep the fragment's default
+            // slider values instead of the saved style.
+            const start = () => {
+                if (!window.subtitleManager) return;
+                try {
+                    this.init();
+                } catch (e) {
+                    console.warn('[SubtitleSettings] init failed', e);
+                }
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', start, { once: true });
+            } else {
+                start();
+            }
         }
 
         init() {
             const mgr = window.subtitleManager;
             if (!mgr) return;
+            // Not every player fragment ships the settings panel (live channels do
+            // not); bail out instead of throwing on a missing element.
+            if (!document.getElementById('subtitleSize')) return;
 
             const style = mgr.getStyle();
 
@@ -112,6 +129,10 @@
 
             try {
                 const res = await fetch('/api/video/subtitles/' + videoId);
+                // The options list is shared UI: a response for the previous episode must
+                // not repopulate it while a different one is playing.
+                const p = window.currentPlayerInstance;
+                if (p && (p._destroyed || String(p.videoId) !== String(videoId))) return;
                 if (!res.ok) {
                     console.warn('[SubtitleSettings] Track list request failed with HTTP ' + res.status);
                     return;

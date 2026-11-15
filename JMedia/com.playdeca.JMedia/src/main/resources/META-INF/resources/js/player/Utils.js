@@ -27,6 +27,7 @@
          */
         _wakeLock: null,
         _wakeLockFailed: false,
+        _wakeLockGen: 0,
 
         async requestWakeLock() {
             if (this._wakeLock) return;
@@ -36,9 +37,20 @@
                 console.warn('[PlayerUtils] Screen Wake Lock API not available (requires iOS 16.4+ / modern browser)');
                 return;
             }
+            // The request is async. If the player is torn down (or paused) before it
+            // resolves, releaseWakeLock() runs while _wakeLock is still null and the
+            // lock would then be stored afterwards and never released - the device
+            // stays awake after the player is closed. Bump a generation and drop the
+            // late lock instead.
+            const gen = ++this._wakeLockGen;
             try {
-                this._wakeLock = await navigator.wakeLock.request('screen');
-                this._wakeLock.addEventListener('release', function() {
+                const lock = await navigator.wakeLock.request('screen');
+                if (gen !== this._wakeLockGen) {
+                    try { lock.release(); } catch (e) { console.warn('[PlayerUtils] Releasing superseded wake lock failed:', e); }
+                    return;
+                }
+                this._wakeLock = lock;
+                lock.addEventListener('release', function() {
                     this._wakeLock = null;
                 }.bind(this));
             } catch (err) {
@@ -48,8 +60,9 @@
         },
 
         releaseWakeLock() {
+            this._wakeLockGen++;
             if (this._wakeLock) {
-                try { this._wakeLock.release(); } catch (_) {}
+                try { this._wakeLock.release(); } catch (e) { console.warn('[PlayerUtils] Releasing wake lock failed:', e); }
                 this._wakeLock = null;
             }
         },

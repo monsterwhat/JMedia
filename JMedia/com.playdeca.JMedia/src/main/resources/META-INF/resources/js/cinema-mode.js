@@ -198,6 +198,23 @@ var _watchUrlPushed = false;
 // swap the user sees when returning from playback).
 var _skipNextPopstateOpen = false;
 
+// Generation counter for openPlayerModal. Opening is async (two network round
+// trips before the fragment is injected), so a slow open for episode A could land
+// after the user opened B or closed the modal, re-injecting a player into a dead
+// modal — the "audio starts after close" symptom. Every open and every close
+// bumps this; stale continuations bail out.
+var _playerOpenGen = 0;
+
+// Same idea for the search dropdown: the external TMDb lookup is async, and a slow
+// response for "ab" must not replace the results for "abc" (or reopen a closed
+// dropdown). Bumped on every keystroke-driven search and on close.
+var _searchGen = 0;
+
+// And for the dynamic (non-home) sections. openCollectionDetail / showSection /
+// showCollectionsGrid all fetch before writing into #dynamic-content, so a slow
+// response for the previous view could repaint the current one.
+var _dynamicViewGen = 0;
+
 function _pushInfoUrl(token) {
   if (_suppressUrlWrite || !window.VideoRoutes || !token) return;
   const url = VideoRoutes.infoUrl(token);
@@ -1342,16 +1359,19 @@ async function openCollectionDetail(collectionId) {
   const container = document.getElementById('dynamic-content');
   container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
 
+  const viewGen = ++_dynamicViewGen;
   try {
     const [collectionResp, entriesResp] = await Promise.all([
       fetch('/api/collections/' + collectionId),
       fetch('/api/collections/' + collectionId + '/entries')
     ]);
 
+    if (viewGen !== _dynamicViewGen) return;
     if (!collectionResp.ok || !entriesResp.ok) throw new Error('Failed to fetch');
 
     const collectionData = await collectionResp.json();
     const entriesData = await entriesResp.json();
+    if (viewGen !== _dynamicViewGen) return;
 
     // Parse ApiResponse wrappers
     const collection = (collectionData && collectionData.success ? collectionData.data : collectionData);
@@ -1408,14 +1428,16 @@ async function openCollectionDetail(collectionId) {
     container.innerHTML = html;
   } catch(e) {
     console.error('[cinema] Failed to load collection', e);
+    if (viewGen !== _dynamicViewGen) return;
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading collection.</div>';
   }
 }
 
 async function showCollectionsGrid() {
+  const viewGen = ++_dynamicViewGen;
   const container = document.getElementById('dynamic-content');
   container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
-  await renderCollectionsSection(container);
+  await renderCollectionsSection(container, viewGen);
 }
 
 // ============================================================
@@ -1454,6 +1476,8 @@ function ensureNowPlayingController() {
 }
 
 async function showSection(section) {
+  // Each navigation supersedes any previous async section render.
+  const viewGen = ++_dynamicViewGen;
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
   const dynEl = document.getElementById('section-dynamic');
@@ -1479,13 +1503,14 @@ async function showSection(section) {
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
 
     if (section === 'liveTv') {
-      Promise.resolve(renderLiveTvSection(container)).finally(splashHide);
+      Promise.resolve(renderLiveTvSection(container, viewGen)).finally(splashHide);
     } else if (section === 'collections') {
-      Promise.resolve(renderCollectionsSection(container)).finally(splashHide);
+      Promise.resolve(renderCollectionsSection(container, viewGen)).finally(splashHide);
     } else if (section === 'nowPlaying') {
       // Keep fragment approach for nowPlaying (mobile-only)
       try {
         const resp = await fetch('/api/video/ui/now-playing-fragment');
+        if (viewGen !== _dynamicViewGen) return;
         if (resp.ok) {
           container.innerHTML = await resp.text();
           // Populate the shell with the current playback state
@@ -1494,6 +1519,8 @@ async function showSection(section) {
           container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">No media currently playing.</div>';
         }
       } catch(e) {
+        console.warn('[cinema] now-playing fragment failed', e);
+        if (viewGen !== _dynamicViewGen) return;
         container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading now playing.</div>';
       }
       splashHide();
@@ -1533,12 +1560,15 @@ async function showSection(section) {
   else if(section==='shows'){const b=document.getElementById('tvshows-show-all-btn');if(b)b.style.display='';}
 }
 
-async function renderLiveTvSection(container) {
+async function renderLiveTvSection(container, viewGen) {
+  if (viewGen === undefined) viewGen = _dynamicViewGen;
   try {
     // Fetch channel groups
     const groupsResp = await fetch('/api/channels/groups');
+    if (viewGen !== _dynamicViewGen) return;
     if (!groupsResp.ok) throw new Error('Failed to fetch groups');
     const groupsJson = await groupsResp.json();
+    if (viewGen !== _dynamicViewGen) return;
     const groupsData = groupsJson.success ? groupsJson.data : groupsJson;
     const groups = Array.isArray(groupsData) ? groupsData : [];
 
@@ -1577,8 +1607,10 @@ async function renderLiveTvSection(container) {
 
       try {
         const resp = await fetch('/api/channels?group=' + encodeURIComponent(groupName) + '&limit=50');
+        if (viewGen !== _dynamicViewGen) return;
         if (!resp.ok) throw new Error('Failed');
         const json = await resp.json();
+        if (viewGen !== _dynamicViewGen) return;
         const data = json.success ? json.data : json;
         const channels = Array.isArray(data) ? data : [];
         if (channels.length === 0) {
@@ -1587,23 +1619,31 @@ async function renderLiveTvSection(container) {
         }
         carousel.innerHTML = channels.map(ch => createChannelCard(ch)).join('');
       } catch (e) {
+        console.warn('[cinema] live channel group failed: ' + groupName, e);
+        if (viewGen !== _dynamicViewGen) return;
         carousel.innerHTML = '<div style="text-align:center;padding:2rem;color:rgba(255,255,255,0.3);width:100%;">Error loading</div>';
       }
     });
 
     await Promise.all(loadPromises);
+    if (viewGen !== _dynamicViewGen) return;
     updateCarouselArrows();
 
   } catch (e) {
+    console.warn('[cinema] Live TV section failed', e);
+    if (viewGen !== _dynamicViewGen) return;
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Failed to load Live TV.</div>';
   }
 }
 
-async function renderCollectionsSection(container) {
+async function renderCollectionsSection(container, viewGen) {
+  if (viewGen === undefined) viewGen = _dynamicViewGen;
   try {
     const resp = await fetch('/api/collections');
+    if (viewGen !== _dynamicViewGen) return;
     if (!resp.ok) throw new Error('Failed to fetch collections');
     const json = await resp.json();
+    if (viewGen !== _dynamicViewGen) return;
     const data = json.success ? json.data : json;
     const collections = Array.isArray(data) ? data : [];
 
@@ -1627,6 +1667,8 @@ async function renderCollectionsSection(container) {
     container.innerHTML = html;
 
   } catch (e) {
+    console.warn('[cinema] Collections section failed', e);
+    if (viewGen !== _dynamicViewGen) return;
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Failed to load Collections.</div>';
   }
 }
@@ -1953,7 +1995,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
         seriesData = fresh;
         seriesLookup.set(String(seriesData.id), fresh);
       }
-    } catch (e) { /* keep cached version on transient error */ }
+    } catch (e) { console.debug('[cinema] series refresh failed, keeping cached metadata', e); }
   }
   if (gen !== _modalGeneration) return;
   // Shareable URL: write /video/info/{imdb|tmdb} once the ids are known.
@@ -2165,7 +2207,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
         // Stop polling if all fields populated
         const allFilled = descText && updated.genres?.length && updated.networks?.length;
         if (allFilled) clearInterval(modal._seriesPollInterval);
-      } catch (e) { /* ignore transient errors */ }
+      } catch (e) { console.debug('[cinema] modal metadata poll failed', e); }
     }, 2000);
   }
 }
@@ -3090,7 +3132,7 @@ function openDetails(videoId) {
           }
 
           if (descText && updated.genres?.length) clearInterval(modal._seriesPollInterval);
-        } catch (e) { /* ignore transient errors */ }
+        } catch (e) { console.debug('[cinema] modal metadata poll failed', e); }
       }, 2000);
     }
   });
@@ -3334,7 +3376,9 @@ async function loadSettings() {
         }
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[cinema] failed to load playback settings; keeping UI defaults', e);
+  }
 
   const savedCrossfade = localStorage.getItem('video-crossfade');
   if (savedCrossfade !== null) {
@@ -3445,6 +3489,12 @@ function setPlayerViewActive(active) {
 }
 
 async function openPlayerModal(videoId, collectionId) {
+  // Supersede any open still in flight. Without this, the awaits below can resume
+  // after the user already opened another episode or closed the player, and then
+  // overwrite the live modal (or resurrect a closed one) with a stale fragment.
+  const openGen = ++_playerOpenGen;
+  const isCurrentOpen = () => openGen === _playerOpenGen;
+
   // B11: teardown before innerHTML — destroys the ghost from the previous episode
   if (typeof currentPlayerInstance !== 'undefined' && currentPlayerInstance) {
     currentPlayerInstance.destroy();
@@ -3479,15 +3529,19 @@ async function openPlayerModal(videoId, collectionId) {
     // per-video VideoState (VideoController.java:176-181), the same source the
     // fragment's data-start-time reads.
     const cur = await fetch('/api/video/playback/current').then(r => r.json());
+    if (!isCurrentOpen()) return;
     if (!cur.video || cur.video.id !== videoId) {
       await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
+      if (!isCurrentOpen()) return;
     }
 
     let fragmentUrl = `/api/video/ui/playback-fragment?videoId=${videoId}&cinema=true`;
     if (collectionId) fragmentUrl += `&collectionId=${collectionId}`;
     const resp = await fetch(fragmentUrl);
+    if (!isCurrentOpen()) return;
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();
+    if (!isCurrentOpen()) return;
 
     // innerHTML does NOT execute <script> tags per browser spec.
     // Parse the fragment, strip scripts, inject HTML, then re-create script elements.
@@ -3497,6 +3551,14 @@ async function openPlayerModal(videoId, collectionId) {
     const scripts = Array.from(tmp.querySelectorAll('script'));
     scripts.forEach(s => s.remove());
 
+    // Same belt-and-suspenders as closePlayerModal: blank the outgoing episode's
+    // media element before replacing the DOM, so the browser drops the connection
+    // and the server's transcode for the previous episode actually dies.
+    content.querySelectorAll('video').forEach(function(v) {
+      try { v.pause(); } catch (_) {}
+      try { v.removeAttribute('src'); } catch (_) {}
+      try { v.load(); } catch (_) {}
+    });
     content.innerHTML = tmp.innerHTML;
 
     // Re-create scripts as real DOM elements so the browser fetches/executes them
@@ -3516,6 +3578,7 @@ async function openPlayerModal(videoId, collectionId) {
     initSubtitleSearchSidebar();
     splashHide();
   } catch (err) {
+    if (!isCurrentOpen()) return;
     console.error('[player-modal] failed to load playback fragment', err);
     content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load player</div>`;
     splashHide();
@@ -3523,6 +3586,12 @@ async function openPlayerModal(videoId, collectionId) {
 }
 
 function closePlayerModal(reason) {
+  // Invalidate any open still in flight so it cannot resurrect the modal after
+  // this close (a late fragment would inject a player and start audio).
+  _playerOpenGen++;
+  // That invalidated open also owned the splash; hide it here or closing while
+  // the fragment is loading leaves the overlay stuck over the library.
+  splashHide();
   const wasWatchUrl = window.location.pathname.indexOf('/video/watch/') === 0;
   const backdrop = document.getElementById('player-modal-backdrop');
   const modal = document.getElementById('player-modal');
@@ -3540,7 +3609,12 @@ function closePlayerModal(reason) {
         window.currentPlayerInstance.pause();
       }
     }
-  } catch (_) { /* best-effort cleanup */ }
+  } catch (err) {
+    // Teardown must never throw into the caller (Escape/popstate handlers), but the
+    // failure still needs to be visible: a player that failed to destroy is exactly
+    // what leaves audio running after close.
+    console.warn('[player-modal] teardown failed during close', err);
+  }
   window.currentPlayerInstance = null;
   window.player = null;
 
@@ -3666,13 +3740,19 @@ async function fetchMissingEpisodeData(episodes, currentVideoId, initialSeasonKe
       if (ep.seasonNumber == null) ep.seasonNumber = data.seasonNumber ?? 1;
       if (!ep.episodeNumber) ep.episodeNumber = data.episodeNumber || 0;
     } catch (e) {
-      // Silently skip — UI shows fallback text
+      // Fallback text is shown for this episode; the failure itself still needs
+      // to be visible in the console.
+      console.debug('[cinema] episode metadata fetch failed for ' + ep.id, e);
     }
   }));
 
-  // Re-render if sidebar is still open (data may have been populated)
+  // Re-render if sidebar is still open (data may have been populated). Re-read the
+  // live video id: the viewer may have moved to another episode meanwhile, and
+  // highlighting the old one in the list is wrong.
   if (sidebar.classList.contains('open')) {
-    renderEpisodeSidebarList(episodes, currentVideoId, initialSeasonKey);
+    const liveContainer = getPlayerContainer();
+    const liveVideoId = (liveContainer && liveContainer.dataset.videoId) || currentVideoId;
+    renderEpisodeSidebarList(episodes, liveVideoId, initialSeasonKey);
   }
 }
 
@@ -3706,14 +3786,21 @@ async function toggleEpisodeSidebar() {
   if (!episodes) {
     try {
       const resp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`);
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        console.warn('[cinema] episode sidebar fetch failed with HTTP ' + resp.status);
+        return;
+      }
       episodes = await resp.json();
       if (!Array.isArray(episodes)) return;
       _episodesCache.set(seriesTitle, episodes);
     } catch (e) {
+      console.warn('[cinema] episode sidebar fetch failed', e);
       return;
     }
   }
+  // The video may have changed while that request was in flight; rendering now
+  // would list the previous series' episodes over the new one.
+  if (container.dataset.videoId !== currentVideoId) return;
   episodes = episodes.filter(v => v.type === 'episode')
     .sort((a, b) => {
       const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
@@ -3798,14 +3885,21 @@ async function openCollectionSidebar(container) {
   let entries;
   try {
     const resp = await fetch(`/api/collections/${collectionId}/entries`);
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      console.warn('[cinema] collection sidebar fetch failed with HTTP ' + resp.status);
+      return;
+    }
     const body = await resp.json();
     entries = (body && body.success ? body.data : body);
     if (!Array.isArray(entries)) return;
   } catch (e) {
+    console.warn('[cinema] collection sidebar fetch failed', e);
     return;
   }
   if (!entries.length) return;
+  // Switching episodes inside the collection while this request was in flight
+  // would otherwise render the list centred on a stale video.
+  if (container.dataset.videoId !== currentVideoId) return;
 
   renderCollectionSidebarList(entries, currentVideoId);
 
@@ -4135,8 +4229,11 @@ async function loadSidebarSubtitleTracks() {
   if (!videoId) { list.innerHTML = ''; return; }
   try {
     var resp = await fetch('/api/video/subtitles/' + encodeURIComponent(videoId));
+    // The viewer may have moved on; these rows belong to the old episode.
+    if (getSubtitleSearchVideoId() !== videoId) return;
     if (!resp.ok) { list.innerHTML = ''; return; }
     var json = await resp.json();
+    if (getSubtitleSearchVideoId() !== videoId) return;
     var tracks = json.tracks || [];
     var p = window.player || window.currentPlayerInstance;
     var activeId = (p && p.lastSelectedTrackId != null) ? String(p.lastSelectedTrackId)
@@ -4203,6 +4300,9 @@ function closeSubtitleSearchSidebar() {
   if (sidebar) sidebar.classList.remove('open');
   if (backdrop) backdrop.classList.remove('active');
   if (toggleBtn) toggleBtn.classList.remove('active');
+  // The AI status poll has no natural end: left running it keeps hitting the
+  // server every 2s after the panel (and possibly the player) is gone.
+  stopAiGenerationPoll();
 }
 
 function toggleSubtitleSearchSidebar() {
@@ -4254,7 +4354,17 @@ async function loadSubtitleAiAudioTracks() {
 }
 
 var _aiPollInterval = null;
-var _aiCancelRequested = false;
+// Which video the running poll belongs to. Without it the 2s interval silently
+// followed the viewer to the next episode and polled that video's status.
+var _aiPollVideoId = null;
+
+function stopAiGenerationPoll() {
+  if (_aiPollInterval !== null) {
+    clearInterval(_aiPollInterval);
+    _aiPollInterval = null;
+  }
+  _aiPollVideoId = null;
+}
 
 async function generateAiSubtitles() {
   var videoId = getSubtitleSearchVideoId();
@@ -4291,6 +4401,7 @@ async function generateAiSubtitles() {
     var statusEl = document.getElementById('subtitleAiGenerationStatus');
     if (statusEl) statusEl.textContent = 'Initializing...';
     if (_aiPollInterval === null) {
+      _aiPollVideoId = videoId;
       _aiPollInterval = setInterval(pollAiGenerationStatus, 2000);
     }
   } catch (e) {
@@ -4302,11 +4413,19 @@ async function generateAiSubtitles() {
 
 async function pollAiGenerationStatus() {
   var videoId = getSubtitleSearchVideoId();
-  if (!videoId) return;
+  if (!videoId) { stopAiGenerationPoll(); return; }
+  if (_aiPollVideoId && String(videoId) !== String(_aiPollVideoId)) {
+    // The viewer moved to another episode. This generation belongs to the old one:
+    // stop polling and stop showing its progress on the new episode.
+    stopAiGenerationPoll();
+    resetAiGenerationUI();
+    return;
+  }
   try {
     var resp = await fetch('/api/video/subtitles/' + videoId + '/generate/status');
     if (!resp.ok) return;
     var data = await resp.json();
+    if (!_aiPollInterval) return; // stopped while this request was in flight
     var statusEl = document.getElementById('subtitleAiGenerationStatus');
     if (statusEl) {
       var stage = data.stage || 'generating';
@@ -4314,15 +4433,7 @@ async function pollAiGenerationStatus() {
       statusEl.textContent = data.progress != null ? label + '... ' + Math.round(data.progress) + '%' : label + '...';
     }
     if (data.running === false) {
-      if (_aiPollInterval !== null) {
-        clearInterval(_aiPollInterval);
-        _aiPollInterval = null;
-      }
-      if (_aiCancelRequested) {
-        _aiCancelRequested = false;
-        resetAiGenerationUI();
-        return;
-      }
+      stopAiGenerationPoll();
       resetAiGenerationUI();
       if (data.error) {
         if (window.showToast) window.showToast(data.error, 'error');
@@ -4339,11 +4450,7 @@ async function pollAiGenerationStatus() {
 
 async function cancelAiGeneration() {
   var videoId = getSubtitleSearchVideoId();
-  if (_aiPollInterval !== null) {
-    clearInterval(_aiPollInterval);
-    _aiPollInterval = null;
-  }
-  _aiCancelRequested = true;
+  stopAiGenerationPoll();
   var btn = document.getElementById('cancelAiSidebarBtn');
   if (btn) btn.classList.add('loading');
   try {
@@ -4444,6 +4551,7 @@ async function translateExistingSubtitles() {
     var statusEl = document.getElementById('subtitleAiGenerationStatus');
     if (statusEl) statusEl.textContent = 'Translating...';
     if (_aiPollInterval === null) {
+      _aiPollVideoId = videoId;
       _aiPollInterval = setInterval(pollAiGenerationStatus, 2000);
     }
   } catch (e) {
@@ -4805,6 +4913,9 @@ function openSearch() {
 function closeSearch() {
     const dock = document.querySelector('.cinema-dock');
   if (dock) dock.classList.remove('searching');
+  // Invalidate any search still in flight so its results cannot reopen the
+  // dropdown after the user closed it.
+  _searchGen++;
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
   const dropdown = document.getElementById('searchDropdown');
@@ -4814,6 +4925,7 @@ function closeSearch() {
 async function performSearch(query) {
   const dropdown = document.getElementById('searchDropdown');
   if (!dropdown) return;
+  const searchGen = ++_searchGen;
   const q = query.trim().toLowerCase();
   if (!q) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
 
@@ -4853,6 +4965,9 @@ async function performSearch(query) {
       console.warn('[cinema] external search failed', e);
     }
   }
+
+  // A newer keystroke (or closeSearch) superseded this request.
+  if (searchGen !== _searchGen) return;
 
   if (!results.length && !external.length) {
     dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>';

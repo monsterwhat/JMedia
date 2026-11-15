@@ -8,9 +8,14 @@
 
         async loadStoryboard() {
             const p = this.player;
+            if (p._isAlive && !p._isAlive()) return;
             if (p.container && (p.container.dataset.type === 'live' || p.container.dataset.type === 'external')) return;
+            // Pin the video: the retry loop below can outlive a switch, and applying
+            // one episode's storyboard to another shows the wrong preview frames.
+            const storyboardVideoId = p.videoId;
             try {
-                const res = await fetch(`/api/video/storyboard/${p.videoId}/metadata`);
+                const res = await fetch(`/api/video/storyboard/${storyboardVideoId}/metadata`);
+                if (p._destroyed || p.videoId !== storyboardVideoId) return;
                 if (res.ok) {
                     const json = await res.json();
                     p.storyboard.metadata = json.data || json;
@@ -23,10 +28,14 @@
                     }
 
                     if (!p.storyboard.loaded) {
+                        // Keep waiting for generation, but never after teardown: this
+                        // used to poll every 2s forever on a destroyed player.
                         setTimeout(() => this.loadStoryboard(), 2000);
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn('[SimplePlayer] Storyboard metadata failed:', e);
+            }
         }
 
         handleMouseMove(e) {

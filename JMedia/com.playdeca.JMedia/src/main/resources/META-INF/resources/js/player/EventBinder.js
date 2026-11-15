@@ -1,6 +1,13 @@
 (function(window) {
     'use strict';
 
+    // Logging gate: verbose player tracing is off unless localStorage.jmedia_debug
+    // is "1". warn/error stay unconditional so real failures are never hidden.
+    const JMEDIA_DEBUG = (function () {
+        try { return localStorage.getItem('jmedia_debug') === '1'; } catch (e) { return false; }
+    })();
+    const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
+
     window.PlayerEventBinder = class {
         constructor(player) {
             this.player = player;
@@ -34,15 +41,15 @@
                 e.preventDefault();
                 p._touchToggled = true;
                 if (p.video.paused) {
-                    console.log('[SimplePlayer] User play (touch) — clearing user-pause gate');
+                    dbg('[SimplePlayer] User play (touch) — clearing user-pause gate');
                     p._userPaused = false; p._userPausedAt = 0;
                     p.video.play().catch(function(err) { console.error('[SimplePlayer] User play (touch) failed', err); });
                     try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after touch play failed', e2); }
                     try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after touch play failed', e3); }
                 } else {
-                    console.log('[SimplePlayer] User pause (touch) — engaging user-pause gate');
+                    dbg('[SimplePlayer] User pause (touch) — engaging user-pause gate');
                     p._userPaused = true; p._userPausedAt = Date.now();
-                    try { p.video.pause(); console.log('[SimplePlayer] video.pause() issued (user touch gesture)'); } catch (e2) { console.error('[SimplePlayer] User pause (touch) failed', e2); }
+                    try { p.video.pause(); dbg('[SimplePlayer] video.pause() issued (user touch gesture)'); } catch (e2) { console.error('[SimplePlayer] User pause (touch) failed', e2); }
                     try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after touch pause failed', e2); }
                     try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after touch pause failed', e3); }
                 }
@@ -61,15 +68,15 @@
                 }
                 if (e) e.stopPropagation();
                 if (p.video.paused) {
-                    console.log('[SimplePlayer] User play (click) — clearing user-pause gate');
+                    dbg('[SimplePlayer] User play (click) — clearing user-pause gate');
                     p._userPaused = false; p._userPausedAt = 0;
                     p.video.play().catch(function(err) { console.error('[SimplePlayer] User play (click) failed', err); });
                     try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after user play failed', e2); }
                     try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after user play failed', e3); }
                 } else {
-                    console.log('[SimplePlayer] User pause (click) — engaging user-pause gate');
+                    dbg('[SimplePlayer] User pause (click) — engaging user-pause gate');
                     p._userPaused = true; p._userPausedAt = Date.now();
-                    try { p.video.pause(); console.log('[SimplePlayer] video.pause() issued (user click gesture)'); } catch (err) { console.error('[SimplePlayer] User pause (click) failed', err); }
+                    try { p.video.pause(); dbg('[SimplePlayer] video.pause() issued (user click gesture)'); } catch (err) { console.error('[SimplePlayer] User pause (click) failed', err); }
                     try { if (typeof p._broadcastState === 'function') p._broadcastState(); } catch (e2) { console.error('[SimplePlayer] _broadcastState after user pause failed', e2); }
                     try { p.progressReporter.saveNow(true); } catch (e3) { console.error('[SimplePlayer] saveNow after user pause failed', e3); }
                 }
@@ -95,7 +102,7 @@
                     p._stallTimer = setTimeout(() => {
                         if (p._destroyed) return;
                         if (p._userPaused) {
-                            console.log('[SimplePlayer] Stall timer suppressed — user pause active');
+                            dbg('[SimplePlayer] Stall timer suppressed — user pause active');
                             return;
                         }
                         if (p.video.currentTime === 0 && !p.video.paused && !p._hasPlayedData) {
@@ -103,7 +110,7 @@
                                 ? p.streamMgr._bufferedEnd(p.video) : 0;
                             if (bufferedNow > bufferedAtWindowStart + 0.05 && stallExtensions < 3) {
                                 stallExtensions++;
-                                console.log('[SimplePlayer] Playback has not started yet but data is still arriving (' +
+                                dbg('[SimplePlayer] Playback has not started yet but data is still arriving (' +
                                     bufferedNow.toFixed(1) + 's buffered) - waiting instead of reloading');
                                 armStallTimer(bufferedNow);
                                 return;
@@ -123,9 +130,9 @@
                                 if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
                                 p.video.load();
                                 if (p._userPaused) {
-                                    console.log('[SimplePlayer] Blocked stall-recovery play — user pause active');
+                                    dbg('[SimplePlayer] Blocked stall-recovery play — user pause active');
                                 } else {
-                                    console.log('[SimplePlayer] Stall-recovery play()');
+                                    dbg('[SimplePlayer] Stall-recovery play()');
                                     p.video.play().catch(function(e) { console.error('[SimplePlayer] Stall-recovery play failed', e); });
                                 }
                             } else {
@@ -144,6 +151,7 @@
             });
 
             p.video.addEventListener('pause', () => {
+                if (!p._isAlive()) return;
                 p.playIcon.className = 'pi pi-play';
                 p.bigPlay.style.display = 'flex';
                 if (p.tapToPlayOverlay) p.tapToPlayOverlay.classList.add('visible');
@@ -153,6 +161,7 @@
             });
 
             p.video.addEventListener('timeupdate', () => {
+                if (!p._isAlive()) return;
                 p._touchToggled = false;
                 p._lastProgressAt = Date.now();
 
@@ -190,8 +199,9 @@
             });
 
             p.video.addEventListener('loadedmetadata', () => {
+                if (!p._isAlive()) return;
                 const dur = p.video.duration;
-                console.log(`[SimplePlayer] Metadata loaded. Stream duration: ${dur}s, DB duration: ${p.totalDuration}s`);
+                dbg(`[SimplePlayer] Metadata loaded. Stream duration: ${dur}s, DB duration: ${p.totalDuration}s`);
 
                 if (dur && dur !== Infinity && dur > p.totalDuration && !p.streamStartOffset) {
                     p.totalDuration = dur;
@@ -232,12 +242,12 @@
                 const startPos = p.streamStartOffset || 0;
                 if (p.markers && p.markers.outroStart > 0 && startPos >= p.markers.outroStart - 2) {
                     p._outroSkipDisabled = true;
-                    console.log('[SimplePlayer] Resumed inside the outro (' + Math.round(startPos)
+                    dbg('[SimplePlayer] Resumed inside the outro (' + Math.round(startPos)
                         + 's >= ' + Math.round(p.markers.outroStart) + 's) — auto-skip disabled for this playback');
                 }
 
                 if (p.initialResumeTime > 0 && (!p.streamStartOffset || p.streamStartOffset === 0)) {
-                    console.log(`[SimplePlayer] Performing client-side seek to ${p.initialResumeTime}s`);
+                    dbg(`[SimplePlayer] Performing client-side seek to ${p.initialResumeTime}s`);
                     p.video.currentTime = p.initialResumeTime;
                     p.initialResumeTime = 0;
                 }
@@ -254,7 +264,7 @@
                     p._waitingStart = 0;
                     if (p._destroyed) return;
                     if (p._userPaused) {
-                        console.log('[SimplePlayer] 60s waiting stall suppressed — user pause active');
+                        dbg('[SimplePlayer] 60s waiting stall suppressed — user pause active');
                         return;
                     }
                     if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && (p.video.networkState !== HTMLMediaElement.NETWORK_LOADING || !p._lastProgressAt || (Date.now() - p._lastProgressAt > 65000))) {
@@ -271,9 +281,9 @@
                             p.video.src = p.streamMgr.buildStreamUrl(p.needsTranscode ? pos : null);
                             p.video.load();
                             if (p._userPaused) {
-                                console.log('[SimplePlayer] Blocked 60s stall-recovery play — user pause active');
+                                dbg('[SimplePlayer] Blocked 60s stall-recovery play — user pause active');
                             } else {
-                                console.log('[SimplePlayer] 60s stall-recovery play()');
+                                dbg('[SimplePlayer] 60s stall-recovery play()');
                                 p.video.play().catch(function(e) { console.error('[SimplePlayer] 60s stall-recovery play failed', e); });
                             }
                         } else {
@@ -291,6 +301,7 @@
                 }
             };
             p.video.onended = () => {
+                if (!p._isAlive()) return;
                 if (p._applyingServerState || !p._hasPlayedData) return;
                 const d = p.video.duration;
                 if (!(d > 0) || p.video.currentTime < d - 1) return;
@@ -308,7 +319,7 @@
                     }
                     return;
                 }
-                console.log('[SimplePlayer] Video ended, playing next episode...');
+                dbg('[SimplePlayer] Video ended, playing next episode...');
                 p.navMgr.playNextEpisode();
             };
 
@@ -543,18 +554,27 @@
                 p.fullscreenMgr.requestFullscreen(e);
             };
 
-            document.addEventListener('fullscreenchange', () => p.fullscreenMgr.onFullscreenChange());
-            document.addEventListener('webkitfullscreenchange', () => p.fullscreenMgr.onFullscreenChange());
+            // Stored on the player and removed in destroy(): these are document/window
+            // level listeners, so without teardown every episode switch left another
+            // player reacting to fullscreen and orientation changes.
+            p._boundFsChange = () => {
+                if (p._isAlive && !p._isAlive()) return;
+                p.fullscreenMgr.onFullscreenChange();
+            };
+            document.addEventListener('fullscreenchange', p._boundFsChange);
+            document.addEventListener('webkitfullscreenchange', p._boundFsChange);
 
             p.video.addEventListener('webkitbeginfullscreen', () => p.fullscreenMgr.onIOSVideoFullscreenStart());
             p.video.addEventListener('webkitendfullscreen', () => p.fullscreenMgr.onIOSVideoFullscreenEnd());
 
             if (screen.orientation) {
-                screen.orientation.addEventListener('change', () => {
+                p._boundOrientationChange = () => {
+                    if (p._isAlive && !p._isAlive()) return;
                     if (p.container.classList.contains('is-css-fullscreen')) {
                         window.scrollTo(0, 0);
                     }
-                });
+                };
+                screen.orientation.addEventListener('change', p._boundOrientationChange);
             }
 
             const handleSkipClick = (e, section) => p.skipController.handleSkipClick(e, section);

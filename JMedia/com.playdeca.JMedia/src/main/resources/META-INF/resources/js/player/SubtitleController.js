@@ -1,6 +1,13 @@
 (function(window) {
     'use strict';
 
+    // Logging gate: verbose player tracing is off unless localStorage.jmedia_debug
+    // is "1". warn/error stay unconditional so real failures are never hidden.
+    const JMEDIA_DEBUG = (function () {
+        try { return localStorage.getItem('jmedia_debug') === '1'; } catch (e) { return false; }
+    })();
+    const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
+
     // JASSUB.destroy() ends with `await this.ready` and `await renderer[releaseProxy]()`.
     // When the worker never answers (it died, was blocked, or never became ready)
     // both promises stay pending forever. Teardown shares the serialized _assChain
@@ -15,7 +22,7 @@
 
         selectSubtitle(trackId, element) {
             const p = this.player;
-            console.log('[SimplePlayer] Selecting subtitle track:', trackId);
+            dbg('[SimplePlayer] Selecting subtitle track:', trackId);
 
             p.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
             if (element) element.classList.add('active');
@@ -31,7 +38,7 @@
 
         turnOffSubtitles() {
             const p = this.player;
-            console.log('[SimplePlayer] Turning off subtitles');
+            dbg('[SimplePlayer] Turning off subtitles');
             this.destroyAssSubtitle();
             const isAppleSafari = p.utils.isIOS() || (/Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent));
             if (isAppleSafari) {
@@ -68,7 +75,7 @@
                 const stale = p.jassubRenderer;
                 p.jassubRenderer = null;
                 if (!stale) return;
-                console.log('[SimplePlayer] Destroying ASS subtitle renderer');
+                dbg('[SimplePlayer] Destroying ASS subtitle renderer');
                 await this._destroyRenderer(stale, 'teardown');
             };
             p._assChain = (p._assChain || Promise.resolve()).then(run, run);
@@ -139,7 +146,7 @@
 
         async _initAssSubtitleInner(trackId) {
             const p = this.player;
-            console.log('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
+            dbg('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
             // Clear any stale Firefox overlay so a previous native-track cue can't linger.
             try { const ov = document.getElementById('firefox-subtitle-overlay'); if (ov) { ov.innerHTML = ''; ov.classList.remove('active'); } } catch (e) {}
             await this.loadJassub();
@@ -198,7 +205,7 @@
                     debug: false
                 });
 
-                console.log('[SimplePlayer] JASSUB renderer initialized');
+                dbg('[SimplePlayer] JASSUB renderer initialized');
                 // Force an initial render even when the video is paused (autoplay blocked):
                 // requestVideoFrameCallback only fires during playback, so without this
                 // subtitles stay invisible until the user interacts (seek/play).\
@@ -247,7 +254,7 @@
         reapplyAssStyles() {
             const p = this.player;
             if (p && p.jassubRenderer && p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
-                console.log('[SimplePlayer] Reapplying ASS subtitle styles');
+                dbg('[SimplePlayer] Reapplying ASS subtitle styles');
                 this.initAssSubtitle(p.lastSelectedTrackId);
             }
         }
@@ -260,10 +267,10 @@
             // previous video's tracks on screen.
             const gen = (p._subtitleLoadGen = (p._subtitleLoadGen || 0) + 1);
             try {
-                console.log('[SimplePlayer] Loading subtitles for video:', p.videoId);
+                dbg('[SimplePlayer] Loading subtitles for video:', p.videoId);
                 const tracksRes = await fetch(`/api/video/subtitles/${p.videoId}`);
                 if (gen !== p._subtitleLoadGen) {
-                    console.log('[SimplePlayer] Subtitle response superseded by a newer load');
+                    dbg('[SimplePlayer] Subtitle response superseded by a newer load');
                     return;
                 }
                 if (!tracksRes.ok) {
@@ -272,12 +279,12 @@
                 }
                 const tracksData = await tracksRes.json();
                 if (gen !== p._subtitleLoadGen) {
-                    console.log('[SimplePlayer] Subtitle payload superseded by a newer load');
+                    dbg('[SimplePlayer] Subtitle payload superseded by a newer load');
                     return;
                 }
-                console.log('[SimplePlayer] Subtitle response:', tracksData);
+                dbg('[SimplePlayer] Subtitle response:', tracksData);
                 const tracks = tracksData.tracks || tracksData.data || [];
-                console.log('[SimplePlayer] Found tracks:', tracks.length);
+                dbg('[SimplePlayer] Found tracks:', tracks.length);
 
                 const list = p.container.querySelector('#subtitleList');
                 if (!list) {
@@ -309,7 +316,7 @@
                     opt.innerText = `${t.displayName || t.filename} (${t.isEmbedded ? 'Embedded' : 'External'})`;
                     opt.onclick = (e) => {
                         e.stopPropagation();
-                        console.log('[SimplePlayer] Selecting subtitle:', t);
+                        dbg('[SimplePlayer] Selecting subtitle:', t);
 
                         this.destroyAssSubtitle();
 
@@ -389,7 +396,7 @@
 
                                         const setupTrack = () => {
                                             const tracksArr = Array.from(p.video.textTracks || []);
-                                            console.log('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
+                                            dbg('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
 
                                             // Match by the appended <track> element's id (unique per subtitle id) so two
                                             // tracks sharing a displayName (e.g. "Español" vs "Español (LATAM)") resolve to
@@ -406,7 +413,7 @@
                                             }
 
                                             if (textTrack) {
-                                                console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
+                                                dbg('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
                                                 textTrack.mode = 'showing';
 
                                                 const updateFF = () => {
@@ -427,19 +434,19 @@
                                                 textTrack.oncuechange = (e) => {
                                                     updateFF();
                                                     if (textTrack.activeCues && textTrack.activeCues.length > 0) {
-                                                        console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
+                                                        dbg('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
                                                     }
                                                 };
 
                                                 updateFF();
                                             } else {
-                                                console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracksArr.length);
+                                                dbg('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracksArr.length);
                                                 setTimeout(setupTrack, 200);
                                             }
                                         };
 
                                         track.addEventListener('load', () => {
-                                            console.log('[SimplePlayer] Track element loaded');
+                                            dbg('[SimplePlayer] Track element loaded');
                                             setTimeout(setupTrack, 100);
                                         });
 
@@ -450,7 +457,7 @@
                                         setTimeout(setupTrack, 500);
                                     }
                                 } else {
-                                    console.log('[SimplePlayer] Subtitles turned OFF');
+                                    dbg('[SimplePlayer] Subtitles turned OFF');
                                 }
                             }
 
@@ -487,7 +494,7 @@
         syncForNativeFullscreen() {
             const p = this.player;
             if (p.jassubRenderer) {
-                console.log('[SimplePlayer] Hiding ASS overlay for native fullscreen');
+                dbg('[SimplePlayer] Hiding ASS overlay for native fullscreen');
                 const canvas = document.getElementById('assCanvas');
                 if (canvas) canvas.style.display = 'none';
             }
@@ -507,7 +514,7 @@
         restoreAfterFullscreen() {
             const p = this.player;
             if (p.jassubRenderer) {
-                console.log('[SimplePlayer] Restoring ASS overlay after fullscreen');
+                dbg('[SimplePlayer] Restoring ASS overlay after fullscreen');
                 const canvas = document.getElementById('assCanvas');
                 if (canvas) {
                     canvas.style.display = '';

@@ -1,7 +1,15 @@
+// Logging gate: verbose player tracing is off unless localStorage.jmedia_debug
+// is "1". warn/error stay unconditional so real failures are never hidden.
+(function () {
+    var on = false;
+    try { on = localStorage.getItem('jmedia_debug') === '1'; } catch (e) { on = false; }
+    window.__jmediaDbg = on ? console.log.bind(console) : function () {};
+})();
+
 if (typeof window.SimplePlayer === 'undefined') {
     window.SimplePlayer = class SimplePlayer {
         constructor(config) {
-            console.log('[SimplePlayer] Initializing...', config);
+            window.__jmediaDbg('[SimplePlayer] Initializing...', config);
             this.container = document.getElementById(config.containerId);
             this.video = document.getElementById(config.videoId);
             // Mount race: the SPA injects the fragment and runs this inline script in
@@ -57,7 +65,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                     this.needsTranscode = false;
                     this.needsConversion = false;
                     this._canNativeAv1 = true;
-                    console.log('[SimplePlayer] Browser supports AV1 natively — skipping server transcode');
+                    window.__jmediaDbg('[SimplePlayer] Browser supports AV1 natively — skipping server transcode');
                 }
             }
             this.streamStartOffset = 0;
@@ -245,7 +253,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // hls.js is ~542 KB and is only needed for the HLS route. Load it here,
             // at the first point where the answer is known, instead of shipping it
             // in every playback fragment.
-            console.log('[SimplePlayer] Route ' + (wantsHls ? 'HLS/MSE' : 'direct') +
+            window.__jmediaDbg('[SimplePlayer] Route ' + (wantsHls ? 'HLS/MSE' : 'direct') +
                 ' (needsTranscode=' + this.needsTranscode + ', audioCodec=' + (audioCodec || 'unknown') +
                 ', firefox=' + isFirefox +
                 ', hlsForced=' + (this.container.dataset.hlsForced === 'true') +
@@ -271,7 +279,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 console.warn('[SimplePlayer] native H.264 probe failed:', e);
             }
             const isIOSRuntime = this.utils.isIOS();
-            console.log('[SimplePlayer] codec probe: mseH264=' + hasH264Mse + ' nativeH264=' + canNativeH264 +
+            window.__jmediaDbg('[SimplePlayer] codec probe: mseH264=' + hasH264Mse + ' nativeH264=' + canNativeH264 +
                 ' isIOS=' + isIOSRuntime + ' hls=' + wantsHls);
             if (wantsHls && !hasH264Mse && !isIOSRuntime && !canNativeH264) {
                 console.error('[SimplePlayer] H.264 MSE unsupported on this browser/OS; aborting playback');
@@ -340,7 +348,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                         }, 15000);
                         this.video.play().then(() => {
                         }).catch(e => {
-                            console.log('[SimplePlayer] Play requires user gesture:', e);
+                            console.warn('[SimplePlayer] Autoplay blocked, waiting for a user gesture:', e);
                         });
                     });
                 };
@@ -412,7 +420,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.video.addEventListener('error', this._setupStreamErrorHandler);
                 this.video.play().then(() => {
                 }).catch(e => {
-                    console.log('[SimplePlayer] Play requires user gesture:', e);
+                    console.warn('[SimplePlayer] Autoplay blocked, waiting for a user gesture:', e);
                 });
             }
 
@@ -528,6 +536,7 @@ if (typeof window.SimplePlayer === 'undefined') {
         _restoreSubtitlesAfterFullscreen() { this.subtitleController.restoreAfterFullscreen(); }
 
         _initWebSocket() {
+            if (this._destroyed) return;
             if (this._wsInitialized) return;
             if (!window.VideoWebSocketManager) return;
             // A live channel has no Video row, so the server's "currentVideoId"
@@ -538,7 +547,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // played the film I was watching" bug. Live also has no position to
             // restore and no progress to report, so it stays out of state sync.
             if (this._isLive) {
-                console.log('[SimplePlayer] Live channel — server state sync disabled');
+                window.__jmediaDbg('[SimplePlayer] Live channel — server state sync disabled');
                 this._wsInitialized = true;
                 return;
             }
@@ -670,14 +679,14 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (!this._swapInProgress) {
                         if (state.playing && this.video.paused) {
                             if (this._userPaused) {
-                                console.log('[SimplePlayer] Blocked server play — user pause active (stateSync playing=true ignored, _userPausedAt=' + this._userPausedAt + ')');
+                                window.__jmediaDbg('[SimplePlayer] Blocked server play — user pause active (stateSync playing=true ignored, _userPausedAt=' + this._userPausedAt + ')');
                             } else {
-                                console.log('[SimplePlayer] Resuming playback from server state (playing=true)');
+                                window.__jmediaDbg('[SimplePlayer] Resuming playback from server state (playing=true)');
                                 this.video.play().catch(function(e) { console.error('[SimplePlayer] Server-triggered play failed', e); });
                             }
                         } else if (!state.playing && !this.video.paused) {
-                            console.log('[SimplePlayer] Pausing playback from server state (playing=false)');
-                            try { this.video.pause(); console.log('[SimplePlayer] video.pause() issued (server state)'); } catch (e) { console.error('[SimplePlayer] Server-triggered pause failed', e); }
+                            window.__jmediaDbg('[SimplePlayer] Pausing playback from server state (playing=false)');
+                            try { this.video.pause(); window.__jmediaDbg('[SimplePlayer] video.pause() issued (server state)'); } catch (e) { console.error('[SimplePlayer] Server-triggered pause failed', e); }
                         }
                         }
                         // Drift protection skipped during a swap window: the new element sits at 0
@@ -723,7 +732,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                     }
                 },
                 onCommand: (msg) => {
-                    console.log('[SimplePlayer onCommand]', msg.type, msg.payload);
+                    window.__jmediaDbg('[SimplePlayer onCommand]', msg.type, msg.payload);
                     var cmd = msg;
                     if (msg && msg.type === 'command' && msg.payload) {
                         cmd = { type: msg.payload.commandType, payload: msg.payload.commandPayload || {} };
@@ -776,13 +785,13 @@ if (typeof window.SimplePlayer === 'undefined') {
                     } else if (ctype === 'toggle-play') {
                         if (this._destroyed) return;
                         if (this.video.paused) {
-                            console.log('[SimplePlayer] Remote toggle-play -> play (clearing user-pause gate)');
+                            window.__jmediaDbg('[SimplePlayer] Remote toggle-play -> play (clearing user-pause gate)');
                             this._userPaused = false; this._userPausedAt = 0;
                             this.video.play().catch(function(e) { console.error('[SimplePlayer] Remote play failed', e); });
                         } else {
-                            console.log('[SimplePlayer] Remote toggle-play -> pause (engaging user-pause gate)');
+                            window.__jmediaDbg('[SimplePlayer] Remote toggle-play -> pause (engaging user-pause gate)');
                             this._userPaused = true; this._userPausedAt = Date.now();
-                            try { this.video.pause(); console.log('[SimplePlayer] video.pause() issued (remote toggle)'); } catch (e) { console.error('[SimplePlayer] Remote pause failed', e); }
+                            try { this.video.pause(); window.__jmediaDbg('[SimplePlayer] video.pause() issued (remote toggle)'); } catch (e) { console.error('[SimplePlayer] Remote pause failed', e); }
                         }
                     } else if (ctype === 'seek') {
                         if (this._destroyed) return;
@@ -884,6 +893,35 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.streamMgr.destroy();
             this.progressReporter.stop();
             this.progressReporter.setMusicSuspended(false);
+            // The controls auto-hide timer calls a *global* subtitle lift reset, so
+            // left running it would drop the next player's subtitles mid-episode.
+            if (this.userActiveTimeout) {
+                clearTimeout(this.userActiveTimeout);
+                this.userActiveTimeout = null;
+            }
+            // Document/window listeners bound by this player (fullscreen, orientation,
+            // unload, audio menu reposition) must go with it.
+            if (this._boundFsChange) {
+                document.removeEventListener('fullscreenchange', this._boundFsChange);
+                document.removeEventListener('webkitfullscreenchange', this._boundFsChange);
+                this._boundFsChange = null;
+            }
+            if (this._boundOrientationChange && window.screen && screen.orientation) {
+                screen.orientation.removeEventListener('change', this._boundOrientationChange);
+                this._boundOrientationChange = null;
+            }
+            if (this._cleanupOnUnload) {
+                window.removeEventListener('pagehide', this._cleanupOnUnload);
+                window.removeEventListener('beforeunload', this._cleanupOnUnload);
+                this._cleanupOnUnload = null;
+            }
+            if (this.audioTrackSelector && typeof this.audioTrackSelector.destroy === 'function') {
+                this.audioTrackSelector.destroy();
+            }
+            if (this._bigPlayGuardTimer) {
+                clearInterval(this._bigPlayGuardTimer);
+                this._bigPlayGuardTimer = null;
+            }
             this.video.pause();
             this.video.src = "";
             this.video.load();

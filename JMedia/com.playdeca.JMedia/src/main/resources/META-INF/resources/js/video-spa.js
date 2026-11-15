@@ -46,6 +46,10 @@
 
     async switchSection(section, params = {}, bypassHistory = false) {
         console.log(`[VideoSPA] Switching to section: ${section}`, params);
+        // Every navigation supersedes the previous one: the awaits below (player
+        // teardown, fragment fetch) can resume after a newer click, and the older
+        // response must not paint over the section the user actually asked for.
+        const navGen = (this._navGen = (this._navGen || 0) + 1);
         this.resetNowPlayingController();
         // Destroy current player to cleanup FFmpeg processes
         if (section !== 'nowPlaying') {
@@ -79,13 +83,13 @@
 
         // Handle external video playback
         if (section === 'playback' && params.externalVideoId) {
-            await this.playbackExternal(params.externalVideoId, bypassHistory);
+            await this.playbackExternal(params.externalVideoId, bypassHistory, navGen);
             return;
         }
 
         // Handle live channel playback
         if (section === 'playback' && params.liveChannelId) {
-            await this.playbackLiveChannel(params.liveChannelId, bypassHistory);
+            await this.playbackLiveChannel(params.liveChannelId, bypassHistory, navGen);
             return;
         }
 
@@ -93,6 +97,7 @@
         const apiUrl = this.buildApiUrl(section, params);
         try {
             const html = await this.fetchContent(apiUrl);
+            if (navGen !== this._navGen) return;
             this.updateContent(html);
             if (section === 'nowPlaying') {
                 this.ensureNowPlayingController();
@@ -120,6 +125,7 @@
                 }
             }
         } catch (error) {
+            if (navGen !== this._navGen) return;
             this.handleError(error);
         }
     }
@@ -237,16 +243,18 @@
         }
     }
 
-    async playbackExternal(externalId, bypassHistory = false) {
+    async playbackExternal(externalId, bypassHistory = false, navGen) {
         this.showLoading();
         try {
             const res = await fetch(`/api/video/external/${externalId}`);
             const json = await res.json();
+            if (navGen !== undefined && navGen !== this._navGen) return;
             if (!json.success || !json.data) throw new Error('External video not found');
 
             const v = json.data;
             const html = this.buildExternalPlayerHtml(v);
             await this.destroyCurrentPlayer();
+            if (navGen !== undefined && navGen !== this._navGen) return;
             this.updateContent(html);
             this.hideLoading();
 
@@ -256,18 +264,21 @@
             this.currentSection = 'playback';
             this.currentParams = { externalVideoId: externalId };
         } catch (error) {
+            if (navGen !== undefined && navGen !== this._navGen) return;
             this.handleError(error);
         }
     }
 
-    async playbackLiveChannel(channelId, bypassHistory = false) {
+    async playbackLiveChannel(channelId, bypassHistory = false, navGen) {
         this.showLoading();
         try {
             const res = await fetch(`/api/video/ui/live-channel-playback-fragment?channelId=${channelId}`);
+            if (navGen !== undefined && navGen !== this._navGen) return;
             if (!res.ok) throw new Error('Channel not found');
             const html = await res.text();
 
             await this.destroyCurrentPlayer();
+            if (navGen !== undefined && navGen !== this._navGen) return;
             this.updateContent(html);
             this.hideLoading();
 
@@ -277,6 +288,7 @@
             this.currentSection = 'playback';
             this.currentParams = { liveChannelId: channelId };
         } catch (error) {
+            if (navGen !== undefined && navGen !== this._navGen) return;
             this.handleError(error);
         }
     }
@@ -884,7 +896,13 @@
 
     resetNowPlayingController() {
         if (window.videoSidebarController) {
-            try { window.videoSidebarController.destroy(); } catch (e) { /* ignore */ }
+            try {
+                window.videoSidebarController.destroy();
+            } catch (e) {
+                // A controller that fails to destroy keeps its timers/WS alive across
+                // navigation, so the failure must be visible.
+                console.warn('[VideoSPA] Now Playing controller destroy failed', e);
+            }
             window.videoSidebarController = null;
         }
     }
