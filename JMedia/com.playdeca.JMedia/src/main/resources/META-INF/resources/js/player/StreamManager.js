@@ -358,6 +358,9 @@
 
         initDirectStream(savedTime) {
             const p = this.player;
+            // A watchdog or retry that fires after the player was torn down must never
+            // start a stream: it would play audio on a detached element.
+            if (p._destroyed || !document.body.contains(p.container)) return;
             // Defensive: a WS source-reload or fallback into the direct path must
             // never leave a server-side HLS session running (encoder leak).
             this.destroyLocalHlsSession();
@@ -952,7 +955,9 @@
                     p._fallbackInProgress = false;
                     this._clearPlaybackWatchdog();
                 }, { once: true });
-                p.video.play().catch(() => {});
+                p.video.play().catch((e) => {
+                    console.warn('[SimplePlayer] play() after fallback-to-direct was blocked:', e);
+                });
             };
 
             if (p.utils.isIOS()) {
@@ -1261,6 +1266,32 @@
             p.video.addEventListener('loadeddata', resumeAfterRebuild, { once: true });
         }
 
+        /**
+         * Clears every timer and session this manager owns. Called from the player's
+         * destroy() so a watchdog, retry or stall timer can never fire after teardown
+         * and start audio on a detached element.
+         */
+        destroy() {
+            const p = this.player;
+            this._clearPlaybackWatchdog();
+            this.clearStreamErrorHandlers();
+            if (p) {
+                ['_seekRetryTimer', '_swapSafetyTimer', '_stallTimer', '_midStallTimer',
+                 '_nativeHlsWatchdog', '_autoSkipTimer'].forEach((key) => {
+                    if (p[key]) {
+                        clearTimeout(p[key]);
+                        p[key] = null;
+                    }
+                });
+                p._swapInProgress = false;
+                if (p._hlsInstance) {
+                    try { p._hlsInstance.destroy(); } catch (e) { /* already gone */ }
+                    p._hlsInstance = null;
+                }
+            }
+            this.destroyLocalHlsSession();
+        }
+
         cleanupHls() {
             const p = this.player;
             this._clearPlaybackWatchdog();
@@ -1300,7 +1331,9 @@
                 if (p.video.readyState > 0 && relTime >= 0 && relTime <= seekableEnd + 2) {
                     console.log(`[SimplePlayer] HLS in-manifest seek to ${time}s (relative ${relTime}s, seekable to ${seekableEnd}s)`);
                     try { p.video.currentTime = relTime; } catch (e) {}
-                    p.video.play().catch(function() {});
+                    p.video.play().catch(function (e) {
+                        console.warn('[SimplePlayer] play() after HLS in-manifest seek was blocked:', e);
+                    });
                     return;
                 }
                 this.recreateLocalHlsSession(time);
@@ -1314,7 +1347,9 @@
                     p._hlsInstance.startLoad(time);
                 }
                 p.video.currentTime = relTime;
-                p.video.play().catch(function() {});
+                p.video.play().catch(function (e) {
+                    console.warn('[SimplePlayer] play() after external/HLS seek was blocked:', e);
+                });
                 return;
             }
 

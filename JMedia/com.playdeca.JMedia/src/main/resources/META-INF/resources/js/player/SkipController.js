@@ -8,6 +8,7 @@
 
         checkAutoSkip(t) {
             const p = this.player;
+            if (p._isAlive && !p._isAlive()) return;
             if (p._isUndoing) return;
 
             // Skip sections the user manually undid — they want to watch them

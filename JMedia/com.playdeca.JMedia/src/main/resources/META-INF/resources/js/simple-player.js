@@ -401,7 +401,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                             self.streamMgr.disableClientCodecs();
                             self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                             self.video.load();
-                            self.video.play().catch(function() {});
+                            self.video.play().catch(function (e) {
+                                console.warn('[SimplePlayer] play() after transcode escalation was blocked:', e);
+                            });
                         }, 1000);
                     } else {
                         self._showLoading('Playback failed - try reloading');
@@ -581,6 +583,13 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // active"), so the switch looks like a dead player.
                             this._userPaused = false;
                             this._userPausedAt = 0;
+                            // Track ids are per video: carrying the previous episode's id
+                            // made loadSubtitles() auto-select a track that belongs to a
+                            // different video.
+                            this.lastSelectedTrackId =
+                                localStorage.getItem('jmedia_last_track_' + newId)
+                                || sessionStorage.getItem('jmedia_global_subtitle_track')
+                                || null;
                             // New video, new markers: let its own intro/outro skip fire.
                             this._autoSkipGuard = null;
                             // Keep the page chrome in sync: the player re-points itself at
@@ -795,6 +804,15 @@ if (typeof window.SimplePlayer === 'undefined') {
             this._wsInitialized = true;
         }
 
+        /**
+         * True while this player can still be acted on. Any async continuation that
+         * touches the element (play, src, seek) must check this: a torn-down player's
+         * element is detached but still able to make sound.
+         */
+        _isAlive() {
+            return !this._destroyed && !!this.container && document.body.contains(this.container);
+        }
+
         _broadcastState() {
             if (!this._wsManager || !this._wsManager.connected || this._applyingServerState || this._swapInProgress) return;
 
@@ -860,8 +878,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this._hlsInstance.destroy();
                 this._hlsInstance = null;
             }
-            this.streamMgr.destroyLocalHlsSession();
-            this.streamMgr._clearPlaybackWatchdog();
+            // Central teardown: clears the watchdog, seek-retry, swap-safety, stall and
+            // native-HLS timers plus any HLS session, so nothing can fire later and
+            // start audio on a detached element.
+            this.streamMgr.destroy();
             this.progressReporter.stop();
             this.progressReporter.setMusicSuspended(false);
             this.video.pause();

@@ -54,6 +54,7 @@
 
         async playNextEpisode() {
             const p = this.player;
+            if (p._isAlive && !p._isAlive()) return;
             const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement ||
                                 p.container.classList.contains('is-css-fullscreen') || p.isIOSNativeFullscreen;
             if (isFullscreen) {
@@ -85,6 +86,7 @@
 
         async playPreviousEpisode() {
             const p = this.player;
+            if (p._isAlive && !p._isAlive()) return;
             const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement ||
                                 p.container.classList.contains('is-css-fullscreen') || p.isIOSNativeFullscreen;
             if (isFullscreen) {

@@ -46,6 +46,7 @@
 
         _reportProgress(time, playing) {
             const p = this.player;
+            if (p._destroyed) return;
             if (p.externalId) {
                 const body = { currentTime: time, duration: p.video.duration || 0 };
                 fetch(`/api/video/external/${p.externalId}/progress`, {
@@ -68,6 +69,7 @@
 
         saveNow(force) {
             const p = this.player;
+            if (p._destroyed) return;
             const now = Date.now();
             var isPaused = p.video ? p.video.paused : false;
             // During a seek rebuild the element is paused after its src is torn down,
