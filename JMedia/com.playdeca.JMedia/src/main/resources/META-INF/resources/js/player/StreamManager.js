@@ -1336,11 +1336,20 @@
             this._doServerSeek(time);
 
             if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
+                // Pin the video this restore belongs to. The retry interval below lives for
+                // up to 6s, and without this a pending interval from the previous episode
+                // would keep clicking subtitle options on whatever video is playing by then
+                // (or on a destroyed player).
+                const seekVideoId = p.videoId;
                 const reloadSubtitles = async () => {
+                    if (p._destroyed || p.videoId !== seekVideoId) return;
                     console.log('[SimplePlayer] Reloading subtitles after seek, track:', p.lastSelectedTrackId);
                     await p.loadSubtitles(true);
 
                     const checkAndRestore = () => {
+                        if (p._destroyed || p.videoId !== seekVideoId) {
+                            return true; // stop the retry loop quietly
+                        }
                         const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
                         if (activeOpt) {
                             console.log('[SimplePlayer] Restoring subtitle track after seek:', p.lastSelectedTrackId);
