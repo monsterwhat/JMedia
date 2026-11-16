@@ -254,6 +254,18 @@ public class VideoMetadataService {
                         loadedVideo.recapEnd = ts.end;
                         LOG.info("Updated recap for video {}: {}-{}", loadedVideo.id, ts.start, ts.end);
                     });
+                    if (m.recap.isEmpty()) {
+                        // IntroDB has intro/outro for this episode but no recap segment.
+                        // MetadataEnrichmentWorker selects episodes where recapStart is
+                        // still NULL, so without this marker the same rows were picked up
+                        // and IntroDB re-queried on every tick, rewriting identical
+                        // intro/outro values forever. Cache the completed lookup for the
+                        // same TTL as the "no data" case so a later recap still gets one
+                        // retry after it expires.
+                        INTRODB_NO_DATA_CACHE.put(loadedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
+                        LOG.debug("IntroDB has no recap for video {}; suppressing re-query for {} ms",
+                                loadedVideo.id, INTRODB_NO_DATA_TTL_MS);
+                    }
                 }, () -> {
                     LOG.warn("IntroDB returned no data for series {} S{}E{}", loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber);
                     INTRODB_NO_DATA_CACHE.put(loadedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
@@ -444,9 +456,17 @@ public class VideoMetadataService {
                         fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                     }
 
-                    List<Models.Video.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
-                    if (audioTracks != null && !audioTracks.isEmpty()) {
-                        videoService.updateAudioTracks(video.id, audioTracks);
+                    if (!java.nio.file.Files.exists(java.nio.file.Paths.get(fullPath))) {
+                        // The media file is gone (moved/removed/offline drive). Enrichment
+                        // still succeeds, so this video stays a candidate and the extraction
+                        // was retried on every tick, logging an ERROR each minute. Skip it
+                        // here; a later re-scan that restores the file will extract again.
+                        LOG.debug("Skipping audio track extraction, media file is missing: {}", fullPath);
+                    } else {
+                        List<Models.Video.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
+                        if (audioTracks != null && !audioTracks.isEmpty()) {
+                            videoService.updateAudioTracks(video.id, audioTracks);
+                        }
                     }
                 } catch (Exception e) {
                     LOG.error("Failed to extract audio tracks for {}: {}", video.title, e.getMessage());

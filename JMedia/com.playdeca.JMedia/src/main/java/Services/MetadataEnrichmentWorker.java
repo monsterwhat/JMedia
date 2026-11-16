@@ -117,6 +117,14 @@ public class MetadataEnrichmentWorker {
             ).page(0, batchSize).list();
 
             for (Video video : candidates) {
+                // A candidate that just failed would otherwise be re-selected and
+                // retried on every tick (a video whose file is gone failed every
+                // minute, spamming ffprobe errors). Phase 4 already retries failures
+                // after retryCooldownMs, so skip the recent ones here.
+                Long failedAt = failedEnrichments.get(video.id);
+                if (failedAt != null && (System.currentTimeMillis() - failedAt) < retryCooldownMs) {
+                    continue;
+                }
                 try {
                     videoMetadataService.fetchAndEnrichMetadata(video);
                     failedEnrichments.remove(video.id);
