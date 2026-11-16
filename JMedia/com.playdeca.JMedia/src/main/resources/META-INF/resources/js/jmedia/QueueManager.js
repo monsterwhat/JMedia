@@ -173,6 +173,33 @@
                     if (tbody) tbody.innerHTML = data.html;
                     if (mobileQueue) mobileQueue.innerHTML = data.mobileHtml || data.html;
 
+                    // The rows carry hx-post triggers, but innerHTML does not bind
+                    // htmx to them: without this, clicking a queue row does nothing
+                    // at all. PlaybackApi deliberately skips htmx-owned rows, so the
+                    // fragment has to be processed for selection to work.
+                    if (window.htmx && typeof window.htmx.process === 'function') {
+                        try {
+                            if (tbody) window.htmx.process(tbody);
+                            if (mobileQueue) window.htmx.process(mobileQueue);
+                        } catch (err) {
+                            console.error('[QueueManager] htmx.process failed for queue fragment', err);
+                        }
+                    } else if (!this._htmxMissingWarned) {
+                        console.warn('[QueueManager] htmx is not available; queue rows will not be clickable');
+                        this._htmxMissingWarned = true;
+                    }
+
+                    // innerHTML does not execute the fragment's inline script, so
+                    // freshly rendered rows need drag handlers re-attached here.
+                    if ((tbody || mobileQueue) && (data.html || data.mobileHtml)) {
+                        if (typeof window.setupQueueDrag === 'function') {
+                            window.setupQueueDrag();
+                        } else if (!this._setupQueueDragWarned) {
+                            console.warn('[QueueManager] setupQueueDrag is not available');
+                            this._setupQueueDragWarned = true;
+                        }
+                    }
+
                     this.totalSize = data.totalQueueSize;
                     this.isFetching = false;
 

@@ -33,8 +33,16 @@
             this.detectDeviceCapabilities();
             window.Helpers.log('DeviceManager initialized with device ID:', this.deviceId);
         } catch (error) {
-            window.Helpers.log('DeviceManager initialization error:', error);
-            setTimeout(() => this.init(), 100); // Retry after delay
+            console.error('[DeviceManager] init failed', error);
+            if (!this._initAttempts) {
+                this._initAttempts = 0;
+            }
+            this._initAttempts++;
+            if (this._initAttempts < 25) {
+                setTimeout(() => this.init(), 100); // Retry after delay
+            } else {
+                console.error('[DeviceManager] gave up after 25 init attempts');
+            }
         }
     },
         
@@ -51,8 +59,8 @@
                     if (window.localStorage) {
                         localStorage.setItem('musicDeviceId', this.deviceId);
                     }
-                } catch (e) { 
-                    // Ignore storage errors
+                } catch (e) {
+                    console.warn('[DeviceManager] could not persist device id', e);
                 }
                 window.Helpers.log('DeviceManager generated new device ID:', this.deviceId);
             } else {
@@ -93,7 +101,7 @@
                     }
                 }
             } catch (e) {
-                // Ignore storage errors
+                console.warn('[DeviceManager] could not load device volume', e);
             }
         },
         
@@ -117,7 +125,7 @@
                     window.Helpers.log('DeviceManager saved device volume:', volume);
                 }
             } catch (e) {
-                // Ignore write errors
+                console.warn('[DeviceManager] could not persist device volume', e);
             }
         },
         
@@ -129,7 +137,10 @@
             if (!this.deviceId) {
                 return null;
             }
-            return this.deviceVolumes[this.deviceId] || null;
+            if (Object.prototype.hasOwnProperty.call(this.deviceVolumes, this.deviceId)) {
+                return this.deviceVolumes[this.deviceId];
+            }
+            return null;
         },
         
         /**

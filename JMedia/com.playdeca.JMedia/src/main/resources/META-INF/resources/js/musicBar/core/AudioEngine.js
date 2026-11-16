@@ -70,7 +70,10 @@
         
         init: function() {
             if (this.initialized) return;
-            this.initialized = true;
+            if (!document.getElementById('audioPlayer')) {
+                console.error('[AudioEngine] init aborted: #audioPlayer missing');
+                return;
+            }
 
             // Dual-deck capability: non-iOS browsers can run both elements.
             // iOS needs a runtime probe (see crossfadeTo) and remembers a
@@ -97,7 +100,9 @@
             // paused — the "two songs at once" symptom.
             if (this._singlePlaybackTimer) clearInterval(this._singlePlaybackTimer);
             this._singlePlaybackTimer = setInterval(() => this._enforceSinglePlayback(), 1000);
-            
+
+            this.initialized = true;
+
             // Re-load if state exists
             setTimeout(() => {
                 if (!window.StateManager || window.videoPlaying) return;
@@ -585,8 +590,9 @@
                         fetch(`/api/music/playback/next/${profileId}`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({endedSongId: endedSongId})
-                        });
+                            body: JSON.stringify({endedSongId: endedSongId}),
+                            credentials: 'include'
+                        }).catch(err => console.error('[AudioEngine] auto-next request failed', err));
                     }
                 }
             };
@@ -847,10 +853,14 @@
             
             // Don't attempt to load if profileId is not valid - wait for it
             if (!profileId || profileId === 'undefined') {
+                if (retryCount >= 25) {
+                    console.warn('[AudioEngine preload] Giving up waiting for profileId for song ' + songId);
+                    return;
+                }
                 window.Helpers?.log?.('[AudioEngine preload] Waiting for valid profileId...');
                 const self = this;
                 setTimeout(function() {
-                    self.preload(songId, startTime);
+                    self.preload(songId, startTime, retryCount + 1);
                 }, 200);
                 return;
             }
@@ -892,10 +902,17 @@
             if (!nextPlayer.src.endsWith(url)) {
                 window.Helpers.log('AudioEngine: Preloading ' + songId + ' at ' + startTime + 's');
                 
+                // Detach any previously installed preload handlers so stale closures
+                // cannot re-seek the element or clear a newer preload's timer.
+                if (nextPlayer._aePreloadCanPlay && nextPlayer.oncanplay === nextPlayer._aePreloadCanPlay) {
+                    nextPlayer.oncanplay = null;
+                }
+                if (nextPlayer._aePreloadLoadedMeta && nextPlayer.onloadedmetadata === nextPlayer._aePreloadLoadedMeta) {
+                    nextPlayer.onloadedmetadata = null;
+                }
+
                 // Track when preload is ready via canplay event
-                const existingCanPlay = nextPlayer.oncanplay;
-                nextPlayer.oncanplay = () => {
-                    if (existingCanPlay) existingCanPlay.call(nextPlayer);
+                const canPlayHandler = () => {
                     this._nextPreloadReady = true;
                     if (this._nextPreloadTimer) {
                         clearTimeout(this._nextPreloadTimer);
@@ -903,24 +920,26 @@
                     }
                     window.Helpers.log('[AudioEngine] Preload ready for ' + songId);
                 };
-                
+                nextPlayer._aePreloadCanPlay = canPlayHandler;
+                nextPlayer.oncanplay = canPlayHandler;
+
                 // 8-second timeout: if preload hangs, flag as failed so transitions can
                 // still proceed with a warning rather than getting stuck
                 this._nextPreloadTimer = setTimeout(() => {
                     this._nextPreloadFailed = true;
-                    window.Helpers.log('[AudioEngine] âš ï¸ Preload timed out for ' + songId + ' after 8s');
+                    window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
                 }, 8000);
-                
+
                 nextPlayer._currentSongId = songId;
                 nextPlayer.src = url;
                 nextPlayer._djTransitioned = false; // Clear DJ transition flag when element is reused for new preload
                 nextPlayer.load(); // Start buffering
-                
-                const existingHandler = nextPlayer.onloadedmetadata;
-                nextPlayer.onloadedmetadata = () => {
-                    if (existingHandler) existingHandler.call(nextPlayer);
+
+                const loadedMetaHandler = () => {
                     nextPlayer.currentTime = startTime;
                 };
+                nextPlayer._aePreloadLoadedMeta = loadedMetaHandler;
+                nextPlayer.onloadedmetadata = loadedMetaHandler;
             } else {
                 // Already has the source â€” consider it ready
                 this._nextPreloadReady = true;
@@ -931,6 +950,7 @@
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo — video is active');
                 this._isCrossfading = false;
+                this._pendingVolume = null;
                 return false;
             }
 
@@ -1046,6 +1066,7 @@
                 if (this._fadeToken !== fadeToken || !this._isCrossfading) return;
                 console.warn('[AudioEngine] Crossfade watchdog: fade did not finalize, clearing flags');
                 this._isCrossfading = false;
+                this._pendingVolume = null;
                 if (window.SynchronizationManager) {
                     window.SynchronizationManager.setFlag('isCrossfading', false);
                 }
@@ -1154,6 +1175,7 @@
 
             // Runs when the fade length has elapsed: retire the outgoing deck.
             var finalizeCrossfade = () => {
+                if (this._fadeToken !== fadeToken) return;
 
                         this._pausePlayer(currentPlayer, 'crossfade finalize');
                         // A DJ plan for the following song may have preloaded into
@@ -1272,6 +1294,7 @@
                 if (this._userPaused) {
                     window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused');
                     this._isCrossfading = false;
+                    this._pendingVolume = null;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
@@ -1298,6 +1321,7 @@
                 if (this._userPaused) {
                     window.Helpers.log('AudioEngine: Aborting crossfade — playback was paused before the incoming element was ready');
                     this._isCrossfading = false;
+                    this._pendingVolume = null;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
@@ -1345,6 +1369,7 @@
                                     window.Helpers?.log?.('[AudioEngine] iOS dual-audio probe failed — using single-deck fades');
                                     this._setDualAudioSupport(false);
                                     this._isCrossfading = false;
+                                    this._pendingVolume = null;
                                     if (window.SynchronizationManager) {
                                         window.SynchronizationManager.setFlag('isCrossfading', false);
                                     }
@@ -1370,6 +1395,7 @@
                 }).catch(e => {
                     console.error('AudioEngine: Crossfade play failed', e);
                     this._isCrossfading = false;
+                    this._pendingVolume = null;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
@@ -1398,9 +1424,14 @@
             if (nextPlayer.readyState >= 3) { // HAVE_FUTURE_DATA — enough buffered to run the fade
                 startPlayback();
             } else {
+                let crossfadeReadyDone = false;
                 var crossfadeTimeout = setTimeout(() => {
+                    if (crossfadeReadyDone) return;
+                    crossfadeReadyDone = true;
+                    nextPlayer.removeEventListener('canplay', onReady);
                     console.error('[AudioEngine] Crossfade timeout: nextPlayer never fired canplay after 8s');
                     this._isCrossfading = false;
+                    this._pendingVolume = null;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
@@ -1431,12 +1462,15 @@
                         });
                     }
                 }, 8000);
-                
-                nextPlayer.addEventListener('canplay', function onReady() {
+
+                function onReady() {
+                    if (crossfadeReadyDone) return;
+                    crossfadeReadyDone = true;
                     clearTimeout(crossfadeTimeout);
                     nextPlayer.removeEventListener('canplay', onReady);
                     startPlayback();
-                });
+                }
+                nextPlayer.addEventListener('canplay', onReady);
             }
             return true;
         },
@@ -1638,12 +1672,14 @@
                     if (window.videoPlaying) return;
                     const state = window.StateManager.getState();
                     if (String(e.detail.newValue) !== String(e.detail.oldValue)) {
+                        const loadedSongId = this.getActivePlayer() ? this.getActivePlayer()._currentSongId : null;
+                        const startPosition = (String(e.detail.newValue) !== String(loadedSongId)) ? 0 : (state.currentTime || 0);
                         this.setSource({
                             id: e.detail.newValue,
                             title: state.songName,
                             artist: state.artist,
                             duration: state.duration
-                        }, null, null, state.playing, state.currentTime || 0);
+                        }, null, null, state.playing, startPosition);
                     }
                 }
             });

@@ -2,6 +2,7 @@
     'use strict';
 
     const JMedia = window.JMedia = window.JMedia || {};
+    let historyTargetWarned = false;
 
     JMedia.HistoryManager = {
         currentPage: 1,
@@ -50,6 +51,10 @@
                 .then(data => {
                     const tbody = document.querySelector('#songHistoryTable tbody');
                     if (!tbody) {
+                        if (!historyTargetWarned) {
+                            console.warn('[HistoryManager] history target #songHistoryTable tbody not present; skipping refresh');
+                            historyTargetWarned = true;
+                        }
                         this.isFetching = false;
                         return;
                     }
@@ -69,7 +74,7 @@
                     });
                 })
                 .catch(error => {
-                    console.error('[HistoryManager] loadPage failed:', error);
+                    console.error('[HistoryManager] history fetch failed', error);
                     this.isFetching = false;
                 });
         }

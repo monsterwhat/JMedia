@@ -20,28 +20,58 @@
                 timestamp: Date.now(),
                 expiresAt: Date.now() + this.CACHE_DURATION
             };
-            localStorage.setItem(this.getCacheKey(url), JSON.stringify(cacheData));
+            try {
+                localStorage.setItem(this.getCacheKey(url), JSON.stringify(cacheData));
+            } catch (err) {
+                console.warn('[SongCache] could not save page to localStorage', err);
+            }
         }
 
         loadPage(url) {
-            const cached = localStorage.getItem(this.getCacheKey(url));
+            let cached = null;
+            try {
+                cached = localStorage.getItem(this.getCacheKey(url));
+            } catch (err) {
+                console.warn('[SongCache] could not read page from localStorage', err);
+                return null;
+            }
             if (!cached) return null;
 
-            const data = JSON.parse(cached);
+            let data;
+            try {
+                data = JSON.parse(cached);
+            } catch (err) {
+                console.warn('[SongCache] discarding corrupt cache entry', err);
+                try { localStorage.removeItem(this.getCacheKey(url)); } catch (e) { console.warn('[SongCache] could not remove corrupt cache entry', e); }
+                return null;
+            }
             if (Date.now() > data.expiresAt) {
-                localStorage.removeItem(this.getCacheKey(url));
-                return data;
+                try { localStorage.removeItem(this.getCacheKey(url)); } catch (e) { console.warn('[SongCache] could not remove expired cache entry', e); }
+                return null;
             }
             return data;
         }
 
         isCached(url) {
-            const cached = localStorage.getItem(this.getCacheKey(url));
+            let cached = null;
+            try {
+                cached = localStorage.getItem(this.getCacheKey(url));
+            } catch (err) {
+                console.warn('[SongCache] could not read page from localStorage', err);
+                return false;
+            }
             if (!cached) return false;
 
-            const data = JSON.parse(cached);
+            let data;
+            try {
+                data = JSON.parse(cached);
+            } catch (err) {
+                console.warn('[SongCache] discarding corrupt cache entry', err);
+                try { localStorage.removeItem(this.getCacheKey(url)); } catch (e) { console.warn('[SongCache] could not remove corrupt cache entry', e); }
+                return false;
+            }
             if (Date.now() > data.expiresAt) {
-                localStorage.removeItem(this.getCacheKey(url));
+                try { localStorage.removeItem(this.getCacheKey(url)); } catch (e) { console.warn('[SongCache] could not remove expired cache entry', e); }
                 return false;
             }
             return true;
@@ -57,7 +87,8 @@
                             localStorage.removeItem(key);
                         }
                     } catch (e) {
-                        localStorage.removeItem(key);
+                        console.warn('[SongCache] discarding corrupt cache entry', e);
+                        try { localStorage.removeItem(key); } catch (err) { console.warn('[SongCache] could not remove corrupt cache entry', err); }
                     }
                 });
         }
@@ -82,6 +113,8 @@
                             isExpired: Date.now() > data.expiresAt
                         };
                     } catch (e) {
+                        console.warn('[SongCache] discarding corrupt cache entry', e);
+                        try { localStorage.removeItem(key); } catch (err) { console.warn('[SongCache] could not remove corrupt cache entry', err); }
                         return { key, isInvalid: true };
                     }
                 });

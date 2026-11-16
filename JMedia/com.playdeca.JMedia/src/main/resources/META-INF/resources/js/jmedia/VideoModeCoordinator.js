@@ -175,6 +175,16 @@
             try { document.body.classList.add('video-active'); } catch (e) { console.error('[VideoModeCoordinator] body class add failed', e); }
             try { document.body.setAttribute('data-video-active', 'true'); } catch (e) { console.error('[VideoModeCoordinator] setAttribute failed', e); }
 
+            // Stop the music-side polling loops while video owns the page. They are
+            // re-armed in _leaveVideo: the loops clear themselves when they notice
+            // video is active, but a SPA navigation fires no htmx event, so without
+            // this handshake nothing would ever restart them.
+            try {
+                if (window.JMedia && window.JMedia.MusicBarInit && typeof window.JMedia.MusicBarInit.clearIntervals === 'function') {
+                    window.JMedia.MusicBarInit.clearIntervals();
+                }
+            } catch (e) { console.warn('[VideoModeCoordinator] could not stop music intervals', e); }
+
             // Hide the persistent music shell immediately (before async view fetch)
             var musicPlayer = document.querySelector('.persistent-music-player') ||
                               document.querySelector('.mobile-player') ||
@@ -271,6 +281,14 @@
             window.musicWasPlayingBeforeVideo = false;
             try { document.body.classList.remove('video-active'); } catch (e) { console.error('[VideoModeCoordinator] body class remove failed', e); }
             try { document.body.setAttribute('data-video-active', 'false'); } catch (e) { console.error('[VideoModeCoordinator] setAttribute false failed', e); }
+
+            // Music owns the page again: restart the polling loops stopped in
+            // _enterVideo. startIntervals() is a no-op if they are already running.
+            try {
+                if (window.JMedia && window.JMedia.MusicBarInit && typeof window.JMedia.MusicBarInit.startIntervals === 'function') {
+                    window.JMedia.MusicBarInit.startIntervals();
+                }
+            } catch (e) { console.warn('[VideoModeCoordinator] could not restart music intervals', e); }
 
             var musicPlayer = document.querySelector('.persistent-music-player') ||
                               document.querySelector('.mobile-player') ||

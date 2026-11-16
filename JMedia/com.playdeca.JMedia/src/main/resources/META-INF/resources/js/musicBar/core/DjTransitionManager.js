@@ -34,6 +34,8 @@
         monitorTimer: null,
         _pollTimer: null,
         _timeupdateHandler: null,
+        _timeupdateTarget: null,
+        _completeIndicatorTimer: null,
         
         /**
          * Initialize the DJ transition manager
@@ -47,6 +49,7 @@
             });
             
             // Check if DJ mode is already active on page load (restored state)
+            let checkInitialStateAttempts = 0;
             const checkInitialState = () => {
                 if (window.StateManager) {
                     const state = window.StateManager.getState();
@@ -62,6 +65,11 @@
                         }
                     }
                 } else {
+                    checkInitialStateAttempts++;
+                    if (checkInitialStateAttempts >= 100) {
+                        console.warn('[DjTransitionManager] checkInitialState gave up waiting for StateManager');
+                        return;
+                    }
                     setTimeout(checkInitialState, 50);
                 }
             };
@@ -157,7 +165,8 @@
          * (next song id, entry/exit times, crossfade duration provided by the
          * server) and start monitoring. Does not select or reorder songs.
          */
-        prepareTransition: function(state) {
+        prepareTransition: function(state, retryCount) {
+            retryCount = retryCount || 0;
             // Don't prepare transitions while video is active
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[DJ] Video active, skipping transition preparation');
@@ -194,10 +203,14 @@
             
             // Don't proceed if profileId is not valid
             if (!profileId || profileId === 'undefined') {
+                if (retryCount >= 25) {
+                    console.warn('[DjTransitionManager] prepareTransition gave up waiting for profileId for plan ' + (state && state.djNextSongId));
+                    return;
+                }
                 window.Helpers?.log?.('[DJ] Waiting for valid profileId before preparing transition...');
                 const self = this;
                 setTimeout(function() {
-                    self.prepareTransition(state);
+                    self.prepareTransition(state, retryCount + 1);
                 }, 200);
                 return;
             }
@@ -277,11 +290,12 @@ if (entryTime !== rawEntryTime) {
                 this._pollTimer = null;
             }
             if (this._timeupdateHandler) {
-                var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+                var audioEl = this._timeupdateTarget || (window.AudioEngine ? window.AudioEngine.getActivePlayer() : null);
                 if (audioEl) {
                     audioEl.removeEventListener('timeupdate', this._timeupdateHandler);
                 }
                 this._timeupdateHandler = null;
+                this._timeupdateTarget = null;
             }
             if (this._visibilityHandler) {
                 document.removeEventListener('visibilitychange', this._visibilityHandler);
@@ -359,6 +373,7 @@ if (entryTime !== rawEntryTime) {
             };
             this._timeupdateHandler = timeupdateHandler;
             var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+            this._timeupdateTarget = audioEl;
             if (audioEl) {
                 audioEl.addEventListener('timeupdate', timeupdateHandler);
             }
@@ -588,16 +603,18 @@ if (entryTime !== rawEntryTime) {
                 }
             }
             
+            var prevLoadedMetadata = primaryAudio.onloadedmetadata;
+            var prevError = primaryAudio.onerror;
             primaryAudio.onloadedmetadata = function() {
                 window.Helpers?.log?.('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
                 primaryAudio.currentTime = entryTime;
                 primaryAudio.play().then(function() {
                     window.Helpers?.log?.('[DJ] iOS next song playing from ' + entryTime + 's');
                     window.Helpers.log('[DJ] iOS transition complete - now playing next song');
-                    
+
                     // Restore volume
                     primaryAudio.volume = savedVolume;
-                    
+
                     // Notify server that transition has started
                     if (self.transitionData && self.transitionData.profileId) {
                         self.notifyTransitionStarted(self.transitionData.profileId);
@@ -605,14 +622,18 @@ if (entryTime !== rawEntryTime) {
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
-                    
+
                     // Clean up
                     self.transitionPrepared = false;
                     self.isTransitioning = false;
                     self.transitionData = null;
-                    
+
                     self.stopMonitoring();
-                    
+
+                    // Restore AudioEngine's handlers that were replaced for this swap
+                    primaryAudio.onloadedmetadata = prevLoadedMetadata;
+                    primaryAudio.onerror = prevError;
+
                     // Update UI indicator
                     self.updateDjIndicator('complete');
                 }).catch(function(e) {
@@ -623,14 +644,18 @@ if (entryTime !== rawEntryTime) {
                     if (e && e.name === 'NotAllowedError') {
                         window.showToast('Tap play to resume');
                     }
+                    primaryAudio.onloadedmetadata = prevLoadedMetadata;
+                    primaryAudio.onerror = prevError;
                     self.cancelTransition();
                 });
             };
-            
+
             primaryAudio.onerror = function(e) {
                 console.error('[DJ] iOS failed to load next song:', e);
                 window.Helpers.log('[DJ] iOS failed to load next song');
                 primaryAudio.volume = savedVolume;
+                primaryAudio.onloadedmetadata = prevLoadedMetadata;
+                primaryAudio.onerror = prevError;
                 self.cancelTransition();
             };
         },
@@ -639,6 +664,10 @@ if (entryTime !== rawEntryTime) {
          * Cancel an in-progress or prepared transition
          */
         cancelTransition: function() {
+            if (this._completeIndicatorTimer) {
+                clearTimeout(this._completeIndicatorTimer);
+                this._completeIndicatorTimer = null;
+            }
             this.stopMonitoring();
             
             this.isTransitioning = false;
@@ -675,11 +704,12 @@ if (entryTime !== rawEntryTime) {
                 this._pollTimer = null;
             }
             if (this._timeupdateHandler) {
-                var audioEl = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
+                var audioEl = this._timeupdateTarget || (window.AudioEngine ? window.AudioEngine.getActivePlayer() : null);
                 if (audioEl) {
                     audioEl.removeEventListener('timeupdate', this._timeupdateHandler);
                 }
                 this._timeupdateHandler = null;
+                this._timeupdateTarget = null;
             }
             if (this._visibilityHandler) {
                 document.removeEventListener('visibilitychange', this._visibilityHandler);
@@ -729,7 +759,8 @@ if (entryTime !== rawEntryTime) {
         /**
           * Update DJ Mode visual indicator in the UI
           */
-        updateDjIndicator: function(state) {
+        updateDjIndicator: function(state, retryCount) {
+            retryCount = retryCount || 0;
             window.Helpers?.log?.('[DJ] updateDjIndicator called with state:', state);
             if (window.videoPlaying && state !== 'none') {
                 window.Helpers?.log?.('[DJ] Blocked updateDjIndicator(' + state + ') — video is active, forcing none');
@@ -747,8 +778,12 @@ if (entryTime !== rawEntryTime) {
             
             if (!indicator) {
                 if (state !== 'none') {
+                    if (retryCount >= 25) {
+                        console.warn('[DjTransitionManager] updateDjIndicator gave up waiting for indicator element (state ' + state + ')');
+                        return;
+                    }
                     window.Helpers?.log?.('[DJ] Indicator not found, scheduling delayed update');
-                    setTimeout(() => this.updateDjIndicator(state), 200);
+                    setTimeout(() => this.updateDjIndicator(state, retryCount + 1), 200);
                 }
                 return;
             }
@@ -801,7 +836,13 @@ if (entryTime !== rawEntryTime) {
                     stateClass = 'complete';
                     iconClass = 'pi pi-check-circle';
                     label = 'Seamlessly Mixed!';
-                    setTimeout(() => this.updateDjIndicator('active'), 3000);
+                    if (this._completeIndicatorTimer) clearTimeout(this._completeIndicatorTimer);
+                this._completeIndicatorTimer = setTimeout(() => {
+                    this._completeIndicatorTimer = null;
+                    const st = window.StateManager ? window.StateManager.getState() : null;
+                    if (!st || st.djModeActive !== true) return;
+                    this.updateDjIndicator('active');
+                }, 3000);
                     break;
                 case 'active':
                 default:

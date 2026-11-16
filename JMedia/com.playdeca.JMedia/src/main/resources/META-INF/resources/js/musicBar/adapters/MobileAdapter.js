@@ -117,6 +117,8 @@
          * Optimize touch targets for mobile
          */
         optimizeTouchTargets: function() {
+            if (this._touchTargetsBound) return;
+            this._touchTargetsBound = true;
             // Ensure minimum touch target size
             const touchElements = document.querySelectorAll('button, .mobile-btn, input[type="range"], .mobile-song-item');
             
@@ -150,6 +152,8 @@
          * Setup viewport handling for mobile
          */
         setupViewportHandling: function() {
+            if (this._viewportHandlingBound) return;
+            this._viewportHandlingBound = true;
             // Prevent zoom on input focus
             const inputs = document.querySelectorAll('input, textarea, select');
             inputs.forEach(input => {
@@ -174,6 +178,8 @@
          * Setup scroll behavior for mobile
          */
         setupScrollBehavior: function() {
+            if (this._scrollBehaviorBound) return;
+            this._scrollBehaviorBound = true;
             // Smooth scrolling for mobile
             document.addEventListener('touchstart', () => {
                 this.state.touchActive = true;
@@ -192,6 +198,8 @@
          * Setup input handling for mobile
          */
         setupInputHandling: function() {
+            if (this._inputHandlingBound) return;
+            this._inputHandlingBound = true;
             // Auto-hide virtual keyboard when scrolling
             let scrollTimer;
             document.addEventListener('scroll', () => {
@@ -211,6 +219,8 @@
          * Setup performance optimizations for mobile
          */
         setupPerformanceOptimizations: function() {
+            if (this._performanceOptimizationsBound) return;
+            this._performanceOptimizationsBound = true;
             // Reduce motion for better performance
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
                 document.documentElement.style.setProperty('--animation-duration', '0.1s');
@@ -309,7 +319,7 @@
                         songList.style.transform = `translateY(${Math.min(deltaY * 0.5, pullThreshold)}px)`;
                     }
                 }
-            });
+            }, { passive: false });
             
             document.addEventListener('touchend', (e) => {
                 if (!isPulling || !pullDirectionConfirmed) {
@@ -336,15 +346,37 @@
                     this.triggerRefresh();
                 }
             });
+            
+            document.addEventListener('touchcancel', () => {
+                isPulling = false;
+                pullDirectionConfirmed = false;
+                const songList = document.getElementById('mobileSongList');
+                if (songList) {
+                    songList.style.transform = '';
+                }
+            });
         },
         
         /**
          * Setup swipe to dismiss gesture
          */
-        setupSwipeToDismiss: function() {
-            const dismissibleElements = document.querySelectorAll('.mobile-song-item, .mobile-playlist-item');
+        setupSwipeToDismiss: function(root) {
+            let dismissibleElements = [];
+            const selector = '.mobile-song-item, .mobile-playlist-item';
+            if (root && typeof root.matches === 'function' && root.matches(selector)) {
+                dismissibleElements.push(root);
+            }
+            if (root && typeof root.querySelectorAll === 'function') {
+                dismissibleElements = dismissibleElements.concat(Array.from(root.querySelectorAll(selector)));
+            }
+            if (!root) {
+                dismissibleElements = Array.from(document.querySelectorAll(selector));
+            }
             
             dismissibleElements.forEach(element => {
+                if (element.dataset.swipeBound === '1') return;
+                element.dataset.swipeBound = '1';
+                
                 let startX = 0;
                 let isSwiping = false;
                 
@@ -431,7 +463,7 @@
                 if (e.detail && e.detail.target) {
                     const target = e.detail.target;
                     if (target.querySelector('.mobile-playlist-item') || target.classList?.contains('mobile-playlist-item')) {
-                        this.setupSwipeToDismiss();
+                        this.setupSwipeToDismiss(target);
                     }
                 }
             });
@@ -572,8 +604,10 @@
             // Check if this is a playlist item - trigger delete instead
             if (playlistId && !songId && playlistId !== '0') {
                 const playlistName = element.querySelector('.mobile-playlist-name')?.textContent || 'this playlist';
-                if (confirm(`Delete playlist "${playlistName}"?`)) {
-                    deleteMobilePlaylist(playlistId, encodeURIComponent(playlistName));
+                if (typeof window.deleteMobilePlaylist === 'function') {
+                    window.deleteMobilePlaylist(playlistId, playlistName);
+                } else {
+                    console.warn('[MobileAdapter] deleteMobilePlaylist not available');
                 }
                 return;
             }
@@ -662,6 +696,40 @@
         getStatusBarHeight: function() {
             return this.state.statusBarHeight;
         }
+    };
+    
+    // Global playlist delete helper (single implementation)
+    window.deleteMobilePlaylist = function(id, name) {
+        const displayName = name || 'this playlist';
+        if (!confirm(`Delete playlist "${displayName}"?`)) return;
+        
+        (async function() {
+            try {
+                const res = await fetch('/api/music/playlists/' + encodeURIComponent(id), { method: 'DELETE' });
+                if (!res.ok) {
+                    if (window.showToast) {
+                        window.showToast('Failed to delete playlist', 'error');
+                    }
+                    console.error('[MobileAdapter] delete playlist failed', { id: id, status: res.status });
+                    return;
+                }
+                if (window.showToast) {
+                    window.showToast(`Playlist '${displayName}' deleted successfully`, 'success');
+                }
+                if (typeof window.loadMobilePlaylists === 'function') {
+                    try {
+                        window.loadMobilePlaylists();
+                    } catch (refreshErr) {
+                        console.error('[MobileAdapter] delete playlist refresh failed', refreshErr, { id: id });
+                    }
+                }
+            } catch (err) {
+                console.error('[MobileAdapter] delete playlist failed', err, { id: id });
+                if (window.showToast) {
+                    window.showToast('Error deleting playlist', 'error');
+                }
+            }
+        })();
     };
     
     // Auto-initialize when dependencies are available

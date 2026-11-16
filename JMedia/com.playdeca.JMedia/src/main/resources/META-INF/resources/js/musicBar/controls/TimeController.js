@@ -6,6 +6,7 @@
     'use strict';
     
     window.TimeController = {
+        _seekDebounceTimer: null,
         /**
          * Initialize time controller
          */
@@ -74,13 +75,38 @@ init: function() {
                 SynchronizationManager.setFlag('draggingSeconds', true);
                 window.Helpers.log('TimeController: Time drag started');
             };
-            
+
+            const clearDraggingState = () => {
+                try {
+                    SynchronizationManager.setFlag('draggingSeconds', false);
+                    if (this._seekDebounceTimer) {
+                        clearTimeout(this._seekDebounceTimer);
+                        this._seekDebounceTimer = null;
+                    }
+                } catch (error) {
+                    console.error('[TimeController] failed to clear dragging state', error);
+                }
+            };
+
             // Mouse up/touch end
             slider.onmouseup = slider.ontouchend = () => {
                 SynchronizationManager.setFlag('draggingSeconds', false);
+                if (this._seekDebounceTimer) {
+                    clearTimeout(this._seekDebounceTimer);
+                    this._seekDebounceTimer = null;
+                }
                 this.handleSeek(parseInt(slider.value, 10));
                 window.Helpers.log('TimeController: Time drag ended');
             };
+
+            // Additional release/cancel paths
+            slider.onpointercancel = () => {
+                clearDraggingState();
+            };
+            window.addEventListener('blur', clearDraggingState.bind(this));
+            window.addEventListener('pagehide', clearDraggingState.bind(this));
+            document.addEventListener('mouseup', clearDraggingState.bind(this));
+            document.addEventListener('touchend', clearDraggingState.bind(this));
             
             // Input change - local only (no server spam)
             slider.oninput = (e) => {
@@ -118,10 +144,22 @@ init: function() {
             
             // Send to server with debounce
             if (timeout > 0) {
-                setTimeout(() => {
-                    this.sendSeekToServer(newTime);
+                if (this._seekDebounceTimer) {
+                    clearTimeout(this._seekDebounceTimer);
+                }
+                this._seekDebounceTimer = setTimeout(() => {
+                    this._seekDebounceTimer = null;
+                    try {
+                        this.sendSeekToServer(newTime);
+                    } catch (error) {
+                        console.error('[TimeController] debounced seek failed', error);
+                    }
                 }, timeout);
             } else {
+                if (this._seekDebounceTimer) {
+                    clearTimeout(this._seekDebounceTimer);
+                    this._seekDebounceTimer = null;
+                }
                 this.sendSeekToServer(newTime);
             }
             

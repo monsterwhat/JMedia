@@ -55,16 +55,34 @@
             this.locks[lockKey] = true;
             const operationId = `${operationType}_${++this.sequences[operationType]}`;
             
+            let result;
             try {
-                const result = callback(operationId);
-                return result;
+                result = callback(operationId);
             } catch (error) {
-                console.error(`[SyncManager] Error in ${operationType} operation ${operationId}:`, error);
-                throw error;
-            } finally {
                 // Always release lock
                 delete this.locks[lockKey];
+                console.error(`[SyncManager] Error in ${operationType} operation ${operationId}:`, error);
+                throw error;
             }
+            
+            // If the callback returned a thenable, release the lock only after
+            // the awaited operation settles (not synchronously).
+            if (result && typeof result.then === 'function') {
+                return result.then(
+                    (value) => {
+                        delete this.locks[lockKey];
+                        return value;
+                    },
+                    (error) => {
+                        delete this.locks[lockKey];
+                        throw error;
+                    }
+                );
+            }
+            
+            // Synchronous result: release lock now
+            delete this.locks[lockKey];
+            return result;
         },
         
         /**

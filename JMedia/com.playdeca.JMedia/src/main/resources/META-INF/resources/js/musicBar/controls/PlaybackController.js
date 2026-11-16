@@ -17,6 +17,9 @@
         // the server queue has no earlier entry (list-select + shuffle pick).
         _songHistory: [],
         _navigatingBack: false,
+        _navigatingBackTimer: null,
+        _playPauseSeq: 0,
+        _djModeSeq: 0,
         
         // Buffer warm duration
         BUFFER_WARM_DURATION: 5000,
@@ -97,7 +100,11 @@
             
             // Race condition mitigation: store previous state for rollback
             const previousPlayingState = window.StateManager.getProperty('playing');
-            
+
+            // Monotonic per-action sequence for safe rollback
+            this._playPauseSeq = (this._playPauseSeq || 0) + 1;
+            const playPauseSeq = this._playPauseSeq;
+
             // Optimistic UI update - toggle immediately
             window.StateManager.updateState({ playing: !previousPlayingState }, 'playbackController');
             
@@ -131,7 +138,8 @@
                         }
                     }
                 } else {
-                    window.AudioEngine.play().catch(console.error);
+                    const _songId = (window.StateManager && window.StateManager.getState) ? window.StateManager.getState().currentSongId : null;
+                    window.AudioEngine.play().catch((error) => console.error('[PlaybackController] AudioEngine.play() failed', { operation: 'togglePlayPause', songId: _songId }, error));
                 }
             }
             
@@ -147,10 +155,14 @@
                 })
                 .catch(error => {
                     // Race condition mitigation: rollback optimistic update on failure
+                    if (this._playPauseSeq !== playPauseSeq) {
+                        console.warn('[PlaybackController] play/pause rollback skipped: superseded by newer action', { playPauseSeq, latest: this._playPauseSeq });
+                        return;
+                    }
                     window.Helpers.log('PlaybackController: Play/pause toggle failed, rolling back:', error);
-                    
+
                     window.StateManager.updateState({ playing: previousPlayingState }, 'playbackController');
-                    
+
                     if (window.showToast) {
                         window.showToast('Failed to toggle playback', 'error');
                     }
@@ -191,6 +203,14 @@
             const prevId = this._songHistory.pop();
             if (prevId) {
                 this._navigatingBack = true;
+                if (this._navigatingBackTimer) {
+                    clearTimeout(this._navigatingBackTimer);
+                }
+                this._navigatingBackTimer = setTimeout(() => {
+                    this._navigatingBack = false;
+                    this._navigatingBackTimer = null;
+                    console.warn('[PlaybackController] previous-navigation flag timed out; clearing');
+                }, 5000);
                 const id = profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 if (window.showToast) window.showToast('Previous song!', 'success', 2000);
                 fetch('/api/music/playback/select/' + id + '/' + prevId, {
@@ -200,10 +220,18 @@
                     if (!res.ok) {
                         window.Helpers.log('PlaybackController: previous select failed with status ' + res.status);
                         this._navigatingBack = false;
+                        if (this._navigatingBackTimer) {
+                            clearTimeout(this._navigatingBackTimer);
+                            this._navigatingBackTimer = null;
+                        }
                     }
                 }).catch((err) => {
                     window.Helpers.log('PlaybackController: previous select failed', err);
                     this._navigatingBack = false;
+                    if (this._navigatingBackTimer) {
+                        clearTimeout(this._navigatingBackTimer);
+                        this._navigatingBackTimer = null;
+                    }
                 });
                 return;
             }
@@ -246,6 +274,10 @@
             if (!oldValue || !newValue || String(oldValue) === String(newValue)) return;
             if (this._navigatingBack) {
                 this._navigatingBack = false;
+                if (this._navigatingBackTimer) {
+                    clearTimeout(this._navigatingBackTimer);
+                    this._navigatingBackTimer = null;
+                }
                 return;
             }
             this._songHistory.push(String(oldValue));
@@ -330,11 +362,15 @@
             }
             const currentState = window.StateManager.getState();
             const newMode = !currentState.djModeActive;
-            
+
             if (window.ActionTracker) {
                 window.ActionTracker.recordAction('djMode');
             }
-            
+
+            // Monotonic per-action sequence for safe rollback
+            this._djModeSeq = (this._djModeSeq || 0) + 1;
+            const djModeSeq = this._djModeSeq;
+
             window.Helpers?.log?.('[DJ] toggleDjMode called, changing:', currentState.djModeActive, '->', newMode);
             window.StateManager.updateState({ djModeActive: newMode }, 'playbackController');
             
@@ -348,6 +384,10 @@
                     window.Helpers.log('PlaybackController: DJ Mode toggle result:', result);
                 })
                 .catch(error => {
+                    if (this._djModeSeq !== djModeSeq) {
+                        console.warn('[PlaybackController] DJ mode rollback skipped: superseded by newer action', { djModeSeq, latest: this._djModeSeq });
+                        return;
+                    }
                     window.Helpers.log('PlaybackController: Failed to toggle DJ Mode:', error);
                     // Revert on failure
                     window.StateManager.updateState({ djModeActive: !newMode }, 'playbackController');
@@ -402,7 +442,8 @@
                 if (newState.playing && window.AudioEngine.isPaused()) {
                     if (window.videoPlaying) return;
                     if (window.AudioEngine.isPaused()) {
-                        window.AudioEngine.play().catch(console.error);
+                        const _songId = (window.StateManager && window.StateManager.getState) ? window.StateManager.getState().currentSongId : null;
+                        window.AudioEngine.play().catch((error) => console.error('[PlaybackController] AudioEngine.play() failed', { operation: 'handleAudioStateChange', songId: _songId }, error));
                     }
                     this.pauseStartTime = null;
                 } else if (!newState.playing && !window.AudioEngine.isPaused()) {
@@ -432,6 +473,8 @@
             if (!profileIdValue) {
                 // Use async profile resolution like original
                 return new Promise((resolve, reject) => {
+                    let attempts = 0;
+                    const maxAttempts = 25;
                     const checkProfile = () => {
                         if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined') {
                             profileIdValue = window.globalActiveProfileId;
@@ -441,6 +484,12 @@
                                 body: JSON.stringify(payload)
                             }));
                         } else {
+                            attempts += 1;
+                            if (attempts >= maxAttempts) {
+                                console.error('[PlaybackController] profile id unavailable; aborting API call', { operation: path });
+                                reject(new Error('PlaybackController: profile id never became available'));
+                                return;
+                            }
                             setTimeout(checkProfile, 50);
                         }
                     };
@@ -461,7 +510,8 @@
          */
         fastResume: function(profileId) {
             if (window.AudioEngine.isPaused()) {
-                window.AudioEngine.play().catch(console.error);
+                const _songId = (window.StateManager && window.StateManager.getState) ? window.StateManager.getState().currentSongId : null;
+                window.AudioEngine.play().catch((error) => console.error('[PlaybackController] AudioEngine.play() failed', { operation: 'fastResume', songId: _songId }, error));
             }
         },
         

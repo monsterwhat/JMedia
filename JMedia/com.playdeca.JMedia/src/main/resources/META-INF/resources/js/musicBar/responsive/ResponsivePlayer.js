@@ -166,99 +166,21 @@
          * Setup cover image gestures
          */
         setupCoverImageGestures: function() {
-            const coverContainer = document.getElementById('songCoverImageContainer');
-            if (!coverContainer) return;
-            
-            let longPressTimer;
-            let touchStartTime;
-            let touchStartX;
-            let touchStartY;
-            
-            coverContainer.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    touchStartTime = Date.now();
-                    touchStartX = e.touches[0].clientX;
-                    touchStartY = e.touches[0].clientY;
-                    
-                    // Visual feedback
-                    coverContainer.classList.add('long-press-active');
-                    
-                    // Start long press timer
-                    longPressTimer = setTimeout(() => {
-                        const songId = window.StateManager?.getProperty('currentSongId');
-                        if (songId) {
-                            window.dispatchEvent(new CustomEvent('requestContextMenu', {
-                                detail: {
-                                    songId: songId,
-                                    target: coverContainer,
-                                    isLongPress: true
-                                }
-                            }));
-                        } else if (window.showToast) {
-                            window.showToast('No song currently playing', 'info');
-                        }
-                    }, 500);
-                }
-            });
-            
-            coverContainer.addEventListener('touchend', (e) => {
-                clearTimeout(longPressTimer);
-                
-                // Remove visual feedback
-                coverContainer.classList.remove('long-press-active');
-                
-                // Check if this was a tap (not long press)
-                const touchDuration = Date.now() - touchStartTime;
-                const touchEndX = e.changedTouches[0].clientX;
-                const touchEndY = e.changedTouches[0].clientY;
-                const deltaX = Math.abs(touchEndX - touchStartX);
-                const deltaY = Math.abs(touchEndY - touchStartY);
-                
-                if (touchDuration < 300 && deltaX < 10 && deltaY < 10) {
-                    // Short tap - toggle play/pause
-                    window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
-                        detail: { action: 'playPause', profileId: window.globalActiveProfileId }
-                    }));
-                }
-            });
-            
-            coverContainer.addEventListener('touchmove', () => {
-                clearTimeout(longPressTimer);
-                coverContainer.classList.remove('long-press-active');
-            });
-            
-            // Desktop right-click support
-            coverContainer.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                
-                const songId = window.StateManager?.getProperty('currentSongId');
-                if (!songId) {
-                    if (window.showToast) {
-                        window.showToast('No song currently playing', 'info');
-                    }
-                    return;
-                }
-                
-                window.dispatchEvent(new CustomEvent('requestContextMenu', {
-                    detail: {
-                        songId: songId,
-                        target: coverContainer,
-                        mousePosition: { x: e.clientX, y: e.clientY },
-                        isLongPress: false,
-                        isDesktop: true
-                    }
-                }));
-            });
+            // Cover long-press/right-click context menu is owned by MobileContextMenu
+            // (CoverImageContextMenu); cover tap-to-open-song-detail is owned by
+            // MusicIndex.js. Nothing to bind here.
+            return;
         },
-        
-        /**
-         * Setup swipe gestures
-         */
+
         setupSwipeGestures: function() {
             const player = this.elements.player;
             if (!player) return;
             
             player.addEventListener('touchstart', (e) => {
+                if (e.target && e.target.closest && e.target.closest('#musicProgressBar, .mobile-progress-container, .mobile-volume-wrapper, .mobile-volume-slider')) {
+                    this.gestures.isSwiping = false;
+                    return;
+                }
                 if (e.touches.length === 1) {
                     this.gestures.touchStartX = e.touches[0].clientX;
                     this.gestures.touchStartY = e.touches[0].clientY;
@@ -267,6 +189,10 @@
             });
             
             player.addEventListener('touchend', (e) => {
+                if (e.target && e.target.closest && e.target.closest('#musicProgressBar, .mobile-progress-container, .mobile-volume-wrapper, .mobile-volume-slider')) {
+                    this.gestures.isSwiping = false;
+                    return;
+                }
                 if (!this.gestures.isSwiping) return;
                 
                 this.gestures.isSwiping = false;
@@ -563,10 +489,7 @@
                 this.adaptToScreenCategory(e.detail.newCategory);
             });
             
-            // Listen for player requests
-            window.addEventListener('requestPlayerAction', (e) => {
-                this.handlePlayerAction(e.detail.action, e.detail.params);
-            });
+            // requestPlayerAction has no dispatcher anywhere; listener removed.
         },
         
         /**
@@ -801,13 +724,17 @@
          * Set volume
          */
         setVolume: function(volume) {
-            // Emit volume change request
-            window.dispatchEvent(new CustomEvent('requestVolumeChange', {
-                detail: { 
-                    volume: volume,
-                    source: 'responsivePlayer'
-                }
-            }));
+            // Input is a 0-1 gain (already through the exponential curve: callers
+            // pass Helpers.volume.calculateExponentialVolume(slider)). Going back
+            // through handleVolumeChange(slider) would apply the curve a second
+            // time, so convert gain -> slider with the inverse first.
+            const gain = Math.max(0, Math.min(1, Number(volume) || 0));
+            if (window.VolumeController && typeof window.VolumeController.getLinearSliderValue === 'function'
+                    && typeof window.VolumeController.handleVolumeChange === 'function') {
+                window.VolumeController.handleVolumeChange(window.VolumeController.getLinearSliderValue(gain));
+            } else if (window.AudioEngine && typeof window.AudioEngine.setVolume === 'function') {
+                window.AudioEngine.setVolume(gain, 'responsivePlayer');
+            }
         },
         
         /**

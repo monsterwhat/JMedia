@@ -237,7 +237,7 @@
                 try {
                     listener(oldState, newState, changes, source);
                 } catch (error) {
-                    window.Helpers.log('StateManager: Error in change listener:', error);
+                    console.error('[StateManager] change listener threw', error);
                 }
             });
             
@@ -488,7 +488,11 @@
                                 method: 'POST',
                                 credentials: 'include'
                             })
-                        ).then(() => {
+                        ).then((res) => {
+                            if (!res.ok) {
+                                console.warn('[StateManager] POST /api/music/playback/dj-mode-set failed with status', res.status);
+                                return;
+                            }
                             window.Helpers.log('StateManager: DJ Mode set to active on server');
                         });
                     }
@@ -500,7 +504,11 @@
                                 method: 'POST',
                                 credentials: 'include'
                             })
-                        ).then(() => {
+                        ).then((res) => {
+                            if (!res.ok) {
+                                console.warn('[StateManager] POST /api/music/playback/shuffle-set failed with status', res.status);
+                                return;
+                            }
                             window.Helpers.log('StateManager: Smart Shuffle activated on server');
                         });
                     }

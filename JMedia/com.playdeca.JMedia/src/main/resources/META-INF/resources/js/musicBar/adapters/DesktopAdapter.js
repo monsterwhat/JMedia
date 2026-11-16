@@ -86,7 +86,9 @@
          * Setup desktop-specific optimizations
          */
         setupDesktopOptimizations: function() {
+            if (this._desktopOptimizationsBound) return;
             if (!this.state.isDesktop) return;
+            this._desktopOptimizationsBound = true;
             
             // Optimize for desktop layouts
             this.optimizeForDesktopLayout();
@@ -97,8 +99,7 @@
             // Setup right-click menus
             this.setupRightClickMenus();
             
-            // Setup drag and drop
-            this.setupDragAndDrop();
+            // Native HTML5 drag removed; real drag-to-playlist is jmedia/MusicDragDrop.js
             
             // Setup desktop player controls
             this.setupDesktopPlayerControls();
@@ -171,8 +172,10 @@
                 // Handle playlist right-click directly - show delete option
                 if (type === 'playlist' && id && id !== '0') {
                     const playlistName = target.querySelector('.mobile-playlist-name')?.textContent || 'this playlist';
-                    if (confirm(`Delete playlist "${playlistName}"?`)) {
-                        deleteMobilePlaylist(id, encodeURIComponent(playlistName));
+                    if (typeof window.deleteMobilePlaylist === 'function') {
+                        window.deleteMobilePlaylist(id, playlistName);
+                    } else {
+                        console.warn('[DesktopAdapter] deleteMobilePlaylist not available');
                     }
                     return;
                 }
@@ -190,61 +193,6 @@
             };
             
             document.addEventListener('contextmenu', this._rightClickHandler);
-        },
-        
-        /**
-         * Setup drag and drop for desktop
-         */
-        setupDragAndDrop: function() {
-            const draggableItems = document.querySelectorAll('.mobile-song-item, .mobile-playlist-item');
-            
-            draggableItems.forEach(item => {
-                item.draggable = true;
-                item.style.cursor = 'grab';
-                
-                item.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.effectAllowed = 'copy';
-                    e.dataTransfer.setData('text/plain', item.dataset.songId || item.dataset.playlistId || '');
-                    item.classList.add('dragging');
-                    item.style.cursor = 'grabbing';
-                });
-                
-                item.addEventListener('dragend', () => {
-                    item.classList.remove('dragging');
-                    item.style.cursor = 'grab';
-                });
-            });
-            
-            // Enhanced drop zones
-            const dropZones = document.querySelectorAll('.mobile-playlist-list, #mobileQueueContent');
-            
-            dropZones.forEach(zone => {
-                zone.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'copy';
-                    zone.classList.add('drag-over-desktop');
-                });
-                
-                zone.addEventListener('dragleave', () => {
-                    zone.classList.remove('drag-over-desktop');
-                });
-                
-                zone.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    zone.classList.remove('drag-over-desktop');
-                    
-                    const data = e.dataTransfer.getData('text/plain');
-                    const songId = data;
-                    const targetType = zone.id.includes('queue') ? 'queue' : 'playlist';
-                    const targetId = zone.dataset.playlistId || zone.id;
-                    
-                    if (songId && targetId) {
-                        window.dispatchEvent(new CustomEvent('requestAddToTarget', {
-                            detail: { songId, targetId, targetType }
-                        }));
-                    }
-                });
-            });
         },
         
         /**
@@ -370,6 +318,11 @@
          * Add sidebar pin functionality
          */
         addSidebarPin: function(sidebar) {
+            const existing = sidebar.querySelector('.desktop-sidebar-pin');
+            if (existing) {
+                this.pinBtn = existing;
+                return;
+            }
             const pinBtn = document.createElement('button');
             pinBtn.className = 'desktop-sidebar-pin';
             pinBtn.innerHTML = '<i class="pi pi-thumbtack"></i>';

@@ -17,6 +17,7 @@
             this._suppressCardClickUntil = 0;
             this._lastTouchAt = 0;
             this._songTap = null;
+            this._lastMenuTouchHandledAt = 0;
             this.init();
         }
 
@@ -47,27 +48,52 @@
                 }
             }, true);
 
-            const backdrop = document.querySelector('.mobile-context-backdrop');
-            if (backdrop) {
-                backdrop.addEventListener('touchend', this.hideMenu.bind(this), {passive: true});
-            }
-
-            const menu = document.getElementById('mobileContextMenu');
-            if (menu) {
-                const menuList = menu.querySelector('.mobile-context-list');
-                if (menuList) {
-                    menuList.addEventListener('click', this.handleMenuClick.bind(this));
-                    menuList.addEventListener('touchend', this.handleMenuClick.bind(this), {passive: true});
+            // Action handling is delegated on document so it survives view swaps
+            // that replace the #mobileContextMenu node instance. The element-bound
+            // listeners that used to live here died with the old node.
+            document.addEventListener('click', (e) => {
+                const menu = document.getElementById('mobileContextMenu');
+                if (!menu || menu.getAttribute('aria-hidden') === 'true') return;
+                const target = e.target;
+                // After a touchend has handled a menu item, the browser synthesizes
+                // a click for the same gesture. Ignore that synthesized click so
+                // the action cannot run twice.
+                if (target && menu.contains(target) &&
+                        Date.now() - (this._lastMenuTouchHandledAt || 0) < 500) {
+                    this._lastMenuTouchHandledAt = 0;
+                    try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+                    return;
                 }
-                menu.addEventListener('click', (e) => { e.stopPropagation(); });
-                menu.addEventListener('touchend', (e) => { e.stopPropagation(); }, {passive: true});
-
-                const backdrop = menu.querySelector('.mobile-context-backdrop');
+                const li = target && target.closest ? target.closest('.mobile-context-list li') : null;
+                if (li && menu.contains(li)) {
+                    this.handleMenuClick(e);
+                }
+                const backdrop = target && target.closest ? target.closest('.mobile-context-backdrop') : null;
                 if (backdrop) {
-                    backdrop.addEventListener('click', this.hideMenu.bind(this));
-                    backdrop.addEventListener('touchend', this.hideMenu.bind(this), {passive: true});
+                    this.hideMenu();
                 }
-            }
+                if (target && menu.contains(target)) {
+                    try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+                }
+            }, true);
+            document.addEventListener('touchend', (e) => {
+                const menu = document.getElementById('mobileContextMenu');
+                if (!menu || menu.getAttribute('aria-hidden') === 'true') return;
+                const target = e.target;
+                const li = target && target.closest ? target.closest('.mobile-context-list li') : null;
+                if (li && menu.contains(li)) {
+                    this._lastMenuTouchHandledAt = Date.now();
+                    this.handleMenuClick(e);
+                }
+                const backdrop = target && target.closest ? target.closest('.mobile-context-backdrop') : null;
+                if (backdrop) {
+                    this._lastMenuTouchHandledAt = Date.now();
+                    this.hideMenu();
+                }
+                if (target && menu.contains(target)) {
+                    try { e.stopPropagation(); } catch (err) { console.warn('[MobileContextMenu] stopPropagation failed', err); }
+                }
+            }, { capture: true, passive: true });
 
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {

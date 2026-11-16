@@ -5,6 +5,31 @@
 (function(window) {
     'use strict';
     
+    // Build the persisted payload from a state object (shared by save paths).
+    function buildPersistedPayload(state) {
+        return {
+            currentSongId: state.currentSongId,
+            songName: state.songName,
+            artist: state.artist,
+            playing: state.playing,
+            duration: state.duration,
+            volume: state.volume,
+            shuffleMode: state.shuffleMode,
+            repeatMode: state.repeatMode,
+            djModeActive: state.djModeActive,
+            djGenrePool: state.djGenrePool,
+            djSongsPerGenre: state.djSongsPerGenre,
+            djCrossfadeOverride: state.djCrossfadeOverride,
+            djStrictness: state.djStrictness,
+            djBpmMin: state.djBpmMin,
+            djBpmMax: state.djBpmMax,
+            djYearMin: state.djYearMin,
+            djYearMax: state.djYearMax,
+            djMaxConsecutiveByArtist: state.djMaxConsecutiveByArtist,
+            djSkipsBeforeGenreChange: state.djSkipsBeforeGenreChange
+        };
+    }
+    
     window.StatePersistence = {
         // Storage key
         STORAGE_KEY: 'playbackState',
@@ -42,7 +67,7 @@
                 if (!saved) return null;
                 return JSON.parse(saved);
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error reading saved state:', e);
+                console.warn('[StatePersistence] restore failed (read saved state)', e);
                 return null;
             }
         },
@@ -77,27 +102,11 @@
             try {
                 const currentState = window.StateManager.getState();
                 
-                const stateToSave = {
-                    currentSongId: currentState.currentSongId,
-                    songName: currentState.songName,
-                    artist: currentState.artist,
-                    playing: currentState.playing,
-                    duration: currentState.duration,
-                    volume: currentState.volume,
-                    shuffleMode: currentState.shuffleMode,
-                    repeatMode: currentState.repeatMode,
-                    djModeActive: currentState.djModeActive,
-                    djGenrePool: currentState.djGenrePool,
-                    djSongsPerGenre: currentState.djSongsPerGenre,
-                    djCrossfadeOverride: currentState.djCrossfadeOverride,
-                    djStrictness: currentState.djStrictness,
-                    djBpmMin: currentState.djBpmMin,
-                    djBpmMax: currentState.djBpmMax,
-                    timestamp: Date.now(),
-                    deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
-                    profileId: this.getProfileId(),
-                    savedOffline: false
-                };
+                const stateToSave = buildPersistedPayload(currentState);
+                stateToSave.timestamp = Date.now();
+                stateToSave.deviceId = window.DeviceManager ? window.DeviceManager.getDeviceId() : null;
+                stateToSave.profileId = this.getProfileId();
+                stateToSave.savedOffline = false;
                 
                 // Get currentTime directly from audio element for accuracy
                 const audioEl = window.AudioEngine ? window.AudioEngine.getAudioElement() : null;
@@ -124,13 +133,13 @@
                                 navigator.sendBeacon('/api/music/playback/position/' + profileId + '/' + stateToSave.currentTime);
                             }
                         } catch (beaconErr) {
-                            window.Helpers.log('StatePersistence: sendBeacon failed:', beaconErr);
+                            console.warn('[StatePersistence] beacon failed', beaconErr);
                         }
 
                     }
                 }
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error saving state before unload:', e);
+                console.warn('[StatePersistence] save failed (before unload)', e);
             }
         },
         
@@ -168,26 +177,10 @@
                 }
                 
                 // Build state to save
-                const stateToSave = {
-                    currentSongId: currentState.currentSongId,
-                    songName: currentState.songName,
-                    artist: currentState.artist,
-                    playing: currentState.playing,
-                    duration: currentState.duration,
-                    volume: currentState.volume,
-                    shuffleMode: currentState.shuffleMode,
-                    repeatMode: currentState.repeatMode,
-                    djModeActive: currentState.djModeActive,
-                    djGenrePool: currentState.djGenrePool,
-                    djSongsPerGenre: currentState.djSongsPerGenre,
-                    djCrossfadeOverride: currentState.djCrossfadeOverride,
-                    djStrictness: currentState.djStrictness,
-                    djBpmMin: currentState.djBpmMin,
-                    djBpmMax: currentState.djBpmMax,
-                    timestamp: Date.now(),
-                    deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
-                    profileId: this.getProfileId()
-                };
+                const stateToSave = buildPersistedPayload(currentState);
+                stateToSave.timestamp = Date.now();
+                stateToSave.deviceId = window.DeviceManager ? window.DeviceManager.getDeviceId() : null;
+                stateToSave.profileId = this.getProfileId();
                 
                 // Only save time if offline or specifically requested
                 const isOffline = window.StateManager ? window.StateManager.isCurrentlyOffline() : false;
@@ -210,7 +203,7 @@
                 return true;
                 
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error saving state:', e);
+                console.warn('[StatePersistence] save failed', e);
                 return false;
             }
         },
@@ -268,7 +261,7 @@
                 }
                 
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error restoring state:', e);
+                console.warn('[StatePersistence] restore failed', e);
                 return null;
             }
         },
@@ -287,7 +280,7 @@
                 window.Helpers.log('StatePersistence cleared saved state');
                 return true;
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error clearing state:', e);
+                console.warn('[StatePersistence] clear failed', e);
                 return false;
             }
         },
@@ -305,7 +298,7 @@
                 const saved = localStorage.getItem(this.getStorageKey());
                 return saved !== null && saved !== undefined;
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error checking saved state:', e);
+                console.warn('[StatePersistence] restore failed (check saved state)', e);
                 return false;
             }
         },
@@ -337,7 +330,7 @@
                     sameDevice: state.deviceId === (window.DeviceManager ? window.DeviceManager.getDeviceId() : null)
                 };
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error getting metadata:', e);
+                console.warn('[StatePersistence] restore failed (metadata)', e);
                 return null;
             }
         },
@@ -376,7 +369,7 @@
                     metadata: metadata
                 };
             } catch (e) {
-                window.Helpers.log('StatePersistence: Error getting storage info:', e);
+                console.warn('[StatePersistence] restore failed (storage info)', e);
                 return { available: true, error: e.message };
             }
         },

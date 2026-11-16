@@ -163,11 +163,15 @@
 
     document.addEventListener('click', (e) => {
         const songItem = e.target.closest('.mobile-song-item, tr[data-song-id]');
-        if (songItem && !e.defaultPrevented) {
-            const songId = songItem.dataset.songId;
-            if (songId && window.apiPost) {
-                window.apiPost('select', songId);
-            }
+        if (!songItem || e.defaultPrevented) return;
+        // Rows that already carry their own htmx select trigger (e.g. mobile
+        // queue items) must not be re-handled here, otherwise one click fires
+        // two identical selection POSTs.
+        if (songItem.classList.contains('mobile-queue-item')) return;
+        if (songItem.closest('[hx-post*="playback/select"]')) return;
+        const songId = songItem.dataset.songId;
+        if (songId && window.apiPost) {
+            window.apiPost('select', songId);
         }
     });
 

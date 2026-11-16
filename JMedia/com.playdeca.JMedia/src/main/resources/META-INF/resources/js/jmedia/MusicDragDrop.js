@@ -30,6 +30,7 @@
         drawer: null,
         overlay: null,
         suppressClick: null,
+        suppressClickTimer: null,
         autoScrollTimer: null
     };
 
@@ -238,17 +239,30 @@
     function onPointerCancel(e) {
         cancelHold();
         if (state.session && e.pointerId === state.session.pointerId) {
-            // A cancelled pointer usually means the browser took the gesture for
-            // scrolling. Do not throw the selection away: keep the drawer open so
-            // the same destination can be tapped.
-            detachForTap(state.session.source);
+            // Full teardown so a lost/cancelled gesture cannot leave the
+            // dragging body class, the drawer, or tap state behind.
+            cleanupDrag();
+            if (state.suppressClick) {
+                document.removeEventListener('click', state.suppressClick, true);
+                state.suppressClick = null;
+            }
+            if (state.suppressClickTimer) {
+                clearTimeout(state.suppressClickTimer);
+                state.suppressClickTimer = null;
+            }
+            state.pending = null;
+            state.picker = null;
+            state.detachedSource = null;
+            document.body.classList.remove(DRAG_BODY_CLASS);
+            closeDrawer();
+            return;
         }
         state.pending = null;
     }
 
     function startDrag(pending, e) {
         state.pending = null;
-        state.suppressNextClick();
+        state.suppressNextClick(pending.el);
 
         cancelLongPress();
         const menu = document.getElementById('mobileContextMenu');
@@ -351,6 +365,10 @@
             document.removeEventListener('click', state.suppressClick, true);
             state.suppressClick = null;
         }
+        if (state.suppressClickTimer) {
+            clearTimeout(state.suppressClickTimer);
+            state.suppressClickTimer = null;
+        }
         state.session = null;
         state.lastDragEndAt = Date.now();
         state.detachedSource = source || null;
@@ -376,6 +394,26 @@
         state.session = null;
         state.detachedSource = null;
         state.lastDragEndAt = Date.now();
+        closeDrawer();
+    }
+
+    function teardownAbortedDrag() {
+        cancelHold();
+        if (state.session) {
+            cleanupDrag();
+        }
+        if (state.suppressClick) {
+            document.removeEventListener('click', state.suppressClick, true);
+            state.suppressClick = null;
+        }
+        if (state.suppressClickTimer) {
+            clearTimeout(state.suppressClickTimer);
+            state.suppressClickTimer = null;
+        }
+        state.pending = null;
+        state.picker = null;
+        state.detachedSource = null;
+        document.body.classList.remove(DRAG_BODY_CLASS);
         closeDrawer();
     }
 
@@ -1123,25 +1161,41 @@
 
     // --------------------------------------------------------------- click guard
 
-    state.suppressNextClick = function () {
+    state.suppressNextClick = function (sourceEl) {
         if (state.suppressClick) {
             document.removeEventListener('click', state.suppressClick, true);
         }
+        if (state.suppressClickTimer) {
+            clearTimeout(state.suppressClickTimer);
+            state.suppressClickTimer = null;
+        }
         const guard = function (e) {
+            const src = (e.target && e.target.closest) ? e.target.closest(SOURCE_SELECTOR) : null;
+            // Only the synthetic/stray click on the original drag source is
+            // swallowed. Any other click is left completely untouched.
+            if (!sourceEl || src !== sourceEl) {
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
             document.removeEventListener('click', guard, true);
             state.suppressClick = null;
+            if (state.suppressClickTimer) {
+                clearTimeout(state.suppressClickTimer);
+                state.suppressClickTimer = null;
+            }
         };
         state.suppressClick = guard;
         document.addEventListener('click', guard, true);
-        setTimeout(function () {
+        // Safety expiry so a missing click can never leave the guard installed.
+        state.suppressClickTimer = setTimeout(function () {
+            document.removeEventListener('click', guard, true);
             if (state.suppressClick === guard) {
-                document.removeEventListener('click', guard, true);
                 state.suppressClick = null;
             }
-        }, 700);
+            state.suppressClickTimer = null;
+        }, 1500);
     };
 
     // --------------------------------------------------------------- init
@@ -1150,6 +1204,10 @@
     document.addEventListener('pointermove', onPointerMove, { passive: false });
     document.addEventListener('pointerup', onPointerUp, { passive: true });
     document.addEventListener('pointercancel', onPointerCancel, { passive: true });
+    window.addEventListener('blur', teardownAbortedDrag, { passive: true });
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') teardownAbortedDrag();
+    }, { passive: true });
     document.addEventListener('dragstart', function (e) {
         if (e.target && e.target.closest && e.target.closest(SOURCE_SELECTOR)) {
             e.preventDefault();

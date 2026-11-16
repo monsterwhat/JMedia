@@ -6,7 +6,10 @@
     JMedia.MusicBarInit = {
         _moduleWaitStart: null,
         _moduleWaitTimeout: 10000,
-
+        _videoCheckInterval: null,
+        _syncLoopInterval: null,
+        _uiUpdateInterval: null,
+        _audioEngineRetryCount: 0,
         init: function() {
             this.verifyModules();
             this.initVideoDetection();
@@ -17,6 +20,9 @@
             }
 
             this.initMusicBar();
+            window.addEventListener('pagehide', function() {
+                JMedia.MusicBarInit.clearIntervals();
+            });
         },
 
         verifyModules: function() {
@@ -40,21 +46,37 @@
                     try { window.VideoModeCoordinator.syncFromDom('MusicBarInit.initVideoDetection'); } catch (e) { console.error('[MusicBarInit] coordinator sync failed', e); }
                 }, 500);
                 document.body.addEventListener('htmx:afterSwap', function() {
-                    setTimeout(function() { try { window.VideoModeCoordinator.syncFromDom('htmx:afterSwap'); } catch (e) { console.error('[MusicBarInit] htmx sync failed', e); } }, 100);
+                    setTimeout(function() {
+                        try { window.VideoModeCoordinator.syncFromDom('htmx:afterSwap'); } catch (e) { console.error('[MusicBarInit] htmx sync failed', e); }
+                        if (window.VideoModeCoordinator.isVideoActive()) JMedia.MusicBarInit.clearIntervals();
+                        else JMedia.MusicBarInit.startIntervals();
+                    }, 100);
                 });
                 document.body.addEventListener('htmx:afterSettle', function() {
-                    setTimeout(function() { try { window.VideoModeCoordinator.syncFromDom('htmx:afterSettle'); } catch (e) { console.error('[MusicBarInit] htmx settle sync failed', e); } }, 100);
+                    setTimeout(function() {
+                        try { window.VideoModeCoordinator.syncFromDom('htmx:afterSettle'); } catch (e) { console.error('[MusicBarInit] htmx settle sync failed', e); }
+                        if (window.VideoModeCoordinator.isVideoActive()) JMedia.MusicBarInit.clearIntervals();
+                        else JMedia.MusicBarInit.startIntervals();
+                    }, 100);
                 });
                 return;
             }
             setTimeout(this.checkVideoPageState, 500);
             document.body.addEventListener('htmx:afterSwap', function() {
-                setTimeout(JMedia.MusicBarInit.checkVideoPageState, 100);
+                setTimeout(function() {
+                    JMedia.MusicBarInit.checkVideoPageState();
+                    if (window.videoPlaying !== true) JMedia.MusicBarInit.startIntervals();
+                    else JMedia.MusicBarInit.clearIntervals();
+                }, 100);
             });
             document.body.addEventListener('htmx:afterSettle', function() {
-                setTimeout(JMedia.MusicBarInit.checkVideoPageState, 100);
+                setTimeout(function() {
+                    JMedia.MusicBarInit.checkVideoPageState();
+                    if (window.videoPlaying !== true) JMedia.MusicBarInit.startIntervals();
+                    else JMedia.MusicBarInit.clearIntervals();
+                }, 100);
             });
-            setInterval(JMedia.MusicBarInit.checkVideoPageState, 1000);
+            this._videoCheckInterval = setInterval(JMedia.MusicBarInit.checkVideoPageState, 1000);
         },
 
         checkVideoPageState: function() {
@@ -86,6 +108,7 @@
                     try { audio.pause(); } catch (e) { console.error('[MusicBarInit] audio pause failed', e); }
                     try { JMedia.PlaybackApi.pause(); } catch (e) { console.error('[MusicBarInit] PlaybackApi pause failed', e); }
                 }
+                JMedia.MusicBarInit.clearIntervals();
             } else if (window.videoPlaying === true) {
                 window.videoPlaying = false;
                 document.body.classList.remove('video-active');
@@ -94,15 +117,21 @@
                     musicPlayer.classList.remove('video-active');
                     musicPlayer.style.removeProperty('display');
                 }
+                JMedia.MusicBarInit.startIntervals();
             }
         },
 
         initSyncLoop: function() {
-            setInterval(function() {
-                if (document.hidden) return;
-                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
+            if (this._syncLoopInterval) return;
+            this._syncLoopInterval = setInterval(function() {
+                if (window.videoPlaying === true || (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive())) {
+                    JMedia.MusicBarInit.clearIntervals();
+                    return;
+                }
                 const audio = JMedia.PlaybackApi.getAudioElement();
-                if (!audio || audio.paused) return;
+                if (document.hidden) { if (audio) audio.playbackRate = 1.0; return; }
+                if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) { if (audio) audio.playbackRate = 1.0; JMedia.MusicBarInit.clearIntervals(); return; }
+                if (!audio || audio.paused) { if (audio) audio.playbackRate = 1.0; return; }
                 if (window.StateManager && typeof window.StateManager.getState === 'function') {
                     const state = window.StateManager.getState();
                     if (state && state.currentTime !== undefined && state.lastUpdate) {
@@ -111,18 +140,28 @@
                         const drift = estimatedServerNow - audio.currentTime;
                         if (Math.abs(drift) > 3.0) {
                             audio.currentTime = estimatedServerNow;
+                            audio.playbackRate = 1.0;
                         } else if (Math.abs(drift) > 0.3) {
                             audio.playbackRate = drift > 0 ? 1.02 : 0.98;
                         } else {
                             audio.playbackRate = 1.0;
                         }
+                    } else {
+                        audio.playbackRate = 1.0;
                     }
+                } else {
+                    audio.playbackRate = 1.0;
                 }
             }, 1000);
         },
 
         initUIUpdateLoop: function() {
-            setInterval(function() {
+            if (this._uiUpdateInterval) return;
+            this._uiUpdateInterval = setInterval(function() {
+                if (window.videoPlaying === true || (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive())) {
+                    JMedia.MusicBarInit.clearIntervals();
+                    return;
+                }
                 if (document.hidden) return;
                 if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
                 var isVideo = window.VideoModeCoordinator ? window.VideoModeCoordinator.isVideoActive() : window.videoPlaying === true;
@@ -137,6 +176,30 @@
                     }
                 }
             }, 250);
+        },
+
+        clearIntervals: function() {
+            if (this._videoCheckInterval) { clearInterval(this._videoCheckInterval); this._videoCheckInterval = null; }
+            if (this._syncLoopInterval) { clearInterval(this._syncLoopInterval); this._syncLoopInterval = null; }
+            if (this._uiUpdateInterval) { clearInterval(this._uiUpdateInterval); this._uiUpdateInterval = null; }
+            if (this.__truthSyncTimer) { clearInterval(this.__truthSyncTimer); this.__truthSyncTimer = null; }
+        },
+
+        startIntervals: function() {
+            if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return;
+            if (!window.VideoModeCoordinator && window.videoPlaying === true) return;
+            if (!window.VideoModeCoordinator && !this._videoCheckInterval) {
+                this._videoCheckInterval = setInterval(JMedia.MusicBarInit.checkVideoPageState, 1000);
+            }
+            if (!this._syncLoopInterval) {
+                this.initSyncLoop();
+            }
+            if (!this._uiUpdateInterval) {
+                this.initUIUpdateLoop();
+            }
+            if (!this.__truthSyncTimer) {
+                this.syncPlaybackButtonWithAudio();
+            }
         },
 
         initMusicBar: function() {
@@ -290,6 +353,7 @@
             bind();
             // The element may be created slightly after init (or re-created).
             setTimeout(bind, 1000);
+            this._reconcileTruth = reconcile;
             if (!this.__truthSyncTimer) {
                 this.__truthSyncTimer = setInterval(reconcile, 2000);
             }
@@ -331,9 +395,15 @@
 
         startAudioEngine: function() {
             if (!window.AudioEngine || !window.AudioEngine.isReady || !window.AudioEngine.isReady()) {
+                this._audioEngineRetryCount = (this._audioEngineRetryCount || 0) + 1;
+                if (this._audioEngineRetryCount >= 25) {
+                    console.error('[MusicBarInit] AudioEngine never became ready; giving up');
+                    return;
+                }
                 setTimeout(() => this.startAudioEngine(), 100);
                 return;
             }
+            this._audioEngineRetryCount = 0;
 
             const currentState = window.StateManager ? window.StateManager.getState() : null;
             if (currentState && currentState.currentSongId) {
