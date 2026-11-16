@@ -51,6 +51,12 @@ public class MetadataEnrichmentWorker {
     // Tracks failed enrichment attempts: videoId -> last failure timestamp (epoch millis)
     private final Map<Long, Long> failedEnrichments = new ConcurrentHashMap<>();
 
+    // Last time a candidate was actually processed, successful or not. A video that stays
+    // a candidate because enrichment cannot fill the missing field (an episode with no
+    // matching IMDb entry, for example) would otherwise be re-processed - and re-query
+    // IMDb/TMDB - on every tick, forever.
+    private final Map<Long, Long> lastEnrichAttempt = new ConcurrentHashMap<>();
+
     private long retryCooldownMs;
 
     @PostConstruct
@@ -93,6 +99,13 @@ public class MetadataEnrichmentWorker {
                 LOG.debug("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} images, {} pending failures)",
                         total, phase1, phase2, phase3, phase4, failedEnrichments.size());
             }
+
+            // Bound the attempt map: drop entries older than the cooldown, since an older
+            // entry can never suppress an attempt anyway.
+            if (lastEnrichAttempt.size() > 20000) {
+                long cutoff = System.currentTimeMillis() - retryCooldownMs;
+                lastEnrichAttempt.entrySet().removeIf(entry -> entry.getValue() < cutoff);
+            }
         } catch (Exception e) {
             LOG.error("MetadataEnrichmentWorker: unexpected error in processing tick", e);
         } finally {
@@ -125,6 +138,15 @@ public class MetadataEnrichmentWorker {
                 if (failedAt != null && (System.currentTimeMillis() - failedAt) < retryCooldownMs) {
                     continue;
                 }
+                // Enrichment can "succeed" without filling the field this query selects on
+                // (an episode with no matching IMDb entry). Throttle every attempt, not just
+                // failures, so such rows are retried once per cooldown instead of every tick.
+                long attemptNow = System.currentTimeMillis();
+                Long lastAttempt = lastEnrichAttempt.get(video.id);
+                if (lastAttempt != null && (attemptNow - lastAttempt) < retryCooldownMs) {
+                    continue;
+                }
+                lastEnrichAttempt.put(video.id, attemptNow);
                 try {
                     videoMetadataService.fetchAndEnrichMetadata(video);
                     failedEnrichments.remove(video.id);
@@ -201,6 +223,7 @@ public class MetadataEnrichmentWorker {
                 LOG.info("Retrying enrichment for '{}' (id={})", video.title, videoId);
                 videoMetadataService.fetchAndEnrichMetadata(video);
                 failedEnrichments.remove(videoId);
+                lastEnrichAttempt.put(videoId, now);
                 count++;
             } catch (Exception e) {
                 LOG.warn("Retry failed for video id={}: {}", videoId, e.getMessage());
@@ -228,6 +251,15 @@ public class MetadataEnrichmentWorker {
 
             for (Video video : candidates) {
                 if (VideoMetadataService.isVideoEnriched(video)) continue;
+                // "Indefinitely until all required images are present" means forever for a
+                // video whose images cannot be fetched (an episode with no still, for
+                // example). Throttle to one attempt per cooldown instead of every tick.
+                long attemptNow = System.currentTimeMillis();
+                Long lastAttempt = lastEnrichAttempt.get(video.id);
+                if (lastAttempt != null && (attemptNow - lastAttempt) < retryCooldownMs) {
+                    continue;
+                }
+                lastEnrichAttempt.put(video.id, attemptNow);
                 try {
                     videoMetadataService.fetchAndEnrichMetadata(video);
                     count++;
