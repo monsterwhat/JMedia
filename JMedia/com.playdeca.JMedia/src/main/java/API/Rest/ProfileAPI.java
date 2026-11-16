@@ -5,6 +5,7 @@ import Models.Settings.Profile;
 import Models.Settings.Session;
 import Models.Settings.User;
 import Services.ProfileService;
+import Services.ProfileMusicDataService;
 import Services.SessionService;
 import Services.UserService;
 import Services.SettingsService;
@@ -23,6 +24,9 @@ public class ProfileAPI {
 
     @Inject
     ProfileService profileService;
+
+    @Inject
+    ProfileMusicDataService profileMusicDataService;
 
     @Inject
     SessionService sessionService;
@@ -163,9 +167,12 @@ public class ProfileAPI {
             }
             profile.name = updatedProfile.name.trim();
         }
-        
-        profile.persist();
-        return Response.ok(profile).build();
+
+        Profile saved = profileService.renameProfile(profile.id, profile.name);
+        if (saved == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
+        }
+        return Response.ok(saved).build();
     }
 
     @DELETE
@@ -190,28 +197,19 @@ public class ProfileAPI {
         }
         
         Profile otherProfile = Profile.find("id != ?1 and userId = ?2", id, currentUser.id).firstResult();
-        
+
+        // Two persistence units are involved and a JTA transaction cannot enlist both:
+        // the profile row is in settings, its playlists/history/state are in music.
+        // Move the music-side data first, in its own transaction, then delete the row
+        // in a second one. If the move fails the profile survives and can be retried.
         if (otherProfile != null) {
-            List<Models.Music.Playlist> playlists = Models.Music.Playlist.list("profileId", profile.id);
-            for (Models.Music.Playlist p : playlists) {
-                p.setProfileId(otherProfile.id);
-                p.persist();
-            }
-            
-            List<Models.Music.PlaybackHistory> history = Models.Music.PlaybackHistory.list("profileId", profile.id);
-            for (Models.Music.PlaybackHistory h : history) {
-                h.profileId = otherProfile.id;
-                h.persist();
-            }
-            
-            Models.Music.PlaybackState state = Models.Music.PlaybackState.find("profileId", profile.id).firstResult();
-            if (state != null) {
-                state.delete();
-            }
+            profileMusicDataService.reassignProfileData(profile.id, otherProfile.id);
         }
-        
-        profile.delete();
-        
+
+        if (!profileService.deleteProfile(profile.id)) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
+        }
+
         return Response.noContent().build();
     }
 
@@ -233,9 +231,10 @@ public class ProfileAPI {
             return Response.status(Response.Status.NOT_FOUND).entity("Playlist not found.").build();
         }
         
-        profile.addHiddenPlaylist(playlistId);
-        profile.persist();
-        
+        if (!profileService.setPlaylistHidden(profile.id, playlistId, true)) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
+        }
+
         return Response.ok(ApiResponse.success("Playlist hidden")).build();
     }
 
@@ -252,9 +251,10 @@ public class ProfileAPI {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
         
-        profile.removeHiddenPlaylist(playlistId);
-        profile.persist();
-        
+        if (!profileService.setPlaylistHidden(profile.id, playlistId, false)) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
+        }
+
         return Response.ok(ApiResponse.success("Playlist unhidden")).build();
     }
 

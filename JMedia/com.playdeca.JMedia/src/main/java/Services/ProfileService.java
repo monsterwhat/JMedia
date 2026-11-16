@@ -53,6 +53,56 @@ public class ProfileService {
         }
     }
 
+    /**
+     * Deletes a single profile row. Runs in its own settings-PU transaction and
+     * re-reads the row so the entity is managed: callers hold a detached profile
+     * (findById is NOT_SUPPORTED), and the music-side data must already have been
+     * moved by {@link ProfileMusicDataService} in a separate transaction.
+     */
+    @Transactional
+    public boolean deleteProfile(Long profileId) {
+        Profile profile = Profile.findById(profileId);
+        if (profile == null) {
+            return false;
+        }
+        profile.delete();
+        return true;
+    }
+
+    /**
+     * Renames a profile. Callers hold a detached profile (getActiveProfile/findById
+     * are NOT_SUPPORTED), so persisting it directly would fail; this re-reads it
+     * inside the transaction. Returns the updated profile, or null if it is gone.
+     */
+    @Transactional
+    public Profile renameProfile(Long profileId, String name) {
+        Profile profile = Profile.findById(profileId);
+        if (profile == null) {
+            return null;
+        }
+        profile.name = name;
+        return profile;
+    }
+
+    /**
+     * Adds or removes a hidden playlist for a profile. Same detached-entity reason
+     * as {@link #renameProfile}: the caller's profile came from a NOT_SUPPORTED read.
+     */
+    @Transactional
+    public boolean setPlaylistHidden(Long profileId, Long playlistId, boolean hidden) {
+        Profile profile = Profile.findById(profileId);
+        if (profile == null) {
+            return false;
+        }
+        if (hidden) {
+            profile.addHiddenPlaylist(playlistId);
+        } else {
+            profile.removeHiddenPlaylist(playlistId);
+        }
+        profile.persist();
+        return true;
+    }
+
     @Transactional
     public void updateSidebarPosition(Long profileId, String position) {
         Profile profile = Profile.findById(profileId);
