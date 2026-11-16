@@ -41,10 +41,14 @@
     }
 
     function log(message, error) {
-        if (window.Helpers && typeof window.Helpers.log === 'function') {
-            window.Helpers.log('[MusicDragDrop] ' + message, error || '');
-        } else if (error) {
+        // Errors must be visible: Helpers.log is a debug logger that is off unless
+        // musicbar_debug is enabled, so it must not be the only sink for a failure.
+        if (error) {
             console.warn('[MusicDragDrop] ' + message, error);
+            return;
+        }
+        if (window.Helpers && typeof window.Helpers.log === 'function') {
+            window.Helpers.log('[MusicDragDrop] ' + message);
         }
     }
 

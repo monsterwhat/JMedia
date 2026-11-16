@@ -137,6 +137,10 @@
                 
             } catch (error) {
                 console.error('[WebSocketManager] Failed to connect WebSocket:', error);
+                if (error && error.code === 'NO_PROFILE') {
+                    // A profile change event calls reconnect(); a timer cannot help here.
+                    return;
+                }
                 this.scheduleReconnect();
             }
         },
@@ -150,14 +154,30 @@
                 return this.profileIdPromise;
             }
             
-            this.profileIdPromise = new Promise((resolve) => {
+            this.profileIdPromise = new Promise((resolve, reject) => {
+                let attempts = 0;
                 const checkProfile = () => {
-                    const pid = window.globalActiveProfileId;
-                    if (pid && pid !== 'undefined' && window.profileInitialized) {
+                    // Prefer the canonical resolver: it filters the literal "null"
+                    // / "undefined" values a fresh browser can leave behind.
+                    const pid = (window.JMedia && window.JMedia.Helpers
+                            && typeof window.JMedia.Helpers.getActiveProfileId === 'function')
+                        ? window.JMedia.Helpers.getActiveProfileId()
+                        : window.globalActiveProfileId;
+                    if (pid && pid !== 'undefined' && pid !== 'null' && window.profileInitialized) {
                         resolve(pid);
-                    } else {
-                        setTimeout(checkProfile, 50);
+                        return;
                     }
+                    if (++attempts >= 25) {
+                        // Clear the cache so a later profile change can retry, and stop
+                        // polling: this promise used to stay pending forever, so every
+                        // caller after the first awaited it indefinitely.
+                        this.profileIdPromise = null;
+                        const err = new Error('[WebSocketManager] profile id unavailable after 25 attempts');
+                        err.code = 'NO_PROFILE';
+                        reject(err);
+                        return;
+                    }
+                    setTimeout(checkProfile, 50);
                 };
                 checkProfile();
             });

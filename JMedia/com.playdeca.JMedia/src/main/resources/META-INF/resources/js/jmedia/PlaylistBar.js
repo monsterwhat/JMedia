@@ -15,43 +15,12 @@
         }
     };
 
-    JMedia.PlaylistBar.restoreSidebar = function() {
-        const playlistId = sessionStorage.getItem('currentPlaylistId');
-        if (playlistId && playlistId !== '0') {
-            const profileId = JMedia.Helpers.getActiveProfileId();
-            htmx.ajax('GET', `/api/music/ui/playlist-view/${profileId}`, {
-                target: '#playlistView', swap: 'outerHTML'
-            });
-        }
-    };
-
     window.toggleCardContent = JMedia.PlaylistBar.toggleCard;
 
     (window.__whenDomReady || function (fn) {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
         else fn();
     })(() => {
-        JMedia.PlaylistBar.restoreSidebar();
-
-        const sidebarToggle = document.getElementById('sidebarToggle');
-        const playlistSidebar = document.getElementById('playlistSidebar');
-        const body = document.body;
-
-        if (sidebarToggle && playlistSidebar) {
-            const sidebarOverlay = document.createElement('div');
-            sidebarOverlay.classList.add('sidebar-overlay');
-            body.appendChild(sidebarOverlay);
-
-            const toggleSidebar = () => {
-                playlistSidebar.classList.toggle('is-active');
-                sidebarOverlay.classList.toggle('is-active');
-                body.classList.toggle('is-clipped', playlistSidebar.classList.contains('is-active'));
-            };
-
-            sidebarToggle.addEventListener('click', toggleSidebar);
-            sidebarOverlay.addEventListener('click', toggleSidebar);
-        }
-
         const toggleAllSongsBtn = document.getElementById('toggleAllSongsBtn');
         if (toggleAllSongsBtn) {
             toggleAllSongsBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "allSongsContent");

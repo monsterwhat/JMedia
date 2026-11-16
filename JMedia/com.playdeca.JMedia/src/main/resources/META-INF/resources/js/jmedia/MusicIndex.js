@@ -472,82 +472,9 @@
         if (!e.target.closest('#customContextMenu')) { hideCustomContextMenu(); }
     });
 
-    function showCustomContextMenu(x, y, songId) {
-        const menu = document.getElementById('customContextMenu');
-        if (!menu) return;
-        menu.style.display = 'block';
-        menu.style.left = x + 'px';
-        menu.style.top = y + 'px';
-        menu.dataset.songId = songId;
-
-        const playlistItem = menu.querySelector('[data-action="playlist"]');
-        if (playlistItem) {
-            playlistItem.onmouseenter = () => loadPlaylistSubmenu(songId);
-        }
-        menu.querySelectorAll('.context-menu-item').forEach(item => {
-            item.onclick = (e) => {
-                e.stopPropagation();
-                const action = item.dataset.action;
-                if (action !== 'playlist') {
-                    handleContextAction(action, songId);
-                    hideCustomContextMenu();
-                }
-            };
-        });
-    }
-
     function hideCustomContextMenu() {
         const menu = document.getElementById('customContextMenu');
         if (menu) menu.style.display = 'none';
-    }
-
-    function handleContextAction(action, songId) {
-        const profileId = JMedia.Helpers.getActiveProfileId();
-        let url = '';
-        let method = 'POST';
-        switch (action) {
-            case 'queue': url = `/api/music/queue/add/${profileId}/${songId}`; break;
-            case 'queue-similar': url = `/api/music/queue/similar/${profileId}/${songId}`; break;
-            case 'rescan': url = `/api/settings/${profileId}/rescan-song/${songId}`; break;
-            case 'enrich': url = `/api/metadata/enrich/${songId}`; break;
-            case 'delete':
-                if (confirm('Are you sure you want to delete this song?')) {
-                    url = `/api/settings/${profileId}/songs/${songId}`;
-                    method = 'DELETE';
-                } else return;
-                break;
-        }
-        if (url) {
-            fetch(url, { method: method })
-                .then(res => {
-                    if (res.ok && window.Toast) {
-                        window.Toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} action successful`);
-                        if (action === 'queue' || action === 'queue-similar') {
-                            window.dispatchEvent(new CustomEvent('queueChanged'));
-                        }
-                    }
-                });
-        }
-    }
-
-    function loadPlaylistSubmenu(songId) {
-        const submenu = document.getElementById('playlistSubMenu');
-        if (!submenu) return;
-        const profileId = JMedia.Helpers.getActiveProfileId();
-        fetch(`/api/music/playlists/${profileId}`)
-            .then(res => {
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                return res.json();
-            })
-            .then(data => {
-                const playlists = data.data || data;
-                submenu.innerHTML = playlists.map(p =>
-                    `<div class="context-menu-item" onclick="addToPlaylist(${p.id}, ${songId})">${p.name}</div>`
-                ).join('');
-            })
-            .catch(error => {
-                console.warn('[MusicIndex] Failed to load playlist submenu:', error);
-            });
     }
 
     window.addToPlaylist = function(playlistId, songId) {

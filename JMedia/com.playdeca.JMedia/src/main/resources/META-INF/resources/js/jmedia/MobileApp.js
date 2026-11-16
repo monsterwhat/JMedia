@@ -39,73 +39,23 @@
         }
 
         setupElements() {
-            this.navToggle = document.getElementById('mobileNavToggle');
-            this.sidePanel = document.getElementById('mobileSidePanel');
-            this.sidePanelOverlay = document.getElementById('mobileSidePanelOverlay');
-            this.sidePanelClose = document.getElementById('mobileSidePanelClose');
             this.songList = document.getElementById('mobileSongList');
-            this.tabButtons = document.querySelectorAll('.mobile-tab');
-            this.expandBtn = document.getElementById('expandPlayerBtn');
             this.player = document.querySelector('.mobile-player');
 
-            if (!this.navToggle) console.warn('Mobile nav toggle not found');
-            if (!this.sidePanel) console.warn('Mobile side panel not found');
-            if (!this.sidePanelOverlay) console.warn('Mobile side panel overlay not found');
-            if (!this.sidePanelClose) console.warn('Mobile side panel close not found');
             if (!this.songList) console.warn('Mobile song list not found');
-            if (!this.tabButtons) console.warn('Mobile tab buttons not found');
-            if (!this.expandBtn) console.warn('Expand button not found');
             if (!this.player) console.warn('Mobile player not found');
         }
 
         setupMobileEventListeners() {
-            if (this.navToggle) {
-                this.navToggle.addEventListener('click', () => this.openSidePanel());
-            }
-            if (this.sidePanelClose) {
-                this.sidePanelClose.addEventListener('click', () => this.closeSidePanel());
-            }
-            if (this.sidePanelOverlay) {
-                this.sidePanelOverlay.addEventListener('click', () => this.closeSidePanel());
-            }
-            if (this.tabButtons) {
-                this.tabButtons.forEach(tab => {
-                    tab.addEventListener('click', () => {
-                        const tabName = tab.dataset.tab || tab.id.replace('Tab', '');
-                        this.switchMobileTab(tabName);
-                    });
-                });
-            }
-            if (this.expandBtn) {
-                this.expandBtn.addEventListener('click', () => this.togglePlayerExpansion());
-            }
-            this.setupSortEventListeners();
             document.addEventListener('click', (e) => {
                 const btn = e.target.closest('#createPlaylistBtn, #mobileCreatePlaylistBtn');
                 if (btn) {
                     this.showMobileCreatePlaylistModal();
                 }
             });
-            document.body.addEventListener('profileSwitched', () => {});
-        }
-
-        setupSortEventListeners() {
-            const sortDirectionToggle = document.getElementById('sortDirectionToggle');
-            const sortOptions = document.querySelectorAll('input[name="sortBy"]');
-            if (sortDirectionToggle) {
-                sortDirectionToggle.addEventListener('click', () => {
-                    this.toggleSortDirection();
-                });
-            }
-            sortOptions.forEach(option => {
-                option.addEventListener('change', () => {
-                    if (option.checked) {
-                        this.currentSortBy = option.value;
-                        this.applySortWithCurrentDirection();
-                    }
-                });
+            document.body.addEventListener('profileSwitched', () => {
+                console.debug('[JMediaMobile] profileSwitched');
             });
-            this.updateSortDirectionDisplay();
         }
 
         toggleSortDirection() {
@@ -195,80 +145,6 @@
             }
         }
 
-        loadMobilePlaylistsJSON() {
-            const target = document.getElementById('mobilePlaylistList');
-            if (!target) return;
-            target.innerHTML = `
-                <div class="mobile-loading">
-                    <div class="mobile-loading-spinner">
-                        <i class="pi pi-spin pi-spinner"></i>
-                    </div>
-                    <p>Loading playlists...</p>
-                </div>
-            `;
-            const profileId = JMedia.Helpers.getActiveProfileId();
-            fetch(`/api/music/playlists/${profileId}`)
-                .then(response => response.json())
-                .then(data => {
-                    const playlists = data.data || data;
-                    this.renderMobilePlaylistsJSON(playlists, target);
-                })
-                .catch(error => {
-                    console.error('[MOBILE] JSON playlist loading failed:', error);
-                    target.innerHTML = `
-                        <div class="mobile-empty-state">
-                            <i class="pi pi-exclamation-triangle" style="font-size: 48px; color: #ff6b6b;"></i>
-                            <p>Error loading playlists</p>
-                            <p style="font-size: 12px; color: #999;">Please try again</p>
-                        </div>
-                    `;
-                });
-        }
-
-        renderMobilePlaylistsJSON(playlists, target) {
-            const profileId = JMedia.Helpers.getActiveProfileId();
-            let html = `
-                <div class="mobile-playlist-item"
-                     hx-get="/api/music/ui/mobile-tbody/${profileId}/0"
-                     hx-target="#mobileSongList"
-                     hx-swap="innerHTML"
-                     data-playlist-id="0">
-                    <div class="mobile-playlist-info">
-                        <div class="mobile-playlist-name">All Songs</div>
-                    </div>
-                    <i class="pi pi-chevron-right"></i>
-                </div>
-            `;
-            if (playlists && playlists.length > 0) {
-                playlists.forEach(playlist => {
-                    html += `
-                        <div class="mobile-playlist-item"
-                             hx-get="/api/music/ui/mobile-tbody/${profileId}/${playlist.id}"
-                             hx-target="#mobileSongList"
-                             hx-swap="innerHTML"
-                             data-playlist-id="${playlist.id}">
-                            <div class="mobile-playlist-info">
-                                <div class="mobile-playlist-name">${playlist.name || 'Unnamed Playlist'}</div>
-                                ${playlist.isGlobal ? '<span class="tag is-info is-small"><i class="pi pi-globe"></i></span>' : ''}
-                            </div>
-                            <i class="pi pi-chevron-right"></i>
-                        </div>
-                    `;
-                });
-            }
-            if (!playlists || playlists.length === 0) {
-                html += `
-                    <div class="mobile-empty-state">
-                        <i class="pi pi-folder-open" style="font-size: 48px; color: #ccc;"></i>
-                        <p>No playlists found</p>
-                        <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
-                    </div>
-                `;
-            }
-            target.innerHTML = html;
-            console.log('[MOBILE] JSON playlists rendered successfully');
-        }
-
         loadMobileQueue(page = 1) {
             if (window.htmx) {
                 const profileId = JMedia.Helpers.getActiveProfileId();
@@ -288,99 +164,6 @@
                     target: document.getElementById('mobileHistoryContent'),
                     swap: 'innerHTML'
                 });
-            }
-        }
-
-        renderMobileHistory(history) {
-            const historyContainer = document.getElementById('mobileHistoryContent');
-            if (!historyContainer) return;
-            if (history.length === 0) {
-                historyContainer.innerHTML = `
-                    <div class="mobile-empty">
-                        <div class="mobile-empty-icon">🕐</div>
-                        <div class="mobile-empty-title">No history</div>
-                        <div class="mobile-empty-text">Start playing music to build your history</div>
-                    </div>
-                `;
-                return;
-            }
-            const historyHTML = history.map(song => `
-                <div class="mobile-song-item${song.flac ? ' is-flac' : ''}" data-song-id="${song.id}">
-                    <div class="mobile-song-artwork">
-                        ${song.coverArt ? `<img src="${song.coverArt}" alt="${song.title}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 4px;">` : '🎵'}
-                    </div>
-                    <div class="mobile-song-info">
-                        <div class="mobile-song-title">${song.title || 'Unknown Title'}</div>
-                        <div class="mobile-song-artist">${song.artist || 'Unknown Artist'}</div>
-                    </div>
-                </div>
-            `).join('');
-            historyContainer.innerHTML = historyHTML;
-            historyContainer.querySelectorAll('.mobile-song-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const songId = item.dataset.songId;
-                    const profileId = JMedia.Helpers.getActiveProfileId();
-                    if (songId) {
-                        JMedia.PlaybackApi.select(songId, profileId);
-                    }
-                });
-            });
-        }
-
-        handleMobileSearch(query) {
-            if (this.searchClear) {
-                this.searchClear.style.display = query ? 'block' : 'none';
-            }
-            if (window.htmx) {
-                clearTimeout(this.searchTimeout);
-                this.searchTimeout = setTimeout(() => {
-                    let currentSort = 'dateAdded';
-                    let currentGenres = [];
-                    if (window.mobileFilterSortMenu) {
-                        const filters = window.mobileFilterSortMenu.getCurrentFilters();
-                        currentSort = filters.sortBy;
-                        currentGenres = filters.genres;
-                    } else {
-                        const checkedSortOption = document.querySelector('input[name="sortBy"]:checked');
-                        currentSort = checkedSortOption ? checkedSortOption.value : 'dateAdded';
-                    }
-                    this.loadInitialContent(query, currentSort, currentGenres, this.currentSortDirection);
-                    setTimeout(() => {
-                        const songItems = document.querySelectorAll('.mobile-song-item');
-                        songItems.forEach(item => {
-                            item.addEventListener('click', (e) => {
-                                if (window.mobileContextMenu && window.mobileContextMenu.menuJustOpened) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    return;
-                                }
-                                const songId = item.dataset.songId;
-                                const profileId = JMedia.Helpers.getActiveProfileId();
-                                if (songId) {
-                                    JMedia.PlaybackApi.select(songId, profileId);
-                                }
-                            });
-                        });
-                    }, 100);
-                }, 500);
-            }
-        }
-
-        clearMobileSearch() {
-            if (this.searchInput) {
-                this.searchInput.value = '';
-                this.searchClear.style.display = 'none';
-                let currentSort = 'dateAdded';
-                let currentGenres = [];
-                if (window.mobileFilterSortMenu) {
-                    const filters = window.mobileFilterSortMenu.getCurrentFilters();
-                    currentSort = filters.sortBy;
-                    currentGenres = filters.genres;
-                } else {
-                    const checkedSortOption = document.querySelector('input[name="sortBy"]:checked');
-                    currentSort = checkedSortOption ? checkedSortOption.value : 'dateAdded';
-                }
-                this.loadInitialContent('', currentSort, currentGenres, this.currentSortDirection);
             }
         }
 
@@ -705,17 +488,10 @@
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
         else fn();
     })(() => {
-        if (window.initManager) {
-            window.initManager.start().then(() => {
-                window.jmediaMobile = new JMediaMobile();
-                console.log('[JMediaMobile] Mobile enhancements initialized');
-            });
-        } else {
-            setTimeout(() => {
-                window.jmediaMobile = new JMediaMobile();
-                console.log('[JMediaMobile] Mobile enhancements initialized');
-            }, 500);
-        }
+        setTimeout(() => {
+            window.jmediaMobile = new JMediaMobile();
+            console.log('[JMediaMobile] Mobile enhancements initialized');
+        }, 500);
     });
 
     window.addEventListener('orientationchange', () => {

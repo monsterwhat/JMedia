@@ -76,6 +76,7 @@
                 });
             }
         } catch (error) {
+            console.debug('[MediaSession] setPositionState skipped', error && error.message);
         }
     };
 
@@ -172,15 +173,7 @@
     const player = getPlayerForPosition();
     if (player) {
         attachTimeUpdate(player);
-    } else {
-        window.addEventListener('audioMetadataLoaded', () => {
-            attachTimeUpdate(getPlayerForPosition());
-        });
     }
-
-    window.addEventListener('audioPlayerSwapped', () => {
-        attachTimeUpdate(getPlayerForPosition());
-    });
 
     window.updateMediaSessionMetadata = JMedia.MediaSession.updateMetadata;
     window.updateMediaSessionPlaybackState = JMedia.MediaSession.updatePlaybackState;
