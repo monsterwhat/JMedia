@@ -91,7 +91,7 @@
                 return false;
             }
             if (!window.ActionTracker || !window.StateManager || !window.AudioEngine) {
-                window.Helpers.log('PlaybackController: Dependencies not available');
+                console.warn('PlaybackController: Dependencies not available');
                 return false;
             }
             
@@ -159,7 +159,7 @@
                         console.warn('[PlaybackController] play/pause rollback skipped: superseded by newer action', { playPauseSeq, latest: this._playPauseSeq });
                         return;
                     }
-                    window.Helpers.log('PlaybackController: Play/pause toggle failed, rolling back:', error);
+                    console.error('PlaybackController: Play/pause toggle failed, rolling back:', error);
 
                     window.StateManager.updateState({ playing: previousPlayingState }, 'playbackController');
 
@@ -192,7 +192,7 @@
                 }
                 if (window.showToast) window.showToast('Previous song!', 'success', 2000);
                 this.apiCall('previous', profileId).catch((error) => {
-                    window.Helpers.log('PlaybackController: previous failed', error);
+                    console.error('PlaybackController: previous failed', error);
                 });
                 return;
             }
@@ -218,7 +218,7 @@
                     headers: { 'Content-Type': 'application/json' }
                 }).then((res) => {
                     if (!res.ok) {
-                        window.Helpers.log('PlaybackController: previous select failed with status ' + res.status);
+                        console.error('PlaybackController: previous select failed with status ' + res.status);
                         this._navigatingBack = false;
                         if (this._navigatingBackTimer) {
                             clearTimeout(this._navigatingBackTimer);
@@ -226,7 +226,7 @@
                         }
                     }
                 }).catch((err) => {
-                    window.Helpers.log('PlaybackController: previous select failed', err);
+                    console.error('PlaybackController: previous select failed', err);
                     this._navigatingBack = false;
                     if (this._navigatingBackTimer) {
                         clearTimeout(this._navigatingBackTimer);
@@ -239,7 +239,7 @@
             // No local history: let the server decide (queue history or restart).
             if (window.showToast) window.showToast('Previous song!', 'success', 2000);
             this.apiCall('previous', profileId).catch((error) => {
-                window.Helpers.log('PlaybackController: previous failed', error);
+                console.error('PlaybackController: previous failed', error);
             });
         },
         
@@ -303,11 +303,11 @@
             fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
                 .then((res) => {
                     if (!res.ok) {
-                        window.Helpers.log('PlaybackController: ' + kind + '-set failed with status ' + res.status);
+                        console.error('PlaybackController: ' + kind + '-set failed with status ' + res.status);
                     }
                 })
                 .catch((err) => {
-                    window.Helpers.log('PlaybackController: ' + kind + '-set request failed', err);
+                    console.error('PlaybackController: ' + kind + '-set request failed', err);
                 });
         },
 
@@ -388,7 +388,7 @@
                         console.warn('[PlaybackController] DJ mode rollback skipped: superseded by newer action', { djModeSeq, latest: this._djModeSeq });
                         return;
                     }
-                    window.Helpers.log('PlaybackController: Failed to toggle DJ Mode:', error);
+                    console.error('PlaybackController: Failed to toggle DJ Mode:', error);
                     // Revert on failure
                     window.StateManager.updateState({ djModeActive: !newMode }, 'playbackController');
                     if (window.showToast) {
@@ -555,9 +555,18 @@
         });
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.StateManager && window.AudioEngine && window.ActionTracker) {
                 window.PlaybackController.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.StateManager) missing.push('StateManager');
+                if (!window.AudioEngine) missing.push('AudioEngine');
+                if (!window.ActionTracker) missing.push('ActionTracker');
+                console.error('[PlaybackController.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

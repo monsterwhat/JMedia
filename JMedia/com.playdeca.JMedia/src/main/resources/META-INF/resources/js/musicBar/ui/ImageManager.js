@@ -66,10 +66,17 @@
         updateImages: function(currentSong, prevSong, nextSong) {
             const currentArtwork = this.getArtworkUrl(currentSong);
             
-            // Re-query elements in case they weren't ready during init
-            this.elements.songCoverImage = this.elements.songCoverImage || document.getElementById('songCoverImage');
-            this.elements.favicon = this.elements.favicon || document.getElementById('favicon');
-            this.elements.pageTitle = this.elements.pageTitle || document.getElementById('pageTitle');
+            // Re-query elements in case they weren't ready during init, or if a
+            // previously cached node has been replaced/detached from the DOM.
+            if (!this.elements.songCoverImage || this.elements.songCoverImage.isConnected === false) {
+                this.elements.songCoverImage = document.getElementById('songCoverImage');
+            }
+            if (!this.elements.favicon || this.elements.favicon.isConnected === false) {
+                this.elements.favicon = document.getElementById('favicon');
+            }
+            if (!this.elements.pageTitle || this.elements.pageTitle.isConnected === false) {
+                this.elements.pageTitle = document.getElementById('pageTitle');
+            }
             
             // Update current song image and favicon synchronously
             if (this.elements.songCoverImage) {
@@ -173,9 +180,15 @@
         window.ImageManager.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers) {
                 window.ImageManager.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                console.error('[ImageManager.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

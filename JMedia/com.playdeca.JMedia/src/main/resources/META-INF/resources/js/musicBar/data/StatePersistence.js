@@ -162,7 +162,7 @@
          */
         saveState: function(options = {}) {
             if (!window.localStorage) {
-                window.Helpers.log('StatePersistence: localStorage not available');
+                console.warn('StatePersistence: localStorage not available');
                 return false;
             }
             
@@ -172,7 +172,7 @@
                 if (window.StateManager) {
                     currentState = window.StateManager.getState();
                 } else {
-                    window.Helpers.log('StatePersistence: StateManager not available');
+                    console.warn('StatePersistence: StateManager not available');
                     return false;
                 }
                 
@@ -214,7 +214,7 @@
          */
         restoreState: function() {
             if (!window.localStorage) {
-                window.Helpers.log('StatePersistence: localStorage not available');
+                console.warn('StatePersistence: localStorage not available');
                 return null;
             }
             
@@ -271,7 +271,7 @@
          */
         clearState: function() {
             if (!window.localStorage) {
-                window.Helpers.log('StatePersistence: localStorage not available');
+                console.warn('StatePersistence: localStorage not available');
                 return false;
             }
             
@@ -387,7 +387,7 @@
             } else if (!restoredState) {
                 window.Helpers.log('StatePersistence: No state to restore');
             } else {
-                window.Helpers.log('StatePersistence: StateManager not available');
+                console.warn('StatePersistence: StateManager not available');
             }
             
             return null;
@@ -399,9 +399,17 @@
         window.StatePersistence.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.StateManager && window.DeviceManager) {
                 window.StatePersistence.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.StateManager) missing.push('StateManager');
+                if (!window.DeviceManager) missing.push('DeviceManager');
+                console.error('[StatePersistence.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

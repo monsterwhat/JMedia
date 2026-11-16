@@ -875,9 +875,16 @@
         window.DesktopAdapter.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.DeviceManager) {
                 window.DesktopAdapter.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.DeviceManager) missing.push('DeviceManager');
+                console.error('[DesktopAdapter.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

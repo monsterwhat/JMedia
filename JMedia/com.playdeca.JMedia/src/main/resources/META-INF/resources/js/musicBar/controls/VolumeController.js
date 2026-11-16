@@ -176,9 +176,19 @@
         });
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.SynchronizationManager && window.StateManager && window.AudioEngine && window.DeviceManager) {
                 window.VolumeController.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.SynchronizationManager) missing.push('SynchronizationManager');
+                if (!window.StateManager) missing.push('StateManager');
+                if (!window.AudioEngine) missing.push('AudioEngine');
+                if (!window.DeviceManager) missing.push('DeviceManager');
+                console.error('[VolumeController.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

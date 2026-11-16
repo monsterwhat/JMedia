@@ -4,7 +4,9 @@
  */
 (function(window) {
     'use strict';
-    
+
+    let syncManagerWarned = false;
+
     window.UIUpdater = {
         // DOM element cache
         domElements: {},
@@ -95,7 +97,16 @@
             }
             
             // 3. Time and Slider
-            if (!window.SynchronizationManager.getFlag('draggingSeconds')) {
+            let isDraggingSeconds = false;
+            if (window.SynchronizationManager && typeof window.SynchronizationManager.getFlag === 'function') {
+                isDraggingSeconds = !!window.SynchronizationManager.getFlag('draggingSeconds');
+            } else {
+                if (!syncManagerWarned) {
+                    console.warn('[UIUpdater] SynchronizationManager unavailable; assuming not dragging');
+                    syncManagerWarned = true;
+                }
+            }
+            if (!isDraggingSeconds) {
                 if (els.currentTimeEl) {
                     els.currentTimeEl.innerText = window.Helpers.formatTime(state.currentTime || 0);
                 }
@@ -223,9 +234,17 @@
         window.UIUpdater.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.SynchronizationManager && window.StateManager) {
                 window.UIUpdater.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.SynchronizationManager) missing.push('SynchronizationManager');
+                if (!window.StateManager) missing.push('StateManager');
+                console.error('[UIUpdater.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

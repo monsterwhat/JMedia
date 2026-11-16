@@ -32,6 +32,10 @@
         yearMax: 0
     };
 
+    function freshDefaults() {
+        return Object.assign({}, DEFAULT_SETTINGS, { genrePool: DEFAULT_SETTINGS.genrePool.slice() });
+    }
+
     const PANEL_HTML = `
         <div class="dj-settings-panel">
             <div class="dj-settings-header">
@@ -119,7 +123,7 @@
 
     const state = {
         open: false,
-        settings: Object.assign({}, DEFAULT_SETTINGS),
+        settings: freshDefaults(),
         genreList: [],
         saveTimer: null,
         saveScheduled: false,
@@ -128,7 +132,8 @@
         genreFilter: '',
         touched: {},
         saving: false,
-        saveQueued: false
+        saveQueued: false,
+        openGeneration: 0
     };
 
     function getIndicator() {
@@ -430,8 +435,9 @@
         if (!indicator) return;
 
         state.open = true;
+        state.openGeneration = (state.openGeneration || 0) + 1;
         state.touched = {};
-        state.settings = Object.assign({}, DEFAULT_SETTINGS);
+        state.settings = freshDefaults();
         state.genresLoaded = false;
         state.genreFilter = '';
 
@@ -455,7 +461,12 @@
 
         render();
 
+        const loadGeneration = state.openGeneration;
         apiLoadSettings().then((raw) => {
+            if (!state.open || state.openGeneration !== loadGeneration) {
+                log('Ignored stale settings load response: loadGeneration', loadGeneration, 'openGeneration', state.openGeneration, 'open', state.open);
+                return;
+            }
             // Merge server state without clobbering fields the user already
             // edited since the panel opened (async GET may resolve after the
             // user started clicking). Server wins for untouched fields; local
@@ -469,6 +480,10 @@
             syncState();
             render();
         }).catch((err) => {
+            if (!state.open || state.openGeneration !== loadGeneration) {
+                log('Ignored stale settings load error: loadGeneration', loadGeneration, 'openGeneration', state.openGeneration, 'open', state.open, err);
+                return;
+            }
             log('Load failed, using defaults:', err);
             syncState();
             if (window.showToast) {
@@ -555,20 +570,22 @@
     }
 
     function toggleGenre(genre) {
-        const pool = state.settings.genrePool;
+        const pool = state.settings.genrePool || [];
         const index = pool.indexOf(genre);
+        let next;
         if (index !== -1) {
-            pool.splice(index, 1);
+            next = pool.slice(0, index).concat(pool.slice(index + 1));
         } else {
-            pool.push(genre);
+            next = pool.concat(genre);
         }
+        state.settings.genrePool = next;
         state.touched.genrePool = true;
         renderChips();
         scheduleSave();
     }
 
     function resetToDefaults() {
-        state.settings = Object.assign({}, DEFAULT_SETTINGS);
+        state.settings = freshDefaults();
         state.touched = {};
         Object.keys(DEFAULT_SETTINGS).forEach((k) => { state.touched[k] = true; });
         render();

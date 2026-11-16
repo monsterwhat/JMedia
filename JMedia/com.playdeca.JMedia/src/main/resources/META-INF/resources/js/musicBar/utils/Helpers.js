@@ -5,7 +5,7 @@
 (function(window) {
     'use strict';
     
-    window.Helpers = {
+    window.Helpers = Object.assign(window.Helpers || {}, {
         /**
          * Format time in seconds to MM:SS format
          * @param {number} s - Time in seconds
@@ -55,11 +55,20 @@
          * @param {string} elementId - ID of the element
          * @param {string} text - Text to set and check for overflow
          */
-        applyMarqueeEffect: function(elementId, text) {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.innerText = text; // Set text first
-                // Check if text overflows
+        applyMarqueeEffect: function(elementIdOrElement, text) {
+            let element;
+            if (typeof elementIdOrElement === 'string') {
+                element = document.getElementById(elementIdOrElement);
+            } else {
+                element = elementIdOrElement;
+            }
+            if (!element) {
+                return;
+            }
+            if (typeof elementIdOrElement === 'string') {
+                if (text !== undefined && text !== null) {
+                    element.innerText = text;
+                }
                 if (element.scrollWidth > element.clientWidth) {
                     element.classList.add('marquee');
                     element.classList.remove('no-scroll');
@@ -67,12 +76,34 @@
                     element.classList.remove('marquee');
                     element.classList.add('no-scroll');
                 }
+                return;
+            }
+            if (text !== undefined && text !== null) {
+                const existingSpan = element.querySelector('span');
+                if (existingSpan) {
+                    existingSpan.textContent = text;
+                } else {
+                    element.textContent = text;
+                }
+            }
+            const span = element.querySelector('span');
+            if (span) {
+                const originalOverflow = element.style.overflow;
+                element.style.overflow = 'visible';
+                if (span.scrollWidth > element.clientWidth) {
+                    span.classList.add('marquee');
+                    span.classList.remove('no-scroll');
+                } else {
+                    span.classList.remove('marquee');
+                    span.classList.add('no-scroll');
+                }
+                element.style.overflow = originalOverflow;
             }
         },
         
         /**
          * Debug logging helper.
-         * ON by default; set localStorage 'musicbar_debug' = 'false' to silence.
+         * OFF by default; only logs when localStorage 'musicbar_debug' is 'true' or '1'.
          */
         log: function(...args) {
             const enabled = (typeof window !== 'undefined' && window.localStorage)
@@ -208,7 +239,7 @@
         init: function() {
             window.Helpers.log('Helpers initialized');
         }
-    };
+    });
     
     // Auto-initialize
     window.Helpers.init();

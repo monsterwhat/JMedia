@@ -273,8 +273,13 @@ public class VideoMetadataService {
             
             self.persistEnrichedVideo(loadedVideo);
         } else {
-            LOG.debug("Cannot fetch IntroDB data: Missing ShowImdbId ({}), Season ({}), or Episode ({})", 
-                loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber);
+            // Without a show IMDb id / season / episode there is nothing to look up.
+            // Without a marker these rows stay "missing intro/outro" and the worker
+            // re-selects and re-logs them every tick; cache the outcome so a later
+            // series-enrichment pass that supplies the id still retries after the TTL.
+            INTRODB_NO_DATA_CACHE.put(loadedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
+            LOG.warn("Cannot fetch IntroDB data for video {}: missing showImdbId ({}), season ({}) or episode ({}); suppressing retries for {} ms",
+                    loadedVideo.id, loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber, INTRODB_NO_DATA_TTL_MS);
         }
     }
 

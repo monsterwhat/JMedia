@@ -514,7 +514,7 @@
                     fetch(`/api/music/playback/state/${pid}`)
                         .then(r => {
                             if (!r.ok) {
-                                window.Helpers.log('WebSocketManager: resync fetch failed with status', r.status);
+                                console.error('WebSocketManager: resync fetch failed with status', r.status);
                                 return null;
                             }
                             return r.json();
@@ -564,11 +564,11 @@
                             }
                         })
                         .catch((err) => {
-                            window.Helpers.log('WebSocketManager: resync fetch error:', err.message || err);
+                            console.error('WebSocketManager: resync fetch error:', err.message || err);
                         });
                 }
             } catch (e) {
-                window.Helpers.log('WebSocketManager: resync error:', e.message || e);
+                console.error('WebSocketManager: resync error:', e.message || e);
             }
         },
         
@@ -694,9 +694,17 @@
         window.WebSocketManager.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.StateManager && window.SynchronizationManager) {
                 window.WebSocketManager.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.StateManager) missing.push('StateManager');
+                if (!window.SynchronizationManager) missing.push('SynchronizationManager');
+                console.error('[WebSocketManager.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

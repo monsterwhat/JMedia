@@ -503,7 +503,7 @@
                     const parsedState = JSON.parse(savedState);
                     this.state.playerVisible = parsedState.playerVisible !== false;
                 } catch (e) {
-                    window.Helpers.log('ResponsivePlayer: Failed to load saved state:', e);
+                    console.error('ResponsivePlayer: Failed to load saved state:', e);
                 }
             }
             

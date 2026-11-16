@@ -207,7 +207,7 @@
                 'Helpers', 'DeviceManager', 'SynchronizationManager', 'StateManager',
                 'StatePersistence', 'AudioEngine', 'DjTransitionManager', 'WebSocketManager',
                 'ActionTracker', 'PlaybackController', 'VolumeController', 'TimeController',
-                'UIUpdater', 'EventBindings', 'ImageManager', 'SongContextCache', 'QueueManager'
+                'UIUpdater', 'EventBindings', 'ImageManager'
             ];
 
             const missing = deps.filter(m => !window[m]);

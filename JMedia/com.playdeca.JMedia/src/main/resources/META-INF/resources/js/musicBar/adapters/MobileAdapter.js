@@ -737,9 +737,16 @@
         window.MobileAdapter.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.DeviceManager) {
                 window.MobileAdapter.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.DeviceManager) missing.push('DeviceManager');
+                console.error('[MobileAdapter.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

@@ -3,7 +3,7 @@
 
     const JMedia = window.JMedia = window.JMedia || {};
 
-    JMedia.Helpers = {
+    JMedia.Helpers = window.Helpers = Object.assign(window.Helpers || {}, {
         formatTime: function(s) {
             if (s === null || s === undefined || isNaN(s)) {
                 return "0:00";
@@ -31,19 +31,36 @@
             };
         },
 
-        applyMarqueeEffect: function(element) {
-            if (typeof element === 'string') {
-                const el = document.getElementById(element);
-                if (el) {
-                    if (el.scrollWidth > el.clientWidth) {
-                        el.classList.add('marquee');
-                        el.classList.remove('no-scroll');
-                    } else {
-                        el.classList.remove('marquee');
-                        el.classList.add('no-scroll');
-                    }
+        applyMarqueeEffect: function(elementIdOrElement, text) {
+            let element;
+            if (typeof elementIdOrElement === 'string') {
+                element = document.getElementById(elementIdOrElement);
+            } else {
+                element = elementIdOrElement;
+            }
+            if (!element) {
+                return;
+            }
+            if (typeof elementIdOrElement === 'string') {
+                if (text !== undefined && text !== null) {
+                    element.innerText = text;
+                }
+                if (element.scrollWidth > element.clientWidth) {
+                    element.classList.add('marquee');
+                    element.classList.remove('no-scroll');
+                } else {
+                    element.classList.remove('marquee');
+                    element.classList.add('no-scroll');
                 }
                 return;
+            }
+            if (text !== undefined && text !== null) {
+                const existingSpan = element.querySelector('span');
+                if (existingSpan) {
+                    existingSpan.textContent = text;
+                } else {
+                    element.textContent = text;
+                }
             }
             const span = element.querySelector('span');
             if (span) {
@@ -192,7 +209,7 @@
         init: function() {
             JMedia.Helpers.log('Helpers initialized');
         }
-    };
+    });
 
     window.Helpers = JMedia.Helpers;
     window.applyMarqueeEffectToQueue = function(element) {

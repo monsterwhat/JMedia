@@ -144,7 +144,7 @@
          */
         updateState: function(changes, source = 'unknown') {
             if (!changes || typeof changes !== 'object') {
-                window.Helpers.log('StateManager: Invalid changes object', changes);
+                console.error('StateManager: Invalid changes object', changes);
                 return;
             }
             
@@ -174,7 +174,7 @@
          */
         replaceState: function(newState, source = 'unknown') {
             if (!newState || typeof newState !== 'object') {
-                window.Helpers.log('StateManager: Invalid new state object', newState);
+                console.error('StateManager: Invalid new state object', newState);
                 return;
             }
             
@@ -518,7 +518,7 @@
                     });
                 }
             } else {
-                window.Helpers.log('StateManager no restored state available');
+                console.debug('StateManager no restored state available');
             }
         },
         
@@ -529,7 +529,7 @@
          */
         updateUIState: function(uiState, source = 'unknown') {
             if (!uiState || typeof uiState !== 'object') {
-                window.Helpers.log('StateManager: Invalid UI state object', uiState);
+                console.error('StateManager: Invalid UI state object', uiState);
                 return;
             }
             
@@ -579,9 +579,16 @@
         window.StateManager.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.DeviceManager) {
                 window.StateManager.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.DeviceManager) missing.push('DeviceManager');
+                console.error('[StateManager.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

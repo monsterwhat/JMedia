@@ -1402,7 +1402,7 @@
                     // Restore the previous active player on play rejection/abort
                     this.activePlayer = previousActivePlayer;
                     if (this._userPaused) {
-                        window.Helpers.log('AudioEngine: Crossfade failed while paused; not retrying playback');
+                        console.error('AudioEngine: Crossfade failed while paused; not retrying playback');
                         this._pauseOthers(null, 'crossfade failed paused');
                         return;
                     }
@@ -1416,7 +1416,7 @@
                         // on the still-audible outgoing element instead of
                         // leaving the engine pointing at silence.
                         this.activePlayer = previousActivePlayer;
-                        window.Helpers.log('AudioEngine: Crossfade failed; reverted active player to ' + this.getActivePlayer().id);
+                        console.error('AudioEngine: Crossfade failed; reverted active player to ' + this.getActivePlayer().id);
                     });
                 });
             };
@@ -1885,9 +1885,17 @@
         window.AudioEngine.init();
     } else {
         // Wait for dependencies
+        let attempts = 0;
         const checkDeps = () => {
+            attempts++;
             if (window.Helpers && window.SynchronizationManager && window.StateManager) {
                 window.AudioEngine.init();
+            } else if (attempts >= 25) {
+                const missing = [];
+                if (!window.Helpers) missing.push('Helpers');
+                if (!window.SynchronizationManager) missing.push('SynchronizationManager');
+                if (!window.StateManager) missing.push('StateManager');
+                console.error('[AudioEngine.js] gave up waiting for dependencies: ' + missing.join(', '));
             } else {
                 setTimeout(checkDeps, 50);
             }

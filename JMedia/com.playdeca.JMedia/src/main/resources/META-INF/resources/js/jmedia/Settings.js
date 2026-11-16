@@ -921,7 +921,12 @@
                         `).join('');
                     }
                 } else {
-                    list.innerHTML = `<div class="p-4 has-text-danger">Error: ${json.error || 'Access denied'}</div>`;
+                    const settingsErrorMsg = json.error || 'Access denied';
+                    if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+                        list.innerHTML = `<div class="p-4 has-text-danger">Error: ${JMedia.Helpers.escapeHtml(settingsErrorMsg)}</div>`;
+                    } else {
+                        list.textContent = `Error: ${settingsErrorMsg}`;
+                    }
                 }
             } catch (e) {
                 list.innerHTML = `<div class="p-4 has-text-danger">Connection error</div>`;

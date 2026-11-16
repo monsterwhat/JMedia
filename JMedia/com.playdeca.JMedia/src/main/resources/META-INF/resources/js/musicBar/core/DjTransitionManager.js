@@ -537,7 +537,7 @@ if (entryTime !== rawEntryTime) {
                         self.stopMonitoring();
                     }).catch(function(e) {
                         console.error('[DJ] Failed to play next song:', e);
-                        window.Helpers.log('[DJ] Failed to play next song: ' + e.message);
+                        console.error('[DJ] Failed to play next song: ' + e.message);
                         // Restore volume and cancel
                         primaryAudio.volume = savedVolume;
                         self.cancelTransition();
@@ -546,7 +546,7 @@ if (entryTime !== rawEntryTime) {
                 
                 primaryAudio.onerror = function(e) {
                     console.error('[DJ] Failed to load next song:', e);
-                    window.Helpers.log('[DJ] Failed to load next song');
+                    console.error('[DJ] Failed to load next song');
                     primaryAudio.volume = savedVolume;
                     self.cancelTransition();
                 };
@@ -638,7 +638,7 @@ if (entryTime !== rawEntryTime) {
                     self.updateDjIndicator('complete');
                 }).catch(function(e) {
                     console.error('[DJ] iOS direct play failed', e);
-                    window.Helpers.log('[DJ] iOS direct play failed: ' + (e && e.message ? e.message : e));
+                    console.error('[DJ] iOS direct play failed: ' + (e && e.message ? e.message : e));
                     // Restore volume and cancel
                     primaryAudio.volume = savedVolume;
                     if (e && e.name === 'NotAllowedError') {
@@ -652,7 +652,7 @@ if (entryTime !== rawEntryTime) {
 
             primaryAudio.onerror = function(e) {
                 console.error('[DJ] iOS failed to load next song:', e);
-                window.Helpers.log('[DJ] iOS failed to load next song');
+                console.error('[DJ] iOS failed to load next song');
                 primaryAudio.volume = savedVolume;
                 primaryAudio.onloadedmetadata = prevLoadedMetadata;
                 primaryAudio.onerror = prevError;
@@ -734,7 +734,7 @@ if (entryTime !== rawEntryTime) {
                 }
             }).catch(function(err) {
                 if (attempt < 3) {
-                    window.Helpers.log('[DJ] Transition-started POST failed (attempt ' + attempt + '/3), retrying in 1s: ' + err.message);
+                    console.error('[DJ] Transition-started POST failed (attempt ' + attempt + '/3), retrying in 1s: ' + err.message);
                     setTimeout(function() {
                         self.notifyTransitionStarted(profileId, attempt + 1);
                     }, 1000);

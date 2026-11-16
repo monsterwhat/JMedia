@@ -340,7 +340,11 @@
 
             } catch (error) {
                 console.error('Failed to load view:', error);
-                container.innerHTML = `<div class="notification is-danger">Failed to load view: ${error.message}</div>`;
+                if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+                    container.innerHTML = `<div class="notification is-danger">Failed to load view: ${JMedia.Helpers.escapeHtml(error && error.message)}</div>`;
+                } else {
+                    container.textContent = `Failed to load view: ${error && error.message ? error.message : error}`;
+                }
             } finally {
                 if (this._loadingView === viewName) this._loadingView = null;
                 if (window.JMediaSplash) window.JMediaSplash.hide();

@@ -29,8 +29,6 @@
         '/js/musicBar/core/SynchronizationManager.js?v=2',
         '/js/musicBar/core/StateManager.js?v=2',
         '/js/musicBar/data/StatePersistence.js?v=2',
-        '/js/musicBar/data/SongContextCache.js?v=2',
-        '/js/musicBar/data/QueueManager.js?v=2',
         '/lib/howler.min.js',
         '/js/musicBar/core/AudioEngine.js?v=11',
         '/js/musicBar/core/DjTransitionManager.js?v=6',

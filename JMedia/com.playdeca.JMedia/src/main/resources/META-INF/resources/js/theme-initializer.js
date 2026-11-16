@@ -1,11 +1,13 @@
 // Apply theme preference immediately to prevent FOUC
 (function() {
     const savedTheme = localStorage.getItem('darkMode');
-    if (savedTheme === 'true') {
-        document.documentElement.setAttribute('data-theme', 'dark');
+    let isDark;
+    if (savedTheme === null) {
+        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     } else {
-        document.documentElement.setAttribute('data-theme', 'light');
+        isDark = savedTheme === 'true';
     }
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
 })();
 
 // Theme Toggle Logic
