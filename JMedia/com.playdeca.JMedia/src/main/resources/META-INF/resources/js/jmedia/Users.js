@@ -4,24 +4,17 @@
     const JMedia = window.JMedia = window.JMedia || {};
 
     function escapeHtml(text) {
+        if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+            return JMedia.Helpers.escapeHtml(text);
+        }
         if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
 
-    async function checkIsAdmin() {
-        try {
-            const response = await fetch('/api/auth/is-admin');
-            const json = await response.json();
-            return json.data && json.data.isAdmin;
-        } catch (e) {
-            console.error('Error checking admin status:', e);
-            return false;
-        }
-    }
-
     JMedia.Users = {
+        _saveUserInFlight: false,
         loadUsers: async function() {
             console.log('[Users] Loading users...');
             const tableBody = document.getElementById('usersTableBody');
@@ -104,6 +97,11 @@
         },
 
         saveUser: async function() {
+            if (JMedia.Users._saveUserInFlight) return;
+            JMedia.Users._saveUserInFlight = true;
+            const saveBtn = document.getElementById('saveUserBtn');
+            if (saveBtn) saveBtn.disabled = true;
+
             const userId = document.getElementById('editUserId').value;
             const username = document.getElementById('userUsername').value.trim();
             const password = document.getElementById('userPassword').value;
@@ -113,11 +111,15 @@
             if (!username) {
                 errorDiv.textContent = 'Username is required';
                 errorDiv.style.display = 'block';
+                JMedia.Users._saveUserInFlight = false;
+                if (saveBtn) saveBtn.disabled = false;
                 return;
             }
             if (!userId && !password) {
                 errorDiv.textContent = 'Password is required';
                 errorDiv.style.display = 'block';
+                JMedia.Users._saveUserInFlight = false;
+                if (saveBtn) saveBtn.disabled = false;
                 return;
             }
             const url = userId ? `/api/users/${userId}` : '/api/users';
@@ -132,9 +134,10 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const result = await response.json();
+                const result = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
-                    errorDiv.textContent = result.error || 'Failed to save user';
+                    console.error('[Users] saveUser failed:', response.status);
+                    errorDiv.textContent = (result && result.error) || 'Failed to save user';
                     errorDiv.style.display = 'block';
                     return;
                 }
@@ -142,9 +145,12 @@
                 JMedia.Users.loadUsers();
                 Toast.success(userId ? 'User updated successfully' : 'User created successfully');
             } catch (e) {
-                console.error('Error saving user:', e);
+                console.error('[Users] Error saving user:', e);
                 errorDiv.textContent = 'Error saving user';
                 errorDiv.style.display = 'block';
+            } finally {
+                JMedia.Users._saveUserInFlight = false;
+                if (saveBtn) saveBtn.disabled = false;
             }
         },
 

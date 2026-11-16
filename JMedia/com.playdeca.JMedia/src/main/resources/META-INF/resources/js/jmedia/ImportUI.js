@@ -5,18 +5,33 @@
 
     console.log('[Import] ImportUI.js loaded');
 
+    function getActiveProfileId() {
+        if (JMedia.Helpers && typeof JMedia.Helpers.getActiveProfileId === 'function') {
+            return JMedia.Helpers.getActiveProfileId();
+        }
+        const id = window.globalActiveProfileId;
+        if (!id || id === 'null' || id === 'undefined' || id === 'NaN') return null;
+        return id;
+    }
+
     JMedia.ImportUI = {
         updateHmxUrls: function() {
             const searchSuggestionsDropdown = document.getElementById('searchSuggestionsDropdown');
-            if (searchSuggestionsDropdown && window.globalActiveProfileId) {
-                searchSuggestionsDropdown.setAttribute('hx-post', `/api/music/ui/search-suggestions/${window.globalActiveProfileId}`);
+            const profileId = getActiveProfileId();
+            if (searchSuggestionsDropdown && profileId) {
+                searchSuggestionsDropdown.setAttribute('hx-post', `/api/music/ui/search-suggestions/${profileId}`);
                 if (window.htmx) htmx.process(searchSuggestionsDropdown);
             }
         },
 
         uploadCookies: function() {
-            const profileId = window.globalActiveProfileId;
+            const profileId = getActiveProfileId();
             const cookiesContent = document.getElementById('cookiesContent').value.trim();
+            if (!profileId) {
+                console.error('[ImportUI] uploadCookies: no active profile id');
+                if(window.showToast) window.showToast('No active profile found', 'error');
+                return;
+            }
             if (!cookiesContent) {
                 if(window.showToast) window.showToast('Please enter cookies content', 'warning');
                 return;
@@ -30,7 +45,12 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({cookiesContent: cookiesContent})
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    console.error('[ImportUI] uploadCookies failed:', response.status);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     if(window.showToast) window.showToast('Failed to save cookies: ' + data.error, 'error');
@@ -40,7 +60,7 @@
                 }
             })
             .catch(error => {
-                console.error('Error uploading cookies:', error);
+                console.error('[ImportUI] Error uploading cookies:', error);
                 if(window.showToast) window.showToast('Error uploading cookies', 'error');
             })
             .finally(() => {
@@ -53,7 +73,12 @@
             if (!confirm('Are you sure you want to delete the cookies file?')) {
                 return;
             }
-            const profileId = window.globalActiveProfileId;
+            const profileId = getActiveProfileId();
+            if (!profileId) {
+                console.error('[ImportUI] deleteCookies: no active profile id');
+                if(window.showToast) window.showToast('No active profile found', 'error');
+                return;
+            }
             const deleteBtn = document.getElementById('deleteCookiesBtn');
             const originalText = deleteBtn.innerHTML;
             deleteBtn.disabled = true;
@@ -61,7 +86,12 @@
             fetch(`/api/settings/${profileId}/cookies`, {
                 method: 'DELETE'
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    console.error('[ImportUI] deleteCookies failed:', response.status);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     if(window.showToast) window.showToast('Failed to delete cookies: ' + data.error, 'error');
@@ -70,7 +100,7 @@
                 }
             })
             .catch(error => {
-                console.error('Error deleting cookies:', error);
+                console.error('[ImportUI] Error deleting cookies:', error);
                 if(window.showToast) window.showToast('Error deleting cookies', 'error');
             })
             .finally(() => {
@@ -81,10 +111,15 @@
 
         uploadCookiesFile: function(file) {
             if (!file) {
-                console.error('No file provided');
+                console.error('[ImportUI] No file provided');
                 return;
             }
-            const profileId = window.globalActiveProfileId;
+            const profileId = getActiveProfileId();
+            if (!profileId) {
+                console.error('[ImportUI] uploadCookiesFile: no active profile id');
+                if(window.showToast) window.showToast('No active profile found', 'error');
+                return;
+            }
             console.log('Uploading cookie file:', file.name, 'for profile:', profileId);
             const reader = new FileReader();
             reader.onload = function(e) {
@@ -96,6 +131,9 @@
                     body: JSON.stringify({cookiesContent: cookiesContent})
                 })
                 .then(response => {
+                    if (!response.ok) {
+                        console.error('[ImportUI] uploadCookiesFile failed:', response.status);
+                    }
                     console.log('Response status:', response.status);
                     return response.json();
                 })
@@ -108,7 +146,7 @@
                     }
                 })
                 .catch(error => {
-                    console.error('Error uploading cookies file:', error);
+                    console.error('[ImportUI] Error uploading cookies file:', error);
                     if(window.showToast) window.showToast('Error uploading cookies file', 'error');
                 });
             };

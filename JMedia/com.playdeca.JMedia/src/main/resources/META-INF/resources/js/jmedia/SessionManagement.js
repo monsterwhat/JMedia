@@ -6,6 +6,9 @@
     console.log('[Sessions] SessionManagement.js loaded');
 
     function escapeHtml(text) {
+        if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+            return JMedia.Helpers.escapeHtml(text);
+        }
         if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
@@ -53,19 +56,37 @@
         return parts.join(' ');
     }
 
-    function getCurrentSessionId() {
-        try {
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'JMEDIA_SESSION') {
-                    return value;
+    let currentSessionIdPromise = null;
+    async function getCurrentSessionId() {
+        if (!currentSessionIdPromise) {
+            currentSessionIdPromise = (async function() {
+                try {
+                    const response = await fetch('/api/auth/status');
+                    if (!response.ok) {
+                        console.warn('[Sessions] /api/auth/status returned ' + response.status + '; current session id unavailable');
+                        return null;
+                    }
+                    const result = await response.json();
+                    const sid = result && result.data ? result.data.sessionId : null;
+                    return sid || null;
+                } catch (e) {
+                    console.error('[Sessions] Error resolving current session id:', e);
+                    return null;
                 }
-            }
-        } catch (e) {
-            console.error('[Sessions] Error getting session cookie:', e);
+            })();
         }
-        return null;
+        return currentSessionIdPromise;
+    }
+
+    async function waitForElement(id, maxAttempts, delayMs) {
+        const attempts = (typeof maxAttempts === 'number') ? maxAttempts : 10;
+        const delay = (typeof delayMs === 'number') ? delayMs : 100;
+        for (let i = 0; i < attempts; i++) {
+            const el = document.getElementById(id);
+            if (el) return el;
+            await new Promise(function(resolve) { setTimeout(resolve, delay); });
+        }
+        return document.getElementById(id);
     }
 
     function showSessionsLoading(show) {
@@ -127,27 +148,12 @@
     }
 
     JMedia.SessionManagement = {
+        _revokeInFlight: false,
+        _cleanupInFlight: false,
+        _clearXtreamInFlight: false,
         loadSessions: async function() {
             console.log('[Sessions] loadSessions called');
-            let attempts = 0;
-            const maxAttempts = 10;
-
-            const waitForElement = () => {
-                const tableBody = document.getElementById('sessionsTableBody');
-                if (tableBody || attempts >= maxAttempts) {
-                    return tableBody;
-                }
-                attempts++;
-                console.log('[Sessions] Waiting for element, attempt:', attempts);
-                return null;
-            };
-
-            let tableBody = waitForElement();
-
-            if (!tableBody) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                tableBody = document.getElementById('sessionsTableBody');
-            }
+            const tableBody = await waitForElement('sessionsTableBody', 10, 100);
 
             if (!tableBody) {
                 console.error('[Sessions] sessionsTableBody element not found after retries!');
@@ -161,7 +167,7 @@
             showSessionsLoading(true);
             tableBody.innerHTML = '';
 
-            const currentSessionId = getCurrentSessionId();
+            const currentSessionId = await getCurrentSessionId();
             console.log('[Sessions] Current session ID:', currentSessionId ? 'found' : 'not found');
 
             try {
@@ -222,16 +228,34 @@
 
         revokeSession: async function(sessionId) {
             console.log('[Sessions] Revoking session:', sessionId);
-            if (!confirm('Are you sure you want to revoke this session? The user will be logged out.')) {
-                return;
-            }
+            let revokeInFlight = JMedia.SessionManagement._revokeInFlight;
+            if (revokeInFlight) return;
+            JMedia.SessionManagement._revokeInFlight = true;
+
+            const trigger = (document.activeElement && document.activeElement.tagName === 'BUTTON') ? document.activeElement : null;
+            if (trigger) trigger.disabled = true;
+
             try {
+                const currentSessionId = await getCurrentSessionId();
+                if (currentSessionId && currentSessionId === sessionId) {
+                    Toast.error('Cannot revoke your own session');
+                    return;
+                }
+                if (!currentSessionId) {
+                    if (!confirm('Current session could not be determined. Revoke this session anyway?')) {
+                        return;
+                    }
+                }
+                if (!confirm('Are you sure you want to revoke this session? The user will be logged out.')) {
+                    return;
+                }
                 const response = await fetch(`/api/users/sessions/${sessionId}`, {
                     method: 'DELETE'
                 });
-                const result = await response.json();
+                const result = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
-                    Toast.error(result.error || 'Failed to revoke session');
+                    console.error('[Sessions] revokeSession failed:', response.status);
+                    Toast.error((result && result.error) || 'Failed to revoke session');
                     return;
                 }
                 Toast.success('Session revoked successfully');
@@ -239,21 +263,29 @@
             } catch (e) {
                 console.error('[Sessions] Error revoking session:', e);
                 Toast.error('Error revoking session');
+            } finally {
+                JMedia.SessionManagement._revokeInFlight = false;
+                if (trigger) trigger.disabled = false;
             }
         },
 
         cleanupSessions: async function() {
             console.log('[Sessions] Cleaning up old sessions');
-            if (!confirm('Clean up all expired sessions? Users with expired sessions will stay logged out.')) {
-                return;
-            }
+            if (JMedia.SessionManagement._cleanupInFlight) return;
+            JMedia.SessionManagement._cleanupInFlight = true;
+            const trigger = document.getElementById('cleanupSessionsBtn');
+            if (trigger) trigger.disabled = true;
             try {
+                if (!confirm('Clean up all expired sessions? Users with expired sessions will stay logged out.')) {
+                    return;
+                }
                 const response = await fetch('/api/users/sessions/cleanup', {
                     method: 'DELETE'
                 });
-                const result = await response.json();
+                const result = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
-                    Toast.error(result.error || 'Failed to clean up sessions');
+                    console.error('[Sessions] cleanupSessions failed:', response.status);
+                    Toast.error((result && result.error) || 'Failed to clean up sessions');
                     return;
                 }
                 Toast.success('Old sessions cleaned up');
@@ -261,30 +293,15 @@
             } catch (e) {
                 console.error('[Sessions] Error cleaning up sessions:', e);
                 Toast.error('Error cleaning up sessions');
+            } finally {
+                JMedia.SessionManagement._cleanupInFlight = false;
+                if (trigger) trigger.disabled = false;
             }
         },
 
         loadXtreamSessions: async function() {
             console.log('[Sessions] loadXtreamSessions called');
-            let attempts = 0;
-            const maxAttempts = 10;
-
-            const waitForElement = () => {
-                const tableBody = document.getElementById('xtreamSessionsTableBody');
-                if (tableBody || attempts >= maxAttempts) {
-                    return tableBody;
-                }
-                attempts++;
-                console.log('[Sessions] Waiting for xtream element, attempt:', attempts);
-                return null;
-            };
-
-            let tableBody = waitForElement();
-
-            if (!tableBody) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                tableBody = document.getElementById('xtreamSessionsTableBody');
-            }
+            const tableBody = await waitForElement('xtreamSessionsTableBody', 10, 100);
 
             if (!tableBody) {
                 console.error('[Sessions] xtreamSessionsTableBody element not found after retries!');
@@ -364,16 +381,21 @@
 
         clearXtreamSessions: async function() {
             console.log('[Sessions] Clearing Xtream playback history');
-            if (!confirm('Clear all Xtream playback history? This cannot be undone.')) {
-                return;
-            }
+            if (JMedia.SessionManagement._clearXtreamInFlight) return;
+            JMedia.SessionManagement._clearXtreamInFlight = true;
+            const trigger = document.getElementById('xtreamClearBtn');
+            if (trigger) trigger.disabled = true;
             try {
+                if (!confirm('Clear all Xtream playback history? This cannot be undone.')) {
+                    return;
+                }
                 const response = await fetch('/api/users/sessions/xtream', {
                     method: 'DELETE'
                 });
-                const result = await response.json();
+                const result = await response.json().catch(function() { return {}; });
                 if (!response.ok) {
-                    Toast.error(result.error || 'Failed to clear Xtream history');
+                    console.error('[Sessions] clearXtreamSessions failed:', response.status);
+                    Toast.error((result && result.error) || 'Failed to clear Xtream history');
                     return;
                 }
                 Toast.success('Xtream playback history cleared');
@@ -381,6 +403,9 @@
             } catch (e) {
                 console.error('[Sessions] Error clearing Xtream history:', e);
                 Toast.error('Error clearing Xtream history');
+            } finally {
+                JMedia.SessionManagement._clearXtreamInFlight = false;
+                if (trigger) trigger.disabled = false;
             }
         }
     };
@@ -392,60 +417,16 @@
     window.loadXtreamSessions = JMedia.SessionManagement.loadXtreamSessions;
     window.clearXtreamSessions = JMedia.SessionManagement.clearXtreamSessions;
 
-    document.addEventListener('DOMContentLoaded', () => {
-        const refreshBtn = document.getElementById('refreshSessionsBtn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                JMedia.SessionManagement.loadSessions();
-            });
-        }
-        const cleanupBtn = document.getElementById('cleanupSessionsBtn');
-        if (cleanupBtn) {
-            cleanupBtn.addEventListener('click', () => {
-                JMedia.SessionManagement.cleanupSessions();
-            });
-        }
-        const xtreamRefreshBtn = document.getElementById('xtreamRefreshBtn');
-        if (xtreamRefreshBtn) {
-            xtreamRefreshBtn.addEventListener('click', () => {
-                JMedia.SessionManagement.loadXtreamSessions();
-            });
-        }
-        const xtreamClearBtn = document.getElementById('xtreamClearBtn');
-        if (xtreamClearBtn) {
-            xtreamClearBtn.addEventListener('click', () => {
-                JMedia.SessionManagement.clearXtreamSessions();
-            });
-        }
+    document.addEventListener('click', function(e) {
+        const origin = e.target && e.target.closest ? e.target : null;
+        if (!origin) return;
+        // refreshSessionsBtn / cleanupSessionsBtn are owned by Settings.initSettingsView,
+        // which already assigns their onclick (they call window.loadSessions /
+        // window.cleanupSessions). Handling them here too ran each action twice,
+        // including a destructive cleanup DELETE. Only the Xtream buttons, which
+        // nothing else binds, are delegated here.
+        if (origin.closest('#xtreamRefreshBtn')) { JMedia.SessionManagement.loadXtreamSessions(); return; }
+        if (origin.closest('#xtreamClearBtn')) { JMedia.SessionManagement.clearXtreamSessions(); return; }
     });
-
-    const refreshBtn = document.getElementById('refreshSessionsBtn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            console.log('[Sessions] Refresh button clicked (immediate)');
-            JMedia.SessionManagement.loadSessions();
-        });
-    }
-    const cleanupBtn = document.getElementById('cleanupSessionsBtn');
-    if (cleanupBtn) {
-        cleanupBtn.addEventListener('click', () => {
-            console.log('[Sessions] Cleanup button clicked (immediate)');
-            JMedia.SessionManagement.cleanupSessions();
-        });
-    }
-    const xtreamRefreshBtn = document.getElementById('xtreamRefreshBtn');
-    if (xtreamRefreshBtn) {
-        xtreamRefreshBtn.addEventListener('click', () => {
-            console.log('[Sessions] Xtream refresh button clicked (immediate)');
-            JMedia.SessionManagement.loadXtreamSessions();
-        });
-    }
-    const xtreamClearBtn = document.getElementById('xtreamClearBtn');
-    if (xtreamClearBtn) {
-        xtreamClearBtn.addEventListener('click', () => {
-            console.log('[Sessions] Xtream clear button clicked (immediate)');
-            JMedia.SessionManagement.clearXtreamSessions();
-        });
-    }
 
 })(window);

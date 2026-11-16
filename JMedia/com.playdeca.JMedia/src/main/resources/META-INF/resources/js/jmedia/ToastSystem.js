@@ -10,6 +10,7 @@
             this.defaultDuration = 4000;
             this.maxLifetime = 300000;
             this.container = null;
+            this._escapeWarned = false;
             this.init();
         }
 
@@ -21,6 +22,20 @@
                 this.container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 99999;';
                 document.body.appendChild(this.container);
             }
+        }
+
+        clearToastTimers(toast) {
+            if (!toast) return;
+            ['timeoutId', 'showTimerId', 'removeTimerId', 'progressHideTimerId'].forEach((key) => {
+                if (toast[key]) {
+                    try {
+                        clearTimeout(toast[key]);
+                    } catch (e) {
+                        console.error('[ToastSystem] clearTimeout failed', e);
+                    }
+                    toast[key] = null;
+                }
+            });
         }
 
         show(options) {
@@ -42,26 +57,54 @@
             }
 
             if (this.toasts.length >= this.maxToasts && !persistent) {
-                const oldestToast = this.toasts.shift();
-                this.removeToast(oldestToast.element);
+                let victimIndex = -1;
+                for (let i = 0; i < this.toasts.length; i++) {
+                    const candidate = this.toasts[i];
+                    if (candidate.persistent) continue;
+                    if (candidate.type === 'progress') continue;
+                    victimIndex = i;
+                    break;
+                }
+                if (victimIndex !== -1) {
+                    const victim = this.toasts.splice(victimIndex, 1)[0];
+                    this.clearToastTimers(victim);
+                    this.removeToast(victim.element);
+                }
             }
 
             const toastId = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const toast = this.createToastElement(message, type, toastId, clickHandler, persistent);
 
-            this.toasts.push({ id: toastId, element: toast, type, timestamp: Date.now(), timeoutId: null, isRemoving: false });
+            const showTimerId = setTimeout(() => {
+                try {
+                    toast.classList.add('show');
+                } catch (e) {
+                    console.error('[ToastSystem] show timer failed', e);
+                }
+            }, 10);
+
+            const record = { id: toastId, element: toast, type, timestamp: Date.now(), timeoutId: null, showTimerId, removeTimerId: null, progressHideTimerId: null, isRemoving: false, persistent };
+            this.toasts.push(record);
             this.container.appendChild(toast);
 
-            setTimeout(() => toast.classList.add('show'), 10);
-
             if (!persistent) {
-                const timeoutId = setTimeout(() => this.hideToast(toastId), duration);
-                const toastObj = this.toasts.find(t => t.id === toastId);
-                if (toastObj) toastObj.timeoutId = timeoutId;
+                const timeoutId = setTimeout(() => {
+                    try {
+                        this.hideToast(toastId);
+                    } catch (e) {
+                        console.error('[ToastSystem] hide timer failed', e);
+                    }
+                }, duration);
+                record.timeoutId = timeoutId;
             } else {
-                const safetyTimeoutId = setTimeout(() => this.hideToast(toastId), this.maxLifetime);
-                const toastObj = this.toasts.find(t => t.id === toastId);
-                if (toastObj) toastObj.timeoutId = safetyTimeoutId;
+                const safetyTimeoutId = setTimeout(() => {
+                    try {
+                        this.hideToast(toastId);
+                    } catch (e) {
+                        console.error('[ToastSystem] safety hide timer failed', e);
+                    }
+                }, this.maxLifetime);
+                record.timeoutId = safetyTimeoutId;
             }
 
             return toastId;
@@ -83,7 +126,16 @@
 
             const icon = icons[type] || icons.info;
 
-            const escapedMessage = JMedia.Helpers ? JMedia.Helpers.escapeHtml(message) : message;
+            const hasEscape = !!(JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function');
+            let escapedMessage = '';
+            if (hasEscape) {
+                escapedMessage = JMedia.Helpers.escapeHtml(message);
+            } else {
+                if (!this._escapeWarned) {
+                    this._escapeWarned = true;
+                    console.warn('[ToastSystem] escapeHtml unavailable; using textContent');
+                }
+            }
 
             toast.innerHTML = `
                 <div class="toast-content">
@@ -92,6 +144,11 @@
                     ${!persistent ? '<button class="toast-close" aria-label="Close notification">×</button>' : ''}
                 </div>
             `;
+
+            if (!hasEscape) {
+                const msgSpan = toast.querySelector('.toast-message');
+                if (msgSpan) msgSpan.textContent = message;
+            }
 
             if (clickHandler) {
                 toast.style.cursor = 'pointer';
@@ -126,24 +183,28 @@
 
             toast.isRemoving = true;
 
-            if (toast.timeoutId) {
-                clearTimeout(toast.timeoutId);
-                toast.timeoutId = null;
-            }
+            this.clearToastTimers(toast);
 
             toast.element.classList.remove('show');
 
-            setTimeout(() => {
+            const removeTimerId = setTimeout(() => {
                 const currentIndex = this.toasts.findIndex(t => t.id === toastId);
                 if (currentIndex !== -1) {
                     this.removeToast(this.toasts[currentIndex].element);
                     this.toasts.splice(currentIndex, 1);
                 }
             }, 300);
+            toast.removeTimerId = removeTimerId;
         }
 
         removeToast(toastElement) {
-            if (!toastElement || !toastElement.parentNode) return;
+            if (!toastElement) return;
+            for (let i = this.toasts.length - 1; i >= 0; i--) {
+                if (this.toasts[i].element === toastElement) {
+                    this.clearToastTimers(this.toasts[i]);
+                }
+            }
+            if (!toastElement.parentNode) return;
             toastElement.parentNode.removeChild(toastElement);
         }
 
@@ -151,9 +212,7 @@
             const toastsToClear = this.toasts.slice();
             this.toasts = [];
             toastsToClear.forEach(toast => {
-                if (toast.timeoutId) {
-                    clearTimeout(toast.timeoutId);
-                }
+                this.clearToastTimers(toast);
                 this.removeToast(toast.element);
             });
         }
@@ -177,33 +236,81 @@
         progress(message, percent = 0, options = {}) {
             const id = options.id || 'scan-progress-toast';
             const caption = options.caption || 'App performance may be reduced';
+
+            this.toasts.forEach((t) => {
+                if (t.id === id && t.progressHideTimerId) {
+                    clearTimeout(t.progressHideTimerId);
+                    t.progressHideTimerId = null;
+                }
+            });
+
+            const hasEscape = !!(JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function');
+            if (!hasEscape && !this._escapeWarned) {
+                this._escapeWarned = true;
+                console.warn('[ToastSystem] escapeHtml unavailable; using textContent');
+            }
+
             let toast = document.getElementById(id);
 
             if (!toast) {
-                const toastId = id;
+                const escapedMessage = hasEscape ? JMedia.Helpers.escapeHtml(message) : '';
+                const escapedCaption = hasEscape ? JMedia.Helpers.escapeHtml(caption) : '';
+
                 toast = document.createElement('div');
                 toast.className = 'toast info';
-                toast.id = toastId;
+                toast.id = id;
                 toast.style.minWidth = '300px';
 
                 toast.innerHTML = `
                     <div class="toast-content" style="flex-direction: column; align-items: flex-start;">
                         <div style="display: flex; align-items: center; width: 100%; margin-bottom: 8px;">
                             <i class="pi pi-spin pi-spinner" style="margin-right: 10px;"></i>
-                            <span id="${id}-message" style="flex-grow: 1;">${message}</span>
+                            <span id="${id}-message" style="flex-grow: 1;">${escapedMessage}</span>
                         </div>
                         <div class="progress-bar-container" style="width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;">
                             <div id="${id}-bar" style="width: ${percent}%; height: 100%; background: #4CAF50; transition: width 0.3s ease;"></div>
                         </div>
-                        <div style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">${caption}</div>
+                        <div id="${id}-caption" style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">${escapedCaption}</div>
                     </div>
                 `;
 
-                this.container.appendChild(toast);
-                setTimeout(() => toast.classList.add('show'), 10);
+                if (!hasEscape) {
+                    const msgEl = toast.querySelector('span[id$="-message"]');
+                    if (msgEl) msgEl.textContent = message;
+                    const captionEl = toast.querySelector('div[id$="-caption"]');
+                    if (captionEl) captionEl.textContent = caption;
+                }
 
-                this.toasts.push({ id: toastId, element: toast, type: 'progress', timestamp: Date.now(), persistent: true });
+                this.container.appendChild(toast);
+
+                const showTimerId = setTimeout(() => {
+                    try {
+                        toast.classList.add('show');
+                    } catch (e) {
+                        console.error('[ToastSystem] progress show timer failed', e);
+                    }
+                }, 10);
+
+                this.toasts = this.toasts.filter((t) => t.id !== id);
+                const record = { id, element: toast, type: 'progress', timestamp: Date.now(), persistent: true, timeoutId: null, showTimerId, removeTimerId: null, progressHideTimerId: null, isRemoving: false };
+                this.toasts.push(record);
             } else {
+                const existingEntries = this.toasts.filter((t) => t.id === id);
+                if (existingEntries.length === 0) {
+                    this.toasts.push({ id, element: toast, type: 'progress', timestamp: Date.now(), persistent: true, timeoutId: null, showTimerId: null, removeTimerId: null, progressHideTimerId: null, isRemoving: false });
+                } else if (existingEntries.length > 1) {
+                    let kept = false;
+                    this.toasts = this.toasts.filter((t) => {
+                        if (t.id !== id) return true;
+                        if (!kept) {
+                            kept = true;
+                            return true;
+                        }
+                        this.clearToastTimers(t);
+                        return false;
+                    });
+                }
+
                 const msgEl = document.getElementById(`${id}-message`);
                 const barEl = document.getElementById(`${id}-bar`);
                 if (msgEl) msgEl.textContent = message;
@@ -211,9 +318,15 @@
             }
 
             if (percent >= 100) {
-                setTimeout(() => {
-                    this.hideToast(id);
+                const hideTimerId = setTimeout(() => {
+                    try {
+                        this.hideToast(id);
+                    } catch (e) {
+                        console.error('[ToastSystem] progress hide timer failed', e);
+                    }
                 }, 2000);
+                const rec = this.toasts.find((t) => t.id === id);
+                if (rec) rec.progressHideTimerId = hideTimerId;
             }
         }
 
@@ -239,5 +352,4 @@
             clickHandler
         });
     };
-
 })(window);

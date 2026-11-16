@@ -4,13 +4,14 @@
     const JMedia = window.JMedia = window.JMedia || {};
 
     function getProfileId() {
-        // Same resolution order as JMedia.Helpers: the global is set by the
-        // profile bootstrap and is occasionally absent at first paint, which
-        // produced /api/settings/null/... 404s.
-        return window.globalActiveProfileId
-            || localStorage.getItem('activeProfileId')
-            || (window.JMedia && window.JMedia.Helpers && window.JMedia.Helpers.getActiveProfileId
-                ? window.JMedia.Helpers.getActiveProfileId() : null);
+        // Delegate to the canonical guard in JMedia.Helpers so the 'null'/'undefined'/
+        // 'NaN' filter is applied consistently everywhere.
+        if (window.JMedia && window.JMedia.Helpers && typeof window.JMedia.Helpers.getActiveProfileId === 'function') {
+            return window.JMedia.Helpers.getActiveProfileId();
+        }
+        const id = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+        if (!id || id === 'null' || id === 'undefined' || id === 'NaN') return null;
+        return id;
     }
 
     window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, ytdlp: false, parakeet: false, tesseract: false, deno: false };
@@ -65,7 +66,7 @@
                 if (window.loadInstallationStatus) window.loadInstallationStatus();   // PRIMARY refresh — do not rely on WS sentinels alone
             } else {
                 let msg = `Failed to update ${comp}`;
-                try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (e) {}
+                try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (e) { console.warn(`[Settings] Failed to parse update error response for ${comp}:`, e); }
                 if(window.showToast) window.showToast(msg, 'error');
             }
         } catch (e) {
@@ -336,7 +337,9 @@
                         else layout.classList.remove('sidebar-right');
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to save sidebar position:', e);
+            }
         },
 
         loadUiSettings: async function () {
@@ -356,7 +359,9 @@
                     }
                     return json.data;
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to load sidebar position:', e);
+            }
             return null;
         },
 
@@ -376,13 +381,21 @@
 
         initSettingsView: async function() {
             console.log("Initializing Settings View");
-            window.globalActiveProfileId = localStorage.getItem('activeProfileId');
+            const resolvedProfileId = getProfileId();
+            if (resolvedProfileId) {
+                window.globalActiveProfileId = resolvedProfileId;
+            }
             JMedia.Settings.fixHtmxSettingsEndpoints();
             await JMedia.Settings.checkAdminStatus();
 
             const setupClick = (id, fn, msg) => {
                 const el = document.getElementById(id);
-                if (el) el.onclick = () => msg ? (confirm(msg) && fn()) : fn();
+                if (!el) return;
+                if (typeof fn !== 'function') {
+                    console.error(`[Settings] Missing handler for ${id}`);
+                    return;
+                }
+                el.onclick = () => msg ? (confirm(msg) && fn()) : fn();
             };
 
             setupClick("resetLibrary", window.resetLibrary, "Reset library path?");
@@ -538,7 +551,9 @@
                 if (resMusic.ok && resVideo.ok) {
                     if(window.showToast) window.showToast("History cleared", "success");
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to clear playback history:', e);
+            }
         },
 
         loadPlaybackSettings: async function () {
@@ -551,7 +566,9 @@
                     const val = document.getElementById('crossfadeValue');
                     if (input) { input.value = json.data; if (val) val.textContent = json.data; }
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to load playback settings:', e);
+            }
         },
 
         savePlaybackSettings: async function () {
@@ -559,27 +576,48 @@
             const input = document.getElementById('crossfadeDuration');
             const val = input ? parseInt(input.value) : 0;
             try {
-                await fetch(`/api/music/playback/crossfade/${profileId}/${val}`, { method: 'POST' });
-                if(window.showToast) window.showToast('Playback settings saved', 'success');
-            } catch (e) {}
+                const res = await fetch(`/api/music/playback/crossfade/${profileId}/${val}`, { method: 'POST' });
+                if (res.ok) {
+                    if (window.showToast) window.showToast('Playback settings saved', 'success');
+                } else {
+                    console.warn('[Settings] Failed to save playback settings: HTTP ' + res.status);
+                }
+            } catch (e) {
+                console.error('[Settings] Failed to save playback settings:', e);
+            }
         },
 
         loadAutoSkipSettings: async function () {
             const profileId = getProfileId();
+            const controls = ['autoSkipIntro', 'autoSkipRecap', 'autoSkipOutro'];
+            this._autoSkipLoaded = false;
+            controls.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
             try {
                 const res = await fetch(`/api/settings/${profileId}`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const json = await res.json();
-                if (res.ok && json.data) {
+                if (json && json.data) {
                     const d = json.data;
                     const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val === true; };
                     setCheck('autoSkipIntro', d.autoSkipIntro);
                     setCheck('autoSkipRecap', d.autoSkipRecap);
                     setCheck('autoSkipOutro', d.autoSkipOutro);
+                    this._autoSkipLoaded = true;
+                } else {
+                    console.warn('[Settings] Auto-skip settings response missing data');
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to load auto-skip settings:', e);
+                controls.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+            }
         },
 
         saveAutoSkipSettings: async function () {
+            if (!this._autoSkipLoaded) {
+                console.warn('[Settings] Auto-skip settings not loaded; save skipped');
+                if (window.showToast) window.showToast('Auto-skip settings not loaded', 'warning');
+                return;
+            }
             const profileId = getProfileId();
             const data = {
                 autoSkipIntro: document.getElementById('autoSkipIntro')?.checked || false,
@@ -646,7 +684,9 @@
                 } else if (window.showToast) {
                     window.showToast('Failed to save max concurrent transcodes', 'error');
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to save max concurrent transcodes:', e);
+            }
         },
 
         saveMaxCompleteCacheFiles: async function () {
@@ -663,7 +703,9 @@
                 } else if (window.showToast) {
                     window.showToast('Failed to save max complete cache files', 'error');
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to save max complete cache files:', e);
+            }
         },
 
         saveHardwareAcceleration: async function () {
@@ -679,7 +721,9 @@
                 } else if (window.showToast) {
                     window.showToast('Failed to save hardware acceleration', 'error');
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to save hardware acceleration:', e);
+            }
         },
 
         saveSystemPerformance: async function () {
@@ -730,13 +774,15 @@
                     <div class="card mb-2" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
                         <div class="card-content p-3">
                             <div class="is-flex is-justify-content-space-between is-align-items-center">
-                                <p class="has-text-weight-semibold" style="color: white;">${p.name} ${p.isMainProfile ? '<span class="tag is-warning is-small ml-2">Main</span>' : ''} ${cur.id === p.id ? '<span class="tag is-info is-small ml-2">Current</span>' : ''}</p>
-                                ${!p.isMainProfile ? `<button class="button is-danger is-light is-small" onclick="window.deleteProfile(${p.id})"><i class="pi pi-trash"></i></button>` : ''}
+                                <p class="has-text-weight-semibold" style="color: white;">${JMedia.Helpers.escapeHtml(p.name)} ${p.isMainProfile ? '<span class="tag is-warning is-small ml-2">Main</span>' : ''} ${cur.id === p.id ? '<span class="tag is-info is-small ml-2">Current</span>' : ''}</p>
+                                ${!p.isMainProfile ? `<button class="button is-danger is-light is-small" onclick="window.deleteProfile(${JMedia.Helpers.escapeAttr(p.id)})"><i class="pi pi-trash"></i></button>` : ''}
                             </div>
                         </div>
                     </div>
                 `).join('');
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to load profiles:', e);
+            }
         },
 
         loadInstallationStatus: async function () {
@@ -794,7 +840,9 @@
                     const denoUpdateBtn = document.getElementById('updateDenoBtn');
                     if (denoUpdateBtn) denoUpdateBtn.hidden = !denoInst || status.denoInstalling === true;
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to load installation status:', e);
+            }
         },
 
         refreshSettingsUI: async function () {
@@ -824,12 +872,16 @@
         checkAdminStatus: async function() {
             try {
                 const res = await fetch('/api/auth/is-admin');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const json = await res.json();
-                const isAdmin = json.data && json.data.isAdmin;
+                const isAdmin = !!(json.data && json.data.isAdmin);
                 document.querySelectorAll('.admin-only').forEach(el => {
                     el.style.display = isAdmin ? (el.classList.contains('nav-item') ? 'flex' : 'block') : 'none';
                 });
-            } catch (e) {}
+            } catch (e) {
+                console.error('[Settings] Failed to check admin status:', e);
+                document.querySelectorAll('.admin-only').forEach(el => { el.style.display = 'none'; });
+            }
         },
 
         openFolderBrowser: function(target) {
@@ -861,10 +913,10 @@
                         list.innerHTML = '<div class="p-4 has-text-centered opacity-50">No subfolders found</div>';
                     } else {
                         list.innerHTML = folders.map(f => `
-                            <div class="p-3 is-clickable folder-item" onclick="window.loadFolders('${f.path.replace(/\\/g, '\\\\')}')" 
+                            <div class="p-3 is-clickable folder-item" onclick="window.loadFolders('${JMedia.Helpers.escapeAttr(f.path.replace(/\\/g, '\\\\'))}')" 
                                  style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: 0.2s;">
                                 <i class="pi pi-folder mr-3" style="color: #48c774;"></i>
-                                <span>${f.name}</span>
+                                <span>${JMedia.Helpers.escapeHtml(f.name)}</span>
                             </div>
                         `).join('');
                     }
@@ -929,38 +981,38 @@
             const videoDirs = dirs.filter(d => d.mediaType === 'VIDEO');
             if (musicContainer) {
                 musicContainer.innerHTML = musicDirs.map(dir => `
-                    <div class="directory-item box mb-2 p-3" data-id="${dir.id}">
+                    <div class="directory-item box mb-2 p-3" data-id="${JMedia.Helpers.escapeAttr(dir.id)}">
                         <div class="level is-mobile">
                             <div class="level-left">
-                                <span>${dir.path}</span>
+                                <span>${JMedia.Helpers.escapeHtml(dir.path)}</span>
                             </div>
                             <div class="level-right">
-                                <button class="button is-small is-danger" onclick="window.deleteDirectory(${dir.id})">Remove</button>
+                                <button class="button is-small is-danger" onclick="window.deleteDirectory(${JMedia.Helpers.escapeAttr(dir.id)})">Remove</button>
                             </div>
                         </div>
                         <div class="buttons mt-2">
-                            <button class="button is-small is-primary" onclick="window.scanDirectory(${dir.id})">Scan</button>
-                            <button class="button is-small is-info" onclick="window.reloadDirectoryMetadata(${dir.id})">Reload</button>
-                            <button class="button is-small is-danger is-outlined" onclick="window.clearDirectorySongs(${dir.id})">Clear</button>
+                            <button class="button is-small is-primary" onclick="window.scanDirectory(${JMedia.Helpers.escapeAttr(dir.id)})">Scan</button>
+                            <button class="button is-small is-info" onclick="window.reloadDirectoryMetadata(${JMedia.Helpers.escapeAttr(dir.id)})">Reload</button>
+                            <button class="button is-small is-danger is-outlined" onclick="window.clearDirectorySongs(${JMedia.Helpers.escapeAttr(dir.id)})">Clear</button>
                         </div>
                     </div>
                 `).join('') || '<p class="has-text-grey">No music directories added.</p>';
             }
             if (videoContainer) {
                 videoContainer.innerHTML = videoDirs.map(dir => `
-                    <div class="directory-item box mb-2 p-3" data-id="${dir.id}">
+                    <div class="directory-item box mb-2 p-3" data-id="${JMedia.Helpers.escapeAttr(dir.id)}">
                         <div class="level is-mobile">
                             <div class="level-left">
-                                <span>${dir.path}</span>
+                                <span>${JMedia.Helpers.escapeHtml(dir.path)}</span>
                             </div>
                             <div class="level-right">
-                                <button class="button is-small is-danger" onclick="window.deleteDirectory(${dir.id})">Remove</button>
+                                <button class="button is-small is-danger" onclick="window.deleteDirectory(${JMedia.Helpers.escapeAttr(dir.id)})">Remove</button>
                             </div>
                         </div>
                         <div class="buttons mt-2">
-                            <button class="button is-small is-primary" onclick="window.scanVideoDirectory(${dir.id})">Scan</button>
-                            <button class="button is-small is-info" onclick="window.reloadVideoDirectoryMetadata(${dir.id})">Reload</button>
-                            <button class="button is-small is-danger is-outlined" onclick="window.clearDirectoryVideos(${dir.id})">Clear</button>
+                            <button class="button is-small is-primary" onclick="window.scanVideoDirectory(${JMedia.Helpers.escapeAttr(dir.id)})">Scan</button>
+                            <button class="button is-small is-info" onclick="window.reloadVideoDirectoryMetadata(${JMedia.Helpers.escapeAttr(dir.id)})">Reload</button>
+                            <button class="button is-small is-danger is-outlined" onclick="window.clearDirectoryVideos(${JMedia.Helpers.escapeAttr(dir.id)})">Clear</button>
                         </div>
                     </div>
                 `).join('') || '<p class="has-text-grey">No video directories added.</p>';

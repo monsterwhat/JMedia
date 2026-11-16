@@ -6,6 +6,9 @@
     console.log('[XtreamCats] XtreamCategories.js loaded');
 
     function escapeHtml(text) {
+        if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+            return JMedia.Helpers.escapeHtml(text);
+        }
         if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
@@ -25,6 +28,7 @@
     };
 
     let searchTimer = null;
+    let xtreamTitlesRequestGeneration = 0;
 
     function showLoading(show) {
         const loading = document.getElementById('xtreamCatsLoading');
@@ -280,6 +284,7 @@
             clearError();
             showLoading(true);
             grid.innerHTML = '';
+            const thisRequest = ++xtreamTitlesRequestGeneration;
             try {
                 const params = new URLSearchParams({
                     type: state.type,
@@ -290,6 +295,9 @@
                 });
                 const response = await fetch('/api/admin/xtream-categories/titles?' + params.toString());
                 const result = await response.json();
+                if (thisRequest !== xtreamTitlesRequestGeneration) {
+                    return;
+                }
                 showLoading(false);
                 if (!response.ok || result.success === false) {
                     showError(result.error || `Failed to load titles (${response.status})`);
@@ -305,6 +313,9 @@
                 }
                 updatePager();
             } catch (e) {
+                if (thisRequest !== xtreamTitlesRequestGeneration) {
+                    return;
+                }
                 console.error('[XtreamCats] Error loading titles:', e);
                 showLoading(false);
                 showError('Connection error: ' + e.message);

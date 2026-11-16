@@ -5,47 +5,15 @@
 
     JMedia.Navbar = {};
 
-    JMedia.Navbar.setupPlayerToggle = function() {
-        const playerToggle = document.getElementById('playerToggle');
-        const playerIcon = document.getElementById('playerIcon');
-        if (playerToggle && playerIcon) {
-            const currentPage = window.location.pathname;
-            if (currentPage.includes('/player.html')) {
-                playerIcon.classList.remove('pi-expand');
-                playerIcon.classList.add('pi-desktop');
-                playerToggle.href = '/';
-                playerToggle.title = 'Switch to Desktop View';
-            } else {
-                playerIcon.classList.remove('pi-desktop');
-                playerIcon.classList.add('pi-expand');
-                playerToggle.href = '/player.html';
-                playerToggle.title = 'Switch to Player View';
-            }
-        }
-    };
-
-    JMedia.Navbar.setupBurgerMenu = function() {
-        const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
-        if ($navbarBurgers.length > 0) {
-            $navbarBurgers.forEach(el => {
-                el.addEventListener('click', () => {
-                    const target = el.dataset.target;
-                    const $target = document.getElementById(target);
-                    el.classList.toggle('is-active');
-                    $target.classList.toggle('is-active');
-                });
-            });
-        }
-    };
-
     JMedia.Navbar.setupDropdowns = function() {
         function closeSearchResults() {
             const searchResultsContainer = document.getElementById('searchResultsContainer');
+            if (!searchResultsContainer) return;
+            searchResultsContainer.classList.add('is-hidden');
+            searchResultsContainer.innerHTML = '';
             const mainContent = document.getElementById('mainContent');
-            if (searchResultsContainer && mainContent) {
-                searchResultsContainer.classList.add('is-hidden');
+            if (mainContent) {
                 mainContent.classList.remove('is-hidden');
-                searchResultsContainer.innerHTML = '';
             }
         }
 
@@ -71,8 +39,20 @@
 
         function fetchCurrentProfileAndThenUpdateNavbar() {
             fetch('/api/profiles/current')
-                .then(response => response.json())
-                .then(currentProfile => updateNavbarButtonsVisibility(currentProfile))
+                .then(response => {
+                    if (!response.ok) {
+                        console.warn('[Navbar] profile request failed', response.status);
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(currentProfile => {
+                    if (currentProfile) {
+                        updateNavbarButtonsVisibility(currentProfile);
+                    } else {
+                        updateNavbarButtonsVisibility(null);
+                    }
+                })
                 .catch(error => {
                     console.error('Error fetching current profile:', error);
                     updateNavbarButtonsVisibility(null);
@@ -84,13 +64,19 @@
     };
 
     window.handleLogout = function() {
+        localStorage.removeItem('authToken');
         localStorage.removeItem('activeProfileId');
-        fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html');
+        fetch('/api/auth/logout', { method: 'POST' })
+            .then(() => {
+                window.location.href = '/login.html';
+            })
+            .catch(err => {
+                console.error('[Navbar] logout request failed', err);
+                window.location.href = '/login.html';
+            });
     };
 
     document.addEventListener('DOMContentLoaded', () => {
-        JMedia.Navbar.setupPlayerToggle();
-        JMedia.Navbar.setupBurgerMenu();
         JMedia.Navbar.setupDropdowns();
     });
 

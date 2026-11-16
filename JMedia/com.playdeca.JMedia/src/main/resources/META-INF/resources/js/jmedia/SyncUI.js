@@ -4,6 +4,9 @@
     const JMedia = window.JMedia = window.JMedia || {};
 
     function escapeHtml(text) {
+        if (JMedia.Helpers && typeof JMedia.Helpers.escapeHtml === 'function') {
+            return JMedia.Helpers.escapeHtml(text);
+        }
         if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
@@ -14,6 +17,7 @@
         _servers: [],
         _progressInterval: null,
         _progressPolling: false,
+        _pollInFlight: false,
 
         loadAll: async function() {
             await Promise.all([
@@ -44,6 +48,8 @@
                     if (apiKeyEl && s.syncApiKey) apiKeyEl.value = s.syncApiKey;
                     const limitEl = document.getElementById('syncItemLimit');
                     if (limitEl && s.syncItemLimit !== undefined) limitEl.value = s.syncItemLimit;
+                } else if (!res.ok) {
+                    console.warn('[Sync] loadSyncSettings failed', '/api/sync/settings', res.status);
                 }
             } catch (e) {
                 console.error('[Sync] Error loading settings:', e);
@@ -93,6 +99,7 @@
                     document.execCommand('copy');
                     if (window.showToast) window.showToast('API key copied', 'success');
                 } catch (e) {
+                    console.warn('[Sync] copyApiKey failed', e);
                     if (window.showToast) window.showToast('Failed to copy', 'error');
                 }
                 input.type = 'password';
@@ -173,6 +180,8 @@
                 return;
             }
 
+            JMedia.Sync._progressPolling = true;
+
             const limit = parseInt(document.getElementById('syncItemLimit')?.value) || 0;
 
             try {
@@ -185,9 +194,17 @@
                 if (res.ok) {
                     if (window.showToast) window.showToast(json.data?.message || type + ' sync started', 'success');
                     JMedia.Sync.startProgressPolling();
+                } else {
+                    console.error('[SyncUI] sync trigger failed', res.status);
+                    if (window.showToast) window.showToast('Failed to trigger sync', 'error');
                 }
             } catch (e) {
+                console.error('[SyncUI] sync trigger failed', e);
                 if (window.showToast) window.showToast('Failed to trigger sync', 'error');
+            } finally {
+                if (!JMedia.Sync._progressInterval) {
+                    JMedia.Sync._progressPolling = false;
+                }
             }
         },
 
@@ -211,6 +228,8 @@
         },
 
         pollProgress: async function() {
+            if (JMedia.Sync._pollInFlight) return;
+            JMedia.Sync._pollInFlight = true;
             try {
                 const res = await fetch('/api/sync/status');
                 const json = await res.json();
@@ -265,6 +284,8 @@
                 }
             } catch (e) {
                 console.error('[Sync] Progress poll error:', e);
+            } finally {
+                JMedia.Sync._pollInFlight = false;
             }
         },
 
@@ -426,6 +447,7 @@
                     if (errorEl) { errorEl.textContent = json.data?.message || 'Server unreachable'; errorEl.style.display = 'block'; }
                 }
             } catch (e) {
+                console.error('[Sync] testNewConnection failed', '/api/sync/servers/test-connection', e);
                 if (errorEl) { errorEl.textContent = 'Connection error: ' + e.message; errorEl.style.display = 'block'; }
             } finally {
                 btn.disabled = false;
@@ -461,6 +483,7 @@
                     if (errorEl) { errorEl.textContent = json.error || 'Failed to add server'; errorEl.style.display = 'block'; }
                 }
             } catch (e) {
+                console.error('[Sync] saveServer failed', e);
                 if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }
             } finally {
                 btn.disabled = false;
@@ -560,6 +583,7 @@
                     if (errorEl) { errorEl.textContent = json.error || 'Failed to update server'; errorEl.style.display = 'block'; }
                 }
             } catch (e) {
+                console.error('[Sync] saveServer failed', e);
                 if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }
             } finally {
                 btn.disabled = false;
@@ -574,6 +598,8 @@
                 if (res.ok) {
                     if (window.showToast) window.showToast('Server removed', 'success');
                     await JMedia.Sync.loadServers();
+                } else {
+                    console.warn('[Sync] deleteServer failed', '/api/sync/servers/' + id, res.status);
                 }
             } catch (e) {
                 console.error('[Sync] Error deleting server:', e);
@@ -590,6 +616,8 @@
                 if (res.ok) {
                     if (window.showToast) window.showToast(enabled ? 'Server enabled' : 'Server disabled', 'success');
                     await JMedia.Sync.loadServers();
+                } else {
+                    console.warn('[Sync] toggleServer failed', '/api/sync/servers/' + id, res.status);
                 }
             } catch (e) {
                 console.error('[Sync] Error toggling server:', e);
@@ -618,6 +646,7 @@
                     if (window.showToast) window.showToast('Connection to ' + server.name + ' failed: ' + (json.data?.message || 'Unreachable'), 'error');
                 }
             } catch (e) {
+                console.error('[Sync] testServerConnection failed', '/api/sync/servers/test-connection', e);
                 if (window.showToast) window.showToast('Connection test error', 'error');
             }
         },
@@ -691,6 +720,8 @@
                             countEl.innerHTML = 'Music: ' + (counts.music || 0) + ' | Videos: ' + (counts.videos || 0) + ' | Collections: ' + (counts.collections || 0);
                         }
                     }
+                } else if (!res.ok) {
+                    console.warn('[Sync] loadStatus failed', '/api/sync/status', res.status);
                 }
             } catch (e) {
                 console.error('[Sync] Error loading status:', e);
@@ -723,6 +754,8 @@
                         </div>`;
                     }).join('');
                     container.scrollTop = container.scrollHeight;
+                } else if (!res.ok) {
+                    console.warn('[Sync] loadLogs failed', '/api/sync/logs', res.status);
                 }
             } catch (e) {
                 console.error('[Sync] Error loading logs:', e);
@@ -732,5 +765,13 @@
     };
 
     window.JMedia = JMedia;
+
+    function stopPollingOnHide() {
+        if (document.visibilityState === 'hidden') {
+            JMedia.Sync.stopProgressPolling();
+        }
+    }
+    document.addEventListener('visibilitychange', stopPollingOnHide);
+    window.addEventListener('pagehide', function() { JMedia.Sync.stopProgressPolling(); });
 
 })(window);

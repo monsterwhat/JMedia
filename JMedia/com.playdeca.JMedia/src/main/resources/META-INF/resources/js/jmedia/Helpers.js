@@ -69,6 +69,16 @@
             return div.innerHTML;
         },
 
+        escapeAttr: function(text) {
+            if (text === null || text === undefined) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        },
+
         getActiveProfileId: function() {
             const id = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             // A fresh browser may have stored the literal string "null" before

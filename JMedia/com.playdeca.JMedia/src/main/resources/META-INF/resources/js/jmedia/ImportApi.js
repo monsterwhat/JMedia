@@ -29,8 +29,12 @@
     };
 
     function connectWebSocket() {
-        if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+        if (importWebSocket && (importWebSocket.readyState === WebSocket.CONNECTING || importWebSocket.readyState === WebSocket.OPEN)) {
             return;
+        }
+        if (importWebSocket) {
+            console.warn('[ImportApi] replacing previous import socket');
+            try { importWebSocket.close(); } catch (err) { console.warn('[ImportApi] failed to close previous import socket', err); }
         }
         const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -190,6 +194,7 @@
     }
 
     JMedia.ImportApi = {
+        _savingAdvancedConfig: false,
         connectWebSocket,
         displayWarning,
         clearWarning,
@@ -293,6 +298,8 @@
                         if (apiResponse.data) {
                             importSettings = apiResponse.data;
                         }
+                    } else {
+                        console.warn('[ImportApi] fetchImportSettings failed', response.status);
                     }
                 } catch (error) {
                     console.error('Error fetching settings:', error);
@@ -313,6 +320,8 @@
                                 playlistSelect.appendChild(option);
                             });
                         }
+                    } else {
+                        console.warn('[ImportApi] fetchAndPopulatePlaylists failed', response.status);
                     }
                 } catch (error) {
                     console.error('Network error fetching playlists:', error);
@@ -328,6 +337,8 @@
                         if (apiResponse.data) {
                             downloadFolderInput.value = apiResponse.data;
                         }
+                    } else {
+                        console.warn('[ImportApi] setDefaultDownloadFolder failed', response.status);
                     }
                 } catch (error) {
                     console.error('Error fetching default download path:', error);
@@ -388,11 +399,18 @@
                         downloadPath,
                         playlistName: playlistNameToSend
                     };
-                    importWebSocket.send(JSON.stringify(message));
+                    try {
+                        importWebSocket.send(JSON.stringify(message));
+                    } catch (err) {
+                        console.error('[ImportApi] failed to send start-import', err);
+                        downloadBtn.disabled = false;
+                        if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+                    }
                 } else {
                     displayWarning('WebSocket is not connected. Attempting to reconnect...');
                     connectWebSocket();
                     downloadBtn.disabled = false;
+                    if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
                 }
             };
 
@@ -439,6 +457,8 @@
                         updateAdvancedConfigUI();
                         JMedia.ImportApi.loadYtDlpVersion();
                     }
+                } else {
+                    console.warn('[ImportApi] loadAdvancedConfiguration failed', response.status);
                 }
             } catch (error) {
                 console.error('Error loading advanced configuration:', error);
@@ -459,8 +479,11 @@
                             versionElement.textContent = versionMatch ? versionMatch[1] : (msg.includes('found') ? 'Installed' : msg);
                         }
                     }
+                } else {
+                    console.warn('[ImportApi] loadYtDlpVersion failed', response.status);
                 }
             } catch (error) {
+                console.error('[ImportApi] loadYtDlpVersion failed', error);
                 const versionElement = document.getElementById('ytdlpVersion');
                 if (versionElement) versionElement.textContent = 'Unknown';
             }
@@ -509,6 +532,10 @@
         },
 
         saveAdvancedConfiguration: async () => {
+            if (JMedia.ImportApi._savingAdvancedConfig) return;
+            JMedia.ImportApi._savingAdvancedConfig = true;
+            const saveBtn = document.getElementById('saveAdvancedConfigBtn');
+            if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('is-loading'); }
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             try {
                 const configData = {
@@ -545,6 +572,9 @@
                 }
             } catch (error) {
                 console.error('Error saving advanced configuration:', error);
+            } finally {
+                JMedia.ImportApi._savingAdvancedConfig = false;
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('is-loading'); }
             }
         }
     };

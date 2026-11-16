@@ -19,7 +19,9 @@
         let currentProfile = null;
 
         function getActiveProfileId() {
-            return localStorage.getItem('activeProfileId') || null;
+            const id = localStorage.getItem('activeProfileId');
+            if (!id || id === 'null' || id === 'undefined' || id === 'NaN') return null;
+            return id;
         }
 
         function setActiveProfileId(profileId) {
@@ -153,7 +155,9 @@
             if (!newProfileNameInput) return;
             const name = newProfileNameInput.value.trim();
             if (!name) {
-                JMedia.ToastSystem ? JMedia.ToastSystem.warning('Please enter a profile name.') : Toast.warning('Please enter a profile name.');
+                if (window.showToast) window.showToast('Please enter a profile name.', 'warning');
+                else if (window.Toast && typeof window.Toast.warning === 'function') window.Toast.warning('Please enter a profile name.');
+                else console.warn('[ProfileManager] Please enter a profile name.');
                 return;
             }
             fetch('/api/profiles', {
@@ -174,7 +178,9 @@
 
         function deleteCurrentProfile() {
             if (!currentProfile || currentProfile.isMainProfile) {
-                JMedia.ToastSystem ? JMedia.ToastSystem.warning("Cannot delete the main profile.") : Toast.warning("Cannot delete the main profile.");
+                if (window.showToast) window.showToast('Cannot delete the main profile.', 'warning');
+                else if (window.Toast && typeof window.Toast.warning === 'function') window.Toast.warning('Cannot delete the main profile.');
+                else console.warn('[ProfileManager] Cannot delete the main profile.');
                 return;
             }
             if (confirm(`Are you sure you want to delete the profile "${currentProfile.name}"? Playlists and history will be moved to the Main profile.`)) {
@@ -203,6 +209,58 @@
             }
         }
 
+
+         async function deleteProfile(profileId) {
+             if (!confirm('Are you sure you want to delete this profile? Playlists and history will be moved to the Main profile.')) {
+                 return;
+             }
+             try {
+                 const res = await fetch(`/api/profiles/${profileId}`, { method: 'DELETE' });
+                 if (res.ok) {
+                     if (window.showToast) window.showToast('Profile deleted', 'success');
+                     else if (window.Toast && typeof window.Toast.success === 'function') window.Toast.success('Profile deleted');
+                     else if (typeof Toast !== 'undefined') Toast.success('Profile deleted');
+                     fetchProfiles();
+                     if (typeof window.loadProfiles === 'function') window.loadProfiles();
+                     const stored = getActiveProfileId();
+                     if (!stored || String(stored) === String(profileId)) {
+                         try {
+                             const profilesRes = await fetch('/api/profiles');
+                             const profiles = await profilesRes.json();
+                             const main = Array.isArray(profiles) ? profiles.find(p => p.isMainProfile) : null;
+                             if (main) {
+                                 switchProfile(main.id);
+                             } else {
+                                 localStorage.removeItem('activeProfileId');
+                                 location.reload();
+                             }
+                         } catch (e) {
+                             console.error('[ProfileManager] Failed to resolve main profile after delete:', e);
+                             localStorage.removeItem('activeProfileId');
+                             location.reload();
+                         }
+                     } else {
+                         fetchCurrentProfile();
+                     }
+                 } else {
+                     let msg = 'Failed to delete profile';
+                     try {
+                         const text = await res.text();
+                         if (text) msg = text;
+                     } catch (e) {
+                         console.error('[ProfileManager] Failed to read delete error response:', e);
+                     }
+                     if (window.showToast) window.showToast(msg, 'error');
+                     else if (window.Toast && typeof window.Toast.error === 'function') window.Toast.error(msg);
+                     else if (typeof Toast !== 'undefined') Toast.error(`Error: ${msg}`);
+                 }
+             } catch (e) {
+                 console.error('[ProfileManager] Error deleting profile:', e);
+                 if (window.showToast) window.showToast('Error deleting profile', 'error');
+             }
+         }
+
+
         if (openProfileModalBtn && profileModal) {
             openProfileModalBtn.onclick = () => {
                 profileModal.classList.add('is-active');
@@ -219,6 +277,11 @@
         if (deleteCurrentProfileBtn) {
             deleteCurrentProfileBtn.onclick = deleteCurrentProfile;
         }
+        window.createProfile = createProfile;
+        window.deleteProfile = deleteProfile;
+        JMedia.ProfileManager = JMedia.ProfileManager || {};
+        JMedia.ProfileManager.createProfile = createProfile;
+        JMedia.ProfileManager.deleteProfile = deleteProfile;
         if (profileModal) {
             const modalBackground = profileModal.querySelector('.modal-background');
             const modalCloseButton = profileModal.querySelector('.delete');
@@ -263,13 +326,5 @@
             }));
         });
     });
-
-    // Backward-compatible aliases
-    JMedia.ProfileManager.createProfile = function(name) {
-        // exposed as window.createProfile from settings.js
-    };
-    JMedia.ProfileManager.deleteProfile = function(id) {
-        // exposed as window.deleteProfile from settings.js
-    };
 
 })(window);

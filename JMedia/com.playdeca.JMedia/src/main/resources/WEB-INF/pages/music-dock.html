@@ -50,7 +50,7 @@
         <!-- jMedia Module System -->
         <script src="/js/jmedia/Helpers.js" defer></script>
         <script src="/js/jmedia/ToastSystem.js" defer></script>
-        <script src="/js/jmedia/Settings.js" defer></script>
+        <script src="/js/jmedia/Settings.js?v=1" defer></script>
         <script src="/js/video-settings.js" defer></script>
         <script src="/js/ai-subtitle-generator.js?v=1" defer></script>
         <script src="/js/jmedia/Users.js" defer></script>
@@ -67,7 +67,7 @@
              moved to /js/music-bundle-loader.js (music-only). -->
         <script src="/js/jmedia/Breadcrumbs.js" defer></script>
         <script src="/js/jmedia/PageChrome.js" defer></script>
-        <script src="/js/jmedia/App.js?v=2" defer></script>
+        <script src="/js/jmedia/App.js?v=3" defer></script>
         <!-- MobileApp (mobile music UI) moved to /js/music-bundle-loader.js -->
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
@@ -708,11 +708,6 @@
                 });
             }
 
-            function handleLogout() {
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('activeProfileId');
-                window.location.href = '/login'; 
-            }
         </script>
     </body>
 </html>

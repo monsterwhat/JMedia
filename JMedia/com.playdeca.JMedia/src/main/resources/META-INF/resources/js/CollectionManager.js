@@ -75,6 +75,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to create', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error creating collection (caught)', e);
                 if (window.showToast) window.showToast('Error creating collection', 'danger');
             }
         }
@@ -114,6 +115,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to rename', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error renaming collection (caught)', e);
                 if (window.showToast) window.showToast('Error renaming collection', 'danger');
             }
         }
@@ -130,6 +132,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to delete', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error deleting collection (caught)', e);
                 if (window.showToast) window.showToast('Error deleting collection', 'danger');
             }
         }
@@ -437,6 +440,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to add', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error adding entry (caught)', e);
                 if (window.showToast) window.showToast('Error adding entry', 'danger');
             }
         }
@@ -470,6 +474,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to add', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error adding entry (caught)', e);
                 if (window.showToast) window.showToast('Error adding entry', 'danger');
             }
         }
@@ -491,6 +496,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to remove', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error removing entry (caught)', e);
                 if (window.showToast) window.showToast('Error removing entry', 'danger');
             }
         }
@@ -507,6 +513,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to queue', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error queuing entry (caught)', e);
                 if (window.showToast) window.showToast('Error queuing entry', 'danger');
             }
         }
@@ -523,6 +530,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to queue', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error queuing entry (caught)', e);
                 if (window.showToast) window.showToast('Error queuing entry', 'danger');
             }
         }
@@ -544,6 +552,7 @@
                     this.videoSPA.hideLoading();
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error playing collection (caught)', e);
                 if (window.showToast) window.showToast('Error playing collection', 'danger');
                 this.videoSPA.hideLoading();
             }
@@ -574,10 +583,13 @@
             }
             const cards = container.querySelectorAll('.add-card[data-in-collection="false"]');
             let added = 0;
+            let failed = 0;
+            let total = 0;
             for (const card of cards) {
                 const mediaType = card.getAttribute('data-media-type') || 'video';
                 const mediaId = card.getAttribute('data-media-id');
                 if (!mediaId) continue;
+                total++;
                 try {
                     const body = mediaType === 'external'
                         ? 'externalVideoId=' + mediaId + '&orderIndex=' + (nextOrder + added)
@@ -592,11 +604,21 @@
                         this.updateCardToAdded(card, json.data.id);
                         this.addEntryToCollectionList(mediaId, json.data.id, mediaType);
                         added++;
+                    } else {
+                        failed++;
+                        console.error('[CollectionManager] batch add failed for episode ' + mediaId, json.error || new Error('request failed'));
                     }
-                } catch (e) {}
+                } catch (e) {
+                    failed++;
+                    console.error('[CollectionManager] batch add failed for episode ' + mediaId, e);
+                }
             }
-            if (added > 0) {
-                if (window.showToast) window.showToast('Added ' + added + ' episode' + (added > 1 ? 's' : ''), 'success');
+            if (total > 0) {
+                if (failed > 0) {
+                    if (window.showToast) window.showToast('Added ' + added + ' of ' + total + ' - ' + failed + ' failed', failed === total ? 'danger' : 'warning');
+                } else if (added > 0) {
+                    if (window.showToast) window.showToast('Added ' + added + ' episode' + (added > 1 ? 's' : ''), 'success');
+                }
             }
         }
 
@@ -607,9 +629,12 @@
             if (!container) return;
             const cards = container.querySelectorAll('.add-card[data-in-collection="true"]');
             let removed = 0;
+            let failed = 0;
+            let total = 0;
             for (const card of cards) {
                 const entryId = card.getAttribute('data-entry-id');
                 if (!entryId) continue;
+                total++;
                 try {
                     const res = await fetch('/api/collections/entries/' + entryId, { method: 'DELETE' });
                     const json = await res.json();
@@ -617,11 +642,21 @@
                         this.updateCardToRemoved(card);
                         this.removeEntryFromCollectionList(entryId);
                         removed++;
+                    } else {
+                        failed++;
+                        console.error('[CollectionManager] batch remove failed for episode ' + entryId, json.error || new Error('request failed'));
                     }
-                } catch (e) {}
+                } catch (e) {
+                    failed++;
+                    console.error('[CollectionManager] batch remove failed for episode ' + entryId, e);
+                }
             }
-            if (removed > 0) {
-                if (window.showToast) window.showToast('Removed ' + removed + ' episode' + (removed > 1 ? 's' : ''), 'success');
+            if (total > 0) {
+                if (failed > 0) {
+                    if (window.showToast) window.showToast('Removed ' + removed + ' of ' + total + ' - ' + failed + ' failed', failed === total ? 'danger' : 'warning');
+                } else if (removed > 0) {
+                    if (window.showToast) window.showToast('Removed ' + removed + ' episode' + (removed > 1 ? 's' : ''), 'success');
+                }
             }
         }
 
@@ -671,6 +706,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to update', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error updating entry (caught)', e);
                 if (window.showToast) window.showToast('Error updating entry', 'danger');
             }
         }
@@ -701,6 +737,7 @@
                     if (window.showToast) window.showToast(json.error || 'Failed to update cover', 'danger');
                 }
             } catch (e) {
+                console.error('[CollectionManager] Error updating cover (caught)', e);
                 if (window.showToast) window.showToast('Error updating cover', 'danger');
             }
         }
@@ -748,6 +785,7 @@
             };
 
             list.querySelectorAll('.collection-entry').forEach(el => {
+                if (el.dataset.dragBound === '1') return;
                 el.setAttribute('draggable', 'true');
                 el.addEventListener('dragstart', onDragStart);
                 el.addEventListener('dragenter', onDragEnter);
@@ -755,6 +793,7 @@
                 el.addEventListener('dragover', onDragOver);
                 el.addEventListener('drop', onDrop);
                 el.addEventListener('dragend', onDragEnd);
+                el.dataset.dragBound = '1';
             });
         }
 

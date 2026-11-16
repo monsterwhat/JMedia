@@ -149,6 +149,7 @@
 
             const container = document.getElementById('app-content');
 
+            const navGen = (this._navGen = (this._navGen || 0) + 1);
             this._loadingView = viewName;
             // Show the global loading overlay while the target view fetches and
             // injects, so client-side navigation feels like a page change.
@@ -163,10 +164,23 @@
 
             try {
                 const response = await fetch(`/views/${viewName}.html`);
+                if (navGen !== this._navGen) {
+                    if (this._loadingView === viewName) this._loadingView = null;
+                    return;
+                }
                 if (!response.ok) throw new Error(`View not found: ${viewName}`);
                 const html = await response.text();
+                if (navGen !== this._navGen) {
+                    if (this._loadingView === viewName) this._loadingView = null;
+                    return;
+                }
 
-                document.body.className = `${viewName}-page`;
+                // Remove only previous page classes (*-page), preserving every other
+                // body class other modules may have added (video-active, cinema-mode, ...).
+                Array.from(document.body.classList).forEach((cls) => {
+                    if (cls.endsWith('-page')) document.body.classList.remove(cls);
+                });
+                document.body.classList.add(`${viewName}-page`);
                 container.innerHTML = html;
                 this.currentView = viewName;
 
@@ -252,6 +266,14 @@
                         window.UIUpdater.forceRefresh();
                     } else {
                         JMedia.PageChrome.setMusicHome();
+                    }
+                } else if (viewName === 'settings') {
+                    if (JMedia.PageChrome && typeof JMedia.PageChrome.set === 'function') {
+                        JMedia.PageChrome.set('Settings - JMedia');
+                    }
+                } else if (viewName === 'import') {
+                    if (JMedia.PageChrome && typeof JMedia.PageChrome.set === 'function') {
+                        JMedia.PageChrome.set('Import - JMedia');
                     }
                 }
 

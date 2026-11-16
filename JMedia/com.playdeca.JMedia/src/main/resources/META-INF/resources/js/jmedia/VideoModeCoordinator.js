@@ -100,6 +100,11 @@
                         JMedia.Helpers.log('[VideoModeCoordinator] setVideoMode(true) no-op (' + source + ')');
                     }
                     if (!window.videoPlaying) window.videoPlaying = true;
+                    // Reconcile DOM even on the "already active" path: a direct
+                    // load/refresh can have the class stripped by App.loadView
+                    // assigning body.className, so re-assert presence here.
+                    try { document.body.classList.add('video-active'); } catch (e) { console.error('[VideoModeCoordinator] body class add failed', e); }
+                    try { document.body.setAttribute('data-video-active', 'true'); } catch (e) { console.error('[VideoModeCoordinator] setAttribute failed', e); }
                     return;
                 }
                 this._enterVideo(source);
@@ -112,6 +117,8 @@
                     JMedia.Helpers.log('[VideoModeCoordinator] setVideoMode(false) no-op already inactive (' + source + ')');
                 }
                 if (window.videoPlaying) window.videoPlaying = false;
+                try { document.body.classList.remove('video-active'); } catch (e) { console.error('[VideoModeCoordinator] body class remove failed', e); }
+                try { document.body.setAttribute('data-video-active', 'false'); } catch (e) { console.error('[VideoModeCoordinator] setAttribute false failed', e); }
                 return;
             }
             this._scheduleResume(source);
@@ -413,9 +420,11 @@
                         var routeActive = Coordinator.isVideoRoute();
                         var currentlyActive = Coordinator.isVideoActive();
                         var wouldChange;
+                        var domActive = false;
+                        try { domActive = document.body.classList.contains('video-active') || document.body.getAttribute('data-video-active') === 'true'; } catch (e) { domActive = false; }
                         if (currentlyActive) {
                             if (routeActive) {
-                                wouldChange = false;
+                                wouldChange = !domActive;
                             } else {
                                 wouldChange = !Coordinator.hasActiveVideoPlayer();
                             }
@@ -423,7 +432,7 @@
                             if (routeActive) {
                                 wouldChange = true;
                             } else {
-                                wouldChange = Coordinator.hasActiveVideoPlayer();
+                                wouldChange = Coordinator.hasActiveVideoPlayer() || domActive;
                             }
                         }
                         if (!wouldChange) return;
@@ -439,10 +448,12 @@
                 try {
                     var routeActive = Coordinator.isVideoRoute();
                     var currentlyActive = Coordinator.isVideoActive();
+                    var domActive = false;
+                    try { domActive = document.body.classList.contains('video-active') || document.body.getAttribute('data-video-active') === 'true'; } catch (e) { domActive = false; }
                     var wouldChange;
                     if (currentlyActive) {
                         if (routeActive) {
-                            wouldChange = false;
+                            wouldChange = !domActive;
                         } else {
                             wouldChange = !Coordinator.hasActiveVideoPlayer();
                         }
@@ -450,7 +461,7 @@
                         if (routeActive) {
                             wouldChange = true;
                         } else {
-                            wouldChange = Coordinator.hasActiveVideoPlayer();
+                            wouldChange = Coordinator.hasActiveVideoPlayer() || domActive;
                         }
                     }
                     if (!wouldChange) return;

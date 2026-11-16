@@ -5,6 +5,8 @@
 
     JMedia.PlaylistCreator = {};
 
+    let playlistResultsWarned = false;
+
     JMedia.PlaylistCreator.createFromText = async function() {
         const profileId = JMedia.Helpers.getActiveProfileId();
         if (!profileId) {
@@ -70,35 +72,56 @@
         const unmatchedSection = document.getElementById('unmatchedSection');
         const unmatchedList = document.getElementById('unmatchedList');
         const viewPlaylistBtn = document.getElementById('viewPlaylistBtn');
-        if (!resultsDiv || !resultsMessage) return;
+        if (!resultsDiv || !resultsMessage) {
+            if (!playlistResultsWarned) {
+                console.warn('[PlaylistCreator] results container missing');
+                playlistResultsWarned = true;
+            }
+            const fallback = resultsDiv || document.querySelector('[data-playlist-results]');
+            if (fallback) {
+                fallback.style.display = 'block';
+                if (data && data.message) fallback.textContent = data.message;
+            }
+            return;
+        }
 
         resultsDiv.style.display = 'block';
         resultsMessage.textContent = data.message;
 
-        if (data.unmatchedLines && data.unmatchedLines.length > 0) {
-            unmatchedSection.style.display = 'block';
-            unmatchedList.innerHTML = data.unmatchedLines.map(line =>
-                `<div class="mb-1">• ${JMedia.Helpers.escapeHtml(line)}</div>`
-            ).join('');
-        } else {
-            unmatchedSection.style.display = 'none';
+        if (unmatchedSection) {
+            if (data.unmatchedLines && data.unmatchedLines.length > 0) {
+                unmatchedSection.style.display = 'block';
+                if (unmatchedList) {
+                    unmatchedList.innerHTML = data.unmatchedLines.map(line =>
+                        `<div class="mb-1">• ${JMedia.Helpers.escapeHtml(line)}</div>`
+                    ).join('');
+                }
+            } else {
+                unmatchedSection.style.display = 'none';
+            }
         }
 
-        if (data.playlist && data.playlist.id) {
-            viewPlaylistBtn.onclick = () => { window.location.href = `/?playlist=${data.playlist.id}`; };
-            viewPlaylistBtn.style.display = 'inline-flex';
-        } else {
-            viewPlaylistBtn.style.display = 'none';
+        if (viewPlaylistBtn) {
+            if (data.playlist && data.playlist.id) {
+                viewPlaylistBtn.onclick = () => { window.location.href = `/?playlist=${data.playlist.id}`; };
+                viewPlaylistBtn.style.display = 'inline-flex';
+            } else {
+                viewPlaylistBtn.style.display = 'none';
+            }
         }
         resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     };
 
     JMedia.PlaylistCreator.clearForm = function() {
-        document.getElementById('playlistNameInput').value = '';
-        document.getElementById('playlistDescriptionInput').value = '';
-        document.getElementById('songListTextarea').value = '';
-        document.getElementById('playlistResults').style.display = 'none';
-        document.getElementById('playlistNameInput')?.focus();
+        const nameInput = document.getElementById('playlistNameInput');
+        const descInput = document.getElementById('playlistDescriptionInput');
+        const textArea = document.getElementById('songListTextarea');
+        const results = document.getElementById('playlistResults');
+        if (nameInput) nameInput.value = '';
+        if (descInput) descInput.value = '';
+        if (textArea) textArea.value = '';
+        if (results) results.style.display = 'none';
+        if (nameInput) nameInput.focus();
     };
 
     JMedia.PlaylistCreator.validateForm = function() {
@@ -120,14 +143,23 @@
     window.clearPlaylistForm = JMedia.PlaylistCreator.clearForm;
     window.validatePlaylistForm = JMedia.PlaylistCreator.validateForm;
 
+    document.addEventListener('click', function(e) {
+        const origin = e.target && e.target.closest ? e.target : null;
+        if (!origin) return;
+        if (origin.closest('#createPlaylistBtn')) {
+            JMedia.PlaylistCreator.createFromText();
+            return;
+        }
+        if (origin.closest('#clearPlaylistFormBtn')) {
+            JMedia.PlaylistCreator.clearForm();
+            return;
+        }
+    });
+
     document.addEventListener('DOMContentLoaded', function() {
-        const createBtn = document.getElementById('createPlaylistBtn');
-        const clearBtn = document.getElementById('clearPlaylistFormBtn');
         const playlistNameInput = document.getElementById('playlistNameInput');
         const songListTextarea = document.getElementById('songListTextarea');
 
-        if (createBtn) createBtn.addEventListener('click', JMedia.PlaylistCreator.createFromText);
-        if (clearBtn) clearBtn.addEventListener('click', JMedia.PlaylistCreator.clearForm);
         if (playlistNameInput) playlistNameInput.addEventListener('input', JMedia.PlaylistCreator.validateForm);
         if (songListTextarea) songListTextarea.addEventListener('input', JMedia.PlaylistCreator.validateForm);
         JMedia.PlaylistCreator.validateForm();
