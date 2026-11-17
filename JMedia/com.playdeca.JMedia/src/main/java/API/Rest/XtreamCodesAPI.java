@@ -11,6 +11,7 @@ import Services.AuthService;
 import Services.VideoService;
 import Services.SettingsService;
 import Services.ThumbnailService;
+import Services.LiveGroupService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -49,6 +50,9 @@ public class XtreamCodesAPI {
 
     @Inject
     Services.AnnouncementService announcementService;
+
+    @Inject
+    Services.LiveGroupService liveGroupService;
 
     @QueryParam("username")
     String username;
@@ -976,25 +980,21 @@ public class XtreamCodesAPI {
     }
 
     // Base for synthesized numeric live-group category ids. Playlist ids occupy
-    // small ints, so groups stay clear in the 1M+ range. Derived deterministically
-    // from the normalized group name so app caches survive restarts (apps parse
-    // category_id as integer — the old g_<playlist>_<uuid> strings broke them).
-    private static final int LIVE_GROUP_ID_BASE = 1000000;
-    private static final int LIVE_GROUP_ID_RANGE = 8000000;
-    private static final java.util.Map<String, String> LIVE_GROUP_ID_CACHE =
-            new java.util.concurrent.ConcurrentHashMap<>();
-
+    // small ints, so groups stay clear in the 1M+ range. Ids are allocated and
+    // persisted by LiveGroupService (apps parse category_id as integer — the old
+    // g_<playlist>_<uuid> strings broke them).
     private static String normalizeGroupName(String group) {
         return group == null ? "" : group.strip().toLowerCase(java.util.Locale.ROOT);
     }
 
-    private static String liveGroupCategoryId(String normalizedGroup) {
-        return LIVE_GROUP_ID_CACHE.computeIfAbsent(normalizedGroup, key -> {
-            long h = java.util.UUID.nameUUIDFromBytes(("live-group:" + key)
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).getMostSignificantBits() & Long.MAX_VALUE;
-            return String.valueOf(LIVE_GROUP_ID_BASE + (h % LIVE_GROUP_ID_RANGE));
-        });
-    }
+    // get_live_categories scans every live channel, so cache the response. The
+    // generation is bumped by M3uService on import/delete/visibility changes:
+    // imports show up immediately, while the stream checker's per-channel status
+    // writes do not invalidate the cache on every probe.
+    private static final long LIVE_CATEGORIES_TTL_MS = 120_000L;
+    private static volatile List<XtreamCategory> liveCategoriesCache;
+    private static volatile long liveCategoriesCacheExpiresAt;
+    private static volatile long liveCategoriesCacheGeneration = -1L;
 
     // Base for synthesized numeric collection category ids. Genre ids occupy
     // small ints and live groups 1M-9M, so collections stay clear in the 20M+
@@ -1164,6 +1164,21 @@ public class XtreamCodesAPI {
     }
 
     private Response getLiveCategories() {
+        long now = System.currentTimeMillis();
+        long generation = LiveGroupService.categoryGeneration();
+        List<XtreamCategory> cached = liveCategoriesCache;
+        if (cached != null && now < liveCategoriesCacheExpiresAt
+                && generation == liveCategoriesCacheGeneration) {
+            return Response.ok(cached).build();
+        }
+        List<XtreamCategory> categories = buildLiveCategories();
+        liveCategoriesCache = categories;
+        liveCategoriesCacheExpiresAt = now + LIVE_CATEGORIES_TTL_MS;
+        liveCategoriesCacheGeneration = generation;
+        return Response.ok(categories).build();
+    }
+
+    private List<XtreamCategory> buildLiveCategories() {
         List<XtreamCategory> categories = new ArrayList<>();
 
         List<Models.Video.M3uPlaylist> playlists = Models.Video.M3uPlaylist.list("isActive = true");
@@ -1199,17 +1214,14 @@ public class XtreamCodesAPI {
                 categories.add(new XtreamCategory(String.valueOf(pl.id), name));
             }
         }
-        java.util.Map<String, String> idByDisplay = new java.util.HashMap<>();
+        java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
         for (String key : groupKeys) {
-            String gid = liveGroupCategoryId(key);
-            String clash = idByDisplay.get(gid);
-            if (clash != null) {
-                log.errorf("Live group id collision for category id %s, keeping first name", gid);
+            String gid = groupIds.get(key);
+            if (gid == null || "0".equals(gid)) {
+                log.warnf("Live group '%s' has no category id, skipping it", key);
                 continue;
             }
-            String display = toDisplayGenre(key);
-            idByDisplay.put(gid, display);
-            categories.add(new XtreamCategory(gid, display));
+            categories.add(new XtreamCategory(gid, toDisplayGenre(key)));
         }
 
         // BlueiPTV and similar clients do not synthesize their own All tab, so name the
@@ -1217,7 +1229,7 @@ public class XtreamCodesAPI {
         if (anyVisible) {
             categories.add(0, new XtreamCategory(ALL_CATEGORY_ID, ALL_CATEGORY_NAME));
         }
-        return Response.ok(categories).build();
+        return categories;
     }
 
     private Response getLiveStreams(String catId) {
@@ -1273,6 +1285,15 @@ public class XtreamCodesAPI {
             channels = LiveChannel.listAll();
         }
 
+        // Resolve every group once (and persist any new mapping) instead of doing a
+        // DB lookup per channel.
+        java.util.Set<String> groupKeys = channels.stream()
+                .filter(XtreamCodesAPI::isLiveChannelVisible)
+                .filter(ch -> ch.groupTitle != null && !ch.groupTitle.isBlank())
+                .map(ch -> normalizeGroupName(ch.groupTitle))
+                .collect(Collectors.toSet());
+        java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
+
         List<java.util.Map<String, Object>> streams = new ArrayList<>();
         int num = 1;
         int hidden = 0;
@@ -1286,7 +1307,7 @@ public class XtreamCodesAPI {
             java.util.Map<String, Object> s = new java.util.LinkedHashMap<>();
             s.put("num", num++);
             s.put("name", ch.name);
-            s.put("stream_type", "live");
+            s.put("stream_type", Boolean.TRUE.equals(ch.isRadio) ? "radio_streams" : "live");
             s.put("stream_id", ch.id);
             s.put("stream_icon", getLiveChannelLogo(ch));
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
@@ -1297,7 +1318,7 @@ public class XtreamCodesAPI {
             // ungrouped channels fall back to their playlist id.
             String channelCategoryId;
             if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-                channelCategoryId = liveGroupCategoryId(normalizeGroupName(ch.groupTitle));
+                channelCategoryId = groupIds.getOrDefault(normalizeGroupName(ch.groupTitle), "0");
             } else if (ch.playlist != null) {
                 channelCategoryId = String.valueOf(ch.playlist.id);
             } else {
@@ -1305,10 +1326,10 @@ public class XtreamCodesAPI {
             }
             if ("0".equals(effectiveCategoryId)) {
                 s.put("category_id", channelCategoryId);
-                s.put("category_ids", new ArrayList<>(List.of(channelCategoryId)));
+                s.put("category_ids", numericCategoryIds(channelCategoryId));
             } else {
                 s.put("category_id", effectiveCategoryId);
-                s.put("category_ids", new ArrayList<>(List.of(effectiveCategoryId)));
+                s.put("category_ids", numericCategoryIds(effectiveCategoryId));
             }
             s.put("custom_sid", "");
             s.put("tv_archive", 0);
@@ -1333,16 +1354,37 @@ public class XtreamCodesAPI {
         return ch != null && !"dead".equals(ch.streamStatus);
     }
 
+    /**
+     * Some clients type {@code category_ids} as numbers while {@code category_id}
+     * is a string (XUI returns [449]; the Go client declares []int). JMedia's ids
+     * are always numeric, so send both fields in the shape clients expect.
+     */
+    private static List<Long> numericCategoryIds(String id) {
+        if (id == null || id.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            return new ArrayList<>(List.of(Long.parseLong(id)));
+        } catch (NumberFormatException e) {
+            log.debugf("Non-numeric Xtream category id '%s'; sending an empty category_ids", id);
+            return new ArrayList<>();
+        }
+    }
+
     private List<LiveChannel> filterLiveByGroupId(String numericGroupId) {
+        List<LiveChannel> all = LiveChannel.listAll();
+        java.util.Set<String> groupKeys = all.stream()
+                .filter(XtreamCodesAPI::isLiveChannelVisible)
+                .filter(ch -> ch.groupTitle != null && !ch.groupTitle.isBlank())
+                .map(ch -> normalizeGroupName(ch.groupTitle))
+                .collect(Collectors.toSet());
+        java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
         List<LiveChannel> matched = new ArrayList<>();
-        for (LiveChannel ch : LiveChannel.<LiveChannel>listAll()) {
-            if (ch.groupTitle == null || ch.groupTitle.isBlank()) {
+        for (LiveChannel ch : all) {
+            if (ch.groupTitle == null || ch.groupTitle.isBlank() || !isLiveChannelVisible(ch)) {
                 continue;
             }
-            if (!isLiveChannelVisible(ch)) {
-                continue;
-            }
-            if (liveGroupCategoryId(normalizeGroupName(ch.groupTitle)).equals(numericGroupId)) {
+            if (numericGroupId.equals(groupIds.get(normalizeGroupName(ch.groupTitle)))) {
                 matched.add(ch);
             }
         }
@@ -1355,10 +1397,12 @@ public class XtreamCodesAPI {
         if (ch == null) return Response.status(Response.Status.NOT_FOUND).build();
 
         String categoryId;
-        if (ch.playlist != null && ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-            categoryId = "g_" + ch.playlist.id + "_" + hashId(ch.groupTitle);
+        if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+            categoryId = liveGroupService.idFor(normalizeGroupName(ch.groupTitle));
+        } else if (ch.playlist != null) {
+            categoryId = String.valueOf(ch.playlist.id);
         } else {
-            categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+            categoryId = "0";
         }
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
@@ -1375,12 +1419,12 @@ public class XtreamCodesAPI {
         java.util.Map<String, Object> channel = new java.util.LinkedHashMap<>();
         channel.put("num", 1);
         channel.put("name", ch.name);
-        channel.put("stream_type", "live");
+        channel.put("stream_type", Boolean.TRUE.equals(ch.isRadio) ? "radio_streams" : "live");
         channel.put("stream_id", ch.id);
         channel.put("stream_icon", getLiveChannelLogo(ch));
         channel.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         channel.put("category_id", categoryId);
-        channel.put("category_ids", new ArrayList<>(List.of(categoryId)));
+        channel.put("category_ids", numericCategoryIds(categoryId));
         response.put("channel", channel);
 
         return Response.ok(response).build();

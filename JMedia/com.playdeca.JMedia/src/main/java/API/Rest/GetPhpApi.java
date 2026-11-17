@@ -57,16 +57,18 @@ public class GetPhpApi {
                 .toList();
         for (LiveChannel ch : channels) {
             if (ch.streamUrl == null || ch.streamUrl.isBlank()) continue;
+            String radioTag = Boolean.TRUE.equals(ch.isRadio) ? " radio=\"true\"" : "";
 
             if (isM3uPlus) {
-                m3u.append(String.format("#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
+                m3u.append(String.format("#EXTINF:-1%s tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
+                        radioTag,
                         esc(ch.tvgId),
                         esc(ch.tvgName != null ? ch.tvgName : ch.name),
                         esc(getLiveChannelLogo(ch)),
                         esc(ch.groupTitle != null && !ch.groupTitle.isBlank() ? ch.groupTitle : (ch.playlist != null ? ch.playlist.name : "Live")),
                         esc(ch.name)));
             } else {
-                m3u.append(String.format("#EXTINF:-1,%s\n", esc(ch.name).replace("\r", " ").replace("\n", " ")));
+                m3u.append(String.format("#EXTINF:-1%s,%s\n", radioTag, esc(ch.name).replace("\r", " ").replace("\n", " ")));
             }
             m3u.append(String.format("%slive/%s/%s/%d.%s\n",
                     serverUrl,

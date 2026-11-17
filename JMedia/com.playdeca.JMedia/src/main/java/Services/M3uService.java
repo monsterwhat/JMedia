@@ -94,6 +94,7 @@ public class M3uService {
 
         Long playlistId = channel.playlist != null ? channel.playlist.id : null;
         channel.delete();
+        LiveGroupService.invalidateCategories();
 
         if (playlistId != null) {
             M3uPlaylist playlist = M3uPlaylist.findById(playlistId);
@@ -117,9 +118,15 @@ public class M3uService {
             return ChannelStatusUpdate.INVALID_STATUS;
         }
 
+        boolean wasVisible = !"dead".equals(channel.streamStatus);
         channel.streamStatus = status;
         channel.lastChecked = LocalDateTime.now();
         channel.persist();
+        // Only a visibility change affects the advertised live category list.
+        boolean nowVisible = !"dead".equals(status);
+        if (wasVisible != nowVisible) {
+            LiveGroupService.invalidateCategories();
+        }
         return ChannelStatusUpdate.UPDATED;
     }
 
@@ -181,6 +188,7 @@ public class M3uService {
                 channel.country = entry.country;
                 channel.channelNumber = channelNumber++;
                 channel.isFavorite = false;
+                channel.isRadio = Boolean.TRUE.equals(entry.isRadio);
                 channel.createdAt = LocalDateTime.now();
                 channel.persist();
 
@@ -193,6 +201,7 @@ public class M3uService {
 
         playlist.channelCount = response.channelsCreated;
         playlist.persist();
+        LiveGroupService.invalidateCategories();
 
         response.message = "Import complete: " + response.channelsCreated + " channels created"
                 + (response.failedEntries > 0 ? ", " + response.failedEntries + " failed" : "");
@@ -202,5 +211,6 @@ public class M3uService {
     @Transactional
     public void deleteChannelsForPlaylist(Long playlistId) {
         LiveChannel.delete("playlist.id = ?1", playlistId);
+        LiveGroupService.invalidateCategories();
     }
 }

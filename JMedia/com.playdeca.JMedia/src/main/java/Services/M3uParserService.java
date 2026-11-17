@@ -20,11 +20,11 @@ public class M3uParserService {
 
     // Matches key="value" or key=value pairs inside the attribute string
     private static final Pattern ATTR_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language)\\s*=\\s*\"([^\"]*)\""
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type)\\s*=\\s*\"([^\"]*)\""
     );
 
     private static final Pattern ATTR_UNQUOTED_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language)\\s*=\\s*([^\\s,]+)"
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type)\\s*=\\s*([^\\s,]+)"
     );
 
     public static class M3uEntry {
@@ -35,6 +35,7 @@ public class M3uParserService {
         public String tvgId;
         public String tvgName;
         public String country;
+        public Boolean isRadio = false;
         public double duration = -1;
     }
 
@@ -190,8 +191,29 @@ public class M3uParserService {
             case "group-title" -> entry.groupTitle = value != null && value.contains(";") ? value.substring(0, value.indexOf(';')).trim() : value;
             case "tvg-country" -> entry.country = value;
             case "tvg-language" -> { /* stored if needed later */ }
+            case "radio" -> entry.isRadio = isTruthy(value);
+            case "tvg-type" -> {
+                if ("radio".equalsIgnoreCase(unquote(value))) entry.isRadio = true;
+            }
             default -> { /* unknown attribute, ignore */ }
         }
+    }
+
+    /** M3U boolean attributes: "true", "1" or "yes" (quoted or not). */
+    private static boolean isTruthy(String value) {
+        String v = unquote(value);
+        return v != null && ("true".equalsIgnoreCase(v) || "1".equals(v) || "yes".equalsIgnoreCase(v));
+    }
+
+    private static String unquote(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim();
+        if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+            v = v.substring(1, v.length() - 1);
+        }
+        return v;
     }
 
     private boolean isAttributeSet(M3uEntry entry, String key) {

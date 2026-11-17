@@ -44,6 +44,9 @@ public class LiveChannel extends PanacheEntity {
 
     public Boolean isFavorite = false;
 
+    /** True for radio stations: Xtream reports them as stream_type "radio_streams". */
+    public Boolean isRadio = false;
+
     public String streamStatus;
 
     public LocalDateTime lastChecked;
