@@ -1257,6 +1257,12 @@ public class XtreamCodesAPI {
                             .filter(XtreamCodesAPI::isLiveChannelVisible)
                             .filter(ch -> ch.groupTitle != null && hashId(ch.groupTitle).equals(groupHash))
                             .collect(Collectors.toList());
+                    // Old g_<playlist>_<uuid> URLs are no longer advertised; report
+                    // the numeric id the category list actually issues.
+                    if (!channels.isEmpty() && channels.get(0).groupTitle != null) {
+                        effectiveCategoryId = liveGroupService.idFor(
+                                normalizeGroupName(channels.get(0).groupTitle));
+                    }
                 } else {
                     channels = LiveChannel.listAll();
                 }
@@ -1265,9 +1271,14 @@ public class XtreamCodesAPI {
                     Long playlistId = Long.parseLong(catId);
                     if (Models.Video.M3uPlaylist.findById(playlistId) != null) {
                         effectiveCategoryId = catId;
+                        // A playlist category only advertises channels with no group;
+                        // grouped channels belong to their own group category. Returning
+                        // the whole playlist here would report a category_id the list
+                        // does not contain.
                         channels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list()
                                 .stream()
                                 .filter(XtreamCodesAPI::isLiveChannelVisible)
+                                .filter(ch -> ch.groupTitle == null || ch.groupTitle.isBlank())
                                 .collect(Collectors.toList());
                     } else {
                         channels = filterLiveByGroupId(catId);
