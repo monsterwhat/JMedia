@@ -581,12 +581,13 @@ public class XtreamCodesAPI {
         // Episodes grouped by season number as STRING key (required by IPTV players)
         java.util.Map<String, List<java.util.Map<String, Object>>> episodesBySeason = new java.util.LinkedHashMap<>();
         for (Video e : seriesEpisodes) {
-            // Zero-padded season keys: IPTV clients (Smarters) build the season list
-            // by sorting these keys AS TEXT, so unpadded "1".."22" sorts as
-            // 1,10,11,...,19,2,20,21,22,3,... and season 15 opens season 22.
-            // "01".."22" sorts correctly as text; the numeric season_number in the
-            // seasons array stays authoritative for clients that map by number.
-            String seasonNum = String.format("%02d", e.seasonNumber != null ? e.seasonNumber : 1);
+            // Canonical Xtream keys episodes by the PLAIN season number ("1", "10").
+            // They used to be zero-padded ("01") to stop clients that sort the keys as
+            // text from opening the wrong season, but that broke every client that maps
+            // seasons[] by season_number (it looks up "1" and finds nothing, so the
+            // series shows no episodes). The seasons[] array carries the order; clients
+            // that respect it no longer need padded keys.
+            String seasonNum = String.valueOf(e.seasonNumber != null ? e.seasonNumber : 1);
             episodesBySeason.computeIfAbsent(seasonNum, k -> new ArrayList<>());
             
             java.util.Map<String, Object> ep = new java.util.HashMap<>();
@@ -663,12 +664,42 @@ public class XtreamCodesAPI {
 
     private Response getVodCategories() {
         List<XtreamCategory> categories = buildGenreCategories();
+        // Only advertise genres that contain at least one movie: the client renders the
+        // category list as-is, so an unused genre shows up as a permanently empty group.
+        java.util.Set<String> used = usedGenreIds(false);
+        categories.removeIf(c -> !used.contains(c.categoryId));
         for (MediaCollection c : listCollectionsForXtream()) {
             if (collectionHasVodMembers(c)) {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
             }
         }
         return Response.ok(categories).build();
+    }
+
+    /** Genre ids actually referenced by at least one movie (false) or series (true). */
+    private java.util.Set<String> usedGenreIds(boolean forSeries) {
+        java.util.Map<String, String> ids = genreIdByName();
+        java.util.Set<String> used = new java.util.HashSet<>();
+        if (forSeries) {
+            for (Models.Video.Series s : Models.Video.Series.<Models.Video.Series>listAll()) {
+                if (s.genres == null) continue;
+                for (String g : s.genres) {
+                    if (g == null) continue;
+                    String id = ids.get(g.toLowerCase());
+                    if (id != null) used.add(id);
+                }
+            }
+        } else {
+            for (Video v : Video.<Video>find("type = 'movie'").list()) {
+                if (v.genres == null) continue;
+                for (String g : v.genres) {
+                    if (g == null) continue;
+                    String id = ids.get(g.toLowerCase());
+                    if (id != null) used.add(id);
+                }
+            }
+        }
+        return used;
     }
 
     private static final int FALLBACK_GENRE_BASE = 90000;
@@ -890,6 +921,9 @@ public class XtreamCodesAPI {
 
     private Response getSeriesCategories() {
         List<XtreamCategory> categories = buildGenreCategories();
+        // Same rule as VOD: only genres that a series actually carries.
+        java.util.Set<String> used = usedGenreIds(true);
+        categories.removeIf(c -> !used.contains(c.categoryId));
         for (MediaCollection c : listCollectionsForXtream()) {
             if (collectionHasSeriesMembers(c)) {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
@@ -1070,22 +1104,34 @@ public class XtreamCodesAPI {
         List<XtreamCategory> categories = new ArrayList<>();
 
         List<Models.Video.M3uPlaylist> playlists = Models.Video.M3uPlaylist.list("isActive = true");
-        for (Models.Video.M3uPlaylist pl : playlists) {
-            String name = pl.name != null ? pl.name : "Unknown Playlist";
-            categories.add(new XtreamCategory(String.valueOf(pl.id), name));
-        }
 
         // Merge same-named groups across playlists (case-insensitive): one category
         // per group name, so "Movies" appears once instead of once per playlist.
         // Display name is title-cased from the normalized key so it is stable
         // regardless of which playlist was scanned first.
         java.util.Set<String> groupKeys = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        // A playlist category (id = playlist id) is only used by channels that have NO
+        // group title, because grouped channels report their group id instead. Advertising
+        // it otherwise created a category no stream referenced, and asking for it returned
+        // the entire playlist instead of a group.
+        java.util.Set<Long> playlistsWithUngrouped = new java.util.HashSet<>();
         for (Models.Video.M3uPlaylist pl : playlists) {
             List<LiveChannel> channels = LiveChannel.find("playlist.id = ?1", pl.id).list();
             for (LiveChannel ch : channels) {
+                if (!isLiveChannelVisible(ch)) {
+                    continue;
+                }
                 if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
                     groupKeys.add(normalizeGroupName(ch.groupTitle));
+                } else {
+                    playlistsWithUngrouped.add(pl.id);
                 }
+            }
+        }
+        for (Models.Video.M3uPlaylist pl : playlists) {
+            if (playlistsWithUngrouped.contains(pl.id)) {
+                String name = pl.name != null ? pl.name : "Unknown Playlist";
+                categories.add(new XtreamCategory(String.valueOf(pl.id), name));
             }
         }
         java.util.Map<String, String> idByDisplay = new java.util.HashMap<>();
@@ -1124,8 +1170,9 @@ public class XtreamCodesAPI {
                 final Long playlistId = parsedPlaylistId;
                 final String groupHash = parsedGroupHash;
                 if (playlistId != null && groupHash != null && !groupHash.isBlank()) {
-                    List<LiveChannel> playlistChannels = LiveChannel.find("playlist.id = ?1", playlistId).list();
+                    List<LiveChannel> playlistChannels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list();
                     channels = playlistChannels.stream()
+                            .filter(XtreamCodesAPI::isLiveChannelVisible)
                             .filter(ch -> ch.groupTitle != null && hashId(ch.groupTitle).equals(groupHash))
                             .collect(Collectors.toList());
                 } else {
@@ -1136,7 +1183,10 @@ public class XtreamCodesAPI {
                     Long playlistId = Long.parseLong(catId);
                     if (Models.Video.M3uPlaylist.findById(playlistId) != null) {
                         effectiveCategoryId = catId;
-                        channels = LiveChannel.find("playlist.id = ?1", playlistId).list();
+                        channels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list()
+                                .stream()
+                                .filter(XtreamCodesAPI::isLiveChannelVisible)
+                                .collect(Collectors.toList());
                     } else {
                         channels = filterLiveByGroupId(catId);
                         if (!channels.isEmpty()) {
@@ -1162,7 +1212,7 @@ public class XtreamCodesAPI {
             // until their first check so a new playlist isn't blank; anything probed
             // and not working is hidden — that's what keeps dead channels out of the
             // IPTV client instead of leaving ~31k unplayable entries in the list.
-            if (ch.lastChecked != null && !"working".equals(ch.streamStatus)) { hidden++; continue; }
+            if (!isLiveChannelVisible(ch)) { hidden++; continue; }
             java.util.Map<String, Object> s = new java.util.LinkedHashMap<>();
             s.put("num", num++);
             s.put("name", ch.name);
@@ -1200,10 +1250,23 @@ public class XtreamCodesAPI {
         return Response.ok(streams).build();
     }
 
+    /**
+     * A live channel is hidden from the Xtream API only when it has been checked and is
+     * not working; never-checked channels stay visible. Every path (the unfiltered list,
+     * the playlist/group filters) uses this same rule, so a group's advertised count and
+     * its contents agree and empty groups are not advertised at all.
+     */
+    private static boolean isLiveChannelVisible(LiveChannel ch) {
+        return ch != null && !(ch.lastChecked != null && !"working".equals(ch.streamStatus));
+    }
+
     private List<LiveChannel> filterLiveByGroupId(String numericGroupId) {
         List<LiveChannel> matched = new ArrayList<>();
         for (LiveChannel ch : LiveChannel.<LiveChannel>listAll()) {
             if (ch.groupTitle == null || ch.groupTitle.isBlank()) {
+                continue;
+            }
+            if (!isLiveChannelVisible(ch)) {
                 continue;
             }
             if (liveGroupCategoryId(normalizeGroupName(ch.groupTitle)).equals(numericGroupId)) {
