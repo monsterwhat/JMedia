@@ -35,17 +35,26 @@
                     }
 
                     if (!p.storyboard.loaded) {
-                        if ((p._storyboardRetryCount || 0) >= 30) {
-                            console.warn('[SimplePlayer] Storyboard retry cap (30) reached');
+                        // Generation is one ffmpeg pass over the whole file: ~2 minutes
+                        // for a feature, and a first hover is what kicks it off. The
+                        // original loop polled every 2s forever, which leaked on a
+                        // destroyed player; capping it at 30 x 2s (60s) then cut the
+                        // poll off before the sprite existed, leaving a grey preview.
+                        // Poll fast for a minute, then slowly for 15 more, still bounded
+                        // and still tied to the pinned video.
+                        const attempts = p._storyboardRetryCount || 0;
+                        if (attempts >= 120) {
+                            console.warn('[SimplePlayer] Storyboard retry window (16 min) exhausted');
                             return;
                         }
-                        p._storyboardRetryCount = (p._storyboardRetryCount || 0) + 1;
+                        p._storyboardRetryCount = attempts + 1;
+                        const delay = attempts < 30 ? 2000 : 10000;
                         if (p._storyboardRetryTimer) { clearTimeout(p._storyboardRetryTimer); p._storyboardRetryTimer = null; }
                         p._storyboardRetryTimer = setTimeout(() => {
                             p._storyboardRetryTimer = null;
                             if (p._destroyed || p.videoId !== storyboardVideoId) return;
                             this.loadStoryboard();
-                        }, 2000);
+                        }, delay);
                     }
                 }
             } catch (e) {

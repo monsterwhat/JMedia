@@ -49,6 +49,14 @@ public class VideoStoryboardService {
     private static final long MISSING_FILE_RETRY_MS = TimeUnit.HOURS.toMillis(1);
     private static final java.util.Map<Long, Long> MISSING_FILE_RETRY_AT = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * A hung decoder never exits, so the wait must actually be enforced (the old code
+     * read ffmpeg's stdout to EOF first, which made its timeout unreachable). Long
+     * enough not to cut off a working hardware pass: a feature took ~110s.
+     */
+    private static final int HARDWARE_TIMEOUT_SECONDS = 180;
+    private static final int SOFTWARE_TIMEOUT_SECONDS = 600;
+
     public static class StoryboardMetadata {
         public double interval;
         public int width;
@@ -231,13 +239,13 @@ public class VideoStoryboardService {
 
             if (hwDecoder != null) {
                 LOGGER.info("Storyboard for video {} using hardware decoder: {}", videoId, hwDecoder);
-                if (runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, hwDecoder)) {
+                if (runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, hwDecoder, HARDWARE_TIMEOUT_SECONDS)) {
                     return true;
                 }
                 LOGGER.warn("Hardware decode failed for storyboard of video {}, falling back to software", videoId);
                 Files.deleteIfExists(tempPath);
             }
-            return runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, null);
+            return runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, null, SOFTWARE_TIMEOUT_SECONDS);
         } catch (Exception e) {
             LOGGER.error("Error running FFmpeg for storyboard for video " + videoId, e);
             return false;
@@ -246,7 +254,7 @@ public class VideoStoryboardService {
         }
     }
 
-    private boolean runStoryboardFfmpeg(String ffmpegPath, Video video, String filter, Path tempPath, Path outputPath, Long videoId, String hwDecoder) {
+    private boolean runStoryboardFfmpeg(String ffmpegPath, Video video, String filter, Path tempPath, Path outputPath, Long videoId, String hwDecoder, int timeoutSeconds) {
         Process process = null;
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
@@ -275,15 +283,37 @@ public class VideoStoryboardService {
         try {
             process = pb.start();
 
-            StringBuilder output = new StringBuilder();
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
+            // Drain the pipe on its own thread. ffmpeg on a hung hardware decoder
+            // never closes stdout, so reading here on the calling thread blocked
+            // forever and waitFor's timeout below was unreachable: the id stayed in
+            // GENERATING_IDS, the metadata endpoint reported "generating" forever and
+            // the preview stayed grey.
+            final StringBuilder output = new StringBuilder();
+            Process started = process;
+            Thread drain = new Thread(() -> {
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(started.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        synchronized (output) {
+                            if (output.length() < 8192) output.append(line).append("\n");
+                        }
+                    }
+                } catch (java.io.IOException e) {
+                    LOGGER.debug("Storyboard ffmpeg output stream closed for video {}: {}", videoId, e.getMessage());
                 }
-            }
+            }, "storyboard-ffmpeg-" + videoId);
+            drain.setDaemon(true);
+            drain.start();
 
-            boolean finished = process.waitFor(300, TimeUnit.SECONDS);
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+            }
+            try {
+                drain.join(5000);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
 
             if (finished && process.exitValue() == 0) {
                 Files.move(tempPath, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
@@ -294,7 +324,8 @@ public class VideoStoryboardService {
                     process.destroyForcibly();
                 }
                 Files.deleteIfExists(tempPath);
-                String ffmpegOutput = output.toString();
+                String ffmpegOutput;
+                synchronized (output) { ffmpegOutput = output.toString(); }
                 if (ffmpegOutput.toLowerCase().contains("no such file or directory")) {
                     MISSING_FILE_RETRY_AT.put(videoId, System.currentTimeMillis() + MISSING_FILE_RETRY_MS);
                     LOGGER.debug("Source file for video {} is no longer available - skipping storyboard", videoId);
