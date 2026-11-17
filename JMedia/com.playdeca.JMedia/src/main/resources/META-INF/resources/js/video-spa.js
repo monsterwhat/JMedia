@@ -1,4 +1,4 @@
-﻿window.FetchFragment = window.FetchFragment || {
+window.FetchFragment = window.FetchFragment || {
     async fetchHtml(url, opts) {
         const resp = await fetch(url, opts);
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
@@ -27,7 +27,7 @@
     }
 };
 
-let _fetchFragmentFallbackWarned = false;
+let _videoSpaFetchFragmentWarned = false;
 
 class VideoSPA {
     constructor() {
@@ -603,9 +603,9 @@ class VideoSPA {
         if (window.FetchFragment && typeof window.FetchFragment.injectScripts === 'function') {
             return window.FetchFragment.injectScripts(container);
         }
-        if (!_fetchFragmentFallbackWarned) {
+        if (!_videoSpaFetchFragmentWarned) {
             console.warn('[VideoSPA] window.FetchFragment unavailable; falling back to inline executeScripts');
-            _fetchFragmentFallbackWarned = true;
+            _videoSpaFetchFragmentWarned = true;
         }
         const scripts = container.querySelectorAll('script');
         scripts.forEach(script => {

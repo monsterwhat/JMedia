@@ -2,7 +2,7 @@
  * Video Context Menu Manager
  * Handles right-click context menus for video cards with playback, navigation, and metadata operations
  */
-let _fetchFragmentFallbackWarned = false;
+let _videoContextMenuFetchFragmentWarned = false;
 
 class VideoContextMenu {
     constructor() {
@@ -328,9 +328,9 @@ class VideoContextMenu {
                 await window.FetchFragment.loadInto(modalBody, editUrl, { runScripts: false, htmx: true });
                 loaded = true;
             } else {
-                if (!_fetchFragmentFallbackWarned) {
+                if (!_videoContextMenuFetchFragmentWarned) {
                     console.warn('[VideoContextMenu] window.FetchFragment unavailable; falling back to inline editMetadata');
-                    _fetchFragmentFallbackWarned = true;
+                    _videoContextMenuFetchFragmentWarned = true;
                 }
                 const response = await fetch(editUrl);
                 if (response.ok) {
