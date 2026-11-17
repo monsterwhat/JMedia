@@ -673,7 +673,29 @@ public class XtreamCodesAPI {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
             }
         }
+        if (hasUncategorised(false)) {
+            categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
+        }
         return Response.ok(categories).build();
+    }
+
+    /**
+     * True when at least one movie (false) or series (true) has no genre that maps to a
+     * category id - those rows land in the Uncategorised bucket, and the bucket is only
+     * advertised when it actually holds something.
+     */
+    private boolean hasUncategorised(boolean forSeries) {
+        java.util.Map<String, String> ids = genreIdByName();
+        if (forSeries) {
+            for (Models.Video.Series s : Models.Video.Series.<Models.Video.Series>listAll()) {
+                if (UNCATEGORISED_CATEGORY_ID.equals(genreIdList(s.genres, ids).get(0))) return true;
+            }
+        } else {
+            for (Video v : Video.<Video>find("type = 'movie'").list()) {
+                if (UNCATEGORISED_CATEGORY_ID.equals(genreIdList(v.genres, ids).get(0))) return true;
+            }
+        }
+        return false;
     }
 
     /** Genre ids actually referenced by at least one movie (false) or series (true). */
@@ -823,6 +845,14 @@ public class XtreamCodesAPI {
         if (collectionId != null) {
             videos = findVideosForCollection(collectionId);
             log.infof("getVodStreams: collection=%d returning %d videos", collectionId, videos.size());
+        } else if (UNCATEGORISED_CATEGORY_ID.equals(catId)) {
+            java.util.Map<String, String> ids = genreIdByName();
+            videos = Video.<Video>find("type = 'movie'").list().stream()
+                    .filter(v -> UNCATEGORISED_CATEGORY_ID.equals(genreIdList(v.genres, ids).get(0)))
+                    .sorted(java.util.Comparator.comparingDouble(
+                            (Video v) -> v.popularityScore != null ? v.popularityScore : 0.0).reversed())
+                    .collect(Collectors.toList());
+            log.infof("getVodStreams: uncategorised bucket returning %d videos", videos.size());
         } else if (catId != null && !catId.equals("0")) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
@@ -929,6 +959,9 @@ public class XtreamCodesAPI {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
             }
         }
+        if (hasUncategorised(true)) {
+            categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
+        }
         return Response.ok(categories).build();
     }
 
@@ -957,6 +990,16 @@ public class XtreamCodesAPI {
     // small ints and live groups 1M-9M, so collections stay clear in the 20M+
     // range. Derived deterministically from the collection's DB id so app
     // caches survive restarts.
+    /**
+     * Synthetic category for movies and series that carry no genre we can map to a
+     * category id. They used to be emitted with category_id "0", which no category list
+     * advertises, so a client that groups by category_id dropped them entirely. "0" keeps
+     * its usual Xtream meaning of "everything", hence a separate id. Kept below
+     * COLLECTION_CATEGORY_BASE so it is never mistaken for a collection id.
+     */
+    private static final String UNCATEGORISED_CATEGORY_ID = "19000000";
+    private static final String UNCATEGORISED_CATEGORY_NAME = "Uncategorised";
+
     private static final int COLLECTION_CATEGORY_BASE = 20000000;
 
     private static String collectionCategoryId(Long collectionId) {
@@ -1391,6 +1434,12 @@ public class XtreamCodesAPI {
         if (collectionId != null) {
             allSeries = findSeriesForCollection(collectionId);
             log.infof("getSeries: collection=%d resolved to %d series", collectionId, allSeries.size());
+        } else if (UNCATEGORISED_CATEGORY_ID.equals(catId)) {
+            java.util.Map<String, String> ids = genreIdByName();
+            allSeries = Models.Video.Series.<Models.Video.Series>listAll().stream()
+                    .filter(s -> UNCATEGORISED_CATEGORY_ID.equals(genreIdList(s.genres, ids).get(0)))
+                    .collect(Collectors.toList());
+            log.infof("getSeries: uncategorised bucket resolved to %d series", allSeries.size());
         } else if (catId != null && !catId.isBlank()) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
@@ -1521,7 +1570,7 @@ public class XtreamCodesAPI {
                 if (!"0".equals(gid) && !ids.contains(gid)) ids.add(gid);
             }
         }
-        if (ids.isEmpty()) ids.add("0");
+        if (ids.isEmpty()) ids.add(UNCATEGORISED_CATEGORY_ID);
         return ids;
     }
 
