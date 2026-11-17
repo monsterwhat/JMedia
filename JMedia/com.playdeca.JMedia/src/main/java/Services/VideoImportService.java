@@ -268,7 +268,6 @@ public class VideoImportService {
             currentScanProgress.set(0);
             
             ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(videoScanExecutor.getExecutor());
-            AtomicInteger submittedTasks = new AtomicInteger();
             AtomicInteger skippedFiles = new AtomicInteger();
             AtomicInteger processedCount = new AtomicInteger();
             
@@ -303,66 +302,84 @@ public class VideoImportService {
                         .toList();
                 }
                 
-                for (Path path : filesToProcess) {
-                    submittedTasks.incrementAndGet();
-                    completion.submit(() -> {
-                        // Per-file, not per-scan: a 3,000-file scan must not hold a background
-                        // slot for its whole duration, and the cap is what keeps the service
-                        // cgroup from reaching the ~7GB that starved the host.
-                        boolean held = mediaProcessLimiter.acquireBackground("scan:" + path.getFileName());
-                        try {
-                            return self.processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles);
-                        } finally {
-                            if (held) mediaProcessLimiter.releaseBackground();
+                // Bounded submission. Submitting every file at once put thousands of tasks
+                // on a two-permit limiter; every waiter that timed out after 120s ran
+                // anyway, so waves of them opened hundreds of files on the same disk at
+                // once. Those stalls pushed the per-file transactions past the 300s
+                // timeout and the reaper dropped them. Keeping only a few files in flight
+                // removes the stampede.
+                int totalFiles = filesToProcess.size();
+                int maxInFlight = Math.max(2, mediaProcessLimiter.backgroundPermits() * 2);
+                java.util.Iterator<Path> pendingFiles = filesToProcess.iterator();
+                java.util.ArrayDeque<Future<Video>> inFlight = new java.util.ArrayDeque<>();
+                int completed = 0;
+                try {
+                    while (pendingFiles.hasNext() || !inFlight.isEmpty()) {
+                        while (pendingFiles.hasNext() && inFlight.size() < maxInFlight) {
+                            Path path = pendingFiles.next();
+                            inFlight.add(completion.submit(() -> {
+                                // Per-file, not per-scan: a 3,000-file scan must not hold a
+                                // background slot for its whole duration, and the cap is what
+                                // keeps the service cgroup from reaching the ~7GB that
+                                // starved the host.
+                                boolean held = mediaProcessLimiter.acquireBackground("scan:" + path.getFileName());
+                                try {
+                                    return self.processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles);
+                                } finally {
+                                    if (held) mediaProcessLimiter.releaseBackground();
+                                }
+                            }));
                         }
-                    });
+
+                        Future<Video> future;
+                        try {
+                            future = completion.take();
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            LOGGER.warn("Scan interrupted while waiting for a file to finish; stopping discovery");
+                            break;
+                        }
+                        inFlight.remove(future);
+
+                        try {
+                            Video result = future.get();
+                            currentScanProgress.incrementAndGet();
+
+                            if (result != null) {
+                                discoveredMedia.add(result);
+                                int processed = processedCount.incrementAndGet();
+                                if (scanState != null && processed % 10 == 0) {
+                                    updateScanState(scanState, processed, result.path);
+                                }
+                                if (callback != null) {
+                                    callback.onFileDiscovered(result, completed + 1, totalFiles);
+                                }
+                            }
+
+                            completed++;
+                            if (completed % 50 == 0) {
+                                String status = "Discovered " + completed + " / " + totalFiles + " files...";
+                                LOGGER.info(status);
+                                if (callback != null) {
+                                    callback.onProgress(discoveredMedia.size(), totalFiles, status);
+                                }
+                            }
+                        } catch (Exception e) {
+                            completed++;
+                            LOGGER.error("Error during parallel discovery", e);
+                        }
+                    }
+                } finally {
+                    isScanRunning = false;
+                    if (scanState != null) {
+                        completeScanState(scanState, "COMPLETED", null, processedCount.get());
+                    }
                 }
             }
-            
-            int totalFiles = submittedTasks.get();
+
             int skipped = skippedFiles.get();
             if (skipped > 0) {
                 LOGGER.info("Skipped " + skipped + " unchanged files (incremental scan)");
-            }
-            
-            try {
-                for (int i = 0; i < totalFiles; i++) {
-                    try {
-                        Future<Video> future = completion.take();
-                        Video result = future.get();
-                        
-                        currentScanProgress.incrementAndGet();
-                        
-                        if (result != null) {
-                            discoveredMedia.add(result);
-                            int processed = processedCount.incrementAndGet();
-                            if (scanState != null) {
-                                String processedPath = result.path;
-                                if (processed % 10 == 0) {
-                                    updateScanState(scanState, processed, processedPath);
-                                }
-                            }
-                            if (callback != null) {
-                                callback.onFileDiscovered(result, i + 1, totalFiles);
-                            }
-                        }
-                        
-                        if ((i + 1) % 50 == 0) {
-                            String status = "Discovered " + (i + 1) + " / " + totalFiles + " files...";
-                            LOGGER.info(status);
-                            if (callback != null) {
-                                callback.onProgress(discoveredMedia.size(), totalFiles, status);
-                            }
-                        }
-                    } catch (Exception e) {
-                        LOGGER.error("Error during parallel discovery", e);
-                    }
-                }
-            } finally {
-                isScanRunning = false;
-                if (scanState != null) {
-                    completeScanState(scanState, "COMPLETED", null, processedCount.get());
-                }
             }
             LOGGER.info("Discovery phase completed. Found " + discoveredMedia.size() + " new or updated items.");
         } catch (IOException e) {
@@ -810,7 +827,14 @@ public class VideoImportService {
         return processVideoFile(filePath, rootPath, metadataOnly, ctx, false, null);
     }
 
-    @Transactional(value = TxType.REQUIRES_NEW)
+    /**
+     * Imports one file. Deliberately NOT transactional: fingerprinting and ffprobe are
+     * slow file/process work, and holding a DB transaction across them meant a stalled
+     * disk (or a two-minute wait for a media slot) could push the transaction past the
+     * 300s timeout. Narayana then aborted it, the thread carried on, and the next
+     * persist threw TransactionRequiredException - dropping the file. The DB work now
+     * happens in short transactions that never contain I/O.
+     */
     @ActivateRequestContext
     public Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx, boolean forceFullScan, AtomicInteger skippedFiles) {
         String filePathStr = filePath.toString();
@@ -844,12 +868,7 @@ public class VideoImportService {
                     return existingVideo;
                 }
                 
-                String relativePath = rootPath.relativize(filePath).toString();
-                SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(existingFile, filename, relativePath, null, null, null, null, null, null);
-                res = maybeApplySiblingInference(filePath, res, existingVideo);
-                Video updated = entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
-                applyContentType(updated);
-                return updated;
+                return self.refreshExistingVideo(existingFile, existingVideo, filePath, rootPath, filename, forceFullScan);
             }
 
             if (!metadataOnly) {
@@ -858,25 +877,9 @@ public class VideoImportService {
                 String currentHash = mediaAnalysisService.generateFingerprint(filePathStr);
                 
                 if (currentHash != null && ctx.videoByHash.containsKey(currentHash)) {
-                    Video originalVideo = ctx.videoByHash.get(currentHash);
-                    Video movedVideo = Video.findById(originalVideo.id);
-                    if (movedVideo != null) {
-                        movedVideo.path = filePathStr;
-                        movedVideo.filename = filename;
-                        movedVideo.lastModified = Files.getLastModifiedTime(filePath).toMillis();
-                        movedVideo.persist();
-                    
-                        MediaFile mf = MediaFile.find("mediaHash", currentHash).firstResult();
-                        if (mf != null) {
-                            mf.path = filePathStr;
-                            mf.lastModified = movedVideo.lastModified;
-                            mf.persist();
-                        }
-                        
-                        if (skippedFiles != null) {
-                            skippedFiles.incrementAndGet();
-                        }
-                        return movedVideo;
+                    Video moved = self.relocateVideo(ctx.videoByHash.get(currentHash).id, filePathStr, filename, currentHash, filePath, skippedFiles);
+                    if (moved != null) {
+                        return moved;
                     }
                 }
 
@@ -887,23 +890,68 @@ public class VideoImportService {
                 mediaFile.size = Files.size(filePath);
                 mediaFile.mediaHash = currentHash;
                 
+                // ffprobe runs here, outside any transaction.
                 mediaAnalysisService.analyze(mediaFile);
-                mediaFile.persist();
-                
-                ctx.mediaFileByPath.put(filePathStr, mediaFile);
-                ctx.lastModifiedByPath.put(filePathStr, mediaFile.lastModified);
-                
-                String relativePath = rootPath.relativize(filePath).toString();
-                SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, filename, relativePath, null, null, null, null, null, null);
-                res = maybeApplySiblingInference(filePath, res, null);
-                Video created = entityCreationService.createVideoFromNamingResult(mediaFile, res);
-                applyContentType(created);
-                return created;
+
+                return self.persistNewVideo(mediaFile, filePath, rootPath, ctx, filename);
             }
         } catch (Exception e) {
             LOGGER.error("Error processing file {}: {}", filename, e.getMessage(), e);
         }
         return null;
+    }
+
+    /** Short transaction: naming + row creation for a file whose metadata is already probed. */
+    @Transactional(value = TxType.REQUIRES_NEW)
+    @ActivateRequestContext
+    public Video persistNewVideo(MediaFile mediaFile, Path filePath, Path rootPath, ScanContext ctx, String filename) {
+        mediaFile.persist();
+        ctx.mediaFileByPath.put(mediaFile.path, mediaFile);
+        ctx.lastModifiedByPath.put(mediaFile.path, mediaFile.lastModified);
+
+        String relativePath = rootPath.relativize(filePath).toString();
+        SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, filename, relativePath, null, null, null, null, null, null);
+        res = maybeApplySiblingInference(filePath, res, null);
+        Video created = entityCreationService.createVideoFromNamingResult(mediaFile, res);
+        applyContentType(created);
+        return created;
+    }
+
+    /** Short transaction: re-runs naming for a file that is already imported. */
+    @Transactional(value = TxType.REQUIRES_NEW)
+    @ActivateRequestContext
+    public Video refreshExistingVideo(MediaFile existingFile, Video existingVideo, Path filePath, Path rootPath, String filename, boolean forceFullScan) {
+        String relativePath = rootPath.relativize(filePath).toString();
+        SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(existingFile, filename, relativePath, null, null, null, null, null, null);
+        res = maybeApplySiblingInference(filePath, res, existingVideo);
+        Video updated = entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
+        applyContentType(updated);
+        return updated;
+    }
+
+    /** Short transaction: repoints an existing row at a file that moved or was renamed. */
+    @Transactional(value = TxType.REQUIRES_NEW)
+    @ActivateRequestContext
+    public Video relocateVideo(Long videoId, String filePathStr, String filename, String mediaHash, Path filePath, AtomicInteger skippedFiles) throws IOException {
+        Video movedVideo = Video.findById(videoId);
+        if (movedVideo == null) {
+            return null;
+        }
+        movedVideo.path = filePathStr;
+        movedVideo.filename = filename;
+        movedVideo.lastModified = Files.getLastModifiedTime(filePath).toMillis();
+        movedVideo.persist();
+
+        MediaFile mf = MediaFile.find("mediaHash", mediaHash).firstResult();
+        if (mf != null) {
+            mf.path = filePathStr;
+            mf.lastModified = movedVideo.lastModified;
+            mf.persist();
+        }
+        if (skippedFiles != null) {
+            skippedFiles.incrementAndGet();
+        }
+        return movedVideo;
     }
 
     @Transactional

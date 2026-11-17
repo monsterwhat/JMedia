@@ -56,6 +56,14 @@ public class MediaProcessLimiter {
         background.release();
     }
 
+    /**
+     * Number of background slots. The scan uses it to bound how many files it keeps in
+     * flight, so the limiter never has thousands of waiters to time out on.
+     */
+    public int backgroundPermits() {
+        return BACKGROUND_PERMITS;
+    }
+
     /** Slots currently in use, for diagnostics. */
     public int backgroundInUse() {
         return BACKGROUND_PERMITS - background.availablePermits();
