@@ -27,6 +27,15 @@ public class MediaAnalysisService {
     private static final Logger LOG = LoggerFactory.getLogger(MediaAnalysisService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /**
+     * How much of the file the media-end probe reads back from the end. Only the last
+     * picture timestamp is needed, so the window stays short: a wider one just reads
+     * more of a multi-GB file, which on a spinning disk is exactly the cost this probe
+     * exists to avoid. A file whose picture ends further back is caught by the 25 %
+     * retry in {@link #mediaEndSeconds}.
+     */
+    private static final double MEDIA_END_WINDOW_SECONDS = 60;
+
     @Inject
     FFmpegDiscoveryService discoveryService;
 
@@ -72,7 +81,7 @@ public class MediaAnalysisService {
         JsonNode root = probe(mediaFile.path);
         if (root != null) {
             populateMediaFileMetadata(mediaFile, root);
-            double effective = resolveEffectiveDuration(root, mediaFile.path, mediaFile.durationSeconds);
+            double effective = resolveEffectiveDuration(root, mediaFile.path, mediaFile.durationSeconds, false);
             if (effective > 0 && Math.abs(effective - mediaFile.durationSeconds) > 1) {
                 mediaFile.durationSeconds = (int) Math.round(effective);
             }
@@ -86,12 +95,12 @@ public class MediaAnalysisService {
      * 23:52 episode showed as 34:33 with ten minutes of dead air: the player drew a
      * bar for content that does not exist and stopped itself at the real end.
      *
-     * <p>When the probe gives no per-stream duration to corroborate the container
-     * (typical for MKV), the last video packet is measured instead. That costs one
-     * extra demux pass per file at scan time, so it only runs when there is nothing
-     * cheaper to trust.
+     * <p>The expensive part (demuxing to find the last video packet) is NOT part of
+     * the import path: a scan imports thousands of files and cannot pay a demux per
+     * file. Imports keep the metadata duration, and {@link VideoDurationRepairService}
+     * — a deliberate maintenance pass — does the probe for the files that need it.
      */
-    private double resolveEffectiveDuration(JsonNode root, String path, double containerSeconds) {
+    private double resolveEffectiveDuration(JsonNode root, String path, double containerSeconds, boolean allowMediaEndProbe) {
         if (containerSeconds <= 0) return containerSeconds;
 
         double streamSeconds = 0;
@@ -122,7 +131,18 @@ public class MediaAnalysisService {
             return containerSeconds;
         }
 
-        double mediaEnd = probeLastVideoPacketSeconds(path);
+        if (!allowMediaEndProbe) {
+            // Import path. Never demux here: a disagreement between the container and
+            // the first video stream is exactly the subtitle-tail case, and a missing
+            // stream duration is common in MKV, so "fix it now" meant reading every
+            // imported file from front to back. The maintenance pass repairs these.
+            return containerSeconds;
+        }
+
+        // The reference end for the tail read: the picture cannot run past the shorter
+        // of the two durations the metadata reports.
+        double referenceEnd = streamSeconds > 0 ? Math.min(containerSeconds, streamSeconds) : containerSeconds;
+        double mediaEnd = mediaEndSeconds(path, referenceEnd);
         if (mediaEnd <= 0) return containerSeconds;
         if (containerSeconds - mediaEnd > 30) {
             LOG.warn("Container duration for {} is {}s but the media ends at {}s "
@@ -172,34 +192,86 @@ public class MediaAnalysisService {
         return true;
     }
 
-    /** Last video packet timestamp, i.e. where the picture actually stops. */
-    private double probeLastVideoPacketSeconds(String path) {
+    private double resolveEffectiveDuration(JsonNode root, String path, double containerSeconds) {
+        return resolveEffectiveDuration(root, path, containerSeconds, true);
+    }
+
+    /**
+     * Last video packet timestamp, i.e. where the picture actually stops.
+     *
+     * <p>Reads only the tail of the file. The first version asked ffprobe for every
+     * packet timestamp in the file, so it demuxed the whole multi-GB file for every
+     * imported video: on a spinning disk that is what turned the scan from hundreds of
+     * episodes in seconds into minutes per file, and four of those reads at once put the
+     * disk into a seek storm. Only the LAST packet is needed, so the read starts a
+     * window before the end the metadata claims.
+     *
+     * <p>The timeout is enforced on the process, not after the read. Reading the pipe to
+     * EOF before calling waitFor() meant a probe that never finished blocked the scan
+     * thread forever, because the waitFor() below it could never run.
+     */
+    private double mediaEndSeconds(String path, double referenceSeconds) {
+        double from = Math.max(0, referenceSeconds - MEDIA_END_WINDOW_SECONDS);
+        double end = probeLastVideoPacketSeconds(path, from);
+        if (end <= 0 && from > 0) {
+            // The window started past the real end (a subtitle tail longer than the
+            // window, or a container duration far above the picture). Widen once.
+            end = probeLastVideoPacketSeconds(path, Math.max(0, referenceSeconds * 0.25));
+        }
+        return end;
+    }
+
+    private double probeLastVideoPacketSeconds(String path, double fromSeconds) {
         String ffprobePath = discoveryService.findFFprobeExecutable();
         if (ffprobePath == null) return 0;
+
+        List<String> command = new ArrayList<>(List.of(
+                ffprobePath, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "packet=pts_time"));
+        if (fromSeconds > 0) {
+            command.add("-read_intervals");
+            command.add(Long.toString(Math.round(fromSeconds)));
+        }
+        command.add("-of");
+        command.add("csv=p=0");
+        command.add(path);
+
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    ffprobePath, "-v", "error",
-                    "-select_streams", "v:0",
-                    "-show_entries", "packet=pts_time",
-                    "-of", "csv=p=0", path);
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD);
             Process process = pb.start();
-            // Read before waiting: the packet list outgrows the pipe buffer, so
-            // waiting first would deadlock.
-            String out = new String(process.getInputStream().readAllBytes()).trim();
+
+            // Drain on a daemon thread so the timeout below can actually fire; reading
+            // inline blocks until EOF and makes waitFor() unreachable.
+            StringBuilder out = new StringBuilder();
+            Thread drainer = new Thread(() -> {
+                try (InputStream in = process.getInputStream()) {
+                    out.append(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Exception e) {
+                    LOG.warn("Media-end probe output could not be read for {}: {}", path, e.getMessage());
+                }
+            }, "ffprobe-media-end");
+            drainer.setDaemon(true);
+            drainer.start();
+
             if (!process.waitFor(30, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                LOG.warn("Media-end probe timed out for: {}", path);
+                drainer.join(2000);
+                LOG.warn("Media-end probe timed out for: {} (from {}s)", path, Math.round(fromSeconds));
                 return 0;
             }
-            if (process.exitValue() != 0 || out.isEmpty()) return 0;
-            String[] lines = out.split("\\R");
+            drainer.join(5000);
+            if (process.exitValue() != 0) return 0;
+
+            String[] lines = out.toString().trim().split("\\R");
             for (int i = lines.length - 1; i >= 0; i--) {
                 String v = lines[i].trim();
                 if (v.isEmpty()) continue;
                 try {
                     return Double.parseDouble(v);
                 } catch (NumberFormatException ignored) {
-                    // header or "N/A" line: keep looking upward
+                    // "N/A" or a header line: keep looking upward
                 }
             }
             return 0;

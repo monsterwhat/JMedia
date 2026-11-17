@@ -33,6 +33,13 @@ public final class EnrichmentNegativeCache {
 
     public static final Duration NOT_FOUND_TTL = Duration.ofDays(30);
     public static final Duration EMPTY_TTL = Duration.ofDays(7);
+    /**
+     * Cooldown for a provider that is failing rather than answering ("HTTP error",
+     * 401/429/5xx, connection refused). Kept short on purpose: it exists so a hot read
+     * path cannot hit the same failing URL hundreds of times a second, not to give up
+     * on the lookup.
+     */
+    public static final Duration TRANSIENT_TTL = Duration.ofSeconds(60);
 
     private static final Pattern SECRET_PARAM =
             Pattern.compile("(?i)([?&])(api_?key)=[^&]*");
@@ -75,6 +82,15 @@ public final class EnrichmentNegativeCache {
      */
     public static boolean rememberEmpty(String key) {
         return remember(key, EMPTY_TTL);
+    }
+
+    /**
+     * Records a failed (not "empty") lookup for this key, for {@link #TRANSIENT_TTL}.
+     *
+     * @return true when this call newly blocked the key (the caller should log once).
+     */
+    public static boolean rememberTransient(String key) {
+        return remember(key, TRANSIENT_TTL);
     }
 
     private static boolean remember(String key, Duration ttl) {

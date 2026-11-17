@@ -2524,7 +2524,18 @@ public class VideoMetadataService {
                         : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, searchQuery, yearSuffix);
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                 if (searchRoot == null) {
-                    LOG.info("[EnsureSeriesTextMetadata] TMDB search failed (HTTP error) for '{}'", series.title);
+                    // A URL that is already known to miss/fail is not a new failure. This
+                    // used to log at INFO on every call, which produced tens of thousands
+                    // of identical lines while the library scan resolved series per
+                    // episode. Real failures now back off for a minute instead.
+                    String missKey = EnrichmentNegativeCache.keyForUrl(searchUrl);
+                    if (EnrichmentNegativeCache.isBlocked(missKey)
+                            || !EnrichmentNegativeCache.rememberTransient(missKey)) {
+                        LOG.debug("[EnsureSeriesTextMetadata] TMDB search cooling down for '{}'", series.title);
+                    } else {
+                        LOG.warn("[EnsureSeriesTextMetadata] TMDB search failed for '{}' - pausing retries for {}s",
+                                series.title, EnrichmentNegativeCache.TRANSIENT_TTL.toSeconds());
+                    }
                     return SeriesEnrichmentResult.FAILED;
                 }
                 if (searchRoot.path("results").isEmpty()) {
