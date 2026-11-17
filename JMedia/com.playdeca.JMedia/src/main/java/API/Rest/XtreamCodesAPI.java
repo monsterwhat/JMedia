@@ -673,8 +673,13 @@ public class XtreamCodesAPI {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
             }
         }
-        if (hasUncategorised(false)) {
+        boolean uncategorisedVod = hasUncategorised(false);
+        if (uncategorisedVod) {
             categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
+        }
+        // Only advertised when the library holds something, so the group is never empty.
+        if (!used.isEmpty() || uncategorisedVod) {
+            categories.add(0, new XtreamCategory(ALL_CATEGORY_ID, ALL_CATEGORY_NAME));
         }
         return Response.ok(categories).build();
     }
@@ -959,8 +964,13 @@ public class XtreamCodesAPI {
                 categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
             }
         }
-        if (hasUncategorised(true)) {
+        boolean uncategorisedSeries = hasUncategorised(true);
+        if (uncategorisedSeries) {
             categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
+        }
+        // Same rule as VOD: only advertise "All" when there is something behind it.
+        if (!used.isEmpty() || uncategorisedSeries) {
+            categories.add(0, new XtreamCategory(ALL_CATEGORY_ID, ALL_CATEGORY_NAME));
         }
         return Response.ok(categories).build();
     }
@@ -999,6 +1009,14 @@ public class XtreamCodesAPI {
      */
     private static final String UNCATEGORISED_CATEGORY_ID = "19000000";
     private static final String UNCATEGORISED_CATEGORY_NAME = "Uncategorised";
+
+    /**
+     * The "everything" group. Every section already resolves category_id "0" to its full
+     * list, so advertising it is only a matter of naming it: clients that build their own
+     * All tab ignore it, clients that do not (BlueiPTV among them) get one.
+     */
+    private static final String ALL_CATEGORY_ID = "0";
+    private static final String ALL_CATEGORY_NAME = "All";
 
     private static final int COLLECTION_CATEGORY_BASE = 20000000;
 
@@ -1158,12 +1176,14 @@ public class XtreamCodesAPI {
         // it otherwise created a category no stream referenced, and asking for it returned
         // the entire playlist instead of a group.
         java.util.Set<Long> playlistsWithUngrouped = new java.util.HashSet<>();
+        boolean anyVisible = false;
         for (Models.Video.M3uPlaylist pl : playlists) {
             List<LiveChannel> channels = LiveChannel.find("playlist.id = ?1", pl.id).list();
             for (LiveChannel ch : channels) {
                 if (!isLiveChannelVisible(ch)) {
                     continue;
                 }
+                anyVisible = true;
                 if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
                     groupKeys.add(normalizeGroupName(ch.groupTitle));
                 } else {
@@ -1190,6 +1210,11 @@ public class XtreamCodesAPI {
             categories.add(new XtreamCategory(gid, display));
         }
 
+        // BlueiPTV and similar clients do not synthesize their own All tab, so name the
+        // bucket the unfiltered call already provides. Only when there is something in it.
+        if (anyVisible) {
+            categories.add(0, new XtreamCategory(ALL_CATEGORY_ID, ALL_CATEGORY_NAME));
+        }
         return Response.ok(categories).build();
     }
 
