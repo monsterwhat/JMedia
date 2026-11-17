@@ -6,6 +6,98 @@
     window.__jmediaDbg = on ? console.log.bind(console) : function () {};
 })();
 
+/*
+ * Playback recorder for the <video> element.
+ *
+ * "Choppy" playback has several unrelated causes, and the player kept no record
+ * of which one fired, so a report could not be told apart from a decoder that is
+ * starving on data, a decoder that is dropping frames, or a main thread that
+ * stopped servicing the element. Every entry captures the media state at that
+ * moment; dropped-frame counters separate decoder/CPU stalls from network/disk
+ * starvation, and the timeupdate gap catches freezes that fire no media event.
+ *
+ * Read from the console with window.jmediaVideoDiag() after the stutter.
+ */
+(function () {
+    'use strict';
+
+    var LOG = window.__jmediaVideoDiagLog = window.__jmediaVideoDiagLog || [];
+    var MAX = 120;
+
+    function snapshot(video, type, extra) {
+        var buf = video.buffered;
+        var bufferedEnd = buf && buf.length ? buf.end(buf.length - 1) : 0;
+        var quality = typeof video.getVideoPlaybackQuality === 'function'
+                ? video.getVideoPlaybackQuality() : null;
+        var entry = {
+            at: new Date().toISOString(),
+            type: type,
+            t: Math.round((video.currentTime || 0) * 100) / 100,
+            readyState: video.readyState,
+            networkState: video.networkState,
+            bufferedEnd: Math.round(bufferedEnd * 100) / 100,
+            paused: video.paused,
+            seeking: video.seeking,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            volume: Math.round(video.volume * 100) / 100,
+            muted: video.muted,
+            droppedFrames: quality ? quality.droppedVideoFrames : null,
+            totalFrames: quality ? quality.totalVideoFrames : null
+        };
+        if (extra) Object.assign(entry, extra);
+        return entry;
+    }
+
+    function push(video, type, extra) {
+        var entry = snapshot(video, type, extra);
+        LOG.push(entry);
+        if (LOG.length > MAX) LOG.shift();
+        return entry;
+    }
+
+    function attach(video) {
+        if (!video || video.__videoDiagBound) return;
+        video.__videoDiagBound = true;
+
+        ['waiting', 'stalled', 'suspend', 'abort', 'error'].forEach(function (type) {
+            video.addEventListener(type, function () {
+                var entry = push(video, type);
+                if ((type === 'waiting' || type === 'stalled') && !video.paused && video.currentTime > 1) {
+                    console.warn('[VideoPlayer] playback stalled (' + type + ')', entry);
+                }
+            });
+        });
+
+        ['playing', 'seeked'].forEach(function (type) {
+            video.addEventListener(type, function () { push(video, type); });
+        });
+
+        // A frozen element fires no waiting event when the main thread is the
+        // problem: timeupdate simply stops arriving. Measure the gap.
+        var lastTick = 0;
+        video.addEventListener('timeupdate', function () {
+            var now = performance.now();
+            if (lastTick && !video.paused && !video.seeking && now - lastTick > 1500) {
+                var entry = push(video, 'judder', { gapMs: Math.round(now - lastTick) });
+                console.warn('[VideoPlayer] playback froze for ' + entry.gapMs + ' ms', entry);
+            }
+            lastTick = now;
+        });
+    }
+
+    window.__attachVideoPlaybackDiag = attach;
+
+    window.jmediaVideoStats = function (video) {
+        var v = video || document.getElementById('videoElement');
+        return v ? snapshot(v, 'snapshot') : null;
+    };
+
+    window.jmediaVideoDiag = function () {
+        return LOG.slice();
+    };
+})();
+
 if (typeof window.SimplePlayer === 'undefined') {
     window.SimplePlayer = class SimplePlayer {
         constructor(config) {
@@ -45,6 +137,11 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.video.setAttribute('webkit-playsinline', 'true');
             this.video.controls = false;
             this.video.preload = 'auto';
+            // Records stalls/dropped frames so "choppy" can be diagnosed from the
+            // console (window.jmediaVideoDiag) instead of guessed at.
+            if (typeof window.__attachVideoPlaybackDiag === 'function') {
+                window.__attachVideoPlaybackDiag(this.video);
+            }
 
             this.needsTranscode = this.container.dataset.needsTranscode === 'true';
             this.needsConversion = this.container.dataset.needsConversion === 'true';

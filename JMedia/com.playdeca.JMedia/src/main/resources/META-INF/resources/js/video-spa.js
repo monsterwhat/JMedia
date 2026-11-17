@@ -381,7 +381,7 @@ class VideoSPA {
             <script src="/js/player/ProgressReporter.js?v=2"><\/script>
             <script src="/js/player/NavigationManager.js?v=6"><\/script>
             <script src="/js/hls-loader.js?v=2"><\/script>
-            <script src="/js/simple-player.js?v=16"><\/script>
+            <script src="/js/simple-player.js?v=17"><\/script>
             <script>
                 (function() {
                     var requiredModules = [

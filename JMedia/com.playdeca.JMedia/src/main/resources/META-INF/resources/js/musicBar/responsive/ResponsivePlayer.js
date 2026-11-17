@@ -279,7 +279,21 @@
             const volumeSlider = document.getElementById('musicVolumeProgressBar');
             const volumeIcon = document.getElementById('volumeIcon');
             
-            if (!volumeBtn || !volumeSlider || !volumeIcon) return;
+            if (!volumeBtn || !volumeSlider || !volumeIcon) {
+                // The music bundle is injected from <head>, so this module can run
+                // before the mobile player markup exists. Returning here used to
+                // leave the volume button and popup unbound for the whole session
+                // (nothing re-inits ResponsivePlayer), so retry a few times.
+                this._volumeBindAttempts = (this._volumeBindAttempts || 0) + 1;
+                if (this._volumeBindAttempts <= 40) {
+                    setTimeout(() => this.setupVolumeControls(), 100);
+                } else {
+                    console.warn('[ResponsivePlayer] volume controls never appeared in the DOM');
+                    this._volumeBindAttempts = 0;
+                }
+                return;
+            }
+            this._volumeBindAttempts = 0;
 
             // ResponsivePlayer.init() can run more than once (auto-init and
             // initWhenReady). Binding again added a second click handler, so one
@@ -387,12 +401,10 @@
             
             volumeBtn.addEventListener('touchend', () => clearTimeout(pressTimer));
             
-            // Volume slider control
-            volumeSlider.addEventListener('input', (e) => {
-                const sliderValue = parseFloat(e.target.value);
-                const exponentialVolume = window.Helpers.volume.calculateExponentialVolume(sliderValue);
-                this.setVolume(exponentialVolume);
-            });
+            // Volume slider control. The slider is owned by VolumeController,
+            // which binds it by delegation on the document. Binding it again here
+            // applied every step twice and pushed one WebSocket volume message per
+            // input event (handleVolumeChange syncs immediately).
             
             // Desktop hover is handled by CSS (`:hover` + the gap bridge); the
             // click toggles a persistent .volume-open class for touch/click use.
