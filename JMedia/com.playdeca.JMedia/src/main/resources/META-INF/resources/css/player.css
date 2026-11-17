@@ -283,6 +283,18 @@ body[data-video-active="true"] .music-player {
     }
 }
 
+/* Hardware keys own the volume on touch devices, so the player's own volume
+   button and slider are dead weight there. The rule above only covers portrait
+   phones, which left landscape phones and tablets showing them. This is the
+   semantic test rather than a width/orientation guess. */
+@media (hover: none) and (pointer: coarse) {
+    .volume-container,
+    #videoMuteBtn,
+    #muteBtn {
+        display: none !important;
+    }
+}
+
 .video-wrapper {
     width: 100% !important;
     height: 100% !important;

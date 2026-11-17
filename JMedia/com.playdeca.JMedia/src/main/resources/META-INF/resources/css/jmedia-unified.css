@@ -85,10 +85,10 @@ body {
     background: var(--mobile-background);
     color: var(--mobile-text);
     overflow-x: hidden;
-    /* iOS rubber-bands the whole shell (and can trigger pull-to-refresh) even
-       when the inner list is already at its end. The player already opted out
-       locally; the app shell needs it too now that it runs as a home-screen app. */
-    overscroll-behavior: none;
+    /* Do NOT set overscroll-behavior here. overflow-x: hidden already makes the
+       body a scroll container, and overscroll-behavior would stop the wheel from
+       chaining to the real (html) scroller: the page then only scrolls by
+       dragging the scrollbar. Cinema mode scrolls the document, so /video broke. */
 }
 
 /* ==================== standard LAYOUT (DESKTOP/RESPONSIVE) ==================== */
