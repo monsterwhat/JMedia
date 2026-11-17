@@ -858,7 +858,7 @@ public class XtreamCodesAPI {
                             (Video v) -> v.popularityScore != null ? v.popularityScore : 0.0).reversed())
                     .collect(Collectors.toList());
             log.infof("getVodStreams: uncategorised bucket returning %d videos", videos.size());
-        } else if (catId != null && !catId.equals("0")) {
+        } else if (catId != null && !catId.equals("0") && !ALL_CATEGORY_ID.equals(catId)) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
                 videos = findMoviesByGenreName(genreName);
@@ -1012,10 +1012,12 @@ public class XtreamCodesAPI {
 
     /**
      * The "everything" group. Every section already resolves category_id "0" to its full
-     * list, so advertising it is only a matter of naming it: clients that build their own
-     * All tab ignore it, clients that do not (BlueiPTV among them) get one.
+     * list, so advertising it is only a matter of naming it - but "0" cannot be the name:
+     * clients treat category_id 0 as their own "all" marker and never render it as a
+     * group, which is why the All entry was invisible. It gets a real id instead, and
+     * category_id=0 keeps working for clients that pass it.
      */
-    private static final String ALL_CATEGORY_ID = "0";
+    private static final String ALL_CATEGORY_ID = "999999";
     private static final String ALL_CATEGORY_NAME = "All";
 
     private static final int COLLECTION_CATEGORY_BASE = 20000000;
@@ -1221,7 +1223,7 @@ public class XtreamCodesAPI {
     private Response getLiveStreams(String catId) {
         List<LiveChannel> channels;
         String effectiveCategoryId = "0";
-        if (catId != null && !catId.equals("0")) {
+        if (catId != null && !catId.equals("0") && !ALL_CATEGORY_ID.equals(catId)) {
             if (catId.startsWith("g_")) {
                 effectiveCategoryId = catId;
                 int firstUnderscore = catId.indexOf('_');
@@ -1465,7 +1467,7 @@ public class XtreamCodesAPI {
                     .filter(s -> UNCATEGORISED_CATEGORY_ID.equals(genreIdList(s.genres, ids).get(0)))
                     .collect(Collectors.toList());
             log.infof("getSeries: uncategorised bucket resolved to %d series", allSeries.size());
-        } else if (catId != null && !catId.isBlank()) {
+        } else if (catId != null && !catId.isBlank() && !ALL_CATEGORY_ID.equals(catId)) {
             String genreName = genreIdByNameReverse().get(catId);
             if (genreName != null) {
                 allSeries = Models.Video.Series.<Models.Video.Series>find("SELECT s FROM Series s JOIN s.genres g WHERE LOWER(g) LIKE ?1", "%" + genreName.toLowerCase() + "%").list();
