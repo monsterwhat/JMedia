@@ -1246,18 +1246,21 @@ public class XtreamCodesAPI {
             s.put("tv_archive_duration", 0);
             streams.add(s);
         }
-        log.infof("getLiveStreams: returning %d working channels (hid %d not verified as working)", streams.size(), hidden);
+        log.infof("getLiveStreams: returning %d channels (hid %d confirmed dead)", streams.size(), hidden);
         return Response.ok(streams).build();
     }
 
     /**
-     * A live channel is hidden from the Xtream API only when it has been checked and is
-     * not working; never-checked channels stay visible. Every path (the unfiltered list,
-     * the playlist/group filters) uses this same rule, so a group's advertised count and
-     * its contents agree and empty groups are not advertised at all.
+     * A live channel is hidden from the Xtream API only when its status is a confirmed
+     * "dead" verdict. A null/unchecked status means the probe was inconclusive - the checker
+     * deliberately keeps the previous verdict in that case - which is not evidence the
+     * channel is down. Treating it as dead hid 10,452 of 13,121 channels, including live
+     * ones like CRTV, so most of the playlist never reached a TV. Every path (the unfiltered
+     * list, the playlist/group filters, the category builder) uses this same rule, so a
+     * group's advertised count and its contents agree and empty groups are not advertised.
      */
     private static boolean isLiveChannelVisible(LiveChannel ch) {
-        return ch != null && !(ch.lastChecked != null && !"working".equals(ch.streamStatus));
+        return ch != null && !"dead".equals(ch.streamStatus);
     }
 
     private List<LiveChannel> filterLiveByGroupId(String numericGroupId) {

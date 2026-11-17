@@ -346,12 +346,62 @@ public class VideoManagementApi {
 
         LOG.info("Forcing rescan for series '{}' in {} directories", seriesTitle, parentDirs.size());
         int totalCreated = 0;
+        // Season folders only cover the seasons that already have rows, so a show missing
+        // whole seasons can never be repaired by rescanning them. When every episode lives
+        // under one folder named after the series, walk that folder too: unchanged files are
+        // skipped and the missing seasons are imported.
+        java.nio.file.Path showFolder = commonShowFolder(parentDirs, videoLibraryPath, seriesTitle);
+        if (showFolder != null && !parentDirs.contains(showFolder)) {
+            LOG.info("Also rescanning show folder {} for '{}' so seasons missing from the database are found",
+                    showFolder, seriesTitle);
+            totalCreated += videoImportService.scanAndCreate(showFolder, false).size();
+        }
         for (java.nio.file.Path dir : parentDirs) {
             List<Models.Video.Video> videos = videoImportService.scanAndCreate(dir, true);
             totalCreated += videos.size();
         }
 
         return Response.ok("Rescan completed. Created/updated " + totalCreated + " videos.").build();
+    }
+
+    /**
+     * The folder every episode of this series lives under, when that folder is named after
+     * the series (e.g. ".../TV Shows/South Park" for ".../TV Shows/South Park/Season 3").
+     * Returns null when the episodes are spread across unrelated folders, when the common
+     * folder is the library root or outside it, or when its name does not match the series -
+     * widening the scan in those cases could pull in a whole library section.
+     */
+    private java.nio.file.Path commonShowFolder(Set<java.nio.file.Path> parentDirs, String videoLibraryPath, String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isBlank() || parentDirs.isEmpty()) {
+            return null;
+        }
+        java.nio.file.Path common = null;
+        for (java.nio.file.Path dir : parentDirs) {
+            if (dir == null) {
+                continue;
+            }
+            if (common == null) {
+                common = dir;
+                continue;
+            }
+            while (common != null && !dir.startsWith(common)) {
+                common = common.getParent();
+            }
+        }
+        if (common == null || common.getFileName() == null) {
+            return null;
+        }
+        java.nio.file.Path root = java.nio.file.Paths.get(videoLibraryPath).toAbsolutePath().normalize();
+        java.nio.file.Path normalized = common.toAbsolutePath().normalize();
+        if (normalized.equals(root) || !normalized.startsWith(root)) {
+            return null;
+        }
+        if (!common.getFileName().toString().equalsIgnoreCase(seriesTitle.trim())) {
+            LOG.debug("Not widening the rescan of '{}' to {}: the folder is not named after the series",
+                    seriesTitle, common);
+            return null;
+        }
+        return common;
     }
 
     /**

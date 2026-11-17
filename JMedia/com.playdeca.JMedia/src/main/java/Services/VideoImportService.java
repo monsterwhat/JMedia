@@ -93,6 +93,49 @@ public class VideoImportService {
     @Transactional
     void onStart(@Observes StartupEvent ev) {
         cleanStaleColumns();
+        resumeInterruptedScan();
+    }
+
+    /**
+     * A scan killed with the process leaves its ScanState in "running" and nothing ever
+     * restarts it: every file the walk had not reached stays missing from the library
+     * until someone presses "Scan library" by hand. A scan abandoned in August left 878
+     * files unimported, including 20 of South Park's 28 seasons. A fresh process cannot
+     * have a scan in flight, so a "running" row at startup is always a leftover: resume
+     * it in the background. scan() closes the stale row itself and skips the paths it
+     * already recorded, so the resume picks up where the dead walk stopped.
+     */
+    private void resumeInterruptedScan() {
+        ScanState stale = ScanState.findRunning();
+        if (stale == null) {
+            return;
+        }
+        LOGGER.info("Video scan never finished (started {}, {} of {} files) - resuming it in the background",
+                stale.startTime, stale.processedFiles, stale.totalFiles);
+        Thread.ofVirtual().name("video-scan-resume").start(() -> {
+            try {
+                // Let startup and the enrichment workers settle before walking the library.
+                Thread.sleep(15_000);
+                String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                if (libraryPath == null || libraryPath.isBlank()) {
+                    LOGGER.warn("Not resuming the interrupted video scan: no video library path is configured");
+                    return;
+                }
+                Path root = Paths.get(libraryPath);
+                if (!Files.isDirectory(root)) {
+                    LOGGER.warn("Not resuming the interrupted video scan: {} is not a directory", root);
+                    return;
+                }
+                // self, not this: scan() needs its request context interceptor on this thread.
+                self.scan(root, false);
+                LOGGER.info("Resumed video scan finished");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.warn("Resumed video scan was interrupted before it started", e);
+            } catch (Exception e) {
+                LOGGER.error("Resumed video scan failed", e);
+            }
+        });
     }
 
     @Transactional
@@ -551,9 +594,14 @@ public class VideoImportService {
         if (isPartialOrTempFile(fileName)) {
             return false;
         }
+        // Subtitles are deliberately not video files here: they are discovered by
+        // SubtitleMatcher, and processVideoFile only ever returns null for them - but not
+        // before the task has waited for a background media slot. A library with 835 .srt
+        // files queued 835 no-op tasks that each blocked a slot for up to 120s, starving
+        // the real video probes (and leaving scans to be interrupted before they finish).
         return fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") ||
                fileName.endsWith(".mov") || fileName.endsWith(".wmv") || fileName.endsWith(".flv") ||
-               fileName.endsWith(".webm") || fileName.endsWith(".m4v") || fileName.endsWith(".srt");
+               fileName.endsWith(".webm") || fileName.endsWith(".m4v");
     }
 
     private boolean isPartialOrTempFile(String fileName) {

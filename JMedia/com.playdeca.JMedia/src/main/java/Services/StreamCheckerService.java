@@ -25,8 +25,16 @@ public class StreamCheckerService {
 
     private static final Logger LOG = Logger.getLogger(StreamCheckerService.class);
 
-    private static final Duration CHECK_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration CHECK_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration RECHECK_INTERVAL = Duration.ofHours(6);
+    /**
+     * Cap on probes in flight. The scheduled pass used to fire all 13k probes at once on
+     * virtual threads; hosts throttled, the 5s timeout expired, and ~10k channels came back
+     * "inconclusive" - which keeps the previous (often null) verdict, so they never got one.
+     */
+    private static final int MAX_CONCURRENT_PROBES = 32;
+    /** Pause before the single retry that keeps a transient failure out of "inconclusive". */
+    private static final Duration RETRY_DELAY = Duration.ofSeconds(1);
 
     @Inject
     StreamCheckExecutor streamCheckExecutor;
@@ -66,6 +74,7 @@ public class StreamCheckerService {
             return;
         }
         ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(streamCheckExecutor.getExecutor());
+        java.util.concurrent.Semaphore probeSlots = new java.util.concurrent.Semaphore(MAX_CONCURRENT_PROBES);
 
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(CHECK_TIMEOUT)
@@ -76,22 +85,18 @@ public class StreamCheckerService {
 
         for (LiveChannel ch : channels) {
             completion.submit(() -> {
-                String status;
-                if (ch.streamUrl == null || ch.streamUrl.isBlank()) {
-                    status = "dead";
-                } else {
-                    status = checkUrl(client, ch);
-                }
-                if (status == null) {
-                    // Inconclusive probe (timeout / transient network error): keep the
-                    // previous verdict. Writing null here used to ERASE the stored
-                    // status, so a flaky check resurrected dead channels and the
-                    // Xtream list showed everything again.
-                    liveChannelService.touchLastChecked(ch.id);
+                try {
+                    probeSlots.acquire();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    LOG.warnf("[StreamChecker] Probe slot wait interrupted; skipping channel %d (%s)", ch.id, ch.name);
                     return "unchecked";
                 }
-                liveChannelService.updateStreamStatus(ch.id, status);
-                return status;
+                try {
+                    return probeChannel(client, ch);
+                } finally {
+                    probeSlots.release();
+                }
             });
         }
 
@@ -119,6 +124,35 @@ public class StreamCheckerService {
 
         long elapsed = (System.currentTimeMillis() - start) / 1000;
         LOG.info("Stream check completed in " + elapsed + "s — " + working + " working, " + dead + " dead, " + unchecked + " unchecked out of " + channels.size());
+    }
+
+    /**
+     * Probes one channel and records the verdict, retrying once when the first attempt is
+     * inconclusive. Only a second inconclusive result keeps the previous verdict; a channel
+     * that never had one stays null, which the Xtream API treats as "not dead".
+     */
+    private String probeChannel(HttpClient client, LiveChannel ch) {
+        String status = (ch.streamUrl == null || ch.streamUrl.isBlank()) ? "dead" : checkUrl(client, ch);
+        if (status == null) {
+            try {
+                Thread.sleep(RETRY_DELAY.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.warnf("[StreamChecker] Retry wait interrupted for channel %d (%s); keeping the previous verdict", ch.id, ch.name);
+                liveChannelService.touchLastChecked(ch.id);
+                return "unchecked";
+            }
+            status = checkUrl(client, ch);
+        }
+        if (status == null) {
+            // Still inconclusive (timeout / transient network error): keep the previous
+            // verdict. Writing null here used to ERASE the stored status, so a flaky check
+            // resurrected dead channels and the Xtream list showed everything again.
+            liveChannelService.touchLastChecked(ch.id);
+            return "unchecked";
+        }
+        liveChannelService.updateStreamStatus(ch.id, status);
+        return status;
     }
 
     /**
