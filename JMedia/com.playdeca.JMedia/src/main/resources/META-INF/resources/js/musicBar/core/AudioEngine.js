@@ -284,6 +284,10 @@
             this.audioElementReady = true;
             this.setupAudioEvents(this.audio);
             this.setupAudioEvents(this.audioNext);
+            this._attachAudioDiag(this.audio);
+            this._attachAudioDiag(this.audioNext);
+            // Read from the console with window.jmediaAudioDiag() after hearing a glitch.
+            window.jmediaAudioDiag = () => (this._audioDiag || []).slice();
         },
 
         isIOS: function() {
@@ -562,6 +566,47 @@
             document.addEventListener('touchend', retry, { once: true, passive: true });
             document.addEventListener('click', retry, { once: true });
             document.addEventListener('keydown', retry, { once: true });
+        },
+
+        /**
+         * Records the events that can actually cause audible dropouts, so a "choppy
+         * audio" report can be diagnosed instead of guessed at. 'waiting' while
+         * playing is a real gap (the decoder ran out of samples); 'stalled' means the
+         * browser stopped receiving bytes, which points at the network or the disk.
+         * Every entry carries the buffer and context state at that moment.
+         */
+        _attachAudioDiag: function(el) {
+            if (!el || el.__audioDiagBound) return;
+            el.__audioDiagBound = true;
+            this._audioDiag = this._audioDiag || [];
+            const record = (type, extra) => {
+                const buf = el.buffered;
+                const bufferedEnd = buf && buf.length ? buf.end(buf.length - 1) : 0;
+                const entry = {
+                    at: new Date().toISOString(),
+                    type: type,
+                    deck: el.id,
+                    t: Math.round((el.currentTime || 0) * 100) / 100,
+                    readyState: el.readyState,
+                    networkState: el.networkState,
+                    bufferedEnd: Math.round(bufferedEnd * 100) / 100,
+                    ctx: this.ctx ? this.ctx.state : 'none',
+                    paused: el.paused
+                };
+                if (extra) Object.assign(entry, extra);
+                this._audioDiag.push(entry);
+                if (this._audioDiag.length > 60) this._audioDiag.shift();
+                return entry;
+            };
+            ['waiting', 'stalled', 'suspend', 'abort'].forEach((type) => {
+                el.addEventListener(type, () => {
+                    const entry = record(type);
+                    if (type === 'waiting' && !el.paused) {
+                        console.warn('[AudioEngine] audible gap: decoder starved of samples', entry);
+                    }
+                });
+            });
+            el.addEventListener('playing', () => record('playing'));
         },
 
         setupAudioEvents: function(el) {
