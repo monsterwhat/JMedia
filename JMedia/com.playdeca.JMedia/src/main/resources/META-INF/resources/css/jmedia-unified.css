@@ -85,6 +85,10 @@ body {
     background: var(--mobile-background);
     color: var(--mobile-text);
     overflow-x: hidden;
+    /* iOS rubber-bands the whole shell (and can trigger pull-to-refresh) even
+       when the inner list is already at its end. The player already opted out
+       locally; the app shell needs it too now that it runs as a home-screen app. */
+    overscroll-behavior: none;
 }
 
 /* ==================== standard LAYOUT (DESKTOP/RESPONSIVE) ==================== */
