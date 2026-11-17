@@ -345,13 +345,12 @@
                 setTimeout(syncKeepAlive, 500);
             };
 
-            const arm = () => {
-                document.addEventListener('touchend', unlock, { once: true, passive: true });
-                document.addEventListener('click', unlock, { once: true });
-                document.addEventListener('keydown', unlock, { once: true });
-            };
-
-            arm();
+            // Persistent listeners, not { once: true }: the visibility handler
+            // below clears _iosUnlockFired, so these same listeners unlock again
+            // after iOS suspends the audio session (call, Siri, long background).
+            document.addEventListener('touchend', unlock, { passive: true });
+            document.addEventListener('click', unlock);
+            document.addEventListener('keydown', unlock);
 
             // The silent element exists only to activate the audio output and keep
             // the media session warm. While real audio is playing it must step
@@ -387,6 +386,11 @@
                 if (document.hidden) return;
                 this._setAudioSessionPlayback();
                 this._ensureContextRunning('visibilitychange:ios-unlock');
+                // iOS can tear the audio session down while backgrounded (call,
+                // Siri, long suspension). Clearing the one-shot flag re-arms the
+                // persistent gesture listeners above, so the next tap unlocks the
+                // output again instead of playing into a dead session - silently.
+                this._iosUnlockFired = false;
                 setTimeout(syncKeepAlive, 0);
             });
         },

@@ -46,6 +46,7 @@ body.music-page #musicPlayerContainer.persistent-music-player {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     pointer-events: none;               /* full-width strip never blocks clicks */
@@ -128,6 +129,7 @@ body.music-page #musicPlayerContainer.persistent-music-player .mobile-player.exp
     inset: 0 !important;
     width: 100vw !important;
     height: 100vh !important;
+    height: 100dvh !important;
     z-index: 2000 !important;
     pointer-events: auto;
 }
@@ -147,6 +149,7 @@ body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-play
     background: var(--glass-bg, rgba(24, 24, 32, 0.85));
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     pointer-events: auto;
@@ -231,6 +234,7 @@ body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-play
     background: var(--glass-bg, rgba(24, 24, 32, 0.85));
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     pointer-events: auto;
@@ -283,6 +287,7 @@ body.music-page #musicPlayerContainer .mobile-volume-wrapper {
     background: var(--glass-bg, rgba(24, 24, 32, 0.85));
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
 }
@@ -328,9 +333,11 @@ body.music-page #musicPlayerContainer .mobile-progress-container {
 }
 
 /* Grow the hit target while interacting */
-body.music-page #musicPlayerContainer .mobile-progress-container:hover,
-body.music-page #musicPlayerContainer .mobile-progress-container:active {
-    height: 16px;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #musicPlayerContainer .mobile-progress-container:hover,
+    body.music-page #musicPlayerContainer .mobile-progress-container:active {
+        height: 16px;
+    }
 }
 
 body.music-page #musicPlayerContainer .mobile-progress {
@@ -452,6 +459,7 @@ body.music-page .music-hero {
     border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 0.375rem 0.9rem;
     border-radius: 9999px;
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     margin-bottom: 0.2rem;
@@ -505,6 +513,7 @@ body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-sear
     background: var(--glass-bg, rgba(24, 24, 32, 0.85));
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     pointer-events: auto;
@@ -544,6 +553,7 @@ body.music-page #musicPlayerContainer .dock-search-shell {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     pointer-events: auto;
@@ -597,9 +607,11 @@ body.music-page #musicPlayerContainer .dock-search-close {
     transition: background 0.2s ease;
 }
 
-body.music-page #musicPlayerContainer .dock-search-close:hover {
-    background: rgba(255, 255, 255, 0.15);
-    color: white;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #musicPlayerContainer .dock-search-close:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: white;
+    }
 }
 
 body.music-page #musicPlayerContainer .dock-search-dropdown {
@@ -611,6 +623,7 @@ body.music-page #musicPlayerContainer .dock-search-dropdown {
     max-height: 360px;
     overflow-y: auto;
     background: rgba(18, 18, 22, 0.92);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
     backdrop-filter: blur(24px) saturate(1.2);
     -webkit-backdrop-filter: blur(24px) saturate(1.2);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -731,11 +744,13 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     animation: none !important;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover {
-    transform: translateY(-4px) !important;
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover {
+        transform: translateY(-4px) !important;
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+    }
 }
 
 /* Square poster — aspect ratio forced to 1:1 since song artwork is 8x8, not 16x9 */
@@ -785,8 +800,10 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     pointer-events: none;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover .mobile-song-artwork::after {
-    opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover .mobile-song-artwork::after {
+        opacity: 1;
+    }
 }
 
 body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-info {
@@ -858,13 +875,15 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileHistor
     animation: none !important;   /* same stagger-kill as the cards above */
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper .mobile-queue .mobile-song-item:hover,
-body.music-page #app-content .standard-content .music-main-wrapper .mobile-history .mobile-song-item:hover,
-body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent > .mobile-song-item:hover {
-    transform: none !important;
-    background: var(--glass-bg, rgba(255, 255, 255, 0.05)) !important;
-    box-shadow: none !important;
-    border-color: transparent !important;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-queue .mobile-song-item:hover,
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-history .mobile-song-item:hover,
+    body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent > .mobile-song-item:hover {
+        transform: none !important;
+        background: var(--glass-bg, rgba(255, 255, 255, 0.05)) !important;
+        box-shadow: none !important;
+        border-color: transparent !important;
+    }
 }
 
 body.music-page #app-content .standard-content .music-main-wrapper .mobile-queue .mobile-song-artwork,
@@ -935,10 +954,12 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-playl
     animation: none !important;   /* same stagger-kill as the song cards */
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-card:hover,
-body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-card:hover {
-    transform: translateY(-4px);
-    background: transparent !important;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-card:hover,
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-playlist-card:hover {
+        transform: translateY(-4px);
+        background: transparent !important;
+    }
 }
 
 body.music-page #app-content .standard-content .music-main-wrapper .mobile-album-artwork,
@@ -1020,10 +1041,12 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre
     transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-card:hover {
-    transform: translateY(-2px);
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(72, 199, 116, 0.35);
+@media (hover: hover) and (pointer: fine) {
+    body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-card:hover {
+        transform: translateY(-2px);
+        background: rgba(255, 255, 255, 0.09);
+        border-color: rgba(72, 199, 116, 0.35);
+    }
 }
 
 body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre-icon {
@@ -1114,9 +1137,11 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre
         height: 14px;
     }
 
-    body.music-page #musicPlayerContainer .mobile-progress-container:hover,
-    body.music-page #musicPlayerContainer .mobile-progress-container:active {
-        height: 14px;
+    @media (hover: hover) and (pointer: fine) {
+        body.music-page #musicPlayerContainer .mobile-progress-container:hover,
+        body.music-page #musicPlayerContainer .mobile-progress-container:active {
+            height: 14px;
+        }
     }
 
     body.music-page #musicPlayerContainer .mobile-progress {
@@ -1243,6 +1268,7 @@ body.music-page .cinema-nav-classic-btn {
     border: 1px solid rgba(255, 255, 255, 0.12);
     padding: 0.45rem 1rem;
     border-radius: 999px;
+    -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     text-decoration: none;
@@ -1250,8 +1276,10 @@ body.music-page .cinema-nav-classic-btn {
     transition: background 0.2s ease;
 }
 
-body.music-page .cinema-nav-classic-btn:hover {
-    background: rgba(255, 255, 255, 0.16);
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .cinema-nav-classic-btn:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
 }
 
 body.music-page .cinema-nav-classic-btn.active {
@@ -1292,9 +1320,11 @@ body.music-page .dock-nav-item i {
     flex-shrink: 0;
 }
 
-body.music-page .dock-nav-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-nav-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
+    }
 }
 
 body.music-page .dock-nav-item.active {
@@ -1306,8 +1336,10 @@ body.music-page .dock-nav-item.active i {
     color: #48c774;
 }
 
-body.music-page .dock-nav-item:hover i {
-    color: #fff;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-nav-item:hover i {
+        color: #fff;
+    }
 }
 
 body.music-page .dock-nav-footer {
@@ -1336,7 +1368,9 @@ body.music-page .dock-nav-classic-btn {
     transition: background 0.2s ease;
 }
 
-body.music-page .dock-nav-classic-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-nav-classic-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff;
+    }
 }

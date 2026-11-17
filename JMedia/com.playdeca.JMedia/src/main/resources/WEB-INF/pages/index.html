@@ -2,8 +2,14 @@
 <html lang="en">
     <head>
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=1">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0b0b0f">
+    <!-- iOS only honours manifest display mode from 16.4; these make the
+         home-screen app standalone everywhere and keep the status bar
+         transparent over the viewport-fit=cover layout. -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="JMedia">
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <title id="pageTitle">JMedia</title>

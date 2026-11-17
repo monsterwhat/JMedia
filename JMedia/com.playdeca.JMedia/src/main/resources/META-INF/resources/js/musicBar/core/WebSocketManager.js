@@ -65,6 +65,22 @@
                 }, { once: true });
             }
             
+            // iOS suspends the socket while the app is backgrounded; the close
+            // event may arrive only on return, or never if the backoff already
+            // gave up (10 attempts). Reconnect as soon as the page is visible,
+            // restored from bfcache, or back online - and reset the attempt
+            // counter so a long background cannot exhaust it.
+            const resumeConnection = () => {
+                if (document.visibilityState === 'hidden') return;
+                const state = this.ws ? this.ws.readyState : null;
+                if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
+                window.Helpers.log('WebSocketManager resuming connection after page resume');
+                this.reconnect();
+            };
+            document.addEventListener('visibilitychange', resumeConnection);
+            window.addEventListener('pageshow', resumeConnection);
+            window.addEventListener('online', resumeConnection);
+
             // Listen for manual send requests
             window.addEventListener('sendWebSocketMessage', (e) => {
                 this.send(e.detail.type, e.detail.payload);

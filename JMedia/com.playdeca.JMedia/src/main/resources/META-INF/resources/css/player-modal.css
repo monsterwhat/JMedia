@@ -41,6 +41,7 @@
 .player-modal.is-expanded {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   border-radius: 0;
   top: 0;
   left: 0;
@@ -74,9 +75,11 @@
   transition: background 0.2s, color 0.2s;
   flex-shrink: 0;
 }
-.player-modal-topbar-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+@media (hover: hover) and (pointer: fine) {
+    .player-modal-topbar-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
 }
 .player-modal-topbar-title {
   flex: 1;
@@ -98,12 +101,16 @@
   opacity: 0;
   transition: opacity 0.3s ease;
 }
-.player-modal.is-expanded .player-modal-topbar:hover,
-.player-modal.is-expanded:hover .player-modal-topbar {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+    .player-modal.is-expanded .player-modal-topbar:hover,
+    .player-modal.is-expanded:hover .player-modal-topbar {
+      opacity: 1;
+    }
 }
-.player-modal.is-expanded:hover {
-  cursor: default;
+@media (hover: hover) and (pointer: fine) {
+    .player-modal.is-expanded:hover {
+      cursor: default;
+    }
 }
 
 /* Content container */
@@ -139,6 +146,7 @@
   .player-modal {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     border-radius: 0;
     top: 0;
     left: 0;

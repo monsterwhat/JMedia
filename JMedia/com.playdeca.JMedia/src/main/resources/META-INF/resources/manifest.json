@@ -1,44 +1,31 @@
 {
-  "name": "JMedia Mobile",
+  "name": "JMedia",
   "short_name": "JMedia",
-  "description": "Mobile-optimized music media player",
-  "start_url": "/mobile.html",
-  "display": "standalone",
-  "background_color": "#121212",
-  "theme_color": "#48c78e",
-  "orientation": "portrait-primary",
+  "description": "Movies, series and music from your own library",
+  "start_url": "/",
   "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0b0f",
+  "theme_color": "#0b0b0f",
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/logo.png", 
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
-    }
-  ],
-  "categories": ["music", "entertainment", "multimedia"],
-  "lang": "en",
-  "dir": "ltr",
-  "prefer_related_applications": false,
-  "related_applications": [],
-  "shortcuts": [
-    {
-      "name": "Play All",
-      "short_name": "Play All",
-      "description": "Play all songs in library",
-      "url": "/mobile.html?action=playall",
-      "icons": [{ "src": "/logo.png", "sizes": "96x96" }]
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "name": "Queue",
-      "short_name": "Queue", 
-      "description": "View current queue",
-      "url": "/mobile.html#queue",
-      "icons": [{ "src": "/logo.png", "sizes": "96x96" }]
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

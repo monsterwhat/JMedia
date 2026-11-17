@@ -116,11 +116,18 @@
                     stateToSave.currentTime = currentState.currentTime || 0;
                 }
                 
-                localStorage.setItem(this.getStorageKey(), JSON.stringify(stateToSave));
-                window.Helpers.log('StatePersistence saved state before unload:', {
-                    currentSongId: stateToSave.currentSongId,
-                    currentTime: stateToSave.currentTime
-                });
+                // The storage write gets its own guard: a QuotaExceededError in
+                // private browsing used to abort the whole method, which meant the
+                // sendBeacon below never ran and the position was lost everywhere.
+                try {
+                    localStorage.setItem(this.getStorageKey(), JSON.stringify(stateToSave));
+                    window.Helpers.log('StatePersistence saved state before unload:', {
+                        currentSongId: stateToSave.currentSongId,
+                        currentTime: stateToSave.currentTime
+                    });
+                } catch (storageErr) {
+                    console.warn('[StatePersistence] could not write state to localStorage', storageErr);
+                }
                 
                 // Also send currentTime to server so it persists across reloads
                 // Use sendBeacon for reliability during page unload

@@ -411,6 +411,7 @@ body {
     width: 100%;
     height: 100px;
     background: var(--standard-bg);
+    -webkit-backdrop-filter: blur(40px);
     backdrop-filter: blur(40px);
     border-top: 1px solid var(--glass-border);
     padding: 0 !important;
@@ -596,6 +597,7 @@ body {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
 }
 
@@ -791,6 +793,7 @@ body {
     width: 40px;
     height: 140px;
     background: var(--standard-bg);
+    -webkit-backdrop-filter: blur(15px);
     backdrop-filter: blur(15px);
     border: 1px solid var(--glass-border);
     border-radius: 20px;
@@ -851,6 +854,7 @@ body {
     right: 20px;
     z-index: 2000000;
     background: var(--standard-bg);
+    -webkit-backdrop-filter: blur(15px);
     backdrop-filter: blur(15px);
     -webkit-backdrop-filter: blur(15px);
     border: 1px solid var(--glass-border);
@@ -893,6 +897,7 @@ body {
     position: fixed !important;
     z-index: 100000 !important;
     background: var(--standard-bg) !important;
+    -webkit-backdrop-filter: blur(15px) !important;
     backdrop-filter: blur(15px) !important;
     border: 1px solid var(--glass-border) !important;
     border-radius: 8px !important;
@@ -1675,6 +1680,7 @@ tr.is-flac:hover td:first-child figure.image img {
     justify-content: space-between;
     padding: 0 1.5rem;
     background: var(--standard-bg) !important;
+    -webkit-backdrop-filter: blur(20px);
     backdrop-filter: blur(20px);
     z-index: 150;
     border-bottom: 1px solid var(--glass-border);
@@ -1727,6 +1733,7 @@ tr.is-flac:hover td:first-child figure.image img {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     z-index: 50;
@@ -1827,6 +1834,7 @@ tr.is-flac:hover td:first-child figure.image img {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+    -webkit-backdrop-filter: blur(10px) !important;
     backdrop-filter: blur(10px) !important;
 }
 
@@ -1856,6 +1864,7 @@ tr.is-flac:hover td:first-child figure.image img {
     cursor: pointer;
     transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
     position: relative;
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -2452,6 +2461,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .hero-foot {
     background: var(--glass-bg) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
     backdrop-filter: blur(20px) !important;
     border: 1px solid var(--glass-border) !important;
     padding: 1.5rem !important;
@@ -2470,6 +2480,7 @@ input[type="range"]::-webkit-slider-thumb {
     padding: 3rem;
     background: var(--glass-bg);
     border-radius: 24px;
+    -webkit-backdrop-filter: blur(40px);
     backdrop-filter: blur(40px);
     border: 1px solid var(--glass-border);
     animation: detailsFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2627,6 +2638,7 @@ input[type="range"]::-webkit-slider-thumb {
 .btn-secondary {
     background: var(--glass-bg);
     color: var(--standard-text);
+    -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
 }
 
@@ -2733,6 +2745,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .glass-modal {
     background: var(--standard-bg) !important;
+    -webkit-backdrop-filter: blur(30px) !important;
     backdrop-filter: blur(30px) !important;
     border: 1px solid var(--glass-border) !important;
     border-radius: 20px !important;
@@ -2743,6 +2756,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Modal Background Override */
 .modal-background {
     background-color: rgba(0, 0, 0, 0.7) !important;
+    -webkit-backdrop-filter: blur(5px);
     backdrop-filter: blur(5px);
 }
 
@@ -4156,6 +4170,7 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--mobile-text, #363636);
+    -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
     transition: all 0.3s ease;
 }
@@ -4214,6 +4229,7 @@ input[type="range"]::-webkit-slider-thumb {
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
     border-radius: 12px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     color: var(--standard-text);
     font-size: 0.8rem;
@@ -4524,6 +4540,7 @@ input[type="range"]::-webkit-slider-thumb {
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
     border-radius: 12px;
     padding: 1.25rem;
+    -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
 }
 
