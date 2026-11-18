@@ -65,8 +65,25 @@ class SubtitleManager {
         console.log('[SubtitleManager] Binding to video element', video.id);
         this.boundVideo = video;
         this.boundContainer = container;
-        
-        this.setupFirefoxSubtitlePositioning();
+
+        // The DOM overlay exists for one reason: Firefox will neither style nor
+        // position ::cue the way Chromium does. Enabling it on every browser also
+        // put body.firefox-subtitle-mode on the document, whose rule hides the
+        // native cues (video::cue { visibility: hidden }) and hands rendering to
+        // this div - a div whose position is driven by our own controls
+        // (setSubtitleLift 45px while the UI is visible, 0 once it auto-hides), so
+        // on Chrome the subtitles moved with the UI and could end up unreadable or
+        // out of view. Chromium renders native cues correctly (the runtime CSS
+        // positions them through ::-webkit-media-text-track-container); only
+        // Firefox needs the overlay.
+        if (/Firefox/i.test(navigator.userAgent)) {
+            this.setupFirefoxSubtitlePositioning();
+        } else if (document.body.classList.contains('firefox-subtitle-mode')) {
+            document.body.classList.remove('firefox-subtitle-mode');
+            const stale = document.getElementById('firefox-subtitle-overlay');
+            if (stale) stale.remove();
+            this.overlayElement = null;
+        }
     }
 
     getStyle() {
