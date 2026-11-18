@@ -240,7 +240,7 @@ public class M3uParserService {
                 if ("radio".equalsIgnoreCase(unquote(value))) entry.isRadio = true;
             }
             case "catchup", "catchup-type" -> entry.catchupType = unquote(value);
-            case "catchup-source" -> entry.catchupSource = unquote(value);
+            case "catchup-source" -> entry.catchupSource = unescapeAmpersands(unquote(value));
             case "catchup-days" -> entry.catchupDays = parseInteger(unquote(value));
             case "catchup-time" -> entry.catchupDays = daysFromSeconds(unquote(value));
             case "catchup-enable" -> entry.catchupEnabled = isTruthy(value);
@@ -341,6 +341,11 @@ public class M3uParserService {
             v = v.substring(1, v.length() - 1);
         }
         return v;
+    }
+
+    /** Some playlists XML-escape the archive template's query separators. */
+    private static String unescapeAmpersands(String value) {
+        return value == null ? null : value.replace("&amp;", "&");
     }
 
     private boolean isAttributeSet(M3uEntry entry, String key) {

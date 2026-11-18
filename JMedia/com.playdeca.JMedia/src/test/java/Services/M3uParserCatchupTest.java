@@ -46,6 +46,17 @@ class M3uParserCatchupTest {
     }
 
     @Test
+    void unescapesAmpersandsInTheSource() {
+        String m3u = "#EXTM3U\n"
+                + "#EXTINF:-1 catchup=\"default\" catchup-source=\"http://example.test/a?x=1&amp;y=${start}\",Channel\n"
+                + "http://example.test/7\n";
+
+        List<M3uParserService.M3uEntry> entries = new M3uParserService().parse(m3u);
+
+        assertEquals("http://example.test/a?x=1&y=${start}", entries.get(0).catchupSource);
+    }
+
+    @Test
     void legacyTimeshiftAndTvgRecMarkCatchup() {
         String m3u = "#EXTM3U\n"
                 + "#EXTINF:-1 timeshift=\"5\",Timeshift\nhttp://example.test/4\n"

@@ -105,7 +105,7 @@ public class CatchupService {
                     "archive=" + startEpoch + "&archive_end=" + endEpoch);
             case "timeshift" -> template = withQuery(base(live, source),
                     "timeshift=" + startEpoch + "&timenow=" + nowEpoch);
-            case "xc", "xtream", "xtream-codes" -> template = source != null && !source.isBlank()
+            case "xc", "xtream", "xtream-codes", "xstream", "xstream-1" -> template = source != null && !source.isBlank()
                     ? source : buildXcUrl(live, startEpoch, durationMinutes);
             case "flussonic", "flussonic-hls", "flussonic-dash", "flussonic-ts", "fs" ->
                     template = buildFlussonic(base(live, source), type, startEpoch, durationSeconds);

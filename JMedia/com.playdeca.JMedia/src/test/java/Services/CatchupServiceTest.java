@@ -113,9 +113,12 @@ class CatchupServiceTest {
     @Test
     void xcModeBuildsTheXtreamTimeshiftPath() {
         LiveChannel ch = channel("https://p/live/user/pass/123.ts", "xc", null, 7);
+        LiveChannel xstream = channel("https://p/live/user/pass/123.ts", "xstream-1", null, 7);
 
         assertEquals("https://p/timeshift/user/pass/60/2023-11-14:22-13/123.ts",
                 service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+        assertEquals("https://p/timeshift/user/pass/60/2023-11-14:22-13/123.ts",
+                service.resolveUrl(xstream, 1_700_000_000L, 60, 1_700_010_000L));
     }
 
     @Test
