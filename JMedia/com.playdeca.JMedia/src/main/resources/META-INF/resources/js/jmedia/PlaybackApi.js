@@ -50,7 +50,29 @@
 
         queueSimilar: function(songId, profileId) {
             profileId = profileId || JMedia.Helpers.getActiveProfileId();
-            return fetch(`/api/music/queue/similar/${profileId}/${songId}`, {method: 'POST'});
+            return fetch(`/api/music/queue/similar/${profileId}/${songId}`, {method: 'POST'})
+                .then(res => res.json().catch(() => ({})).then(data => ({ok: res.ok, data: data || {}})))
+                .then(result => {
+                    const message = (result.data && typeof result.data.data === 'string')
+                        ? result.data.data
+                        : (result.ok ? 'Similar songs added to queue' : 'Could not queue similar songs');
+                    const warning = /no similar|cannot|none|not found/i.test(message);
+                    if (window.showToast) {
+                        window.showToast(message, warning ? 'warning' : (result.ok ? 'success' : 'error'));
+                    }
+                    window.dispatchEvent(new CustomEvent('queueChanged', {
+                        detail: {
+                            queueSize: (JMedia.PlaybackApi.getQueueSize ? JMedia.PlaybackApi.getQueueSize() : 0),
+                            queueChanged: true,
+                            queueLengthChanged: true
+                        }
+                    }));
+                    return result.data;
+                })
+                .catch(err => {
+                    console.error('[PlaybackApi] queueSimilar failed', err);
+                    if (window.showToast) window.showToast('Failed to queue similar songs', 'error');
+                });
         },
 
         enrichMetadata: function(songId, profileId) {
