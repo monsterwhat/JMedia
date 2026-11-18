@@ -36,6 +36,8 @@ public class XtreamStreamAPI {
 
     @Inject Services.SubtitleMuxService subtitleMuxService;
 
+    @Inject Services.CatchupService catchupService;
+
     @Context
     ContainerRequestContext requestContext;
 
@@ -128,6 +130,114 @@ public class XtreamStreamAPI {
         Models.Settings.XtreamSession rec = xtreamSessionService.startSession("live", userOpt.get().getUsername(), String.valueOf(userOpt.get().id), channelId, ext, resolveClientIp());
         log.infof("Proxying live stream: channelId=%d, url=%s", channelId, ch.streamUrl);
         return proxyExternalStream(ch.streamUrl, pathUsername, pathPassword, rec);
+    }
+
+    /** Xtream timeshift: /timeshift/user/pass/DURATION_MINUTES/START/CHANNEL.ext */
+    @GET
+    @Path("/timeshift/{username}/{password}/{duration}/{start}/{channelId}.{ext}")
+    public Response streamTimeshift(@PathParam("username") String pathUsername,
+                                    @PathParam("password") String pathPassword,
+                                    @PathParam("duration") String duration,
+                                    @PathParam("start") String start,
+                                    @PathParam("channelId") Long channelId,
+                                    @PathParam("ext") String ext) {
+        Integer minutes = parseDurationMinutes(duration, true);
+        if (minutes == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(java.util.Map.of("error", "Invalid timeshift duration")).build();
+        }
+        return serveTimeshift(pathUsername, pathPassword, channelId, start, minutes, ext);
+    }
+
+    /** Same as above for clients that omit the file extension. */
+    @GET
+    @Path("/timeshift/{username}/{password}/{duration}/{start}/{channelId}")
+    public Response streamTimeshiftNoExt(@PathParam("username") String pathUsername,
+                                         @PathParam("password") String pathPassword,
+                                         @PathParam("duration") String duration,
+                                         @PathParam("start") String start,
+                                         @PathParam("channelId") Long channelId) {
+        Integer minutes = parseDurationMinutes(duration, true);
+        if (minutes == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(java.util.Map.of("error", "Invalid timeshift duration")).build();
+        }
+        return serveTimeshift(pathUsername, pathPassword, channelId, start, minutes, "ts");
+    }
+
+    /** Legacy query form: /streaming/timeshift.php?...&start=...&duration=SECONDS */
+    @GET
+    @Path("/streaming/timeshift.php")
+    public Response streamTimeshiftQuery(@QueryParam("username") String pathUsername,
+                                         @QueryParam("password") String pathPassword,
+                                         @QueryParam("stream") Long channelId,
+                                         @QueryParam("start") String start,
+                                         @QueryParam("duration") String duration) {
+        Integer minutes = parseDurationMinutes(duration, false);
+        if (minutes == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(java.util.Map.of("error", "Invalid timeshift duration")).build();
+        }
+        return serveTimeshift(pathUsername, pathPassword, channelId, start, minutes, "ts");
+    }
+
+    private Response serveTimeshift(String pathUsername, String pathPassword, Long channelId,
+                                    String start, int minutes, String ext) {
+        Optional<User> userOpt = authService.authenticate(pathUsername, pathPassword);
+        if (userOpt.isEmpty()) return unauthorizedStreamResponse();
+        if (channelId == null) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        LiveChannel ch = LiveChannel.findById(channelId);
+        if (ch == null) {
+            log.warnf("Timeshift channel not found: %d", channelId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        Long startEpoch = catchupService.parseStart(start);
+        if (startEpoch == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(java.util.Map.of("error", "Invalid timeshift start")).build();
+        }
+        long now = java.time.Instant.now().getEpochSecond();
+        if (!catchupService.isAvailable(ch)) {
+            log.warnf("Timeshift requested for channel %d without catch-up metadata", channelId);
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        if (!catchupService.isWithinArchive(ch, startEpoch, now)) {
+            log.warnf("Timeshift outside archive for channel %d: start=%d days=%d",
+                    channelId, startEpoch, catchupService.archiveDays(ch));
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        String url = catchupService.resolveUrl(ch, startEpoch, minutes, now);
+        if (url == null) {
+            log.warnf("Could not build catch-up URL for channel %d", channelId);
+            return Response.status(Response.Status.BAD_GATEWAY)
+                    .entity(java.util.Map.of("error", "Archive is not available")).build();
+        }
+        Models.Settings.XtreamSession rec = xtreamSessionService.startSession("timeshift",
+                userOpt.get().getUsername(), String.valueOf(userOpt.get().id), channelId, ext,
+                resolveClientIp());
+        log.infof("Proxying timeshift: channelId=%d start=%d duration=%dm", channelId, startEpoch, minutes);
+        return proxyExternalStream(url, pathUsername, pathPassword, rec);
+    }
+
+    /**
+     * Path form uses minutes; the query form uses seconds when the value is larger
+     * than a day (most clients send 3600 for an hour), otherwise minutes.
+     */
+    private static Integer parseDurationMinutes(String value, boolean pathMinutes) {
+        if (value == null || value.isBlank()) {
+            return pathMinutes ? null : 60;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            if (parsed <= 0) return null;
+            long minutes = pathMinutes || parsed <= 1440 ? parsed : (parsed + 59) / 60;
+            return minutes > 0 && minutes <= 1440 ? (int) minutes : null;
+        } catch (NumberFormatException e) {
+            log.warnf("Invalid timeshift duration '%s'", value);
+            return null;
+        }
     }
 
     private boolean isValidStreamCredentials(String pathUsername, String pathPassword) {

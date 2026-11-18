@@ -184,6 +184,22 @@ public class M3uService {
                 channel.logoUrl = entry.logoUrl;
                 channel.groupTitle = entry.groupTitle;
                 channel.groupTitles = LiveChannel.encodeGroupTitles(entry.groupTitles);
+                boolean catchup = !Boolean.FALSE.equals(entry.catchupEnabled)
+                        && ((entry.catchupType != null && !entry.catchupType.isBlank())
+                            || (entry.catchupSource != null && !entry.catchupSource.isBlank())
+                            || (entry.catchupDays != null && entry.catchupDays > 0));
+                if (catchup) {
+                    if (entry.catchupDays == null || entry.catchupDays <= 0) {
+                        entry.catchupDays = 7;
+                    }
+                    if (entry.catchupType == null || entry.catchupType.isBlank()) {
+                        entry.catchupType = entry.catchupSource != null && !entry.catchupSource.isBlank()
+                                ? "default" : "shift";
+                    }
+                    channel.catchupType = entry.catchupType;
+                    channel.catchupSource = entry.catchupSource;
+                    channel.catchupDays = entry.catchupDays;
+                }
                 channel.tvgId = entry.tvgId;
                 channel.tvgName = entry.tvgName;
                 channel.country = entry.country;

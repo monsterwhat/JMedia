@@ -20,11 +20,11 @@ public class M3uParserService {
 
     // Matches key="value" or key=value pairs inside the attribute string
     private static final Pattern ATTR_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type)\\s*=\\s*\"([^\"]*)\""
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|tvg-rec|timeshift)\\s*=\\s*\"([^\"]*)\""
     );
 
     private static final Pattern ATTR_UNQUOTED_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type)\\s*=\\s*([^\\s,]+)"
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|tvg-rec|timeshift)\\s*=\\s*([^\\s,]+)"
     );
 
     public static class M3uEntry {
@@ -38,6 +38,12 @@ public class M3uParserService {
         public String tvgName;
         public String country;
         public Boolean isRadio = false;
+        /** Catch-up mode, archive URL template and retention window. */
+        public String catchupType;
+        public String catchupSource;
+        public Integer catchupDays;
+        /** catchup-enable="0" explicitly disables the header default. */
+        public Boolean catchupEnabled;
         public double duration = -1;
     }
 
@@ -96,6 +102,7 @@ public class M3uParserService {
 
         String[] lines = m3uContent.split("\\r?\\n");
         M3uEntry pending = null;
+        M3uEntry headerDefaults = new M3uEntry();
         String persistentGroup = null;
         // Group inherited from the persistent directive when this #EXTINF was read.
         // pendingGroupOpen stays true until an explicit group-title or a later
@@ -106,8 +113,15 @@ public class M3uParserService {
         for (String line : lines) {
             String trimmed = line.trim();
 
-            // Skip empty lines and the header
-            if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("#EXTM3U")) {
+            // Skip empty lines. #EXTM3U can declare playlist-wide catch-up defaults.
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (trimmed.equalsIgnoreCase("#EXTM3U")) {
+                continue;
+            }
+            if (trimmed.length() > 7 && trimmed.substring(0, 7).equalsIgnoreCase("#EXTM3U")) {
+                parseAttributes(headerDefaults, trimmed.substring(7));
                 continue;
             }
 
@@ -127,6 +141,7 @@ public class M3uParserService {
 
             if (trimmed.startsWith("#EXTINF:")) {
                 pending = parseExtInf(trimmed);
+                applyHeaderDefaults(pending, headerDefaults);
                 pendingGroupOpen = pending.groupTitles.isEmpty();
                 pendingInheritedGroup = pendingGroupOpen ? persistentGroup : null;
             } else if (!trimmed.startsWith("#")) {
@@ -224,8 +239,77 @@ public class M3uParserService {
             case "tvg-type" -> {
                 if ("radio".equalsIgnoreCase(unquote(value))) entry.isRadio = true;
             }
+            case "catchup", "catchup-type" -> entry.catchupType = unquote(value);
+            case "catchup-source" -> entry.catchupSource = unquote(value);
+            case "catchup-days" -> entry.catchupDays = parseInteger(unquote(value));
+            case "catchup-time" -> entry.catchupDays = daysFromSeconds(unquote(value));
+            case "catchup-enable" -> entry.catchupEnabled = isTruthy(value);
+            case "tvg-rec" -> applyTvgRec(entry, value);
+            case "timeshift" -> applyTimeshift(entry, value);
             default -> { /* unknown attribute, ignore */ }
         }
+    }
+
+    /** Copy playlist-wide catch-up defaults into an entry that did not override them. */
+    private static void applyHeaderDefaults(M3uEntry entry, M3uEntry header) {
+        if (entry.catchupType == null) entry.catchupType = header.catchupType;
+        if (entry.catchupSource == null) entry.catchupSource = header.catchupSource;
+        if (entry.catchupDays == null) entry.catchupDays = header.catchupDays;
+        if (entry.catchupEnabled == null) entry.catchupEnabled = header.catchupEnabled;
+    }
+
+    /** Legacy tvg-rec: 0 disables, a positive number is the archive window in days. */
+    private static void applyTvgRec(M3uEntry entry, String value) {
+        Integer days = parseInteger(unquote(value));
+        if (days == null) {
+            return;
+        }
+        if (days <= 0) {
+            entry.catchupEnabled = false;
+        } else {
+            entry.catchupEnabled = true;
+            if (entry.catchupDays == null) entry.catchupDays = days;
+        }
+    }
+
+    /** Legacy timeshift="N": N days of archive, and implies the timeshift mode. */
+    private static void applyTimeshift(M3uEntry entry, String value) {
+        Integer days = parseInteger(unquote(value));
+        if (days == null) {
+            return;
+        }
+        if (days <= 0) {
+            entry.catchupEnabled = false;
+        } else {
+            entry.catchupEnabled = true;
+            if (entry.catchupDays == null) entry.catchupDays = days;
+            if (entry.catchupType == null) entry.catchupType = "timeshift";
+        }
+    }
+
+    private static Integer daysFromSeconds(String value) {
+        Integer seconds = parseInteger(value);
+        if (seconds == null) {
+            return null;
+        }
+        return seconds <= 0 ? 0 : Math.max(1, (seconds + 86_399) / 86_400);
+    }
+
+    /** Digits-only parser; never throws and never logs for a bad M3U attribute. */
+    private static Integer parseInteger(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim();
+        if (v.isEmpty() || v.length() > 9) {
+            return null;
+        }
+        for (int i = 0; i < v.length(); i++) {
+            if (!Character.isDigit(v.charAt(i))) {
+                return null;
+            }
+        }
+        return Integer.parseInt(v);
     }
 
     /** Replaces the entry's memberships; the first one is the primary group. */
@@ -266,6 +350,14 @@ public class M3uParserService {
             case "tvg-logo" -> entry.logoUrl != null;
             case "group-title" -> entry.groupTitle != null;
             case "tvg-country" -> entry.country != null;
+            case "catchup" -> entry.catchupType != null;
+            case "catchup-type" -> entry.catchupType != null;
+            case "catchup-source" -> entry.catchupSource != null;
+            case "catchup-days" -> entry.catchupDays != null;
+            case "catchup-time" -> entry.catchupDays != null;
+            case "catchup-enable" -> entry.catchupEnabled != null;
+            case "tvg-rec" -> entry.catchupEnabled != null || entry.catchupDays != null;
+            case "timeshift" -> entry.catchupType != null || entry.catchupDays != null;
             default -> false;
         };
     }

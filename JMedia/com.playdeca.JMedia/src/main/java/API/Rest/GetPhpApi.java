@@ -22,6 +22,9 @@ public class GetPhpApi {
     @Inject
     AuthService authService;
 
+    @Inject
+    Services.CatchupService catchupService;
+
     @Context
     jakarta.ws.rs.core.UriInfo uriInfo;
 
@@ -58,14 +61,18 @@ public class GetPhpApi {
         for (LiveChannel ch : channels) {
             if (ch.streamUrl == null || ch.streamUrl.isBlank()) continue;
             String radioTag = Boolean.TRUE.equals(ch.isRadio) ? " radio=\"true\"" : "";
+            int catchupDays = catchupService.archiveDays(ch);
+            String catchupTag = catchupDays > 0
+                    ? " catchup=\"xc\" catchup-days=\"" + catchupDays + "\"" : "";
             List<String> groups = ch.allGroupTitles();
             String liveGroupTitle = groups.isEmpty()
                     ? (ch.playlist != null ? ch.playlist.name : "Live")
                     : String.join(";", groups);
 
             if (isM3uPlus) {
-                m3u.append(String.format("#EXTINF:-1%s tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
+                m3u.append(String.format("#EXTINF:-1%s%s tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n",
                         radioTag,
+                        catchupTag,
                         esc(ch.tvgId),
                         esc(ch.tvgName != null ? ch.tvgName : ch.name),
                         esc(getLiveChannelLogo(ch)),

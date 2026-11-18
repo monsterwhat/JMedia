@@ -54,6 +54,9 @@ public class XtreamCodesAPI {
     @Inject
     Services.LiveGroupService liveGroupService;
 
+    @Inject
+    Services.CatchupService catchupService;
+
     @QueryParam("username")
     String username;
 
@@ -125,6 +128,8 @@ public class XtreamCodesAPI {
             case "get_live_categories":
                 return getLiveCategories();
             case "get_live_streams":
+                return getLiveStreams(categoryId);
+            case "get_live_streams_by_category":
                 return getLiveStreams(categoryId);
             case "get_live_stream_info":
                 return getLiveStreamInfo(liveStreamId);
@@ -1381,9 +1386,10 @@ public class XtreamCodesAPI {
                 s.put("category_ids", numericCategoryIds(effectiveCategoryId));
             }
             s.put("custom_sid", "");
-            s.put("tv_archive", 0);
+            int catchupDays = catchupService.archiveDays(ch);
+            s.put("tv_archive", catchupDays > 0 ? 1 : 0);
             s.put("direct_source", "");
-            s.put("tv_archive_duration", 0);
+            s.put("tv_archive_duration", catchupDays);
             streams.add(s);
         }
         log.infof("getLiveStreams: returning %d channels (hid %d confirmed dead)", streams.size(), hidden);
@@ -1476,11 +1482,14 @@ public class XtreamCodesAPI {
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
         java.util.Map<String, Object> info = new java.util.HashMap<>();
+        int catchupDays = catchupService.archiveDays(ch);
+        int tvArchive = catchupDays > 0 ? 1 : 0;
         info.put("name", ch.name);
         info.put("stream_icon", getLiveChannelLogo(ch));
         info.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         info.put("category", ch.playlist != null ? ch.playlist.name : "");
-        info.put("tv_archive", 0);
+        info.put("tv_archive", tvArchive);
+        info.put("tv_archive_duration", catchupDays);
         info.put("direct_source", "");
         info.put("custom_sid", "");
         response.put("info", info);
@@ -1494,6 +1503,8 @@ public class XtreamCodesAPI {
         channel.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         channel.put("category_id", categoryId);
         channel.put("category_ids", categoryIds);
+        channel.put("tv_archive", tvArchive);
+        channel.put("tv_archive_duration", catchupDays);
         response.put("channel", channel);
 
         return Response.ok(response).build();
@@ -1512,7 +1523,8 @@ public class XtreamCodesAPI {
         int limit = (epgLimit != null && epgLimit > 0) ? epgLimit : 4;
         List<Models.Video.EpgEntry> entries = epgService.findCurrentAndUpcoming(epgId, limit);
         
-        return Response.ok(buildEpgResponse(entries, streamId, false)).build();
+        return Response.ok(buildEpgResponse(entries, streamId, false,
+                catchupService.archiveDays(ch) > 0 ? 1 : 0)).build();
     }
 
     private Response getFullEpg(Long streamId) {
@@ -1526,10 +1538,12 @@ public class XtreamCodesAPI {
         }
         
         List<Models.Video.EpgEntry> entries = epgService.findAllForChannel(epgId);
-        return Response.ok(buildEpgResponse(entries, streamId, true)).build();
+        return Response.ok(buildEpgResponse(entries, streamId, true,
+                catchupService.archiveDays(ch) > 0 ? 1 : 0)).build();
     }
 
-    private java.util.Map<String, Object> buildEpgResponse(List<Models.Video.EpgEntry> entries, Long streamId, boolean setNowPlaying) {
+    private java.util.Map<String, Object> buildEpgResponse(List<Models.Video.EpgEntry> entries, Long streamId,
+                                                           boolean setNowPlaying, int hasArchive) {
         java.time.format.DateTimeFormatter dtFmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         java.util.List<java.util.Map<String, Object>> epgList = new java.util.ArrayList<>();
         int i = 0;
@@ -1553,7 +1567,7 @@ public class XtreamCodesAPI {
             } else {
                 epg.put("now_playing", 0);
             }
-            epg.put("has_archive", 0);
+            epg.put("has_archive", hasArchive);
             epgList.add(epg);
         }
         java.util.Map<String, Object> wrapper = new java.util.LinkedHashMap<>();

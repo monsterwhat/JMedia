@@ -41,6 +41,17 @@ public class LiveChannel extends PanacheEntity {
     @Column(length = 2000)
     public String groupTitles;
 
+    /** M3U catch-up mode: default, append, shift, archive, timeshift, xc, flussonic... */
+    @Column(length = 40)
+    public String catchupType;
+
+    /** Provider archive URL template (may contain {start}/{end}/{utc}/{duration}). */
+    @Column(length = 2000)
+    public String catchupSource;
+
+    /** How many days the upstream provider keeps the archive. */
+    public Integer catchupDays;
+
     @Column(length = 200)
     public String tvgId;
 
