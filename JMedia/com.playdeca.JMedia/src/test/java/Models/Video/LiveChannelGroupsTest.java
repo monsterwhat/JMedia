@@ -2,6 +2,7 @@ package Models.Video;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,5 +36,24 @@ class LiveChannelGroupsTest {
         ch.groupTitle = "A";
         ch.groupTitles = ";A;B;";
         assertEquals(List.of("A", "B"), ch.allGroupTitles());
+    }
+
+    @Test
+    void storedMembershipsStayInsideTheColumnLimit() {
+        List<String> groups = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            groups.add("Group-" + i + "-" + "x".repeat(100));
+        }
+
+        String encoded = LiveChannel.encodeGroupTitles(groups);
+
+        assertTrue(encoded.length() <= 2000, "encoded length " + encoded.length());
+        assertTrue(encoded.startsWith(";"));
+        assertTrue(encoded.endsWith(";"));
+        for (String part : encoded.split(";")) {
+            if (!part.isEmpty()) {
+                assertTrue(groups.contains(part), "partial group stored: " + part);
+            }
+        }
     }
 }

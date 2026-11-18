@@ -91,6 +91,18 @@ public class LiveChannel extends PanacheEntity {
         if (groups == null || groups.size() <= 1) {
             return null;
         }
-        return ";" + String.join(";", groups) + ";";
+        // Keep each membership whole: the column is 2000 chars, and a partial
+        // group name would create a phantom category.
+        StringBuilder sb = new StringBuilder(";");
+        for (String group : groups) {
+            if (group == null || group.isBlank()) {
+                continue;
+            }
+            if (sb.length() + group.length() + 1 > 2000) {
+                break;
+            }
+            sb.append(group).append(';');
+        }
+        return sb.length() <= 1 ? null : sb.toString();
     }
 }

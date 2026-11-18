@@ -233,6 +233,20 @@ public class XtreamCodesAPI {
             // Uncategorised category, not to "0" (which means "all").
             vodCategoryIds.add(UNCATEGORISED_CATEGORY_ID);
         }
+        // Match get_vod_streams: collections take precedence, genres follow, so a
+        // movie found under a collection reports the same ids from info.
+        if (v.id != null) {
+            java.util.List<String> collIds = vodCollectionIdsByVideo().get(v.id);
+            if (collIds != null && !collIds.isEmpty()) {
+                java.util.List<String> merged = new java.util.ArrayList<>(collIds);
+                for (String gid : vodCategoryIds) {
+                    if (!merged.contains(gid)) {
+                        merged.add(gid);
+                    }
+                }
+                vodCategoryIds = merged;
+            }
+        }
         String vodCategoryId = vodCategoryIds.get(0);
 
         java.util.Map<String, Object> movieData = new java.util.HashMap<>();
