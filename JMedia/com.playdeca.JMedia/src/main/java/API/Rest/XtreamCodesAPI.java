@@ -219,24 +219,28 @@ public class XtreamCodesAPI {
         response.put("info", info);
         
         java.util.Map<String, String> genreIds = genreIdByName();
-        String vodCategoryId = "0";
         List<String> vodCategoryIds = new ArrayList<>();
-        if (v.genres != null && !v.genres.isEmpty()) {
+        if (v.genres != null) {
             for (String g : v.genres) {
                 String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
-                if (!"0".equals(gid)) vodCategoryIds.add(gid);
+                if (!"0".equals(gid) && !vodCategoryIds.contains(gid)) {
+                    vodCategoryIds.add(gid);
+                }
             }
-            vodCategoryId = vodCategoryIds.isEmpty() ? "0" : vodCategoryIds.get(0);
         }
+        if (vodCategoryIds.isEmpty()) {
+            // get_vod_streams maps a movie with no genre to the advertised
+            // Uncategorised category, not to "0" (which means "all").
+            vodCategoryIds.add(UNCATEGORISED_CATEGORY_ID);
+        }
+        String vodCategoryId = vodCategoryIds.get(0);
 
         java.util.Map<String, Object> movieData = new java.util.HashMap<>();
         movieData.put("stream_id", v.id);
         movieData.put("name", v.title);
         movieData.put("added", v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
         movieData.put("category_id", vodCategoryId);
-        movieData.put("category_ids", vodCategoryIds.isEmpty()
-                ? new ArrayList<>(List.of(0L))
-                : XtreamIds.numeric(vodCategoryIds));
+        movieData.put("category_ids", XtreamIds.numeric(vodCategoryIds));
         movieData.put("stream_icon", getImageUrl(v));
         movieData.put("year", v.releaseYear != null ? String.valueOf(v.releaseYear) : "");
         movieData.put("container_extension", "m3u8");
