@@ -42,7 +42,56 @@ class CatchupServiceTest {
 
         String url = service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L);
 
-        assertEquals("https://p/a?utc=1700000000&utcend=1700003600&d=3600", url);
+        assertEquals("https://p/a?utc=1700000000&utcend=1700003600&d=60", url);
+    }
+
+    @Test
+    void durationTokensDivideOnlyWhenRequested() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?d={duration}&m={duration:60}&q=${duration:60}&min={durmin}", 7);
+
+        assertEquals("https://p/a?d=3600&m=60&q=60&min=60",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void supportsJavaAndPhpDateFormats() {
+        LiveChannel javaStyle = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?start=${(b)yyyyMMddHHmmss|UTC}&end=${(e)yyyyMMddHHmmss|UTC}", 7);
+        LiveChannel phpStyle = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?t={utc:Ymd-H-M}", 7);
+
+        assertEquals("https://p/a?start=20231114221320&end=20231114231320",
+                service.resolveUrl(javaStyle, 1_700_000_000L, 60, 1_700_010_000L));
+        assertEquals("https://p/a?t=20231114-22-13",
+                service.resolveUrl(phpStyle, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void timestampAndOffsetTokensUseTheCurrentTime() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?ts=${timestamp}&off={offset}&offm={offset:60}", 7);
+
+        assertEquals("https://p/a?ts=1700010000&off=10000&offm=166",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void providerCredentialsComeFromTheLiveUrl() {
+        LiveChannel ch = channel("https://p/live/user%40x/pass%2Fy/1.ts", "default",
+                "https://p/a?u=${login}&p=${password}", 7);
+
+        assertEquals("https://p/a?u=user@x&p=pass/y",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void isoTokensAreAvailable() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?s={start_iso}&e={end_iso}", 7);
+
+        assertEquals("https://p/a?s=2023-11-14T22:13:20Z&e=2023-11-14T23:13:20Z",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
     }
 
     @Test

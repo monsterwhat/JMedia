@@ -39,7 +39,12 @@ public class CatchupService {
             "^(https?://[^/]+)/(?:live|movie|series)/([^/]+)/([^/]+)/([^/.?]+)(\\.[^/?]+)?(?:\\?.*)?$");
 
     private static final Pattern PHP_DATE = Pattern.compile("\\$\\{\\((b|e)\\)([^}]+)}");
-    private static final Pattern DURATION_TOKEN = Pattern.compile("\\$?\\{duration(?::\\d+)?}");
+    private static final Pattern DURATION_TOKEN = Pattern.compile("\\$?\\{duration(?::(\\d+))?}");
+    private static final Pattern OFFSET_TOKEN = Pattern.compile("\\$?\\{offset(?::(\\d+))?}");
+    private static final Pattern TIME_TOKEN = Pattern.compile(
+            "\\$?\\{(start|utc|end|utcend|timestamp|now|lutc|current_utc)(?::([^}]+))?}");
+    private static final Pattern LIVE_CREDENTIALS = Pattern.compile(
+            "^https?://[^/]+/(?:live|movie|series)/([^/]+)/([^/]+)/");
 
     public boolean isAvailable(LiveChannel ch) {
         if (ch == null) {
@@ -117,7 +122,7 @@ public class CatchupService {
         if (template == null || template.isBlank()) {
             return null;
         }
-        String resolved = fillPlaceholders(template, startEpoch, endEpoch, durationSeconds, nowEpoch);
+        String resolved = fillPlaceholders(template, startEpoch, endEpoch, durationSeconds, nowEpoch, live);
         if (!resolved.startsWith("http://") && !resolved.startsWith("https://")) {
             LOG.warn("Catch-up URL is not http(s) for channel {}: {}", ch.id, resolved);
             return null;
@@ -234,15 +239,16 @@ public class CatchupService {
     // ----------------------------------------------------------- placeholder fill
 
     String fillPlaceholders(String template, long startEpoch, long endEpoch,
-                            long durationSeconds, long nowEpoch) {
+                            long durationSeconds, long nowEpoch, String liveUrl) {
         String out = template;
 
-        // ${(b)Y-m-d:H-i} / ${(e)Y-m-d:H-i}: PHP date formatting for start/end.
+        // ${(b)FORMAT} / ${(e)FORMAT}: PHP-style (Y-m-d:H:i) or Java-style
+        // (yyyyMMddHHmmss, optionally suffixed with |UTC).
         Matcher php = PHP_DATE.matcher(out);
         StringBuffer sb = new StringBuffer();
         while (php.find()) {
             long epoch = "b".equals(php.group(1)) ? startEpoch : endEpoch;
-            php.appendReplacement(sb, Matcher.quoteReplacement(formatPhpDate(php.group(2), epoch)));
+            php.appendReplacement(sb, Matcher.quoteReplacement(formatDateToken(php.group(2), epoch)));
         }
         php.appendTail(sb);
         out = sb.toString();
@@ -257,22 +263,104 @@ public class CatchupService {
                 .replace("{M}", String.format("%02d", startUtc.getMinute()))
                 .replace("{S}", String.format("%02d", startUtc.getSecond()));
 
-        // ${duration} / {duration} / {duration:60}
-        out = DURATION_TOKEN.matcher(out).replaceAll(String.valueOf(durationSeconds));
+        // {duration} is seconds; {duration:X} is seconds divided by X (e.g. 60 = minutes).
+        out = divideToken(out, DURATION_TOKEN, durationSeconds);
+        out = replaceToken(out, "durmin", durationSeconds / 60);
+        // {offset} is seconds since the programme start; {offset:X} divides it.
+        out = divideToken(out, OFFSET_TOKEN, nowEpoch - startEpoch);
 
-        out = replaceToken(out, "start", startEpoch);
-        out = replaceToken(out, "timestamp", startEpoch);
-        out = replaceToken(out, "utc", startEpoch);
-        out = replaceToken(out, "end", endEpoch);
-        out = replaceToken(out, "utcend", endEpoch);
-        out = replaceToken(out, "now", nowEpoch);
-        out = replaceToken(out, "lutc", nowEpoch);
-        return out;
+        // Provider credentials for xc-style templates (from the live URL path).
+        if (out.contains("${login}") || out.contains("{login}")
+                || out.contains("${password}") || out.contains("{password}")) {
+            Matcher creds = LIVE_CREDENTIALS.matcher(liveUrl == null ? "" : liveUrl);
+            if (creds.find()) {
+                String login = java.net.URLDecoder.decode(creds.group(1), java.nio.charset.StandardCharsets.UTF_8);
+                String pass = java.net.URLDecoder.decode(creds.group(2), java.nio.charset.StandardCharsets.UTF_8);
+                out = out.replace("${login}", login).replace("{login}", login)
+                        .replace("${password}", pass).replace("{password}", pass);
+            }
+        }
+
+        out = out.replace("${start_iso}", start.toString())
+                .replace("{start_iso}", start.toString())
+                .replace("${end_iso}", Instant.ofEpochSecond(endEpoch).toString())
+                .replace("{end_iso}", Instant.ofEpochSecond(endEpoch).toString());
+
+        // Timestamp tokens, optionally with a date format: {utc:Ymd-H-M}, ${end:...}.
+        Matcher time = TIME_TOKEN.matcher(out);
+        StringBuffer timeOut = new StringBuffer();
+        while (time.find()) {
+            String token = time.group(1);
+            long epoch = switch (token) {
+                case "start", "utc" -> startEpoch;
+                case "end", "utcend" -> endEpoch;
+                default -> nowEpoch;
+            };
+            String format = time.group(2);
+            String value = format == null || format.isBlank()
+                    ? String.valueOf(epoch)
+                    : formatDateToken(format, epoch);
+            time.appendReplacement(timeOut, Matcher.quoteReplacement(value));
+        }
+        time.appendTail(timeOut);
+        return timeOut.toString();
+    }
+
+    private static String divideToken(String out, Pattern pattern, long baseValue) {
+        Matcher m = pattern.matcher(out);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            long value = baseValue;
+            String divisor = m.group(1);
+            if (divisor != null) {
+                long d = Long.parseLong(divisor);
+                if (d > 0) {
+                    value = baseValue / d;
+                }
+            }
+            m.appendReplacement(sb, String.valueOf(value));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private static String replaceToken(String out, String token, long value) {
         return out.replace("${" + token + "}", String.valueOf(value))
                 .replace("{" + token + "}", String.valueOf(value));
+    }
+
+    /**
+     * Formats a date placeholder. Supports both PHP-style tokens used by Xtream
+     * sources (Y-m-d:H:i) and Java patterns used by SrcBox-style sources
+     * (yyyyMMddHHmmss, optionally suffixed with |UTC).
+     */
+    static String formatDateToken(String format, long epoch) {
+        if (format == null || format.isBlank()) {
+            return String.valueOf(epoch);
+        }
+        String f = format.trim();
+        if (f.endsWith("|UTC")) {
+            f = f.substring(0, f.length() - 4);
+        } else if (f.endsWith("|LOCAL")) {
+            f = f.substring(0, f.length() - 6);
+        }
+        if (looksLikeJavaPattern(f)) {
+            try {
+                return DateTimeFormatter.ofPattern(f)
+                        .withZone(ZoneOffset.UTC)
+                        .format(Instant.ofEpochSecond(epoch));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Unsupported catch-up date pattern '{}': {}", format, e.getMessage());
+                return String.valueOf(epoch);
+            }
+        }
+        return formatPhpDate(f, epoch);
+    }
+
+    private static boolean looksLikeJavaPattern(String f) {
+        return f.contains("yyyy") || f.contains("MM") || f.contains("dd")
+                || f.contains("HH") || f.contains("mm") || f.contains("ss")
+                || f.contains("'T'");
     }
 
     /** Convert the common PHP date tokens used in catchup-source to a Java pattern. */
@@ -291,7 +379,9 @@ public class CatchupService {
                 case 'H' -> "HH";
                 case 'G' -> "H";
                 case 'i' -> "mm";
+                case 'M' -> "mm";
                 case 's' -> "ss";
+                case 'S' -> "ss";
                 default -> null;
             };
             if (mapped != null) {
