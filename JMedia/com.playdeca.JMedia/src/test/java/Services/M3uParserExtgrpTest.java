@@ -37,6 +37,20 @@ class M3uParserExtgrpTest {
     }
 
     @Test
+    void extgrpAfterExtinfOverridesAnInheritedPersistentGroup() {
+        String m3u = "#EXTM3U\n"
+                + "#EXTGRP:Documentaries\n"
+                + "#EXTINF:-1,Match Day\n"
+                + "#EXTGRP:Sports\n"
+                + "http://example.test/7\n";
+
+        List<M3uParserService.M3uEntry> entries = new M3uParserService().parse(m3u);
+
+        assertEquals("Sports", entries.get(0).groupTitle);
+        assertEquals(List.of("Sports"), entries.get(0).groupTitles);
+    }
+
+    @Test
     void explicitGroupTitleWinsOverExtgrp() {
         String m3u = "#EXTM3U\n"
                 + "#EXTGRP:Documentaries\n"

@@ -97,6 +97,11 @@ public class M3uParserService {
         String[] lines = m3uContent.split("\\r?\\n");
         M3uEntry pending = null;
         String persistentGroup = null;
+        // Group inherited from the persistent directive when this #EXTINF was read.
+        // pendingGroupOpen stays true until an explicit group-title or a later
+        // #EXTGRP decides the group, so either can still win.
+        String pendingInheritedGroup = null;
+        boolean pendingGroupOpen = false;
 
         for (String line : lines) {
             String trimmed = line.trim();
@@ -106,28 +111,35 @@ public class M3uParserService {
                 continue;
             }
 
-            // Kodi-style group directive: applies to the following entries (and to a
-            // pending #EXTINF without an explicit group-title). An empty value clears it.
+            // Kodi-style group directive: applies to a pending #EXTINF without an
+            // explicit group-title, and persists for the following entries. An empty
+            // value clears it.
             if (trimmed.startsWith("#EXTGRP:")) {
                 String value = trimmed.substring("#EXTGRP:".length()).trim();
                 persistentGroup = value.isEmpty() ? null : value;
-                if (pending != null && pending.groupTitles.isEmpty() && persistentGroup != null) {
+                if (pending != null && pendingGroupOpen) {
                     setGroupTitles(pending, persistentGroup);
+                    pendingGroupOpen = false;
+                    pendingInheritedGroup = null;
                 }
                 continue;
             }
 
             if (trimmed.startsWith("#EXTINF:")) {
                 pending = parseExtInf(trimmed);
-                if (pending.groupTitles.isEmpty() && persistentGroup != null) {
-                    setGroupTitles(pending, persistentGroup);
-                }
+                pendingGroupOpen = pending.groupTitles.isEmpty();
+                pendingInheritedGroup = pendingGroupOpen ? persistentGroup : null;
             } else if (!trimmed.startsWith("#")) {
                 // This line is a stream URL
                 if (pending != null) {
+                    if (pendingGroupOpen && pendingInheritedGroup != null) {
+                        setGroupTitles(pending, pendingInheritedGroup);
+                    }
                     pending.streamUrl = trimmed;
                     entries.add(pending);
                     pending = null;
+                    pendingGroupOpen = false;
+                    pendingInheritedGroup = null;
                 } else {
                     // Standalone URL without #EXTINF metadata
                     M3uEntry entry = new M3uEntry();
