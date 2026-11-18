@@ -30,6 +30,8 @@ public class AuthGateFilter implements ContainerRequestFilter {
         "live",
         "movie",
         "series",
+        "timeshift",
+        "streaming/timeshift.php",
         "art",
         "api/music/stream",
         "api/video/stream",
