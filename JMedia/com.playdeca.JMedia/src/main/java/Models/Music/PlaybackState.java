@@ -60,6 +60,14 @@ public class PlaybackState extends PanacheEntity {
     @Transient
     private int consecutiveArtistPlays = 0;
 
+    /**
+     * One-shot request set by a manual song selection: the next advance should
+     * re-target Smart Shuffle to the new current song even in mixed mode.
+     */
+    @JsonIgnore
+    @Transient
+    private boolean smartShuffleRetargetPending = false;
+
     @Enumerated(EnumType.STRING)
     private RepeatMode repeatMode = RepeatMode.OFF;
 

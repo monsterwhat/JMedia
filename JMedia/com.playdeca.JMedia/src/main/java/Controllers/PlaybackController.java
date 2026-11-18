@@ -380,6 +380,11 @@ public class PlaybackController {
             st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
             st.setPlaying(true);
             st.setCurrentTime(0);
+            // Manual selection: ask Smart Shuffle to re-target the next pick to
+            // this song (one-shot). The queue itself is not rebuilt here.
+            if (st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                st.setSmartShuffleRetargetPending(true);
+            }
             LOGGER.info("Song selected: " + (newSong != null ? newSong.getTitle() : "Unknown Title"));
             if (newSong != null) {
                 playbackQueueController.songSelected(newSong.id, profileId);
@@ -948,6 +953,7 @@ public class PlaybackController {
 
         // Clear any stale DJ transition plan before reorganizing the queue
         clearDjTransitionPlan(state);
+        state.setSmartShuffleRetargetPending(false);
 
         switch (mode) {
             case SHUFFLE:
@@ -986,6 +992,7 @@ public class PlaybackController {
 
         // Clear any stale DJ transition plan before reorganizing the queue
         clearDjTransitionPlan(state);
+        state.setSmartShuffleRetargetPending(false);
 
         switch (currentMode) {
             case OFF:

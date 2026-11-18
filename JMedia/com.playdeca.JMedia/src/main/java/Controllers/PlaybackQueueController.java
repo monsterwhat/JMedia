@@ -397,6 +397,8 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
     }
 
     public void initSmartShuffle(PlaybackState state, Long profileId) {
+        // A full rebuild already uses the current song as its BPM reference.
+        state.setSmartShuffleRetargetPending(false);
         // 1. Get the pool of songs
         List<Long> songPoolIds = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
                 ? new ArrayList<>(state.getOriginalCue())
@@ -753,6 +755,13 @@ public void songSelected(Long songId, Long profileId) {
     }
 
 private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId) {
+    // A manual selection asks for one smart re-target even in mixed mode.
+    // Consume the flag immediately: this is a one-shot, not a permanent mode.
+    boolean retargetManual = state.isSmartShuffleRetargetPending();
+    if (retargetManual) {
+        state.setSmartShuffleRetargetPending(false);
+    }
+
     // A natural advance (song ended on its own) breaks any consecutive-skip streak
     if (!skippedEarly) {
         state.setDjGenreSkipCount(0);
@@ -767,9 +776,10 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     // songsPerGenre = 0 is the mixed mode: initSmartShuffle already built a
     // one-song-per-genre rotation. Replacing the queued next with a random
     // same-genre candidate is what made Smart Shuffle feel erratic, so keep
-    // the interleaved order. The artist-cap pass still runs after this method.
+    // the interleaved order — except for the first advance after a manual
+    // selection, which explicitly asks to re-target the new song.
     boolean mixedMode = state.getDjSongsPerGenre() == null || state.getDjSongsPerGenre() <= 0;
-    if (mixedMode) {
+    if (mixedMode && !retargetManual) {
         if (skippedEarly) {
             state.setDjGenreSkipCount(0);
         }
