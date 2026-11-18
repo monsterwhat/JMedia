@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -32,8 +33,18 @@ public class CatchupService {
     private static final int MAX_DURATION_MINUTES = 24 * 60;
     private static final long ARCHIVE_GRACE_SECONDS = 3600L;
 
-    private static final DateTimeFormatter XC_START =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd:HH-mm").withZone(ZoneOffset.UTC);
+    private final ZoneId zone;
+    private final DateTimeFormatter xcStart;
+
+    public CatchupService() {
+        this(ZoneId.systemDefault());
+    }
+
+    /** Test seam: production uses the host zone advertised by server_info. */
+    CatchupService(ZoneId zone) {
+        this.zone = zone != null ? zone : ZoneOffset.UTC;
+        this.xcStart = DateTimeFormatter.ofPattern("yyyy-MM-dd:HH-mm").withZone(this.zone);
+    }
 
     private static final Pattern XC_LIVE_PATH = Pattern.compile(
             "^(https?://[^/]+)/(?:live|movie|series)/([^/]+)/([^/]+)/([^/.?]+)(\\.[^/?]+)?(?:\\?.*)?$");
@@ -180,7 +191,7 @@ public class CatchupService {
         for (String pattern : patterns) {
             try {
                 LocalDateTime dt = LocalDateTime.parse(v, DateTimeFormatter.ofPattern(pattern));
-                return dt.toEpochSecond(ZoneOffset.UTC);
+                return dt.atZone(zone).toEpochSecond();
             } catch (DateTimeParseException e) {
                 // Expected while probing the accepted shapes; the final failure is logged below.
                 LOG.debug("Catch-up start '{}' does not match {}", value, pattern);
@@ -210,7 +221,7 @@ public class CatchupService {
         return url + (url.contains("?") ? "&" : "?") + query;
     }
 
-    private static String buildXcUrl(String live, long startEpoch, int durationMinutes) {
+    private String buildXcUrl(String live, long startEpoch, int durationMinutes) {
         Matcher m = XC_LIVE_PATH.matcher(live);
         if (!m.matches()) {
             LOG.warn("Catch-up type xc but the live URL is not an Xtream stream: {}", live);
@@ -222,7 +233,7 @@ public class CatchupService {
         String id = m.group(4);
         String ext = m.group(5) != null ? m.group(5) : ".ts";
         return base + "/timeshift/" + user + "/" + pass + "/" + durationMinutes
-                + "/" + XC_START.format(Instant.ofEpochSecond(startEpoch)) + "/" + id + ext;
+                + "/" + xcStart.format(Instant.ofEpochSecond(startEpoch)) + "/" + id + ext;
     }
 
     private static String buildFlussonic(String base, String type, long startEpoch, long durationSeconds) {
@@ -278,15 +289,15 @@ public class CatchupService {
         php.appendTail(sb);
         out = sb.toString();
 
-        // {Y}-{m}-{d}:{H}-{M} tokens (Kodi-style Xtream templates).
+        // {Y}-{m}-{d}:{H}-{M} tokens (Kodi-style Xtream templates, local time).
         Instant start = Instant.ofEpochSecond(startEpoch);
-        LocalDateTime startUtc = LocalDateTime.ofInstant(start, ZoneOffset.UTC);
-        out = out.replace("{Y}", String.format("%04d", startUtc.getYear()))
-                .replace("{m}", String.format("%02d", startUtc.getMonthValue()))
-                .replace("{d}", String.format("%02d", startUtc.getDayOfMonth()))
-                .replace("{H}", String.format("%02d", startUtc.getHour()))
-                .replace("{M}", String.format("%02d", startUtc.getMinute()))
-                .replace("{S}", String.format("%02d", startUtc.getSecond()));
+        LocalDateTime startLocal = LocalDateTime.ofInstant(start, zone);
+        out = out.replace("{Y}", String.format("%04d", startLocal.getYear()))
+                .replace("{m}", String.format("%02d", startLocal.getMonthValue()))
+                .replace("{d}", String.format("%02d", startLocal.getDayOfMonth()))
+                .replace("{H}", String.format("%02d", startLocal.getHour()))
+                .replace("{M}", String.format("%02d", startLocal.getMinute()))
+                .replace("{S}", String.format("%02d", startLocal.getSecond()));
 
         // {duration} is seconds; {duration:X} is seconds divided by X (e.g. 60 = minutes).
         out = divideToken(out, DURATION_TOKEN, durationSeconds);
@@ -329,7 +340,8 @@ public class CatchupService {
             String format = time.group(2);
             String value = format == null || format.isBlank()
                     ? String.valueOf(epoch)
-                    : formatDateToken(format, epoch);
+                    : formatDateToken(format, epoch,
+                        token.startsWith("utc") ? ZoneOffset.UTC : zone);
             time.appendReplacement(timeOut, Matcher.quoteReplacement(value));
         }
         time.appendTail(timeOut);
@@ -362,29 +374,36 @@ public class CatchupService {
     /**
      * Formats a date placeholder. Supports both PHP-style tokens used by Xtream
      * sources (Y-m-d:H:i) and Java patterns used by SrcBox-style sources
-     * (yyyyMMddHHmmss, optionally suffixed with |UTC).
+     * (yyyyMMddHHmmss, optionally suffixed with |UTC or |LOCAL).
      */
-    static String formatDateToken(String format, long epoch) {
+    String formatDateToken(String format, long epoch) {
+        return formatDateToken(format, epoch, zone);
+    }
+
+    String formatDateToken(String format, long epoch, ZoneId defaultZone) {
         if (format == null || format.isBlank()) {
             return String.valueOf(epoch);
         }
         String f = format.trim();
+        ZoneId target = defaultZone;
         if (f.endsWith("|UTC")) {
             f = f.substring(0, f.length() - 4);
+            target = ZoneOffset.UTC;
         } else if (f.endsWith("|LOCAL")) {
             f = f.substring(0, f.length() - 6);
+            target = zone;
         }
         if (looksLikeJavaPattern(f)) {
             try {
                 return DateTimeFormatter.ofPattern(f)
-                        .withZone(ZoneOffset.UTC)
+                        .withZone(target)
                         .format(Instant.ofEpochSecond(epoch));
             } catch (IllegalArgumentException e) {
                 LOG.warn("Unsupported catch-up date pattern '{}': {}", format, e.getMessage());
                 return String.valueOf(epoch);
             }
         }
-        return formatPhpDate(f, epoch);
+        return formatPhpDate(f, epoch, target);
     }
 
     private static boolean looksLikeJavaPattern(String f) {
@@ -394,7 +413,7 @@ public class CatchupService {
     }
 
     /** Convert the common PHP date tokens used in catchup-source to a Java pattern. */
-    static String formatPhpDate(String phpFormat, long epoch) {
+    String formatPhpDate(String phpFormat, long epoch, ZoneId target) {
         StringBuilder javaPattern = new StringBuilder();
         String format = phpFormat == null ? "" : phpFormat;
         for (int i = 0; i < format.length(); i++) {
@@ -424,7 +443,7 @@ public class CatchupService {
         }
         try {
             return DateTimeFormatter.ofPattern(javaPattern.toString())
-                    .withZone(ZoneOffset.UTC)
+                    .withZone(target)
                     .format(Instant.ofEpochSecond(epoch));
         } catch (IllegalArgumentException e) {
             LOG.warn("Unsupported catch-up date format '{}': {}", phpFormat, e.getMessage());

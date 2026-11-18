@@ -4,6 +4,7 @@ import Models.Video.LiveChannel;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CatchupServiceTest {
 
-    private final CatchupService service = new CatchupService();
+    private final CatchupService service = new CatchupService(ZoneOffset.UTC);
 
     private static LiveChannel channel(String url, String type, String source, Integer days) {
         LiveChannel ch = new LiveChannel();
@@ -178,6 +179,35 @@ class CatchupServiceTest {
 
         assertEquals("https://p/vod/12345.mp4?t=1700000000",
                 service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void parsesTimeshiftStartInTheAdvertisedZone() {
+        CatchupService costaRica = new CatchupService(ZoneId.of("America/Costa_Rica"));
+        long expected = LocalDateTime.of(2026, 11, 17, 12, 0)
+                .atZone(ZoneId.of("America/Costa_Rica")).toEpochSecond();
+
+        assertEquals(expected, costaRica.parseStart("2026-11-17:12-00"));
+    }
+
+    @Test
+    void localDateTokensUseTheAdvertisedZoneAndUtcTokensStayUtc() {
+        CatchupService costaRica = new CatchupService(ZoneId.of("America/Costa_Rica"));
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?local={Y}-{m}-{d}:{H}-{M}&utc={utc:Ymd-H-M}&java=${(b)yyyyMMddHHmmss|UTC}", 7);
+
+        // 1700000000 is 16:13:20 in Costa Rica (UTC-6) and 22:13:20 UTC.
+        assertEquals("https://p/a?local=2023-11-14:16-13&utc=20231114-22-13&java=20231114221320",
+                costaRica.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void xcStartUsesTheAdvertisedZone() {
+        CatchupService costaRica = new CatchupService(ZoneId.of("America/Costa_Rica"));
+        LiveChannel ch = channel("https://p/live/user/pass/123.ts", "xc", null, 7);
+
+        assertEquals("https://p/timeshift/user/pass/60/2023-11-14:16-13/123.ts",
+                costaRica.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
     }
 
     @Test

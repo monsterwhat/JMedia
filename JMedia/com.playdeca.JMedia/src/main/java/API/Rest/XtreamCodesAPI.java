@@ -30,6 +30,9 @@ public class XtreamCodesAPI {
 
     private static final Logger log = Logger.getLogger(XtreamCodesAPI.class);
 
+    /** Host zone advertised in server_info; also used for system-local date columns. */
+    private static final java.time.ZoneId SERVER_ZONE = java.time.ZoneId.systemDefault();
+
     @Inject
     AuthService authService;
 
@@ -261,7 +264,7 @@ public class XtreamCodesAPI {
         java.util.Map<String, Object> movieData = new java.util.HashMap<>();
         movieData.put("stream_id", v.id);
         movieData.put("name", v.title);
-        movieData.put("added", v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
+        movieData.put("added", v.dateAdded != null ? String.valueOf(v.dateAdded.atZone(SERVER_ZONE).toEpochSecond()) : "0");
         movieData.put("category_id", vodCategoryId);
         movieData.put("category_ids", XtreamIds.numeric(vodCategoryIds));
         movieData.put("stream_icon", getImageUrl(v));
@@ -634,7 +637,7 @@ public class XtreamCodesAPI {
             ep.put("container_extension", epExt);
             ep.put("season", e.seasonNumber != null ? e.seasonNumber : 1);
             ep.put("custom_sid", "");
-            ep.put("added", e.dateAdded != null ? String.valueOf(e.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
+            ep.put("added", e.dateAdded != null ? String.valueOf(e.dateAdded.atZone(SERVER_ZONE).toEpochSecond()) : "0");
             ep.put("direct_source", xtreamStreamUrl("series", e.id, epExt));
             
             java.util.Map<String, Object> epInfo = new java.util.HashMap<>();
@@ -686,9 +689,9 @@ public class XtreamCodesAPI {
         response.serverInfo.httpsPort = "443";
         response.serverInfo.serverProtocol = uriInfo.getBaseUri().getScheme();
         response.serverInfo.rtmpPort = "";
-        response.serverInfo.timezone = "UTC";
+        response.serverInfo.timezone = SERVER_ZONE.getId();
         response.serverInfo.timestampNow = System.currentTimeMillis() / 1000;
-        response.serverInfo.timeNow = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+        response.serverInfo.timeNow = java.time.ZonedDateTime.now(SERVER_ZONE)
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         response.serverInfo.process = true;
         
@@ -922,8 +925,8 @@ public class XtreamCodesAPI {
         // Newest additions first — IPTV clients render the list in the order
         // received, and dateAdded ascending made the oldest movies appear first.
         videos.sort((a, b) -> {
-            int c = Long.compare(b.dateAdded != null ? b.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC) : 0,
-                                 a.dateAdded != null ? a.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC) : 0);
+            int c = Long.compare(b.dateAdded != null ? b.dateAdded.atZone(SERVER_ZONE).toEpochSecond() : 0,
+                                 a.dateAdded != null ? a.dateAdded.atZone(SERVER_ZONE).toEpochSecond() : 0);
             return c != 0 ? c : Long.compare(b.id != null ? b.id : 0, a.id != null ? a.id : 0);
         });
 
@@ -948,7 +951,7 @@ public class XtreamCodesAPI {
             Double rating = effectiveMovieRating(v);
             s.rating = rating != null ? rating.toString() : "0";
             s.rating5based = rating != null ? Math.ceil(rating / 2.0) : 0;
-            s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
+            s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.atZone(SERVER_ZONE).toEpochSecond()) : "0";
             String vodExt = v.container != null && !v.container.isBlank() ? v.container.strip().toLowerCase() : "m3u8";
             s.containerExtension = vodExt;
             s.streamType = "movie";
@@ -1357,7 +1360,7 @@ public class XtreamCodesAPI {
             s.put("stream_id", ch.id);
             s.put("stream_icon", getLiveChannelLogo(ch));
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
-            s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
+            s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.atZone(SERVER_ZONE).toEpochSecond()) : "0");
             s.put("is_adult", "0");
             // Report every membership. category_id is the primary group (or playlist
             // id for ungrouped channels); category_ids carries all memberships and is
@@ -1558,15 +1561,20 @@ public class XtreamCodesAPI {
             epg.put("epg_id", entry.epgChannelId != null ? entry.epgChannelId : "");
             epg.put("title", base64Encode(entry.title));
             epg.put("lang", entry.language != null ? entry.language : "en");
-            epg.put("start", entry.startTime != null ? entry.startTime.format(dtFmt) : "");
-            epg.put("end", entry.endTime != null ? entry.endTime.format(dtFmt) : "");
+            epg.put("start", entry.startTime != null
+                    ? entry.startTime.atZone(java.time.ZoneOffset.UTC)
+                        .withZoneSameInstant(SERVER_ZONE).format(dtFmt) : "");
+            epg.put("end", entry.endTime != null
+                    ? entry.endTime.atZone(java.time.ZoneOffset.UTC)
+                        .withZoneSameInstant(SERVER_ZONE).format(dtFmt) : "");
             epg.put("description", base64Encode(entry.description));
             epg.put("channel_id", entry.epgChannelId != null ? entry.epgChannelId : "");
             epg.put("stream_id", String.valueOf(streamId));
             epg.put("start_timestamp", entry.startTime != null ? String.valueOf(entry.startTime.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             epg.put("stop_timestamp", entry.endTime != null ? String.valueOf(entry.endTime.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             if (setNowPlaying && entry.startTime != null && entry.endTime != null) {
-                java.time.LocalDateTime now = java.time.LocalDateTime.now();
+                // EPG times are stored in UTC; compare like with like.
+                java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
                 epg.put("now_playing", (!now.isBefore(entry.startTime) && now.isBefore(entry.endTime)) ? 1 : 0);
             } else {
                 epg.put("now_playing", 0);
