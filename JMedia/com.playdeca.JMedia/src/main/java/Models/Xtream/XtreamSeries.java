@@ -1,6 +1,7 @@
 package Models.Xtream;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,6 +49,7 @@ public class XtreamSeries {
     public String categoryId;
 
     @JsonProperty("category_ids")
+    @JsonSerialize(using = NumericCategoryIdsSerializer.class)
     public List<String> categoryIds = new ArrayList<>();
 
     @JsonProperty("year")

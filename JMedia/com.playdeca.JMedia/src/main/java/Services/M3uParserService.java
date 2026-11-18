@@ -32,6 +32,8 @@ public class M3uParserService {
         public String streamUrl;
         public String logoUrl;
         public String groupTitle;
+        /** All group-title memberships (semicolon-separated in the source). */
+        public List<String> groupTitles = new ArrayList<>();
         public String tvgId;
         public String tvgName;
         public String country;
@@ -188,7 +190,18 @@ public class M3uParserService {
             case "tvg-id" -> entry.tvgId = value;
             case "tvg-name" -> entry.tvgName = value;
             case "tvg-logo" -> entry.logoUrl = value;
-            case "group-title" -> entry.groupTitle = value != null && value.contains(";") ? value.substring(0, value.indexOf(';')).trim() : value;
+            case "group-title" -> {
+                entry.groupTitles.clear();
+                if (value != null) {
+                    for (String part : value.split(";")) {
+                        String trimmed = part.trim();
+                        if (!trimmed.isEmpty() && !entry.groupTitles.contains(trimmed)) {
+                            entry.groupTitles.add(trimmed);
+                        }
+                    }
+                }
+                entry.groupTitle = entry.groupTitles.isEmpty() ? null : entry.groupTitles.get(0);
+            }
             case "tvg-country" -> entry.country = value;
             case "tvg-language" -> { /* stored if needed later */ }
             case "radio" -> entry.isRadio = isTruthy(value);

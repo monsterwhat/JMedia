@@ -3,6 +3,8 @@ package Models.Video;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "live_channel", indexes = {
@@ -31,6 +33,14 @@ public class LiveChannel extends PanacheEntity {
     @Column(length = 200)
     public String groupTitle;
 
+    /**
+     * Extra group memberships for a multi-group channel, stored as {@code ;A;B;}
+     * (leading/trailing separator so SQL LOCATE can match a whole segment).
+     * Null for single-group channels, where {@link #groupTitle} is authoritative.
+     */
+    @Column(length = 2000)
+    public String groupTitles;
+
     @Column(length = 200)
     public String tvgId;
 
@@ -54,4 +64,33 @@ public class LiveChannel extends PanacheEntity {
     public LocalDateTime lastWatched;
 
     public LocalDateTime createdAt;
+
+    /** Primary group followed by any extra memberships, de-duplicated. */
+    public List<String> allGroupTitles() {
+        return parseGroupTitles(groupTitle, groupTitles);
+    }
+
+    public static List<String> parseGroupTitles(String primary, String stored) {
+        List<String> out = new ArrayList<>();
+        if (stored != null && !stored.isBlank()) {
+            for (String part : stored.split(";")) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty() && !out.contains(trimmed)) {
+                    out.add(trimmed);
+                }
+            }
+        }
+        if (out.isEmpty() && primary != null && !primary.isBlank()) {
+            out.add(primary);
+        }
+        return out;
+    }
+
+    /** Value for the {@link #groupTitles} column, or null for a single group. */
+    public static String encodeGroupTitles(List<String> groups) {
+        if (groups == null || groups.size() <= 1) {
+            return null;
+        }
+        return ";" + String.join(";", groups) + ";";
+    }
 }

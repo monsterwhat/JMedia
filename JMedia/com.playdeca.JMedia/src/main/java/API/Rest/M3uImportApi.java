@@ -175,8 +175,11 @@ public class M3uImportApi {
             paramList.add(playlistId);
         }
         if (group != null && !group.isBlank()) {
-            whereClause.append(" and groupTitle = ?").append(++idx);
+            String needle = ";" + group.toLowerCase(java.util.Locale.ROOT) + ";";
+            whereClause.append(" and (lower(groupTitle) = lower(?").append(++idx)
+                 .append(") or locate(?").append(++idx).append(", lower(groupTitles)) > 0)");
             paramList.add(group);
+            paramList.add(needle);
         }
         if (search != null && !search.isBlank()) {
             String searchPattern = "%" + search.toLowerCase() + "%";
@@ -296,17 +299,21 @@ public class M3uImportApi {
     public Response listGroups(@QueryParam("profileId") Long profileId) {
         if (profileId == null) profileId = 1L;
 
-        List<String> groups = LiveChannel.find(
-                "select distinct groupTitle from LiveChannel where profileId = ?1 and groupTitle is not null order by groupTitle",
-                profileId
-        ).project(String.class).list();
+        // Count every membership, not just the primary group, so a channel that
+        // lists multiple semicolon-separated groups appears in each one.
+        List<LiveChannel> channels = LiveChannel.list("profileId = ?1", profileId);
+        java.util.TreeMap<String, Long> counts = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (LiveChannel ch : channels) {
+            for (String group : ch.allGroupTitles()) {
+                counts.merge(group, 1L, Long::sum);
+            }
+        }
 
         ArrayNode arr = mapper.createArrayNode();
-        for (String group : groups) {
+        for (java.util.Map.Entry<String, Long> entry : counts.entrySet()) {
             ObjectNode node = mapper.createObjectNode();
-            node.put("name", group);
-            long count = LiveChannel.count("profileId = ?1 and groupTitle = ?2", profileId, group);
-            node.put("count", count);
+            node.put("name", entry.getKey());
+            node.put("count", entry.getValue());
             arr.add(node);
         }
 
@@ -395,6 +402,8 @@ public class M3uImportApi {
         node.put("streamUrl", ch.streamUrl != null ? ch.streamUrl : "");
         node.put("logoUrl", ch.logoUrl != null ? ch.logoUrl : "");
         node.put("groupTitle", ch.groupTitle != null ? ch.groupTitle : "");
+        node.put("groupTitles", String.join(";", ch.allGroupTitles()));
+        node.put("isRadio", Boolean.TRUE.equals(ch.isRadio));
         node.put("tvgId", ch.tvgId != null ? ch.tvgId : "");
         node.put("tvgName", ch.tvgName != null ? ch.tvgName : "");
         node.put("country", ch.country != null ? ch.country : "");

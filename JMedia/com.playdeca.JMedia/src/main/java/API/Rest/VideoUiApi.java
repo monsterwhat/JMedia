@@ -2229,6 +2229,7 @@ public class VideoUiApi {
                 .data("streamUrl", proxyUrl)
                 .data("logoUrl", channel.logoUrl != null ? channel.logoUrl : "")
                 .data("groupTitle", channel.groupTitle != null ? channel.groupTitle : "")
+                .data("groupTitles", String.join(";", channel.allGroupTitles()))
                 .data("country", channel.country != null ? channel.country : "")
                 .data("defaultPlayer", defaultPlayer)
                 .render();

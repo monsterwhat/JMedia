@@ -183,6 +183,7 @@ public class M3uService {
                 channel.streamUrl = entry.streamUrl;
                 channel.logoUrl = entry.logoUrl;
                 channel.groupTitle = entry.groupTitle;
+                channel.groupTitles = LiveChannel.encodeGroupTitles(entry.groupTitles);
                 channel.tvgId = entry.tvgId;
                 channel.tvgName = entry.tvgName;
                 channel.country = entry.country;

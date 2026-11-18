@@ -234,7 +234,9 @@ public class XtreamCodesAPI {
         movieData.put("name", v.title);
         movieData.put("added", v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
         movieData.put("category_id", vodCategoryId);
-        movieData.put("category_ids", vodCategoryIds.isEmpty() ? new ArrayList<>(List.of("0")) : vodCategoryIds);
+        movieData.put("category_ids", vodCategoryIds.isEmpty()
+                ? new ArrayList<>(List.of(0L))
+                : XtreamIds.numeric(vodCategoryIds));
         movieData.put("stream_icon", getImageUrl(v));
         movieData.put("year", v.releaseYear != null ? String.valueOf(v.releaseYear) : "");
         movieData.put("container_extension", "m3u8");
@@ -1201,8 +1203,11 @@ public class XtreamCodesAPI {
                     continue;
                 }
                 anyVisible = true;
-                if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-                    groupKeys.add(normalizeGroupName(ch.groupTitle));
+                List<String> memberships = ch.allGroupTitles();
+                if (!memberships.isEmpty()) {
+                    for (String group : memberships) {
+                        groupKeys.add(normalizeGroupName(group));
+                    }
                 } else {
                     playlistsWithUngrouped.add(pl.id);
                 }
@@ -1255,13 +1260,16 @@ public class XtreamCodesAPI {
                     List<LiveChannel> playlistChannels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list();
                     channels = playlistChannels.stream()
                             .filter(XtreamCodesAPI::isLiveChannelVisible)
-                            .filter(ch -> ch.groupTitle != null && hashId(ch.groupTitle).equals(groupHash))
+                            .filter(ch -> ch.allGroupTitles().stream()
+                                    .anyMatch(group -> hashId(group).equals(groupHash)))
                             .collect(Collectors.toList());
                     // Old g_<playlist>_<uuid> URLs are no longer advertised; report
                     // the numeric id the category list actually issues.
-                    if (!channels.isEmpty() && channels.get(0).groupTitle != null) {
-                        effectiveCategoryId = liveGroupService.idFor(
-                                normalizeGroupName(channels.get(0).groupTitle));
+                    for (String group : channels.isEmpty() ? List.<String>of() : channels.get(0).allGroupTitles()) {
+                        if (hashId(group).equals(groupHash)) {
+                            effectiveCategoryId = liveGroupService.idFor(normalizeGroupName(group));
+                            break;
+                        }
                     }
                 } else {
                     channels = LiveChannel.listAll();
@@ -1278,7 +1286,7 @@ public class XtreamCodesAPI {
                         channels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list()
                                 .stream()
                                 .filter(XtreamCodesAPI::isLiveChannelVisible)
-                                .filter(ch -> ch.groupTitle == null || ch.groupTitle.isBlank())
+                                .filter(ch -> ch.allGroupTitles().isEmpty())
                                 .collect(Collectors.toList());
                     } else {
                         channels = filterLiveByGroupId(catId);
@@ -1300,8 +1308,8 @@ public class XtreamCodesAPI {
         // DB lookup per channel.
         java.util.Set<String> groupKeys = channels.stream()
                 .filter(XtreamCodesAPI::isLiveChannelVisible)
-                .filter(ch -> ch.groupTitle != null && !ch.groupTitle.isBlank())
-                .map(ch -> normalizeGroupName(ch.groupTitle))
+                .flatMap(ch -> ch.allGroupTitles().stream())
+                .map(XtreamCodesAPI::normalizeGroupName)
                 .collect(Collectors.toSet());
         java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
 
@@ -1324,20 +1332,32 @@ public class XtreamCodesAPI {
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
             s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             s.put("is_adult", "0");
-            // Report the numeric group id space that get_live_categories issues.
-            // Channels in a named group share one merged category across playlists;
-            // ungrouped channels fall back to their playlist id.
-            String channelCategoryId;
-            if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-                channelCategoryId = groupIds.getOrDefault(normalizeGroupName(ch.groupTitle), "0");
-            } else if (ch.playlist != null) {
-                channelCategoryId = String.valueOf(ch.playlist.id);
-            } else {
-                channelCategoryId = "0";
+            // Report every membership. category_id is the primary group (or playlist
+            // id for ungrouped channels); category_ids carries all memberships and is
+            // authoritative for clients that group by the array.
+            List<String> memberships = ch.allGroupTitles();
+            String channelCategoryId = "0";
+            List<Long> channelCategoryIds = new ArrayList<>();
+            for (String group : memberships) {
+                String gid = groupIds.get(normalizeGroupName(group));
+                if (gid == null) {
+                    continue;
+                }
+                if (channelCategoryIds.isEmpty()) {
+                    channelCategoryId = gid;
+                }
+                Long numeric = XtreamIds.numericOrNull(gid);
+                if (numeric != null && !channelCategoryIds.contains(numeric)) {
+                    channelCategoryIds.add(numeric);
+                }
+            }
+            if (channelCategoryIds.isEmpty()) {
+                channelCategoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+                channelCategoryIds = numericCategoryIds(channelCategoryId);
             }
             if ("0".equals(effectiveCategoryId)) {
                 s.put("category_id", channelCategoryId);
-                s.put("category_ids", numericCategoryIds(channelCategoryId));
+                s.put("category_ids", channelCategoryIds);
             } else {
                 s.put("category_id", effectiveCategoryId);
                 s.put("category_ids", numericCategoryIds(effectiveCategoryId));
@@ -1386,17 +1406,20 @@ public class XtreamCodesAPI {
         List<LiveChannel> all = LiveChannel.listAll();
         java.util.Set<String> groupKeys = all.stream()
                 .filter(XtreamCodesAPI::isLiveChannelVisible)
-                .filter(ch -> ch.groupTitle != null && !ch.groupTitle.isBlank())
-                .map(ch -> normalizeGroupName(ch.groupTitle))
+                .flatMap(ch -> ch.allGroupTitles().stream())
+                .map(XtreamCodesAPI::normalizeGroupName)
                 .collect(Collectors.toSet());
         java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
         List<LiveChannel> matched = new ArrayList<>();
         for (LiveChannel ch : all) {
-            if (ch.groupTitle == null || ch.groupTitle.isBlank() || !isLiveChannelVisible(ch)) {
+            if (!isLiveChannelVisible(ch)) {
                 continue;
             }
-            if (numericGroupId.equals(groupIds.get(normalizeGroupName(ch.groupTitle)))) {
-                matched.add(ch);
+            for (String group : ch.allGroupTitles()) {
+                if (numericGroupId.equals(groupIds.get(normalizeGroupName(group)))) {
+                    matched.add(ch);
+                    break;
+                }
             }
         }
         return matched;
@@ -1407,13 +1430,30 @@ public class XtreamCodesAPI {
         LiveChannel ch = LiveChannel.findById(streamId);
         if (ch == null) return Response.status(Response.Status.NOT_FOUND).build();
 
-        String categoryId;
-        if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
-            categoryId = liveGroupService.idFor(normalizeGroupName(ch.groupTitle));
-        } else if (ch.playlist != null) {
-            categoryId = String.valueOf(ch.playlist.id);
-        } else {
-            categoryId = "0";
+        List<String> memberships = ch.allGroupTitles();
+        String categoryId = "0";
+        List<Long> categoryIds = new ArrayList<>();
+        if (!memberships.isEmpty()) {
+            java.util.Map<String, String> ids = liveGroupService.idsFor(memberships.stream()
+                    .map(XtreamCodesAPI::normalizeGroupName)
+                    .collect(Collectors.toSet()));
+            for (String group : memberships) {
+                String gid = ids.get(normalizeGroupName(group));
+                if (gid == null) {
+                    continue;
+                }
+                if (categoryIds.isEmpty()) {
+                    categoryId = gid;
+                }
+                Long numeric = XtreamIds.numericOrNull(gid);
+                if (numeric != null && !categoryIds.contains(numeric)) {
+                    categoryIds.add(numeric);
+                }
+            }
+        }
+        if (categoryIds.isEmpty()) {
+            categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+            categoryIds = numericCategoryIds(categoryId);
         }
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
@@ -1435,7 +1475,7 @@ public class XtreamCodesAPI {
         channel.put("stream_icon", getLiveChannelLogo(ch));
         channel.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         channel.put("category_id", categoryId);
-        channel.put("category_ids", numericCategoryIds(categoryId));
+        channel.put("category_ids", categoryIds);
         response.put("channel", channel);
 
         return Response.ok(response).build();
