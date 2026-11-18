@@ -80,6 +80,20 @@
         }
     };
 
+    const isIOSDevice = () => {
+        return /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+            /iPhone|iPad/i.test(navigator.platform || '');
+    };
+
+    const setMediaHandler = (action, handler) => {
+        try {
+            navigator.mediaSession.setActionHandler(action, handler);
+        } catch (e) {
+            console.warn('[MediaSession.js] Action not supported:', action, e && e.message);
+        }
+    };
+
     JMedia.MediaSession.setupHandlers = (apiPost, setPlaybackTime, audio) => {
         var _isVideoBlocked = function() {
             if (window.VideoModeCoordinator && window.VideoModeCoordinator.isVideoActive()) return true;
@@ -93,35 +107,28 @@
                 detail: { action: 'playPause', profileId: window.globalActiveProfileId }
             }));
         };
-
-        navigator.mediaSession.setActionHandler('play', handlePlayPause);
-        navigator.mediaSession.setActionHandler('pause', handlePlayPause);
-
-        navigator.mediaSession.setActionHandler('previoustrack', () => {
+        const handlePrevious = () => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked previoustrack — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'previoustrack' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'previous', profileId: window.globalActiveProfileId }
             }));
-        });
-
-        navigator.mediaSession.setActionHandler('nexttrack', () => {
+        };
+        const handleNext = () => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked nexttrack — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'nexttrack' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'next', profileId: window.globalActiveProfileId }
             }));
-        });
-
-        navigator.mediaSession.setActionHandler('seekto', (details) => {
+        };
+        const handleSeekTo = (details) => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekto — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'seekto' action to", details.seekTime);
             window.dispatchEvent(new CustomEvent('requestAudioControl', {
                 detail: { action: 'setTime', value: details.seekTime, source: 'mediaSession' }
             }));
-        });
-
-        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        };
+        const handleSeekBackward = (details) => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekbackward — video is active"); return; }
             const skipTime = details.seekOffset || 10;
             console.log("[MediaSession.js] Media Session: 'seekbackward' action by", skipTime, "seconds.");
@@ -132,9 +139,8 @@
                     detail: { action: 'setTime', value: newTime, source: 'mediaSession' }
                 }));
             }
-        });
-
-        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        };
+        const handleSeekForward = (details) => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked seekforward — video is active"); return; }
             const skipTime = details.seekOffset || 10;
             console.log("[MediaSession.js] Media Session: 'seekforward' action by", skipTime, "seconds.");
@@ -145,15 +151,52 @@
                     detail: { action: 'setTime', value: newTime, source: 'mediaSession' }
                 }));
             }
-        });
-
-        navigator.mediaSession.setActionHandler('stop', () => {
+        };
+        const handleStop = () => {
             if (_isVideoBlocked()) { console.log("[MediaSession.js] Blocked stop — video is active"); return; }
             console.log("[MediaSession.js] Media Session: 'stop' action.");
             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
                 detail: { action: 'pause', profileId: window.globalActiveProfileId }
             }));
-        });
+        };
+
+        if (isIOSDevice()) {
+            // iOS only shows previous/next when those handlers are present AND
+            // the page is already "Now Playing". Registering at load is too early,
+            // so register again on every playing event. Do NOT register
+            // play/pause/stop here: native element handling is what keeps
+            // background audio alive, and seekbackward/seekforward would make iOS
+            // swap previous/next for ±10s buttons.
+            const registerIOSTrackHandlers = () => {
+                setMediaHandler('previoustrack', handlePrevious);
+                setMediaHandler('nexttrack', handleNext);
+                setMediaHandler('seekbackward', null);
+                setMediaHandler('seekforward', null);
+            };
+            registerIOSTrackHandlers();
+            if (!window.__jmediaIOSTrackHandlersHooked) {
+                window.__jmediaIOSTrackHandlersHooked = true;
+                // Media events do not bubble, but capture on the document does
+                // see them from either audio deck. Ignore <video> so the video
+                // player's own now-playing session is not overwritten.
+                document.addEventListener('playing', (e) => {
+                    if (e.target && e.target.tagName === 'AUDIO') {
+                        registerIOSTrackHandlers();
+                    }
+                }, true);
+            }
+            console.log("[MediaSession.js] iOS previous/next handlers registered.");
+            return;
+        }
+
+        setMediaHandler('play', handlePlayPause);
+        setMediaHandler('pause', handlePlayPause);
+        setMediaHandler('previoustrack', handlePrevious);
+        setMediaHandler('nexttrack', handleNext);
+        setMediaHandler('seekto', handleSeekTo);
+        setMediaHandler('seekbackward', handleSeekBackward);
+        setMediaHandler('seekforward', handleSeekForward);
+        setMediaHandler('stop', handleStop);
 
         console.log("[MediaSession.js] Media Session handlers initialized.");
     };
@@ -185,12 +228,8 @@
     // still undefined and no action handlers get registered (metadata still
     // updated, so the OS shows the song but media keys do nothing). Register
     // here as well; setActionHandler simply replaces an existing handler.
-    // iOS is skipped on purpose: handlers there suspend background audio.
-    const isIOS = /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
-        /iPhone|iPad/i.test(navigator.platform || '');
-    if (!isIOS) {
-        JMedia.MediaSession.setupHandlers(null, null, null);
-    }
+    // On iOS, setupHandlers registers prev/next and re-registers them on every
+    // playing event (iOS ignores handlers set before the page is Now Playing).
+    JMedia.MediaSession.setupHandlers(null, null, null);
 
 })(window);

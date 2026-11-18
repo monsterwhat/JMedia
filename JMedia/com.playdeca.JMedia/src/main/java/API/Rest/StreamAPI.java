@@ -5,6 +5,7 @@ import Controllers.PlaybackController;
 import Models.Settings.Settings;
 import Models.Music.Song;
 import Services.ArtworkService;
+import Services.MusicTranscodeService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -35,6 +36,9 @@ public class StreamAPI {
 
     @Inject
     ArtworkService artworkService;
+
+    @Inject
+    MusicTranscodeService musicTranscodeService;
 
     private static final Logger LOGGER = Logger.getLogger(StreamAPI.class.getName());
     private static final Map<String, String> EXTENSION_TO_MIME = Map.of(
@@ -138,7 +142,22 @@ public class StreamAPI {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
 
-            long len = file.length(), start = 0, end = len - 1;
+            // iOS cannot reliably decode FLAC through the Web Audio path used for
+            // volume/crossfade. Transcode FLAC once to a cached AAC/M4A and stream
+            // that; all other clients keep the lossless original.
+            File streamFile = file;
+            String contentType = getContentType(file.getName());
+            String userAgent = headers.getHeaderString("User-Agent");
+            if (musicTranscodeService.isFlac(file) && musicTranscodeService.isIOSClient(userAgent)) {
+                File transcoded = musicTranscodeService.ensureIosPlayable(song, file);
+                if (transcoded != null && !transcoded.equals(file)) {
+                    streamFile = transcoded;
+                    contentType = "audio/mp4";
+                    LOGGER.info("Serving iOS FLAC transcode for song " + song.id);
+                }
+            }
+
+            long len = streamFile.length(), start = 0, end = len - 1;
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 try {
                     String rangeValue = rangeHeader.substring(6).trim();
@@ -178,11 +197,12 @@ public class StreamAPI {
 
             long contentLength = end - start + 1;
             final long trueStart = start;
+            final File servedFile = streamFile;
 
             StreamingOutput stream = out -> {
-                try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+                try (RandomAccessFile raf = new RandomAccessFile(servedFile, "r")) {
                     raf.seek(trueStart);
-                    byte[] buf = new byte[calculateOptimalBufferSize(file.length(), headers)];
+                    byte[] buf = new byte[calculateOptimalBufferSize(servedFile.length(), headers)];
                     long left = contentLength;
                     int read;
                     while ((read = raf.read(buf)) != -1 && left > 0) {
@@ -204,7 +224,6 @@ public class StreamAPI {
             };
 
             LOGGER.info("Streaming response prepared: bytes=" + start + "-" + end + "/" + len);
-            String contentType = getContentType(file.getName());
             Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
                     .header("Accept-Ranges", "bytes")
                     // AVFoundation on iOS refuses FLAC over a chunked response:

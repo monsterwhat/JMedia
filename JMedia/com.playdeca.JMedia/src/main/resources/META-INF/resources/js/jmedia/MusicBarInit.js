@@ -458,19 +458,12 @@
                 }
             });
 
-            // iOS-specific: registering Media Session play/pause action handlers
-            // causes the page to be suspended ~30s after screen lock. Without
-            // handlers iOS manages the <audio> element natively for continuous
-            // background playback, which is the behavior we want.
+            // Register media-session handlers on every platform. On iOS this
+            // registers only previous/next (re-registered on each playing event),
+            // which restores headphone buttons without play/pause handlers that
+            // used to suspend background audio.
             if (window.setupMediaSessionHandlers) {
-                const isIOS = window.PlayerUtils
-                    ? window.PlayerUtils.isIOS()
-                    : /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
-                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
-                      (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
-                if (!isIOS) {
-                    window.setupMediaSessionHandlers(null, null, null);
-                }
+                window.setupMediaSessionHandlers(null, null, null);
             }
         }
     };
