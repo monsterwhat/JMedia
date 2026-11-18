@@ -96,6 +96,7 @@ public class M3uParserService {
 
         String[] lines = m3uContent.split("\\r?\\n");
         M3uEntry pending = null;
+        String persistentGroup = null;
 
         for (String line : lines) {
             String trimmed = line.trim();
@@ -105,8 +106,22 @@ public class M3uParserService {
                 continue;
             }
 
+            // Kodi-style group directive: applies to the following entries (and to a
+            // pending #EXTINF without an explicit group-title). An empty value clears it.
+            if (trimmed.startsWith("#EXTGRP:")) {
+                String value = trimmed.substring("#EXTGRP:".length()).trim();
+                persistentGroup = value.isEmpty() ? null : value;
+                if (pending != null && pending.groupTitles.isEmpty() && persistentGroup != null) {
+                    setGroupTitles(pending, persistentGroup);
+                }
+                continue;
+            }
+
             if (trimmed.startsWith("#EXTINF:")) {
                 pending = parseExtInf(trimmed);
+                if (pending.groupTitles.isEmpty() && persistentGroup != null) {
+                    setGroupTitles(pending, persistentGroup);
+                }
             } else if (!trimmed.startsWith("#")) {
                 // This line is a stream URL
                 if (pending != null) {
@@ -121,7 +136,7 @@ public class M3uParserService {
                     entries.add(entry);
                 }
             }
-            // Other # lines (e.g., #EXTVLCOPT, #EXTGRP) are skipped
+            // Other # lines (e.g., #EXTVLCOPT) are skipped
         }
 
         return entries;
@@ -190,18 +205,7 @@ public class M3uParserService {
             case "tvg-id" -> entry.tvgId = value;
             case "tvg-name" -> entry.tvgName = value;
             case "tvg-logo" -> entry.logoUrl = value;
-            case "group-title" -> {
-                entry.groupTitles.clear();
-                if (value != null) {
-                    for (String part : value.split(";")) {
-                        String trimmed = part.trim();
-                        if (!trimmed.isEmpty() && !entry.groupTitles.contains(trimmed)) {
-                            entry.groupTitles.add(trimmed);
-                        }
-                    }
-                }
-                entry.groupTitle = entry.groupTitles.isEmpty() ? null : entry.groupTitles.get(0);
-            }
+            case "group-title" -> setGroupTitles(entry, value);
             case "tvg-country" -> entry.country = value;
             case "tvg-language" -> { /* stored if needed later */ }
             case "radio" -> entry.isRadio = isTruthy(value);
@@ -210,6 +214,20 @@ public class M3uParserService {
             }
             default -> { /* unknown attribute, ignore */ }
         }
+    }
+
+    /** Replaces the entry's memberships; the first one is the primary group. */
+    private static void setGroupTitles(M3uEntry entry, String value) {
+        entry.groupTitles.clear();
+        if (value != null) {
+            for (String part : value.split(";")) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty() && !entry.groupTitles.contains(trimmed)) {
+                    entry.groupTitles.add(trimmed);
+                }
+            }
+        }
+        entry.groupTitle = entry.groupTitles.isEmpty() ? null : entry.groupTitles.get(0);
     }
 
     /** M3U boolean attributes: "true", "1" or "yes" (quoted or not). */
