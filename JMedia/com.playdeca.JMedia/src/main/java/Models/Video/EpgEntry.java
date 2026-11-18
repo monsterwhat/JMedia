@@ -38,5 +38,9 @@ public class EpgEntry extends PanacheEntity {
     @Column(length = 200)
     public String category;
 
+    /** XMLTV programme catchup-id, used by {catchup-id} archive templates. */
+    @Column(length = 500)
+    public String catchupId;
+
     public LocalDateTime importedAt;
 }

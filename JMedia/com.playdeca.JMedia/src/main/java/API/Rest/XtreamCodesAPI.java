@@ -117,9 +117,13 @@ public class XtreamCodesAPI {
                 return getVodCategories();
             case "get_vod_streams":
                 return getVodStreams(categoryId);
+            case "get_vod_streams_by_category":
+                return getVodStreams(categoryId);
             case "get_series_categories":
                 return getSeriesCategories();
             case "get_series":
+                return getSeries(categoryId);
+            case "get_series_by_category":
                 return getSeries(categoryId);
             case "get_series_info":
                 return getSeriesInfo(seriesId);
@@ -1568,6 +1572,7 @@ public class XtreamCodesAPI {
                 epg.put("now_playing", 0);
             }
             epg.put("has_archive", hasArchive);
+            epg.put("catchup_id", entry.catchupId != null ? entry.catchupId : "");
             epgList.add(epg);
         }
         java.util.Map<String, Object> wrapper = new java.util.LinkedHashMap<>();

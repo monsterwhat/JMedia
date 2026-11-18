@@ -152,6 +152,35 @@ class CatchupServiceTest {
     }
 
     @Test
+    void correctionShiftsTheArchiveClock() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "default",
+                "https://p/a?start=${start}&now={now}", 7);
+        ch.catchupCorrectionHours = 2.0;
+
+        assertEquals("https://p/a?start=1700007200&now=1700017200",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void catchupIdIsSubstitutedWhenTheTemplateNeedsIt() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "vod",
+                "https://p/vod/{catchup-id}.m3u8", 7);
+
+        assertEquals("https://p/vod/abc-123.m3u8",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L, "abc-123"));
+        assertNull(service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
+    void vodModeUsesTheSourceTemplate() {
+        LiveChannel ch = channel("https://p/live/u/p/1.ts", "vod",
+                "https://p/vod/12345.mp4?t=${start}", 7);
+
+        assertEquals("https://p/vod/12345.mp4?t=1700000000",
+                service.resolveUrl(ch, 1_700_000_000L, 60, 1_700_010_000L));
+    }
+
+    @Test
     void enforcesTheArchiveWindow() {
         LiveChannel ch = channel("https://p/live/u/p/1.ts", "shift", null, 7);
         long now = 1_700_000_000L;

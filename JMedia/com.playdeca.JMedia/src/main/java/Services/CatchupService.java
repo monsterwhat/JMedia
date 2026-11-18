@@ -78,12 +78,25 @@ public class CatchupService {
      * usable archive address. {@code durationMinutes} is the requested window.
      */
     public String resolveUrl(LiveChannel ch, long startEpoch, int durationMinutes, long nowEpoch) {
+        return resolveUrl(ch, startEpoch, durationMinutes, nowEpoch, null);
+    }
+
+    /**
+     * @param catchupId XMLTV programme id for templates using {catchup-id}; may be null
+     */
+    public String resolveUrl(LiveChannel ch, long startEpoch, int durationMinutes,
+                             long nowEpoch, String catchupId) {
         if (!isAvailable(ch) || ch.streamUrl == null || ch.streamUrl.isBlank()
                 || durationMinutes <= 0 || durationMinutes > MAX_DURATION_MINUTES) {
             return null;
         }
         long durationSeconds = durationMinutes * 60L;
-        long endEpoch = startEpoch + durationSeconds;
+        // Providers whose archive clock differs from UTC advertise catchup-correction.
+        long correctionSeconds = ch.catchupCorrectionHours == null ? 0L
+                : Math.round(ch.catchupCorrectionHours * 3600.0);
+        long effectiveStart = startEpoch + correctionSeconds;
+        long effectiveNow = nowEpoch + correctionSeconds;
+        long effectiveEnd = effectiveStart + durationSeconds;
         String live = ch.streamUrl.trim();
         String source = ch.catchupSource == null ? null : ch.catchupSource.trim();
         String type = ch.catchupType == null ? "" : ch.catchupType.trim().toLowerCase(Locale.ROOT);
@@ -92,7 +105,7 @@ public class CatchupService {
         switch (type) {
             case "", "default" -> template = source != null && !source.isBlank()
                     ? source
-                    : withQuery(live, "utc=" + startEpoch + "&lutc=" + nowEpoch);
+                    : withQuery(live, "utc=" + effectiveStart + "&lutc=" + effectiveNow);
             case "append" -> {
                 if (source == null || source.isBlank()) {
                     return null;
@@ -100,20 +113,26 @@ public class CatchupService {
                 template = appendSource(live, source);
             }
             case "shift" -> template = withQuery(base(live, source),
-                    "utc=" + startEpoch + "&lutc=" + nowEpoch);
+                    "utc=" + effectiveStart + "&lutc=" + effectiveNow);
             case "archive" -> template = withQuery(base(live, source),
-                    "archive=" + startEpoch + "&archive_end=" + endEpoch);
+                    "archive=" + effectiveStart + "&archive_end=" + effectiveEnd);
             case "timeshift" -> template = withQuery(base(live, source),
-                    "timeshift=" + startEpoch + "&timenow=" + nowEpoch);
+                    "timeshift=" + effectiveStart + "&timenow=" + effectiveNow);
             case "xc", "xtream", "xtream-codes", "xstream", "xstream-1" -> template = source != null && !source.isBlank()
-                    ? source : buildXcUrl(live, startEpoch, durationMinutes);
+                    ? source : buildXcUrl(live, effectiveStart, durationMinutes);
             case "flussonic", "flussonic-hls", "flussonic-dash", "flussonic-ts", "fs" ->
-                    template = buildFlussonic(base(live, source), type, startEpoch, durationSeconds);
+                    template = buildFlussonic(base(live, source), type, effectiveStart, durationSeconds);
+            case "vod" -> {
+                if (source == null || source.isBlank()) {
+                    return null;
+                }
+                template = source;
+            }
             default -> {
                 if (source != null && !source.isBlank()) {
                     template = source;
                 } else {
-                    template = withQuery(live, "utc=" + startEpoch + "&lutc=" + nowEpoch);
+                    template = withQuery(live, "utc=" + effectiveStart + "&lutc=" + effectiveNow);
                     LOG.debug("Unknown catch-up type '{}', falling back to shift", type);
                 }
             }
@@ -122,7 +141,13 @@ public class CatchupService {
         if (template == null || template.isBlank()) {
             return null;
         }
-        String resolved = fillPlaceholders(template, startEpoch, endEpoch, durationSeconds, nowEpoch, live);
+        if ((template.contains("{catchup-id}") || template.contains("${catchup-id}"))
+                && (catchupId == null || catchupId.isBlank())) {
+            LOG.debug("Catch-up template for channel {} needs a programme catch-up id", ch.id);
+            return null;
+        }
+        String resolved = fillPlaceholders(template, effectiveStart, effectiveEnd,
+                durationSeconds, effectiveNow, live, catchupId);
         if (!resolved.startsWith("http://") && !resolved.startsWith("https://")) {
             LOG.warn("Catch-up URL is not http(s) for channel {}: {}", ch.id, resolved);
             return null;
@@ -239,7 +264,7 @@ public class CatchupService {
     // ----------------------------------------------------------- placeholder fill
 
     String fillPlaceholders(String template, long startEpoch, long endEpoch,
-                            long durationSeconds, long nowEpoch, String liveUrl) {
+                            long durationSeconds, long nowEpoch, String liveUrl, String catchupId) {
         String out = template;
 
         // ${(b)FORMAT} / ${(e)FORMAT}: PHP-style (Y-m-d:H:i) or Java-style
@@ -285,6 +310,11 @@ public class CatchupService {
                 .replace("{start_iso}", start.toString())
                 .replace("${end_iso}", Instant.ofEpochSecond(endEpoch).toString())
                 .replace("{end_iso}", Instant.ofEpochSecond(endEpoch).toString());
+
+        if (catchupId != null) {
+            out = out.replace("${catchup-id}", catchupId)
+                    .replace("{catchup-id}", catchupId);
+        }
 
         // Timestamp tokens, optionally with a date format: {utc:Ymd-H-M}, ${end:...}.
         Matcher time = TIME_TOKEN.matcher(out);

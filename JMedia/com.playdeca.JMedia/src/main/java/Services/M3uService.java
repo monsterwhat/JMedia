@@ -199,6 +199,7 @@ public class M3uService {
                     channel.catchupType = entry.catchupType;
                     channel.catchupSource = entry.catchupSource;
                     channel.catchupDays = entry.catchupDays;
+                    channel.catchupCorrectionHours = entry.catchupCorrectionHours;
                 }
                 channel.tvgId = entry.tvgId;
                 channel.tvgName = entry.tvgName;

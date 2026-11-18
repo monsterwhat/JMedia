@@ -20,11 +20,11 @@ public class M3uParserService {
 
     // Matches key="value" or key=value pairs inside the attribute string
     private static final Pattern ATTR_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|tvg-rec|timeshift)\\s*=\\s*\"([^\"]*)\""
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|catchup-correction|tvg-rec|timeshift)\\s*=\\s*\"([^\"]*)\""
     );
 
     private static final Pattern ATTR_UNQUOTED_PATTERN = Pattern.compile(
-        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|tvg-rec|timeshift)\\s*=\\s*([^\\s,]+)"
+        "(tvg-id|tvg-name|tvg-logo|group-title|tvg-country|tvg-language|radio|tvg-type|catchup|catchup-type|catchup-source|catchup-days|catchup-time|catchup-enable|catchup-correction|tvg-rec|timeshift)\\s*=\\s*([^\\s,]+)"
     );
 
     public static class M3uEntry {
@@ -42,6 +42,7 @@ public class M3uParserService {
         public String catchupType;
         public String catchupSource;
         public Integer catchupDays;
+        public Double catchupCorrectionHours;
         /** catchup-enable="0" explicitly disables the header default. */
         public Boolean catchupEnabled;
         public double duration = -1;
@@ -242,6 +243,7 @@ public class M3uParserService {
             case "catchup", "catchup-type" -> entry.catchupType = unquote(value);
             case "catchup-source" -> entry.catchupSource = unescapeAmpersands(unquote(value));
             case "catchup-days" -> entry.catchupDays = parseInteger(unquote(value));
+            case "catchup-correction" -> entry.catchupCorrectionHours = parseDecimal(unquote(value));
             case "catchup-time" -> entry.catchupDays = daysFromSeconds(unquote(value));
             case "catchup-enable" -> entry.catchupEnabled = isTruthy(value);
             case "tvg-rec" -> applyTvgRec(entry, value);
@@ -255,6 +257,7 @@ public class M3uParserService {
         if (entry.catchupType == null) entry.catchupType = header.catchupType;
         if (entry.catchupSource == null) entry.catchupSource = header.catchupSource;
         if (entry.catchupDays == null) entry.catchupDays = header.catchupDays;
+        if (entry.catchupCorrectionHours == null) entry.catchupCorrectionHours = header.catchupCorrectionHours;
         if (entry.catchupEnabled == null) entry.catchupEnabled = header.catchupEnabled;
     }
 
@@ -312,6 +315,37 @@ public class M3uParserService {
         return Integer.parseInt(v);
     }
 
+    /** Decimal parser for catchup-correction (e.g. -1, 0.5, +2). */
+    private static Double parseDecimal(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim();
+        if (v.isEmpty() || v.length() > 12) {
+            return null;
+        }
+        int i = 0;
+        if (v.charAt(0) == '+' || v.charAt(0) == '-') {
+            i++;
+        }
+        boolean dot = false;
+        boolean digit = false;
+        for (; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c == '.') {
+                if (dot) {
+                    return null;
+                }
+                dot = true;
+            } else if (Character.isDigit(c)) {
+                digit = true;
+            } else {
+                return null;
+            }
+        }
+        return digit ? Double.parseDouble(v) : null;
+    }
+
     /** Replaces the entry's memberships; the first one is the primary group. */
     private static void setGroupTitles(M3uEntry entry, String value) {
         entry.groupTitles.clear();
@@ -360,6 +394,7 @@ public class M3uParserService {
             case "catchup-source" -> entry.catchupSource != null;
             case "catchup-days" -> entry.catchupDays != null;
             case "catchup-time" -> entry.catchupDays != null;
+            case "catchup-correction" -> entry.catchupCorrectionHours != null;
             case "catchup-enable" -> entry.catchupEnabled != null;
             case "tvg-rec" -> entry.catchupEnabled != null || entry.catchupDays != null;
             case "timeshift" -> entry.catchupType != null || entry.catchupDays != null;

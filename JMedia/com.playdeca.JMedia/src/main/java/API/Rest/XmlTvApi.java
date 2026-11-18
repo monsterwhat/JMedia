@@ -124,6 +124,9 @@ public class XmlTvApi {
             xml.writeAttribute("start", formatXmltvTime(entry.startTime) + " +0000");
             xml.writeAttribute("stop", formatXmltvTime(entry.endTime) + " +0000");
             xml.writeAttribute("channel", entry.epgChannelId);
+            if (entry.catchupId != null && !entry.catchupId.isBlank()) {
+                xml.writeAttribute("catchup-id", entry.catchupId);
+            }
             xml.writeCharacters("\n");
 
             if (entry.title != null && !entry.title.isBlank()) {

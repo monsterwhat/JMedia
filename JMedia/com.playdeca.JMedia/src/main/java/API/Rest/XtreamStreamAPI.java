@@ -38,6 +38,8 @@ public class XtreamStreamAPI {
 
     @Inject Services.CatchupService catchupService;
 
+    @Inject Services.EpgService epgService;
+
     @Context
     ContainerRequestContext requestContext;
 
@@ -208,7 +210,7 @@ public class XtreamStreamAPI {
                     channelId, startEpoch, catchupService.archiveDays(ch));
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        String url = catchupService.resolveUrl(ch, startEpoch, minutes, now);
+        String url = catchupService.resolveUrl(ch, startEpoch, minutes, now, findCatchupId(ch, startEpoch));
         if (url == null) {
             log.warnf("Could not build catch-up URL for channel %d", channelId);
             return Response.status(Response.Status.BAD_GATEWAY)
@@ -219,6 +221,17 @@ public class XtreamStreamAPI {
                 resolveClientIp());
         log.infof("Proxying timeshift: channelId=%d start=%d duration=%dm", channelId, startEpoch, minutes);
         return proxyExternalStream(url, pathUsername, pathPassword, rec);
+    }
+
+    /** XMLTV programme id for {catchup-id} templates, matched by channel and start. */
+    private String findCatchupId(LiveChannel ch, long startEpoch) {
+        if (ch.tvgId == null || ch.tvgId.isBlank()) {
+            return null;
+        }
+        java.time.LocalDateTime startUtc = java.time.LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochSecond(startEpoch), java.time.ZoneOffset.UTC);
+        Models.Video.EpgEntry programme = epgService.findForStart(ch.tvgId, startUtc);
+        return programme != null ? programme.catchupId : null;
     }
 
     /**

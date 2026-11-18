@@ -57,6 +57,16 @@ class M3uParserCatchupTest {
     }
 
     @Test
+    void parsesTheCorrectionOffset() {
+        String m3u = "#EXTM3U\n"
+                + "#EXTINF:-1 catchup=\"default\" catchup-correction=\"-1.5\",Shifted\nhttp://example.test/8\n";
+
+        List<M3uParserService.M3uEntry> entries = new M3uParserService().parse(m3u);
+
+        assertEquals(-1.5, entries.get(0).catchupCorrectionHours);
+    }
+
+    @Test
     void legacyTimeshiftAndTvgRecMarkCatchup() {
         String m3u = "#EXTM3U\n"
                 + "#EXTINF:-1 timeshift=\"5\",Timeshift\nhttp://example.test/4\n"

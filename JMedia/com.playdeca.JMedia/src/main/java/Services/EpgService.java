@@ -70,6 +70,10 @@ public class EpgService {
                 entry.language = getChildText(progElement, "language");
                 entry.episode = getChildText(progElement, "episode-num");
                 entry.category = getChildText(progElement, "category");
+                entry.catchupId = progElement.getAttribute("catchup-id");
+                if (entry.catchupId != null && entry.catchupId.isBlank()) {
+                    entry.catchupId = null;
+                }
                 entry.importedAt = now;
 
                 batch.add(entry);
@@ -124,6 +128,19 @@ public class EpgService {
     @Transactional
     public List<EpgEntry> findAllForChannel(String epgChannelId) {
         return EpgEntry.find("epgChannelId = ?1 ORDER BY startTime", epgChannelId).list();
+    }
+
+    /** Programme whose start matches a timeshift request (within a small tolerance). */
+    @Transactional
+    public EpgEntry findForStart(String epgChannelId, LocalDateTime start) {
+        if (epgChannelId == null || start == null) {
+            return null;
+        }
+        List<EpgEntry> matches = EpgEntry.find(
+                "epgChannelId = ?1 AND startTime >= ?2 AND startTime <= ?3 ORDER BY startTime",
+                epgChannelId, start.minusMinutes(3), start.plusMinutes(3)
+        ).page(0, 1).list();
+        return matches.isEmpty() ? null : matches.get(0);
     }
 
     @Transactional

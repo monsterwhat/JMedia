@@ -52,6 +52,9 @@ public class LiveChannel extends PanacheEntity {
     /** How many days the upstream provider keeps the archive. */
     public Integer catchupDays;
 
+    /** Provider archive clock correction, in hours (can be fractional or negative). */
+    public Double catchupCorrectionHours;
+
     @Column(length = 200)
     public String tvgId;
 
