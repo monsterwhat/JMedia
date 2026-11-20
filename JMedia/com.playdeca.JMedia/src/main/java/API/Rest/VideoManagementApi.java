@@ -748,10 +748,15 @@ public class VideoManagementApi {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Blocking
     public Response setMetadataIgnored(@FormParam("ids") String ids,
-                                       @FormParam("ignored") Boolean ignored) {
+                                       @FormParam("ignored") String ignored) {
         if (ids == null || ids.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity("No video ids given").build();
         }
+        // Accept the shapes a form can send: absent/'1'/'true'/'on' mean ignore,
+        // '0'/'false'/'off' mean restore. (JAX-RS would parse "1" as Boolean false,
+        // which silently turned every ignore click into an unignore.)
+        boolean markIgnored = ignored == null || ignored.isBlank()
+                || "1".equals(ignored) || "true".equalsIgnoreCase(ignored) || "on".equalsIgnoreCase(ignored);
         List<Long> parsed = new java.util.ArrayList<>();
         for (String part : ids.split(",")) {
             try {
@@ -760,7 +765,7 @@ public class VideoManagementApi {
                 LOG.warn("Ignoring malformed video id in ignore request: {}", part);
             }
         }
-        int updated = videoService.setMetadataIgnored(parsed, !Boolean.FALSE.equals(ignored));
+        int updated = videoService.setMetadataIgnored(parsed, markIgnored);
         return Response.ok("Updated " + updated + " video(s)").build();
     }
 
