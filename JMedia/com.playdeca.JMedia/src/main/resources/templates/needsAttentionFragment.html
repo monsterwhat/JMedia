@@ -119,6 +119,22 @@
                             title="Set search params and enrich">
                             <i class="pi pi-search"></i>
                         </button>
+                        {#if video.type == 'episode' && video.seriesTitle}
+                        <button class="button is-light is-rounded"
+                                data-series="{video.seriesTitle}"
+                                onclick="ignoreSeries(this.dataset.series, true)"
+                                title="Ignore every episode of this series">
+                            <i class="pi pi-eye-slash"></i>
+                        </button>
+                        {#if showIgnored}
+                        <button class="button is-light is-rounded"
+                                data-series="{video.seriesTitle}"
+                                onclick="ignoreSeries(this.dataset.series, false)"
+                                title="Restore every episode of this series">
+                            <i class="pi pi-eye"></i>
+                        </button>
+                        {/if}
+                        {/if}
                     </div>
                 </td>
             </tr>
@@ -385,6 +401,30 @@
                 return;
             }
             window.Toast.success(ids.length + (ignored ? ' video(s) ignored' : ' video(s) restored'));
+            var toolbar = document.getElementById('needsAttentionToolbar');
+            reloadNeedsAttention(toolbar && toolbar.dataset.showIgnored === '1');
+        } catch (e) {
+            window.Toast.error('Error: ' + e.message);
+        }
+    }
+    async function ignoreSeries(seriesTitle, ignored) {
+        if (!seriesTitle) return;
+        var form = new URLSearchParams();
+        form.append('seriesTitle', seriesTitle);
+        form.append('ignored', ignored ? '1' : '0');
+        try {
+            var resp = await fetch('/api/video/manage/ignore-series', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: form
+            });
+            if (!resp.ok) {
+                window.Toast.error('Could not update series: ' + (await resp.text()));
+                return;
+            }
+            window.Toast.success(ignored
+                ? 'Ignored every episode of ' + seriesTitle
+                : 'Restored every episode of ' + seriesTitle);
             var toolbar = document.getElementById('needsAttentionToolbar');
             reloadNeedsAttention(toolbar && toolbar.dataset.showIgnored === '1');
         } catch (e) {

@@ -2150,6 +2150,21 @@ public class VideoService {
         return updated;
     }
 
+    /**
+     * Hide or unhide every episode of a series at once, for collections whose
+     * metadata cannot be resolved episode by episode (mixed folders, multi-season
+     * packs). Case-insensitive on the series title.
+     */
+    @Transactional
+    public int setSeriesMetadataIgnored(String seriesTitle, boolean ignored) {
+        if (seriesTitle == null || seriesTitle.isBlank()) return 0;
+        int updated = Video.update(
+                "metadataIgnored = ?1 WHERE type = 'episode' AND LOWER(seriesTitle) = LOWER(?2)",
+                ignored, seriesTitle.trim());
+        LOGGER.info("Metadata ignore: set {} episode(s) of '{}' to ignored={}", updated, seriesTitle, ignored);
+        return updated;
+    }
+
     @Transactional
     public void moveEpisodes(String oldSeriesTitle, String newSeriesTitle) {
         if (oldSeriesTitle == null || newSeriesTitle == null) return;

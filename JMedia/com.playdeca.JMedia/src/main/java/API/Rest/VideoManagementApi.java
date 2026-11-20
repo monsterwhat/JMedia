@@ -774,6 +774,21 @@ public class VideoManagementApi {
     }
 
     @POST
+    @Path("/ignore-series")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response setSeriesMetadataIgnored(@FormParam("seriesTitle") String seriesTitle,
+                                             @FormParam("ignored") String ignored) {
+        if (seriesTitle == null || seriesTitle.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("No series title given").build();
+        }
+        boolean markIgnored = ignored == null || ignored.isBlank()
+                || "1".equals(ignored) || "true".equalsIgnoreCase(ignored) || "on".equalsIgnoreCase(ignored);
+        int updated = videoService.setSeriesMetadataIgnored(seriesTitle, markIgnored);
+        return Response.ok("Updated " + updated + " episode(s)").build();
+    }
+
+    @POST
     @Path("/re-enrich/{id}")
     @Blocking
     public Response reEnrichVideo(@PathParam("id") Long id) {
