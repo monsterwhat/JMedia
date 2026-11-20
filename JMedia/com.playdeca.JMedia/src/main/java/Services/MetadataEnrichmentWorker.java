@@ -122,7 +122,7 @@ public class MetadataEnrichmentWorker {
         int count = 0;
         try {
             List<Video> candidates = Video.find(
-                    "isActive = ?1 AND titleManuallyEdited = ?2 AND " +
+                    "isActive = ?1 AND titleManuallyEdited = ?2 AND (metadataIgnored IS NULL OR metadataIgnored = false) AND " +
                     "((type = 'movie' AND (imdbId IS NULL OR imdbId = '' OR tmdbId IS NULL OR tmdbId = '')) " +
                     " OR (type = 'episode' AND (" +
                     "     ((showImdbId IS NULL OR showImdbId = '')" +

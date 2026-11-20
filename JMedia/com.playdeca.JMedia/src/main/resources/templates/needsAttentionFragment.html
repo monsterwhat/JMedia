@@ -25,10 +25,36 @@
 </div>
 
 {#if videos && videos.size() > 0}
+<div class="is-flex is-justify-content-between is-align-items-center mt-4" style="gap: .75rem; flex-wrap: wrap;"
+     id="needsAttentionToolbar" data-show-ignored="{#if showIgnored}1{#else}0{/if}">
+    <div class="is-flex is-align-items-center" style="gap: .5rem; flex-wrap: wrap;">
+        <button class="button is-small is-warning is-light" id="ignoreSelectedBtn" onclick="bulkIgnoreSelected(true)" disabled>
+            <i class="pi pi-eye-slash mr-1"></i> Ignore selected
+        </button>
+        <button class="button is-small is-light" id="unignoreSelectedBtn" onclick="bulkIgnoreSelected(false)" disabled>
+            <i class="pi pi-eye mr-1"></i> Unignore selected
+        </button>
+        <span class="is-size-7 has-text-grey" id="needsAttentionSelectionCount"></span>
+    </div>
+    <div>
+        {#if showIgnored}
+        <a class="button is-small is-ghost" href="javascript:void(0)" onclick="reloadNeedsAttention(false)">
+            <i class="pi pi-eye-slash mr-1"></i> Hide ignored
+        </a>
+        {#else}
+        <a class="button is-small is-ghost" href="javascript:void(0)" onclick="reloadNeedsAttention(true)">
+            <i class="pi pi-eye mr-1"></i> Show ignored
+        </a>
+        {/if}
+    </div>
+</div>
 <div class="table-container mt-4" style="overflow-x: auto;">
     <table class="table is-fullwidth is-hoverable is-narrow" style="background: transparent; color: rgba(255,255,255,0.85);">
         <thead>
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <th style="width: 2.5rem;">
+                    <input type="checkbox" id="needsAttentionSelectAll" onchange="toggleAllNeedsAttention(this.checked)">
+                </th>
                 <th style="color: var(--standard-accent);">Title</th>
                 <th style="color: var(--standard-accent);">Type</th>
                 <th style="color: var(--standard-accent);">Issues</th>
@@ -43,7 +69,11 @@
             {#for video in videos}
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                 <td style="vertical-align: middle;">
+                    <input type="checkbox" class="needs-attention-check" value="{video.id}" onchange="updateIgnoreSelection()">
+                </td>
+                <td style="vertical-align: middle;">
                     <strong class="has-text-white">{video.title ?: video.filename}</strong>
+                    {#if video.metadataIgnored}<span class="tag is-warning is-light is-small ml-1">Ignored</span>{/if}
                     <p class="is-size-7 has-text-grey" style="word-break: break-all; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{video.path}</p>
                 </td>
                 <td style="vertical-align: middle;">
@@ -313,6 +343,52 @@
             window.Toast.error('Error: ' + e.message);
             btn.classList.remove('is-loading');
             btn.disabled = false;
+        }
+    }
+    // --- Ignore / unignore -------------------------------------------------
+    function updateIgnoreSelection() {
+        var checks = document.querySelectorAll('.needs-attention-check:checked');
+        var countEl = document.getElementById('needsAttentionSelectionCount');
+        if (countEl) countEl.textContent = checks.length ? (checks.length + ' selected') : '';
+        var ignoreBtn = document.getElementById('ignoreSelectedBtn');
+        if (ignoreBtn) ignoreBtn.disabled = checks.length === 0;
+        var unignoreBtn = document.getElementById('unignoreSelectedBtn');
+        if (unignoreBtn) unignoreBtn.disabled = checks.length === 0;
+    }
+
+    function toggleAllNeedsAttention(checked) {
+        document.querySelectorAll('.needs-attention-check').forEach(function (c) { c.checked = checked; });
+        updateIgnoreSelection();
+    }
+
+    function reloadNeedsAttention(showIgnored) {
+        htmx.ajax('GET', '/api/video/manage/needs-attention' + (showIgnored ? '?showIgnored=1' : ''), {
+            target: '#spa-content',
+            swap: 'innerHTML'
+        });
+    }
+
+    async function bulkIgnoreSelected(ignored) {
+        var ids = Array.from(document.querySelectorAll('.needs-attention-check:checked')).map(function (c) { return c.value; });
+        if (!ids.length) return;
+        var form = new URLSearchParams();
+        form.append('ids', ids.join(','));
+        form.append('ignored', ignored ? '1' : '0');
+        try {
+            var resp = await fetch('/api/video/manage/ignore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: form
+            });
+            if (!resp.ok) {
+                window.Toast.error('Could not update: ' + (await resp.text()));
+                return;
+            }
+            window.Toast.success(ids.length + (ignored ? ' video(s) ignored' : ' video(s) restored'));
+            var toolbar = document.getElementById('needsAttentionToolbar');
+            reloadNeedsAttention(toolbar && toolbar.dataset.showIgnored === '1');
+        } catch (e) {
+            window.Toast.error('Error: ' + e.message);
         }
     }
 </script>

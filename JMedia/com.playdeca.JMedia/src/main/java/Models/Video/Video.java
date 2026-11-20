@@ -238,6 +238,17 @@ public class Video extends PanacheEntity {
     public boolean titleManuallyEdited = false;
     public boolean seasonManuallyEdited = false;
     public boolean episodeManuallyEdited = false;
+    /**
+     * Deliberately hidden from the Needs Attention panel and skipped by the
+     * enrichment retries: a row whose metadata cannot be resolved (mixed-up
+     * collections, odd folder layouts) should stop nagging instead of being
+     * re-probed forever. Reversible from the panel's "Show ignored" list.
+     *
+     * <p>Nullable on purpose: the column is added to an existing table, and a
+     * primitive would make Hibernate emit a NOT NULL column that H2 cannot add to
+     * a populated table. NULL is treated as "not ignored" everywhere.
+     */
+    public Boolean metadataIgnored = false;
 
     // Enrichment tracking — prevents redundant re-scans
     @Enumerated(EnumType.STRING)

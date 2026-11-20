@@ -2129,6 +2129,27 @@ public class VideoService {
         return filled;
     }
 
+    /**
+     * Hide or unhide videos from the Needs Attention panel and from enrichment
+     * retries. Reversible: the same call with ignored=false brings them back.
+     */
+    @Transactional
+    public int setMetadataIgnored(List<Long> ids, boolean ignored) {
+        if (ids == null || ids.isEmpty()) return 0;
+        int updated = 0;
+        for (Long id : ids) {
+            if (id == null) continue;
+            Video v = Video.findById(id);
+            if (v == null) continue;
+            v.metadataIgnored = ignored;
+            v.dateModified = LocalDateTime.now();
+            v.persist();
+            updated++;
+        }
+        LOGGER.info("Metadata ignore: set {} video(s) to ignored={}", updated, ignored);
+        return updated;
+    }
+
     @Transactional
     public void moveEpisodes(String oldSeriesTitle, String newSeriesTitle) {
         if (oldSeriesTitle == null || newSeriesTitle == null) return;

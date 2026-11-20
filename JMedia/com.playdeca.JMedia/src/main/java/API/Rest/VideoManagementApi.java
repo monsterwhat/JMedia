@@ -721,18 +721,47 @@ public class VideoManagementApi {
     @GET
     @Path("/needs-attention")
     @Blocking
-    public String getNeedsAttentionPanel() {
-        List<Video> problematic = videoQueryService.findVideosNeedingAttention(100);
-        
+    public String getNeedsAttentionPanel(@QueryParam("showIgnored") Boolean showIgnored) {
+        boolean includeIgnored = Boolean.TRUE.equals(showIgnored);
+        List<Video> problematic = videoQueryService.findVideosNeedingAttention(100, includeIgnored);
+
         boolean workerRunning = metadataEnrichmentWorker.isRunning();
         int pendingFailures = metadataEnrichmentWorker.getPendingFailureCount();
-        
+
         return needsAttentionFragment
                 .data("videos", problematic)
                 .data("workerRunning", workerRunning)
                 .data("pendingFailures", pendingFailures)
                 .data("totalCount", problematic.size())
+                .data("showIgnored", includeIgnored)
                 .render();
+    }
+
+    /**
+     * Hide or unhide videos from the Needs Attention panel. A video whose metadata
+     * cannot be resolved (a mixed-up collection, an odd folder layout) should stop
+     * nagging instead of being re-probed forever; the flag is reversible and is
+     * excluded from the enrichment retries as well.
+     */
+    @POST
+    @Path("/ignore")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response setMetadataIgnored(@FormParam("ids") String ids,
+                                       @FormParam("ignored") Boolean ignored) {
+        if (ids == null || ids.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("No video ids given").build();
+        }
+        List<Long> parsed = new java.util.ArrayList<>();
+        for (String part : ids.split(",")) {
+            try {
+                parsed.add(Long.parseLong(part.trim()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Ignoring malformed video id in ignore request: {}", part);
+            }
+        }
+        int updated = videoService.setMetadataIgnored(parsed, !Boolean.FALSE.equals(ignored));
+        return Response.ok("Updated " + updated + " video(s)").build();
     }
 
     @POST
