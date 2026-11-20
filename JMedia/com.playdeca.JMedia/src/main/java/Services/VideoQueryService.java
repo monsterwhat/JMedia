@@ -352,10 +352,18 @@ public class VideoQueryService {
      */
     @Transactional
     public List<Video> findVideosNeedingAttention(int maxResults) {
+        // Type-aware on purpose: an EPISODE does not carry the show's IMDb id in
+        // imdbId (that column is the episode's own id, which the app never needs);
+        // the identifier lives in showImdbId, or on the linked Series. Judging an
+        // episode by imdbId flagged every single episode as "missing IMDb" even when
+        // its show id was right there.
         String jpql = "SELECT v FROM Video v WHERE v.isActive = true AND v.titleManuallyEdited = false AND (" +
-                "v.imdbId IS NULL OR v.tmdbId IS NULL OR " +
-                "(v.type = 'episode' AND v.showImdbId IS NULL) OR " +
-                "(v.type = 'episode' AND (v.seasonNumber IS NULL OR v.episodeNumber IS NULL))" +
+                "(v.type = 'movie' AND (v.imdbId IS NULL OR v.imdbId = '' OR v.tmdbId IS NULL OR v.tmdbId = '')) OR " +
+                "(v.type = 'episode' AND (" +
+                "  ((v.showImdbId IS NULL OR v.showImdbId = '')" +
+                "   AND (v.series IS NULL OR v.series.imdbId IS NULL OR v.series.imdbId = ''))" +
+                "  OR v.tmdbId IS NULL OR v.tmdbId = ''" +
+                "  OR v.seasonNumber IS NULL OR v.episodeNumber IS NULL))" +
                 ") ORDER BY v.dateAdded DESC";
         return em.createQuery(jpql, Video.class)
                 .setMaxResults(maxResults)

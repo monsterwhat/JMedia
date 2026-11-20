@@ -3,7 +3,9 @@ package Services;
 import Models.Video.Series;
 import Models.Video.Video;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +47,82 @@ public class ImdbIdBackfillService {
     @Inject
     VideoMetadataService videoMetadataService;
 
+    /**
+     * Local-only pass at boot: make every episode of a show agree with the show id
+     * that is already known somewhere for that series.
+     *
+     * <p>The IMDb id of a show is a SERIES property, but it is stored per episode row
+     * ({@code showImdbId}) plus on the Series row. An episode enriched in isolation
+     * leaves its siblings blank, and those siblings then show up as "missing IMDb"
+     * forever. This fills the gaps from data the library already holds — no network.
+     */
+    void onStartup(@Observes StartupEvent event) {
+        try {
+            propagateKnownShowIds();
+        } catch (Exception e) {
+            LOG.error("IMDb propagation at startup failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /** @return number of episode rows that received a show IMDb id. */
+    public int propagateKnownShowIds() {
+        List<Long> seriesIds;
+        try {
+            seriesIds = QuarkusTransaction.requiringNew().call(() ->
+                    Series.<Series>listAll().stream().map(s -> s.id).toList());
+        } catch (Exception e) {
+            LOG.error("IMDb propagation: could not list series: {}", e.getMessage(), e);
+            return 0;
+        }
+
+        int seriesFilled = 0;
+        int episodesFilled = 0;
+        for (final Long seriesId : seriesIds) {
+            try {
+                int[] counts = QuarkusTransaction.requiringNew().call(() -> {
+                    Series series = Series.findById(seriesId);
+                    if (series == null) return new int[]{0, 0};
+
+                    String showId = series.imdbId;
+                    if (showId == null || showId.isBlank()) {
+                        Video known = Video.find(
+                                "type = 'episode' AND (LOWER(seriesTitle) = LOWER(?1) OR series.id = ?2) "
+                                        + "AND showImdbId IS NOT NULL AND showImdbId <> ''",
+                                series.title, series.id).firstResult();
+                        if (known != null) {
+                            series.imdbId = known.showImdbId;
+                            series.persist();
+                            showId = known.showImdbId;
+                        }
+                    }
+
+                    int filled = 0;
+                    if (showId != null && !showId.isBlank()) {
+                        List<Video> episodes = Video.find(
+                                "type = 'episode' AND (showImdbId IS NULL OR showImdbId = '') "
+                                        + "AND (LOWER(seriesTitle) = LOWER(?1) OR series.id = ?2)",
+                                series.title, series.id).list();
+                        for (Video ep : episodes) {
+                            ep.showImdbId = showId;
+                            ep.persist();
+                            filled++;
+                        }
+                    }
+                    return new int[]{(showId != null && !showId.isBlank()) ? 1 : 0, filled};
+                });
+                seriesFilled += counts[0];
+                episodesFilled += counts[1];
+            } catch (Exception e) {
+                LOG.warn("IMDb propagation failed for series {}: {}", seriesId, e.getMessage());
+            }
+        }
+        if (seriesFilled > 0 || episodesFilled > 0) {
+            LOG.info("IMDb propagation: {} series id(s) taken from episodes, {} episode row(s) filled from their series",
+                    seriesFilled, episodesFilled);
+        }
+        return episodesFilled;
+    }
+
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     public record BackfillResult(int seriesScanned, int seriesUpdated, int seriesNoImdb,
@@ -71,6 +149,13 @@ public class ImdbIdBackfillService {
      * Never throws: row-level failures are counted and logged, and the pass continues.
      */
     public BackfillResult backfillAll() {
+        // Heal local inconsistencies first (no network): a show id that only one
+        // episode carries is copied across its series before the TMDb lookups run.
+        try {
+            propagateKnownShowIds();
+        } catch (Exception e) {
+            LOG.error("IMDb backfill: local propagation failed, continuing with TMDb pass", e);
+        }
         final List<Long> seriesIds;
         final List<Long> movieIds;
         try {

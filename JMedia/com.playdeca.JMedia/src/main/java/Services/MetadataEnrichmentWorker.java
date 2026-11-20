@@ -123,8 +123,13 @@ public class MetadataEnrichmentWorker {
         try {
             List<Video> candidates = Video.find(
                     "isActive = ?1 AND titleManuallyEdited = ?2 AND " +
-                    "((imdbId IS NULL OR tmdbId IS NULL OR (type = 'episode' AND showImdbId IS NULL)) " +
-                    "OR (type = 'movie' AND (imdbId IS NOT NULL OR tmdbId IS NOT NULL) " +
+                    "((type = 'movie' AND (imdbId IS NULL OR imdbId = '' OR tmdbId IS NULL OR tmdbId = '')) " +
+                    " OR (type = 'episode' AND (" +
+                    "     ((showImdbId IS NULL OR showImdbId = '')" +
+                    "      AND (series IS NULL OR series.imdbId IS NULL OR series.imdbId = ''))" +
+                    "     OR tmdbId IS NULL OR tmdbId = ''" +
+                    "     OR seasonNumber IS NULL OR episodeNumber IS NULL)) " +
+                    " OR (type = 'movie' AND (imdbId IS NOT NULL OR tmdbId IS NOT NULL) " +
                     "    AND (imdbRating IS NULL OR imdbRating = 0) AND (tmdbRating IS NULL OR tmdbRating = 0)))",
                     true, false
             ).page(0, batchSize).list();

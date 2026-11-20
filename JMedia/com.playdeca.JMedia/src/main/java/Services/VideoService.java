@@ -2077,8 +2077,56 @@ public class VideoService {
             }
             video.dateModified = LocalDateTime.now();
             video.persist();
+            if (showImdbId != null && !showImdbId.isBlank() && "episode".equalsIgnoreCase(video.type)) {
+                propagateShowImdbId(video, showImdbId);
+            }
             LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', imdbId='{}', showImdbId='{}', type='{}'", id, title, seriesTitle, imdbId, showImdbId, type);
         }
+    }
+
+    /**
+     * Propagate a known show IMDb id to the whole series.
+     *
+     * <p>The show id is a property of the SERIES, not of one episode: once it is known
+     * (typed into the metadata correction form, or resolved by enrichment) every
+     * episode of that show and the Series row should carry it. Only blank values are
+     * filled — a value that is already set is never overwritten, so a wrong id on one
+     * episode cannot clobber the rest.
+     */
+    @Transactional
+    public int propagateShowImdbId(Video video, String showImdbId) {
+        if (video == null || showImdbId == null || showImdbId.isBlank()) return 0;
+        String id = showImdbId.trim();
+
+        String seriesTitle = video.seriesTitle;
+        if ((seriesTitle == null || seriesTitle.isBlank()) && video.series != null) {
+            seriesTitle = video.series.title;
+        }
+        if (seriesTitle == null || seriesTitle.isBlank()) return 0;
+
+        try {
+            Series series = Series.find("LOWER(title) = ?1", seriesTitle.toLowerCase(java.util.Locale.ROOT)).firstResult();
+            if (series == null) series = Series.find("title", seriesTitle).firstResult();
+            if (series != null && (series.imdbId == null || series.imdbId.isBlank())) {
+                series.imdbId = id;
+                series.persist();
+                LOGGER.info("Set Series.imdbId for '{}' to {} (propagated from video {})", seriesTitle, id, video.id);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Could not set Series.imdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+        }
+
+        int filled = 0;
+        for (Video ep : findEpisodesForSeries(seriesTitle)) {
+            if (ep.showImdbId == null || ep.showImdbId.isBlank()) {
+                ep.showImdbId = id;
+                ep.dateModified = LocalDateTime.now();
+                ep.persist();
+                filled++;
+            }
+        }
+        LOGGER.info("Propagated show IMDb id {} to {} episode(s) of '{}'", id, filled, seriesTitle);
+        return filled;
     }
 
     @Transactional
@@ -2454,7 +2502,12 @@ public class VideoService {
         if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
         if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
         if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
-        if (showImdbId != null && !showImdbId.isBlank()) video.showImdbId = showImdbId;
+        if (showImdbId != null && !showImdbId.isBlank()) {
+            video.showImdbId = showImdbId;
+            // The show id belongs to the series: hand it to every sibling episode now
+            // instead of making the user repeat the correction per episode.
+            propagateShowImdbId(video, showImdbId);
+        }
         video.dateModified = LocalDateTime.now();
 
         videoMetadataService.fetchAndEnrichMetadata(video);
@@ -2504,6 +2557,10 @@ public class VideoService {
         }
         video.dateModified = LocalDateTime.now();
         video.persist();
+        String showId = (String) selections.get("showImdbId");
+        if (showId != null && !showId.isBlank() && "episode".equalsIgnoreCase(video.type)) {
+            propagateShowImdbId(video, showId);
+        }
         return video;
     }
 

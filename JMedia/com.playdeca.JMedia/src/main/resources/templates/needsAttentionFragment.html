@@ -51,7 +51,7 @@
                 </td>
                 <td style="vertical-align: middle;">
                     <div style="display: flex; flex-wrap: wrap; gap: 3px;">
-                        {#if video.imdbId == null || video.imdbId.isBlank()}<span class="tag is-danger is-light is-small">Missing IMDb</span>{/if}
+                        {#if video.type != 'episode' && (video.imdbId == null || video.imdbId.isBlank())}<span class="tag is-danger is-light is-small">Missing IMDb</span>{/if}
                         {#if video.tmdbId == null || video.tmdbId.isBlank()}<span class="tag is-danger is-light is-small">Missing TMDb</span>{/if}
                         {#if video.type == 'episode' && (video.showImdbId == null || video.showImdbId.isBlank())}<span class="tag is-danger is-light is-small">Missing Show IMDb</span>{/if}
                         {#if video.type == 'episode' && video.seasonNumber == null}<span class="tag is-danger is-light is-small">Missing Season</span>{/if}
