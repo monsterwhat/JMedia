@@ -2490,7 +2490,7 @@ public class VideoService {
      * is unknown), safely materialized for use after the transaction ends.
      */
     @Transactional
-    public Video applySearchEnrichOverrides(Long id, String title, String seriesTitle, Integer seasonNumber, Integer episodeNumber, String imdbId, String showImdbId) {
+    public Video applySearchEnrichOverrides(Long id, String title, String seriesTitle, Integer seasonNumber, Integer episodeNumber, String imdbId, String showImdbId, String tmdbId) {
         Video video = find(id);
         if (video == null) {
             return null;
@@ -2502,6 +2502,7 @@ public class VideoService {
         if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
         if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
         if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
+        if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
         if (showImdbId != null && !showImdbId.isBlank()) {
             video.showImdbId = showImdbId;
             // The show id belongs to the series: hand it to every sibling episode now

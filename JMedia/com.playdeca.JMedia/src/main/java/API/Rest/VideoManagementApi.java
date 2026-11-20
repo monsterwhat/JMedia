@@ -773,11 +773,12 @@ public class VideoManagementApi {
             @FormParam("seasonNumber") Integer seasonNumber,
             @FormParam("episodeNumber") Integer episodeNumber,
             @FormParam("imdbId") String imdbId,
-            @FormParam("showImdbId") String showImdbId) {
+            @FormParam("showImdbId") String showImdbId,
+            @FormParam("tmdbId") String tmdbId) {
 
         Video video;
         try {
-            video = videoService.applySearchEnrichOverrides(id, title, seriesTitle, seasonNumber, episodeNumber, imdbId, showImdbId);
+            video = videoService.applySearchEnrichOverrides(id, title, seriesTitle, seasonNumber, episodeNumber, imdbId, showImdbId, tmdbId);
         } catch (Exception e) {
             LOG.error("Search-and-enrich failed for video {}: {}", id, e.getMessage());
             return Response.serverError()

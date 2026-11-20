@@ -84,6 +84,7 @@
                             data-episode="{video.episodeNumber ?: ''}"
                             data-imdb-id="{video.imdbId ?: ''}"
                             data-show-imdb-id="{video.showImdbId ?: ''}"
+                            data-tmdb-id="{video.tmdbId ?: ''}"
                             data-type="{video.type ?: 'movie'}"
                             title="Set search params and enrich">
                             <i class="pi pi-search"></i>
@@ -165,7 +166,15 @@
                     <div class="control">
                         <input class="input" type="text" id="enrichImdbId" placeholder="e.g. tt0111161">
                     </div>
-                    <p class="help has-text-grey">Leave blank to auto-detect</p>
+                    <p class="help has-text-grey">The episode's own IMDb id (movies only). Leave blank to auto-detect</p>
+                </div>
+
+                <div class="field">
+                    <label class="label is-small has-text-grey-light">TMDb ID</label>
+                    <div class="control">
+                        <input class="input" type="text" id="enrichTmdbId" placeholder="e.g. 603">
+                    </div>
+                    <p class="help has-text-grey">TheMovieDB id for this movie or episode. Leave blank to auto-detect</p>
                 </div>
 
                 <div class="field series-only-enrich" style="display:none;">
@@ -232,6 +241,7 @@
         document.getElementById('enrichEpisode').value = btn.dataset.episode;
         document.getElementById('enrichImdbId').value = btn.dataset.imdbId;
         document.getElementById('enrichShowImdbId').value = btn.dataset.showImdbId;
+        document.getElementById('enrichTmdbId').value = btn.dataset.tmdbId || '';
 
         const isEpisode = btn.dataset.type === 'episode';
         document.querySelectorAll('.series-only-enrich').forEach(el => {
@@ -270,6 +280,8 @@
             if (imdbId) formData.append('imdbId', imdbId);
             const showImdbId = document.getElementById('enrichShowImdbId').value;
             if (showImdbId) formData.append('showImdbId', showImdbId);
+            const tmdbId = document.getElementById('enrichTmdbId').value;
+            if (tmdbId) formData.append('tmdbId', tmdbId);
 
             const resp = await fetch('/api/video/manage/search-enrich/' + videoId, {
                 method: 'POST',
