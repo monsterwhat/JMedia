@@ -1213,55 +1213,36 @@ public class XtreamCodesAPI {
     private List<XtreamCategory> buildLiveCategories() {
         List<XtreamCategory> categories = new ArrayList<>();
 
+        // Categories mirror the library's PLAYLISTS, exactly like the web app: "All"
+        // first, then one tab per active playlist (Suiza, Working DearBulut, CR TV,
+        // US TV, ...). Group titles (Animation, News, Music, ...) are a property of
+        // the source M3U file, not a library section — the web app never shows them as
+        // categories, so advertising them here put IPTV clients in a category tree the
+        // app does not have.
         List<Models.Video.M3uPlaylist> playlists = Models.Video.M3uPlaylist.list("isActive = true");
-
-        // Merge same-named groups across playlists (case-insensitive): one category
-        // per group name, so "Movies" appears once instead of once per playlist.
-        // Display name is title-cased from the normalized key so it is stable
-        // regardless of which playlist was scanned first.
-        java.util.Set<String> groupKeys = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        // A playlist category (id = playlist id) is only used by channels that have NO
-        // group title, because grouped channels report their group id instead. Advertising
-        // it otherwise created a category no stream referenced, and asking for it returned
-        // the entire playlist instead of a group.
-        java.util.Set<Long> playlistsWithUngrouped = new java.util.HashSet<>();
-        boolean anyVisible = false;
+        List<XtreamCategory> perPlaylist = new ArrayList<>();
         for (Models.Video.M3uPlaylist pl : playlists) {
             List<LiveChannel> channels = LiveChannel.find("playlist.id = ?1", pl.id).list();
+            boolean anyVisible = false;
             for (LiveChannel ch : channels) {
-                if (!isLiveChannelVisible(ch)) {
-                    continue;
-                }
-                anyVisible = true;
-                List<String> memberships = ch.allGroupTitles();
-                if (!memberships.isEmpty()) {
-                    for (String group : memberships) {
-                        groupKeys.add(normalizeGroupName(group));
-                    }
-                } else {
-                    playlistsWithUngrouped.add(pl.id);
+                if (isLiveChannelVisible(ch)) {
+                    anyVisible = true;
+                    break;
                 }
             }
-        }
-        for (Models.Video.M3uPlaylist pl : playlists) {
-            if (playlistsWithUngrouped.contains(pl.id)) {
-                String name = pl.name != null ? pl.name : "Unknown Playlist";
-                categories.add(new XtreamCategory(String.valueOf(pl.id), name));
-            }
-        }
-        java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
-        for (String key : groupKeys) {
-            String gid = groupIds.get(key);
-            if (gid == null || "0".equals(gid)) {
-                log.warnf("Live group '%s' has no category id, skipping it", key);
+            if (!anyVisible) {
                 continue;
             }
-            categories.add(new XtreamCategory(gid, toDisplayGenre(key)));
+            String name = pl.name != null && !pl.name.isBlank() ? pl.name : "Playlist " + pl.id;
+            perPlaylist.add(new XtreamCategory(String.valueOf(pl.id), name));
         }
+        perPlaylist.sort(java.util.Comparator.comparing(
+                (XtreamCategory c) -> c.categoryName == null ? "" : c.categoryName, String.CASE_INSENSITIVE_ORDER));
+        categories.addAll(perPlaylist);
 
         // BlueiPTV and similar clients do not synthesize their own All tab, so name the
         // bucket the unfiltered call already provides. Only when there is something in it.
-        if (anyVisible) {
+        if (!perPlaylist.isEmpty()) {
             categories.add(0, new XtreamCategory(ALL_CATEGORY_ID, ALL_CATEGORY_NAME));
         }
         return categories;
@@ -1309,14 +1290,11 @@ public class XtreamCodesAPI {
                     Long playlistId = Long.parseLong(catId);
                     if (Models.Video.M3uPlaylist.findById(playlistId) != null) {
                         effectiveCategoryId = catId;
-                        // A playlist category only advertises channels with no group;
-                        // grouped channels belong to their own group category. Returning
-                        // the whole playlist here would report a category_id the list
-                        // does not contain.
+                        // The category list is playlist-based, so the playlist id returns
+                        // every visible channel of that playlist (grouped or not).
                         channels = LiveChannel.<LiveChannel>find("playlist.id = ?1", playlistId).list()
                                 .stream()
                                 .filter(XtreamCodesAPI::isLiveChannelVisible)
-                                .filter(ch -> ch.allGroupTitles().isEmpty())
                                 .collect(Collectors.toList());
                     } else {
                         channels = filterLiveByGroupId(catId);
@@ -1334,15 +1312,10 @@ public class XtreamCodesAPI {
             channels = LiveChannel.listAll();
         }
 
-        // Resolve every group once (and persist any new mapping) instead of doing a
-        // DB lookup per channel.
-        java.util.Set<String> groupKeys = channels.stream()
-                .filter(XtreamCodesAPI::isLiveChannelVisible)
-                .flatMap(ch -> ch.allGroupTitles().stream())
-                .map(XtreamCodesAPI::normalizeGroupName)
-                .collect(Collectors.toSet());
-        java.util.Map<String, String> groupIds = liveGroupService.idsFor(groupKeys);
-
+        // Categories are playlists now, so a channel's category is simply the playlist
+        // it belongs to. Group titles are no longer advertised as categories, so they
+        // must not leak into category_id either (a client would create a tab for them
+        // that the category list never offers).
         List<java.util.Map<String, Object>> streams = new ArrayList<>();
         int num = 1;
         int hidden = 0;
@@ -1362,32 +1335,10 @@ public class XtreamCodesAPI {
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
             s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.atZone(SERVER_ZONE).toEpochSecond()) : "0");
             s.put("is_adult", "0");
-            // Report every membership. category_id is the primary group (or playlist
-            // id for ungrouped channels); category_ids carries all memberships and is
-            // authoritative for clients that group by the array.
-            List<String> memberships = ch.allGroupTitles();
-            String channelCategoryId = "0";
-            List<Long> channelCategoryIds = new ArrayList<>();
-            for (String group : memberships) {
-                String gid = groupIds.get(normalizeGroupName(group));
-                if (gid == null) {
-                    continue;
-                }
-                if (channelCategoryIds.isEmpty()) {
-                    channelCategoryId = gid;
-                }
-                Long numeric = XtreamIds.numericOrNull(gid);
-                if (numeric != null && !channelCategoryIds.contains(numeric)) {
-                    channelCategoryIds.add(numeric);
-                }
-            }
-            if (channelCategoryIds.isEmpty()) {
-                channelCategoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
-                channelCategoryIds = numericCategoryIds(channelCategoryId);
-            }
+            String channelCategoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
             if ("0".equals(effectiveCategoryId)) {
                 s.put("category_id", channelCategoryId);
-                s.put("category_ids", channelCategoryIds);
+                s.put("category_ids", numericCategoryIds(channelCategoryId));
             } else {
                 s.put("category_id", effectiveCategoryId);
                 s.put("category_ids", numericCategoryIds(effectiveCategoryId));
@@ -1461,31 +1412,8 @@ public class XtreamCodesAPI {
         LiveChannel ch = LiveChannel.findById(streamId);
         if (ch == null) return Response.status(Response.Status.NOT_FOUND).build();
 
-        List<String> memberships = ch.allGroupTitles();
-        String categoryId = "0";
-        List<Long> categoryIds = new ArrayList<>();
-        if (!memberships.isEmpty()) {
-            java.util.Map<String, String> ids = liveGroupService.idsFor(memberships.stream()
-                    .map(XtreamCodesAPI::normalizeGroupName)
-                    .collect(Collectors.toSet()));
-            for (String group : memberships) {
-                String gid = ids.get(normalizeGroupName(group));
-                if (gid == null) {
-                    continue;
-                }
-                if (categoryIds.isEmpty()) {
-                    categoryId = gid;
-                }
-                Long numeric = XtreamIds.numericOrNull(gid);
-                if (numeric != null && !categoryIds.contains(numeric)) {
-                    categoryIds.add(numeric);
-                }
-            }
-        }
-        if (categoryIds.isEmpty()) {
-            categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
-            categoryIds = numericCategoryIds(categoryId);
-        }
+        String categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+        List<Long> categoryIds = numericCategoryIds(categoryId);
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
         java.util.Map<String, Object> info = new java.util.HashMap<>();
