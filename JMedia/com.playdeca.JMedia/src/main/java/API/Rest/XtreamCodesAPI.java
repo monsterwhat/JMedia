@@ -704,11 +704,10 @@ public class XtreamCodesAPI {
         // category list as-is, so an unused genre shows up as a permanently empty group.
         java.util.Set<String> used = usedGenreIds(false);
         categories.removeIf(c -> !used.contains(c.categoryId));
-        for (MediaCollection c : listCollectionsForXtream()) {
-            if (collectionHasVodMembers(c)) {
-                categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
-            }
-        }
+        // Collections are deliberately NOT advertised here: a collection mixes movies
+        // with series (e.g. "Naruto Complete" = TV + movies), and an IPTV client renders
+        // one list per category, so such a tab can never show its whole content. Movies
+        // and shows are served separately, by genre.
         boolean uncategorisedVod = hasUncategorised(false);
         if (uncategorisedVod) {
             categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
@@ -931,17 +930,10 @@ public class XtreamCodesAPI {
         });
 
         java.util.Map<String, String> genreIds = genreIdByName();
-        // Collection memberships for client-side grouping: IPTV apps group the full
-        // list by category_ids, and collection ids never appear there unless added.
-        java.util.Map<Long, java.util.List<String>> collIdsByVideo =
-                collectionId != null ? null : vodCollectionIdsByVideo();
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
-            // Collections take precedence: members don't appear under genres.
-            if (collectionId == null && catId != null && collIdsByVideo != null && collIdsByVideo.containsKey(v.id)) continue;
             List<String> gids = genreIdList(v.genres, genreIds);
-            List<String> allIds = new ArrayList<>(gids);
             XtreamVodStream s = new XtreamVodStream();
             s.num = num++;
             s.name = v.title;
@@ -956,35 +948,9 @@ public class XtreamCodesAPI {
             s.containerExtension = vodExt;
             s.streamType = "movie";
             s.directSource = xtreamStreamUrl("movie", v.id, vodExt);
-            if (collectionId != null) {
-                s.categoryId = catId;
-                s.categoryIds.add(String.valueOf(COLLECTION_CATEGORY_BASE + collectionId));
-                for (String gid : allIds) if (!s.categoryIds.contains(gid)) s.categoryIds.add(gid);
-            } else {
-                s.categoryId = gids.get(0);
-                s.categoryIds.addAll(allIds);
-                java.util.List<String> extra = collIdsByVideo != null ? collIdsByVideo.get(v.id) : null;
-                if (extra != null) for (String cid : extra) if (!s.categoryIds.contains(cid)) s.categoryIds.add(cid);
-            }
+            s.categoryId = gids.get(0);
+            s.categoryIds.addAll(gids);
             streams.add(s);
-            // Collections take precedence over genres: a member's primary row is
-            // its first collection, so players grouping by singular category_id
-            // show it under the collection instead of the genre. Further
-            // collections get one duplicate entry each with the collection id
-            // as singular category (players that never send per-category queries
-            // would otherwise leave every collection row empty).
-            if (collectionId == null && collIdsByVideo != null) {
-                java.util.List<String> extra = collIdsByVideo.get(v.id);
-                if (extra != null && !extra.isEmpty()) {
-                    s.categoryId = extra.get(0);
-                    for (int ci = 1; ci < extra.size(); ci++) {
-                        XtreamVodStream copy = copyVodStream(s);
-                        copy.num = num++;
-                        copy.categoryId = extra.get(ci);
-                        streams.add(copy);
-                    }
-                }
-            }
         }
         log.infof("getVodStreams returning %d streams, sample: %s", streams.size(), streams.isEmpty() ? "empty" : toJson(streams.subList(0, Math.min(3, streams.size()))));
         return Response.ok(streams).build();
@@ -995,11 +961,8 @@ public class XtreamCodesAPI {
         // Same rule as VOD: only genres that a series actually carries.
         java.util.Set<String> used = usedGenreIds(true);
         categories.removeIf(c -> !used.contains(c.categoryId));
-        for (MediaCollection c : listCollectionsForXtream()) {
-            if (collectionHasSeriesMembers(c)) {
-                categories.add(new XtreamCategory(collectionCategoryId(c.id), c.name));
-            }
-        }
+        // Same rule as VOD: collections mix series and movies, so they cannot be
+        // represented as one IPTV category. Genres only.
         boolean uncategorisedSeries = hasUncategorised(true);
         if (uncategorisedSeries) {
             categories.add(new XtreamCategory(UNCATEGORISED_CATEGORY_ID, UNCATEGORISED_CATEGORY_NAME));
@@ -1560,14 +1523,10 @@ public class XtreamCodesAPI {
             grouped.computeIfAbsent(seriesDedupeKey(ser), k -> new ArrayList<>()).add(ser);
         }
         java.util.Map<String, String> genreIds = genreIdByName();
-        java.util.Map<Long, java.util.List<String>> collIdsBySeries =
-                collectionId != null ? null : seriesCollectionIdsBySeries();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
         for (java.util.List<Models.Video.Series> group : grouped.values()) {
             Models.Video.Series ser = pickSeriesRepresentative(group);
-            // Collections take precedence: members don't appear under genres.
-            if (collectionId == null && catId != null && collIdsBySeries != null && isCollectionMember(group, collIdsBySeries)) continue;
             List<Video> eps = findEpisodesForSeries(ser);
             if (eps.isEmpty()) {
                 log.infof("getSeries: skipping series '%s' (id=%s): no resolvable episodes", ser.title, ser.id);
@@ -1620,37 +1579,9 @@ public class XtreamCodesAPI {
                 }
             }
             xs.num = num++;
-            if (collectionId != null) {
-                xs.categoryId = catId;
-                xs.categoryIds = new ArrayList<>(List.of(String.valueOf(COLLECTION_CATEGORY_BASE + collectionId)));
-                for (String gid : seriesGenreIds) if (!xs.categoryIds.contains(gid)) xs.categoryIds.add(gid);
-            } else {
-                xs.categoryId = seriesGenreIds.get(0);
-                xs.categoryIds = new ArrayList<>(seriesGenreIds);
-                for (Models.Video.Series row : group) {
-                    if (row.id == null) continue;
-                    java.util.List<String> extra = collIdsBySeries != null ? collIdsBySeries.get(row.id) : null;
-                    if (extra != null) for (String cid : extra) if (!xs.categoryIds.contains(cid)) xs.categoryIds.add(cid);
-                }
-            }
+            xs.categoryId = seriesGenreIds.get(0);
+            xs.categoryIds = new ArrayList<>(seriesGenreIds);
             seriesList.add(xs);
-            if (collectionId == null && collIdsBySeries != null) {
-                java.util.List<String> extra = new ArrayList<>();
-                for (Models.Video.Series row : group) {
-                    if (row.id == null) continue;
-                    java.util.List<String> rowExtra = collIdsBySeries.get(row.id);
-                    if (rowExtra != null) for (String cid : rowExtra) if (!extra.contains(cid)) extra.add(cid);
-                }
-                if (!extra.isEmpty()) {
-                    xs.categoryId = extra.get(0);
-                    for (int ci = 1; ci < extra.size(); ci++) {
-                        XtreamSeries copy = copySeries(xs);
-                        copy.num = num++;
-                        copy.categoryId = extra.get(ci);
-                        seriesList.add(copy);
-                    }
-                }
-            }
         }
         log.infof("getSeries: returning %d series", seriesList.size());
         return Response.ok(seriesList).build();
