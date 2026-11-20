@@ -721,8 +721,12 @@ public class VideoManagementApi {
     @GET
     @Path("/needs-attention")
     @Blocking
-    public String getNeedsAttentionPanel(@QueryParam("showIgnored") Boolean showIgnored) {
-        boolean includeIgnored = Boolean.TRUE.equals(showIgnored);
+    public String getNeedsAttentionPanel(@QueryParam("showIgnored") String showIgnoredParam) {
+        // Boolean.valueOf("1") is false, so a Boolean query param turned the
+        // ?showIgnored=1 link into a no-op. Accept the shapes the UI sends.
+        boolean includeIgnored = showIgnoredParam != null
+                && ("1".equals(showIgnoredParam) || "true".equalsIgnoreCase(showIgnoredParam)
+                    || "on".equalsIgnoreCase(showIgnoredParam));
         List<Video> problematic = videoQueryService.findVideosNeedingAttention(100, includeIgnored);
 
         boolean workerRunning = metadataEnrichmentWorker.isRunning();
