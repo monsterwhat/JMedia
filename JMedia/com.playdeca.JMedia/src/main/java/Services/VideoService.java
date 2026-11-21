@@ -2176,8 +2176,17 @@ public class VideoService {
 
         List<Video> candidates;
         try {
-            candidates = Video.find("type = 'episode' AND path LIKE ?1 AND seasonNumber IS NULL",
-                    rawFolder + "%").list();
+            // Group by series first instead of LIKE on the path: a backslash path
+            // makes a LIKE pattern ambiguous (backslash is an escape character in
+            // H2), and the directory check below is done on normalized strings.
+            String seriesTitle = video.seriesTitle;
+            if (seriesTitle != null && !seriesTitle.isBlank()) {
+                candidates = Video.find(
+                        "type = 'episode' AND seasonNumber IS NULL AND LOWER(seriesTitle) = LOWER(?1)",
+                        seriesTitle).list();
+            } else {
+                candidates = Video.find("type = 'episode' AND seasonNumber IS NULL").list();
+            }
         } catch (Exception e) {
             LOGGER.error("Season propagation: could not list episodes of '{}': {}", rawFolder, e.getMessage(), e);
             return 0;
