@@ -2063,8 +2063,7 @@ public class VideoService {
             video.seasonNumber = seasonNumber;
             if (seasonNumber != null) {
                 video.seasonManuallyEdited = true;
-            }
-            video.episodeNumber = episodeNumber;
+            }            video.episodeNumber = episodeNumber;
             if (episodeNumber != null) {
                 video.episodeManuallyEdited = true;
             }
@@ -2079,6 +2078,9 @@ public class VideoService {
             video.persist();
             if (showImdbId != null && !showImdbId.isBlank() && "episode".equalsIgnoreCase(video.type)) {
                 propagateShowImdbId(video, showImdbId);
+            }
+            if (seasonNumber != null && seasonNumber > 0 && "episode".equalsIgnoreCase(video.type)) {
+                propagateSeasonNumber(video, seasonNumber);
             }
             LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', imdbId='{}', showImdbId='{}', type='{}'", id, title, seriesTitle, imdbId, showImdbId, type);
         }
@@ -2148,6 +2150,56 @@ public class VideoService {
         }
         LOGGER.info("Metadata ignore: set {} video(s) to ignored={}", updated, ignored);
         return updated;
+    }
+
+    /**
+     * Propagate a season number to the other episodes in the SAME folder.
+     *
+     * <p>A season folder is the strongest hint available when a show is laid out as
+     * "Show/Season 2/..." and the files carry no season tag: correcting one episode
+     * manually should fix its folder-mates instead of forcing the same edit per file.
+     * Only blank season numbers are filled — a season that is already set is never
+     * overwritten — and only episodes directly in that directory are touched.
+     */
+    @Transactional
+    public int propagateSeasonNumber(Video video, Integer seasonNumber) {
+        if (video == null || seasonNumber == null || seasonNumber <= 0) return 0;
+        String path = video.path;
+        if (path == null || path.isBlank()) return 0;
+
+        String normalized = path.replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        if (slash <= 0) return 0;
+        String folder = normalized.substring(0, slash) + "/";
+        String lowerFolder = folder.toLowerCase(java.util.Locale.ROOT);
+
+        List<Video> candidates;
+        try {
+            candidates = Video.find("type = 'episode' AND path LIKE ?1 AND seasonNumber IS NULL",
+                    folder + "%").list();
+        } catch (Exception e) {
+            LOGGER.error("Season propagation: could not list episodes of '{}': {}", folder, e.getMessage(), e);
+            return 0;
+        }
+
+        int filled = 0;
+        for (Video ep : candidates) {
+            if (ep.path == null) continue;
+            String sibling = ep.path.replace('\\', '/');
+            int siblingSlash = sibling.lastIndexOf('/');
+            if (siblingSlash <= 0) continue;
+            // Same directory only: a LIKE prefix also matches deeper season folders.
+            if (!sibling.substring(0, siblingSlash + 1).toLowerCase(java.util.Locale.ROOT).equals(lowerFolder)) {
+                continue;
+            }
+            ep.seasonNumber = seasonNumber;
+            ep.seasonManuallyEdited = true;
+            ep.dateModified = LocalDateTime.now();
+            ep.persist();
+            filled++;
+        }
+        LOGGER.info("Propagated season {} to {} episode(s) in '{}'", seasonNumber, filled, folder);
+        return filled;
     }
 
     /**
@@ -2582,7 +2634,12 @@ public class VideoService {
         // Apply overrides — only update non-null, non-blank values the user explicitly set
         if (title != null && !title.isBlank()) video.title = title;
         if (seriesTitle != null && !seriesTitle.isBlank()) video.seriesTitle = seriesTitle;
-        if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
+        if (seasonNumber != null && seasonNumber > 0) {
+            video.seasonNumber = seasonNumber;
+            video.seasonManuallyEdited = true;
+            // A season belongs to the folder: correcting one file fixes its folder-mates.
+            propagateSeasonNumber(video, seasonNumber);
+        }
         if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
         if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
         if (tmdbId != null && !tmdbId.isBlank()) {
@@ -2655,6 +2712,10 @@ public class VideoService {
         String tmdb = (String) selections.get("tmdbId");
         if (tmdb != null && !tmdb.isBlank() && "episode".equalsIgnoreCase(video.type)) {
             propagateSeriesTmdbId(video, tmdb);
+        }
+        if (selections.containsKey("seasonNumber") && video.seasonNumber != null
+                && video.seasonNumber > 0 && "episode".equalsIgnoreCase(video.type)) {
+            propagateSeasonNumber(video, video.seasonNumber);
         }
         return video;
     }
