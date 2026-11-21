@@ -92,7 +92,7 @@ public class StreamAPI {
     // (and some versions "audio/x-flac"). Listing only audio/mpeg made those
     // requests fail with 406 before the response type was set below.
     @Produces(MediaType.WILDCARD)
-    public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader, @Context HttpHeaders headers) {
+    public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader, @QueryParam("format") String format, @Context HttpHeaders headers) {
         try {
             // Validate profileId matches the authenticated user
             var userProfile = settingsService.getActiveProfileFromHeaders(headers);
@@ -142,18 +142,21 @@ public class StreamAPI {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
 
-            // iOS cannot reliably decode FLAC through the Web Audio path used for
-            // volume/crossfade. Transcode FLAC once to a cached AAC/M4A and stream
-            // that; all other clients keep the lossless original.
+            // iOS cannot reliably decode FLAC. Transcode it once to a cached
+            // AAC/M4A. The explicit `format=aac|ios` signal is preferred: the
+            // UA gate stays as the fallback for browsers.
             File streamFile = file;
             String contentType = getContentType(file.getName());
             String userAgent = headers.getHeaderString("User-Agent");
-            if (musicTranscodeService.isFlac(file) && musicTranscodeService.isIOSClient(userAgent)) {
+            boolean forceIosPlayable = "aac".equalsIgnoreCase(format) || "ios".equalsIgnoreCase(format);
+            if (musicTranscodeService.isFlac(file)
+                    && (forceIosPlayable || musicTranscodeService.isIOSClient(userAgent))) {
                 File transcoded = musicTranscodeService.ensureIosPlayable(song, file);
                 if (transcoded != null && !transcoded.equals(file)) {
                     streamFile = transcoded;
                     contentType = "audio/mp4";
-                    LOGGER.info("Serving iOS FLAC transcode for song " + song.id);
+                    LOGGER.info("Serving iOS FLAC transcode for song " + song.id
+                            + (forceIosPlayable ? " (explicit format=" + format + ")" : " (user-agent)"));
                 }
             }
 

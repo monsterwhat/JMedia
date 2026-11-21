@@ -26,6 +26,10 @@ import java.util.ArrayList;
 public class QueueAPI {
 
     public static class AddManyRequest { public List<Long> songIds; }
+    public static class ReplaceQueueRequest {
+        public List<Long> songIds;
+        public Long startSongId;
+    }
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(QueueAPI.class);
 
@@ -212,6 +216,48 @@ public class QueueAPI {
                     .entity(ApiResponse.error("Error adding songs to queue: " + e.getMessage()))
                     .build();
         }
+    }
+
+    @POST
+    @Path("/queue/replace/{profileId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response replaceQueue(@PathParam("profileId") Long profileId, ReplaceQueueRequest request, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        try {
+            List<Long> ids = (request == null || request.songIds == null)
+                    ? List.of()
+                    : request.songIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+            if (ids.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("songIds is required"))
+                        .build();
+            }
+            playbackController.replaceQueue(ids, request != null ? request.startSongId : null, userProfile.id);
+            return Response.ok(ApiResponse.success("Queue replaced")).build();
+        } catch (Exception e) {
+            LOG.error("Error replacing queue", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error replacing queue: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/queue/add-next/{profileId}/{songId}")
+    @Consumes(MediaType.WILDCARD)
+    public Response addNextToQueue(@PathParam("profileId") Long profileId,
+                                   @PathParam("songId") Long songId,
+                                   @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        if (songId == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Song ID cannot be null"))
+                    .build();
+        }
+        playbackController.addNextToQueue(songId, userProfile.id);
+        return Response.ok(ApiResponse.success("Song will play next")).build();
     }
 
     @POST

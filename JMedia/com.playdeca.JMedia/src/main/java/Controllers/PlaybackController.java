@@ -1548,6 +1548,55 @@ public class PlaybackController {
         return new PaginatedQueue(songs, totalSize);
     }
 
+    /**
+     * Replaces the queue with an explicit list and starts at {@code startSongId}.
+     * Clients that own their list (mobile library/playlist "play") use this so
+     * the server's Smart Shuffle order and DJ planning operate on the same songs.
+     */
+    public synchronized void replaceQueue(List<Long> songIds, Long startSongId, Long profileId) {
+        if (songIds == null || songIds.isEmpty()) {
+            return;
+        }
+        List<Long> ids = new ArrayList<>(new java.util.LinkedHashSet<>(songIds));
+        PlaybackState st = getState(profileId);
+        clearDjTransitionPlan(st);
+
+        Long target = (startSongId != null && ids.contains(startSongId)) ? startSongId : ids.get(0);
+        Song song = findSong(target);
+
+        st.setCue(new ArrayList<>(ids));
+        st.setOriginalCue(new ArrayList<>(ids));
+        st.setCueIndex(ids.indexOf(target));
+        st.setCurrentSongId(target);
+        st.setSongName(song != null ? song.getTitle() : "Unknown Title");
+        st.setArtistName(song != null ? song.getArtist() : "Unknown Artist");
+        st.setDuration(song != null ? song.getDurationSeconds() : 0);
+        st.setCurrentTime(0);
+        st.setPlaying(true);
+        st.setLastSongs(new ArrayList<>());
+        if (st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            st.setSmartShuffleRetargetPending(true);
+        }
+        if (song != null) {
+            playbackQueueController.songSelected(song.id, profileId);
+        }
+        if (Boolean.TRUE.equals(st.getDjModeActive())) {
+            planNextDjTransition(st, profileId);
+        }
+        startPlaybackTimer(profileId);
+        updateState(profileId, st, true);
+    }
+
+    /** Inserts a song in the play-next slot without replacing the queue. */
+    public synchronized void addNextToQueue(Long songId, Long profileId) {
+        if (songId == null) {
+            return;
+        }
+        PlaybackState st = getState(profileId);
+        playbackQueueController.addToQueue(st, List.of(songId), true, profileId);
+        updateState(profileId, st, true);
+    }
+
     public synchronized void skipToQueueIndex(int index, Long profileId) {
         LOGGER.info("skipToQueueIndex called with index: " + index + " for profile: " + profileId);
         PlaybackState st = getState(profileId);
