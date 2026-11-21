@@ -77,11 +77,12 @@ public class ImdbIdBackfillService {
 
         int seriesFilled = 0;
         int episodesFilled = 0;
+        int tmdbFilled = 0;
         for (final Long seriesId : seriesIds) {
             try {
                 int[] counts = QuarkusTransaction.requiringNew().call(() -> {
                     Series series = Series.findById(seriesId);
-                    if (series == null) return new int[]{0, 0};
+                    if (series == null) return new int[]{0, 0, 0};
 
                     String showId = series.imdbId;
                     if (showId == null || showId.isBlank()) {
@@ -108,17 +109,50 @@ public class ImdbIdBackfillService {
                             filled++;
                         }
                     }
-                    return new int[]{(showId != null && !showId.isBlank()) ? 1 : 0, filled};
+
+                    // The series TMDb id is stored per episode too (episode enrichment
+                    // uses /tv/{id}/season/{s}/episode/{e}), so it propagates the same way.
+                    String tmdbId = series.tmdbId != null ? String.valueOf(series.tmdbId) : null;
+                    if (tmdbId == null || tmdbId.isBlank()) {
+                        Video knownTmdb = Video.find(
+                                "type = 'episode' AND (LOWER(seriesTitle) = LOWER(?1) OR series.id = ?2) "
+                                        + "AND tmdbId IS NOT NULL AND tmdbId <> ''",
+                                series.title, series.id).firstResult();
+                        if (knownTmdb != null) {
+                            try {
+                                series.tmdbId = Integer.valueOf(knownTmdb.tmdbId.trim());
+                                series.persist();
+                                tmdbId = String.valueOf(series.tmdbId);
+                            } catch (NumberFormatException nfe) {
+                                LOG.warn("Series '{}' has non-numeric TMDb id '{}' on an episode; not propagating",
+                                        series.title, knownTmdb.tmdbId);
+                            }
+                        }
+                    }
+                    int tmdbCount = 0;
+                    if (tmdbId != null && !tmdbId.isBlank()) {
+                        List<Video> episodes = Video.find(
+                                "type = 'episode' AND (tmdbId IS NULL OR tmdbId = '') "
+                                        + "AND (LOWER(seriesTitle) = LOWER(?1) OR series.id = ?2)",
+                                series.title, series.id).list();
+                        for (Video ep : episodes) {
+                            ep.tmdbId = tmdbId;
+                            ep.persist();
+                            tmdbCount++;
+                        }
+                    }
+                    return new int[]{(showId != null && !showId.isBlank()) ? 1 : 0, filled, tmdbCount};
                 });
                 seriesFilled += counts[0];
                 episodesFilled += counts[1];
+                tmdbFilled += counts[2];
             } catch (Exception e) {
-                LOG.warn("IMDb propagation failed for series {}: {}", seriesId, e.getMessage());
+                LOG.warn("Metadata propagation failed for series {}: {}", seriesId, e.getMessage());
             }
         }
-        if (seriesFilled > 0 || episodesFilled > 0) {
-            LOG.info("IMDb propagation: {} series id(s) taken from episodes, {} episode row(s) filled from their series",
-                    seriesFilled, episodesFilled);
+        if (seriesFilled > 0 || episodesFilled > 0 || tmdbFilled > 0) {
+            LOG.info("Metadata propagation: {} series id(s) taken from episodes, {} episode IMDb id(s) and {} episode TMDb id(s) filled from their series",
+                    seriesFilled, episodesFilled, tmdbFilled);
         }
         return episodesFilled;
     }

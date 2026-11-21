@@ -2151,6 +2151,53 @@ public class VideoService {
     }
 
     /**
+     * Propagate a known series TMDb id to the whole series.
+     *
+     * <p>For an episode, {@code tmdbId} is the SHOW id (the enrichment URLs look like
+     * /tv/{id}/season/{s}/episode/{e}), so one value belongs to every episode of that
+     * show. Typing it on one episode used to fix only that episode and leave the rest
+     * flagged. Only blank values are filled.
+     */
+    @Transactional
+    public int propagateSeriesTmdbId(Video video, String tmdbId) {
+        if (video == null || tmdbId == null || tmdbId.isBlank()) return 0;
+        String id = tmdbId.trim();
+
+        String seriesTitle = video.seriesTitle;
+        if ((seriesTitle == null || seriesTitle.isBlank()) && video.series != null) {
+            seriesTitle = video.series.title;
+        }
+        if (seriesTitle == null || seriesTitle.isBlank()) return 0;
+
+        try {
+            Integer numeric = Integer.valueOf(id);
+            Series series = Series.find("LOWER(title) = ?1", seriesTitle.toLowerCase(java.util.Locale.ROOT)).firstResult();
+            if (series == null) series = Series.find("title", seriesTitle).firstResult();
+            if (series != null && series.tmdbId == null) {
+                series.tmdbId = numeric;
+                series.persist();
+                LOGGER.info("Set Series.tmdbId for '{}' to {} (propagated from video {})", seriesTitle, numeric, video.id);
+            }
+        } catch (NumberFormatException e) {
+            LOGGER.warn("Series TMDb id '{}' for '{}' is not numeric; episodes updated, Series row left alone", id, seriesTitle);
+        } catch (Exception e) {
+            LOGGER.error("Could not set Series.tmdbId for '{}': {}", seriesTitle, e.getMessage(), e);
+        }
+
+        int filled = 0;
+        for (Video ep : findEpisodesForSeries(seriesTitle)) {
+            if (ep.tmdbId == null || ep.tmdbId.isBlank()) {
+                ep.tmdbId = id;
+                ep.dateModified = LocalDateTime.now();
+                ep.persist();
+                filled++;
+            }
+        }
+        LOGGER.info("Propagated series TMDb id {} to {} episode(s) of '{}'", id, filled, seriesTitle);
+        return filled;
+    }
+
+    /**
      * Hide or unhide every episode of a series at once, for collections whose
      * metadata cannot be resolved episode by episode (mixed folders, multi-season
      * packs). Case-insensitive on the series title.
@@ -2538,7 +2585,14 @@ public class VideoService {
         if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
         if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
         if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
-        if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
+        if (tmdbId != null && !tmdbId.isBlank()) {
+            video.tmdbId = tmdbId;
+            // For an episode this is the SHOW id (the enrichment URL is
+            // /tv/{id}/season/{s}/episode/{e}), so every sibling needs it too.
+            if ("episode".equalsIgnoreCase(video.type)) {
+                propagateSeriesTmdbId(video, tmdbId);
+            }
+        }
         if (showImdbId != null && !showImdbId.isBlank()) {
             video.showImdbId = showImdbId;
             // The show id belongs to the series: hand it to every sibling episode now
@@ -2597,6 +2651,10 @@ public class VideoService {
         String showId = (String) selections.get("showImdbId");
         if (showId != null && !showId.isBlank() && "episode".equalsIgnoreCase(video.type)) {
             propagateShowImdbId(video, showId);
+        }
+        String tmdb = (String) selections.get("tmdbId");
+        if (tmdb != null && !tmdb.isBlank() && "episode".equalsIgnoreCase(video.type)) {
+            propagateSeriesTmdbId(video, tmdb);
         }
         return video;
     }
