@@ -811,6 +811,7 @@ public class PlaybackController {
                         st.getDjTransitionCrossfade() != null ? st.getDjTransitionCrossfade()
                         : (st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 0);
                 st.setCurrentTime((entryTime != null ? entryTime : 0) + Math.max(0, fade));
+                st.setPositionVersion(st.getPositionVersion() + 1);
                 st.setPlaying(true);
                 
                 // Remove the OLD (played) song from the cue so the queue stays accurate
@@ -1236,6 +1237,7 @@ public class PlaybackController {
         PlaybackState st = getState(profileId);
         synchronized (st) {
             playbackQueueController.setSeconds(st, seconds, profileId);
+            st.setPositionVersion(st.getPositionVersion() + 1);
             
             // Clear and re-plan DJ transition on seek to align with new position
             if (Boolean.TRUE.equals(st.getDjModeActive())) {

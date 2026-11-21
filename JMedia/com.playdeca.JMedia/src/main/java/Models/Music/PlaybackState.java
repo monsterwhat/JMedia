@@ -106,6 +106,14 @@ public class PlaybackState extends PanacheEntity {
     @Transient
     private int djGenreSkipCount = 0;
 
+    /**
+     * Bumped only when a client explicitly moves the playhead (seek or a
+     * completed DJ transition). Clients follow this instead of every timer
+     * tick, so a background clock update never yanks another device's audio.
+     */
+    @Transient
+    private long positionVersion = 0;
+
     // DJ Mode transition planning (beat-aligned cross-song transitions)
     private Long djNextSongId;           // The next song to transition into
     private Double djEntryTime;          // Where in the next song to start (seconds)
