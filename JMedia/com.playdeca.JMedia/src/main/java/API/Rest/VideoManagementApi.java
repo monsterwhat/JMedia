@@ -829,23 +829,53 @@ public class VideoManagementApi {
             @FormParam("showImdbId") String showImdbId,
             @FormParam("tmdbId") String tmdbId) {
 
-        Video video;
+        VideoService.SearchEnrichResult result;
         try {
-            video = videoService.applySearchEnrichOverrides(id, title, seriesTitle, seasonNumber, episodeNumber, imdbId, showImdbId, tmdbId);
+            result = videoService.applySearchEnrichOverrides(id, title, seriesTitle, seasonNumber, episodeNumber, imdbId, showImdbId, tmdbId);
         } catch (Exception e) {
             LOG.error("Search-and-enrich failed for video {}: {}", id, e.getMessage());
             return Response.serverError()
                     .entity("Search failed: " + e.getMessage())
                     .build();
         }
-        if (video == null) {
+        if (result == null || result.video() == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity("Video not found")
                     .build();
         }
-        LOG.info("Search-and-enrich completed for video {} ('{}')", id, video.title);
-        return Response.ok("Search and enrichment completed for '" + video.title + "'")
-                .build();
+        Video video = result.video();
+
+        java.util.List<String> cascaded = new java.util.ArrayList<>();
+        if (result.seasonEpisodes() > 0) {
+            cascaded.add(result.seasonEpisodes() + " episode(s) got the same season");
+        }
+        if (result.showImdbEpisodes() > 0) {
+            cascaded.add(result.showImdbEpisodes() + " got the series IMDb id");
+        }
+        if (result.tmdbEpisodes() > 0) {
+            cascaded.add(result.tmdbEpisodes() + " got the series TMDb id");
+        }
+        String message = "Enriched '" + video.title + "'"
+                + (cascaded.isEmpty() ? "" : ". Also fixed " + String.join(", ", cascaded));
+
+        LOG.info("Search-and-enrich completed for video {} ('{}'): {}", id, video.title, message);
+
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("success", true);
+        body.put("videoId", id);
+        body.put("title", video.title);
+        body.put("seasonFixes", result.seasonEpisodes());
+        body.put("showImdbFixes", result.showImdbEpisodes());
+        body.put("tmdbFixes", result.tmdbEpisodes());
+        body.put("message", message);
+        try {
+            return Response.ok(objectMapper.writeValueAsString(body))
+                    .type(MediaType.APPLICATION_JSON)
+                    .build();
+        } catch (Exception e) {
+            LOG.error("Could not serialize search-enrich response for video {}: {}", id, e.getMessage());
+            return Response.ok(message).build();
+        }
     }
 
     // ── Verification (side-by-side metadata comparison) ──────────────────────

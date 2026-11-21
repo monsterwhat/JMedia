@@ -2636,11 +2636,15 @@ public class VideoService {
      * is unknown), safely materialized for use after the transaction ends.
      */
     @Transactional
-    public Video applySearchEnrichOverrides(Long id, String title, String seriesTitle, Integer seasonNumber, Integer episodeNumber, String imdbId, String showImdbId, String tmdbId) {
+    public SearchEnrichResult applySearchEnrichOverrides(Long id, String title, String seriesTitle, Integer seasonNumber, Integer episodeNumber, String imdbId, String showImdbId, String tmdbId) {
         Video video = find(id);
         if (video == null) {
             return null;
         }
+
+        int showImdbFilled = 0;
+        int tmdbFilled = 0;
+        int seasonFilled = 0;
 
         // Apply overrides — only update non-null, non-blank values the user explicitly set
         if (title != null && !title.isBlank()) video.title = title;
@@ -2649,7 +2653,7 @@ public class VideoService {
             video.seasonNumber = seasonNumber;
             video.seasonManuallyEdited = true;
             // A season belongs to the folder: correcting one file fixes its folder-mates.
-            propagateSeasonNumber(video, seasonNumber);
+            seasonFilled = propagateSeasonNumber(video, seasonNumber);
         }
         if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
         if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
@@ -2658,19 +2662,23 @@ public class VideoService {
             // For an episode this is the SHOW id (the enrichment URL is
             // /tv/{id}/season/{s}/episode/{e}), so every sibling needs it too.
             if ("episode".equalsIgnoreCase(video.type)) {
-                propagateSeriesTmdbId(video, tmdbId);
+                tmdbFilled = propagateSeriesTmdbId(video, tmdbId);
             }
         }
         if (showImdbId != null && !showImdbId.isBlank()) {
             video.showImdbId = showImdbId;
             // The show id belongs to the series: hand it to every sibling episode now
             // instead of making the user repeat the correction per episode.
-            propagateShowImdbId(video, showImdbId);
+            showImdbFilled = propagateShowImdbId(video, showImdbId);
         }
         video.dateModified = LocalDateTime.now();
 
         videoMetadataService.fetchAndEnrichMetadata(video);
-        return video;
+        return new SearchEnrichResult(video, showImdbFilled, tmdbFilled, seasonFilled);
+    }
+
+    /** Everything a manual correction changed, including the rows it cascaded to. */
+    public record SearchEnrichResult(Video video, int showImdbEpisodes, int tmdbEpisodes, int seasonEpisodes) {
     }
 
     /**

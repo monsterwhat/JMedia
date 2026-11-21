@@ -344,8 +344,14 @@
                 return;
             }
 
-            status.textContent = 'Done!';
-            window.Toast.success('Metadata search completed!');
+            var payload = null;
+            try { payload = await resp.json(); } catch (e) { payload = null; }
+            var message = (payload && payload.message) ? payload.message : 'Metadata search completed!';
+            var autoFixes = payload
+                ? ((payload.seasonFixes || 0) + (payload.showImdbFixes || 0) + (payload.tmdbFixes || 0))
+                : 0;
+            status.textContent = autoFixes > 0 ? ('Done - ' + autoFixes + ' extra file(s) fixed') : 'Done!';
+            window.Toast.success(message);
             closeEnrichModal();
 
             setTimeout(() => {
