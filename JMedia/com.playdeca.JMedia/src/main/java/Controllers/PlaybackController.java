@@ -803,7 +803,14 @@ public class PlaybackController {
                 st.setArtistName(nextSong.getArtist());
                 st.setSongName(nextSong.getTitle());
                 st.setDuration(nextSong.getDurationSeconds());
-                st.setCurrentTime(entryTime != null ? entryTime : 0);
+                // The client reports transition-started AFTER the fade, so the
+                // new track is already this far in. Using the entry time alone
+                // left the server clock behind by the fade length, which made
+                // clients that follow the clock seek backwards.
+                double fade =
+                        st.getDjTransitionCrossfade() != null ? st.getDjTransitionCrossfade()
+                        : (st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 0);
+                st.setCurrentTime((entryTime != null ? entryTime : 0) + Math.max(0, fade));
                 st.setPlaying(true);
                 
                 // Remove the OLD (played) song from the cue so the queue stays accurate
