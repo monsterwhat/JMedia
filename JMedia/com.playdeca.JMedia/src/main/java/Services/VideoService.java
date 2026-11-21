@@ -2167,29 +2167,31 @@ public class VideoService {
         String path = video.path;
         if (path == null || path.isBlank()) return 0;
 
-        String normalized = path.replace('\\', '/');
-        int slash = normalized.lastIndexOf('/');
-        if (slash <= 0) return 0;
-        String folder = normalized.substring(0, slash) + "/";
-        String lowerFolder = folder.toLowerCase(java.util.Locale.ROOT);
+        // Keep the separator the row actually stores (Windows scans keep backslashes):
+        // a LIKE prefix built with the wrong separator matches nothing.
+        int rawSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (rawSlash <= 0) return 0;
+        String rawFolder = path.substring(0, rawSlash + 1);
+        String lowerFolder = rawFolder.replace('\\', '/').toLowerCase(java.util.Locale.ROOT);
 
         List<Video> candidates;
         try {
             candidates = Video.find("type = 'episode' AND path LIKE ?1 AND seasonNumber IS NULL",
-                    folder + "%").list();
+                    rawFolder + "%").list();
         } catch (Exception e) {
-            LOGGER.error("Season propagation: could not list episodes of '{}': {}", folder, e.getMessage(), e);
+            LOGGER.error("Season propagation: could not list episodes of '{}': {}", rawFolder, e.getMessage(), e);
             return 0;
         }
 
         int filled = 0;
         for (Video ep : candidates) {
             if (ep.path == null) continue;
-            String sibling = ep.path.replace('\\', '/');
-            int siblingSlash = sibling.lastIndexOf('/');
+            int siblingSlash = Math.max(ep.path.lastIndexOf('/'), ep.path.lastIndexOf('\\'));
             if (siblingSlash <= 0) continue;
             // Same directory only: a LIKE prefix also matches deeper season folders.
-            if (!sibling.substring(0, siblingSlash + 1).toLowerCase(java.util.Locale.ROOT).equals(lowerFolder)) {
+            String siblingFolder = ep.path.substring(0, siblingSlash + 1)
+                    .replace('\\', '/').toLowerCase(java.util.Locale.ROOT);
+            if (!siblingFolder.equals(lowerFolder)) {
                 continue;
             }
             ep.seasonNumber = seasonNumber;
@@ -2198,7 +2200,7 @@ public class VideoService {
             ep.persist();
             filled++;
         }
-        LOGGER.info("Propagated season {} to {} episode(s) in '{}'", seasonNumber, filled, folder);
+        LOGGER.info("Propagated season {} to {} episode(s) in '{}'", seasonNumber, filled, rawFolder);
         return filled;
     }
 
