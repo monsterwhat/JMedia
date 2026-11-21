@@ -1672,6 +1672,27 @@
         setupEventListeners: function() {
             window.addEventListener('statePropertyChanged', (e) => {
                 if (e.detail.property === 'volume') this.setVolume(e.detail.newValue, 'stateManager');
+                if (e.detail.property === 'currentTime') {
+                    // Follow a position published by another device (phone or
+                    // another tab). Ignore local progress/seek echoes, and do
+                    // not disturb a crossfade in progress.
+                    const source = e.detail.source || '';
+                    if (source === 'audioTimeUpdate' || source === 'audioEngine' || source === 'timeController') return;
+                    if (this._isCrossfading || window.videoPlaying) return;
+                    const player = this.getActivePlayer();
+                    const target = window.Helpers && typeof window.Helpers.safeNumber === 'function'
+                        ? window.Helpers.safeNumber(e.detail.newValue, -1)
+                        : Number(e.detail.newValue);
+                    if (!player || !Number.isFinite(target) || target < 0) return;
+                    const current = window.Helpers && typeof window.Helpers.safeNumber === 'function'
+                        ? window.Helpers.safeNumber(player.currentTime, 0)
+                        : (Number(player.currentTime) || 0);
+                    if (Math.abs(current - target) > 1.5) {
+                        window.Helpers?.log?.('[AudioEngine] Remote seek: ' + current.toFixed(1) +
+                            's -> ' + target.toFixed(1) + 's');
+                        this.setTime(target);
+                    }
+                }
                 if (e.detail.property === 'currentSongId' && e.detail.newValue && window.StateManager) {
                     if (window.videoPlaying) return;
                     const state = window.StateManager.getState();
