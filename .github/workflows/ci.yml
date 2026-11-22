@@ -77,6 +77,14 @@ jobs:
           name: JMedia-runner
           path: target
 
+      - name: Locate the jar
+        working-directory: .
+        run: |
+          ls -l target
+          JAR_PATH=$(find target -name 'JMedia-runner.jar' -print -quit)
+          test -n "$JAR_PATH" || { echo "FAIL: packaged jar not found in target/"; exit 1; }
+          echo "JAR_PATH=$JAR_PATH" >> "$GITHUB_ENV"
+
       - name: Tool versions
         run: |
           java -version
@@ -86,14 +94,14 @@ jobs:
         working-directory: .
         timeout-minutes: 6
         env:
-          JAR: target/JMedia-runner.jar
+          JAR: ${{ env.JAR_PATH }}
         run: bash JMedia/scripts/it/it-bootstrap.sh
 
       - name: 3.3 migration from the previous release
         working-directory: .
         timeout-minutes: 10
         env:
-          JAR: target/JMedia-runner.jar
+          JAR: ${{ env.JAR_PATH }}
           PREVIOUS_VERSION: 1.46.4
         run: |
           curl -fsSL -o /tmp/previous.jar \
@@ -104,12 +112,12 @@ jobs:
         working-directory: .
         timeout-minutes: 6
         env:
-          JAR: target/JMedia-runner.jar
+          JAR: ${{ env.JAR_PATH }}
         run: bash JMedia/scripts/it/it-sync.sh
 
       - name: 3.4 HLS session lifecycle
         working-directory: .
         timeout-minutes: 10
         env:
-          JAR: target/JMedia-runner.jar
+          JAR: ${{ env.JAR_PATH }}
         run: bash JMedia/scripts/it/it-hls.sh
