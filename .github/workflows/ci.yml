@@ -88,7 +88,7 @@ jobs:
       - name: Tool versions
         run: |
           java -version
-          ffmpeg -version | head -1
+          ffmpeg -version | head -1 || echo "ffmpeg not preinstalled; the HLS test installs it"
 
       - name: 3.2 fresh bootstrap and forced password change
         working-directory: .
@@ -120,4 +120,9 @@ jobs:
         timeout-minutes: 10
         env:
           JAR: ${{ env.JAR_PATH }}
-        run: bash JMedia/scripts/it/it-hls.sh
+        run: |
+          # The runner image does not ship ffmpeg, and the test drives it for real.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+          bash JMedia/scripts/it/it-hls.sh
