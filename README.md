@@ -77,6 +77,21 @@ The server listens on `0.0.0.0:8080` by default (`quarkus.http.port`).
 endpoint has an integration test. The test suite is unit tests only; there are no
 `@QuarkusTest` integration tests.
 
+## Tested environments
+
+There are no automated browser tests. The table records what has actually been
+exercised, not what is expected to work.
+
+| Environment | Status | Notes |
+| --- | --- | --- |
+| Linux x86_64, JDK 25, systemd | Primary | Ubuntu hosts run the uber-jar under systemd with nginx in front. |
+| Firefox on Windows | Exercised | Desktop music and video playback, DJ Mode, admin screens. |
+| Safari on iOS (home-screen web app) | Exercised | Playback, single-deck and dual-deck crossfade path, mobile layout. |
+| Xtream client on a TV (BlueiPTV, TCL) | Exercised | Live, VOD and series categories, including season/episode keys. |
+| Chrome, Edge, Safari on macOS | Not verified | Should work; no recorded run. |
+| Windows and macOS installers | Not verified | The installer paths exist and are unit tested for command construction only. |
+| arm64 (Raspberry Pi, Apple silicon) | Not verified | No native build is published; the uber-jar should run on any JDK 25. |
+
 ## Configuration highlights
 
 - `jmedia.local-network-cidrs` is a comma-separated list of CIDRs or exact IPs

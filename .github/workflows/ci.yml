@@ -47,3 +47,12 @@ jobs:
           path: JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
           if-no-files-found: error
           retention-days: 30
+
+      # Starts the packaged jar against a throwaway user.home and checks that it
+      # serves the login page and rejects anonymous API calls. Non-blocking while
+      # it bakes: make it blocking once it has passed a few consecutive runs.
+      - name: Smoke test the uber jar
+        working-directory: .
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash JMedia/scripts/smoke-jar.sh JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
