@@ -14,9 +14,9 @@
 # Usage: OLD_JAR=... JAR=... scripts/it/it-migration.sh
 #
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
-. ./lib.sh
+. "$SCRIPT_DIR/lib.sh"
 
 OLD_JAR="${OLD_JAR:-}"
 JAR="${JAR:-}"

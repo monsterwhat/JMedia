@@ -10,9 +10,9 @@
 # Usage: JAR=... scripts/it/it-hls.sh
 #
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
-. ./lib.sh
+. "$SCRIPT_DIR/lib.sh"
 
 JAR="${JAR:-}"
 if [ -z "$JAR" ] || [ ! -f "$JAR" ]; then
