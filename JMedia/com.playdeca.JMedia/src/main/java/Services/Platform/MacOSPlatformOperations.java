@@ -130,10 +130,23 @@ public class MacOSPlatformOperations implements PlatformOperations {
     public void installPackageManger(Long profileId) throws Exception {
         broadcast("Installing Homebrew (recommended package manager for macOS)...\n", profileId);
         broadcastInstallationProgress("brew", 0, true, profileId);
-        
-        String installScript = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
-        executeCommand(installScript, profileId);
-        
+
+        // Homebrew's installer is a remote script fetched from the HEAD branch.
+        // Running it silently is what this policy forbids: the content changes
+        // without notice and installs system-wide.
+        String url = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
+        boolean allowUnverified = Boolean.getBoolean(RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY);
+        if (!RemoteScriptPolicy.mayExecute(url, null, allowUnverified)) {
+            broadcast(RemoteScriptPolicy.refusalMessage("Homebrew", url), profileId);
+            broadcast("Review it first, then run:\n  " + RemoteScriptPolicy.manualCommand(url) + "\n", profileId);
+            broadcastInstallationProgress("brew", 100, false, profileId);
+            throw new Exception("Homebrew installer was not executed: unpinned remote content. "
+                    + "Run it manually, or allow it with -D"
+                    + RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY + "=true");
+        }
+
+        executeCommand("/bin/bash -c \"$(curl -fsSL " + url + ")\"", profileId);
+
         broadcastInstallationProgress("brew", 100, false, profileId);
         broadcast("Homebrew installation completed\n", profileId);
         broadcast("Note: You may need to add Homebrew to your PATH. Run: echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile\n", profileId);
@@ -328,7 +341,16 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
 
     private void runUserInstallScript(Long profileId) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("bash", "-c", "curl -fsSL https://deno.land/install.sh | sh");
+        String url = "https://deno.land/install.sh";
+        boolean allowUnverified = Boolean.getBoolean(RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY);
+        if (!RemoteScriptPolicy.mayExecute(url, null, allowUnverified)) {
+            broadcast(RemoteScriptPolicy.refusalMessage("Deno", url), profileId);
+            throw new Exception("Deno installer script was not executed: unpinned remote content. "
+                    + "Install Deno manually, or allow it with -D"
+                    + RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY + "=true");
+        }
+
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", "curl -fsSL " + url + " | sh");
         pb.redirectErrorStream(true);
         runProcessWithTimeout(pb, 10, profileId);
     }

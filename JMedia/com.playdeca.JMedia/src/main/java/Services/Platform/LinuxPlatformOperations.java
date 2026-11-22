@@ -258,16 +258,13 @@ public class LinuxPlatformOperations implements PlatformOperations {
         
         // NodeSource repository provides the latest versions
         if (isCommandAvailable("apt")) {
-            // Add NodeSource repository for latest Node.js
-            broadcast("Adding NodeSource repository...\n", profileId);
-            try {
-                executeCommandAsRoot("curl -fsSL https://deb.nodesource.com/setup_22.x | bash -", profileId);
-                executeCommandAsRoot("apt install -y nodejs", profileId);
-            } catch (Exception e) {
-                // Fallback to system node
-                broadcast("NodeSource failed, trying system packages...\n", profileId);
-                executeCommandAsRoot("apt update && apt install -y nodejs npm", profileId);
-            }
+            // The NodeSource bootstrap is a remote script executed as root
+            // (curl ... | bash). It is not pinned to a checksum, so the distro
+            // package is used instead and the manual command is surfaced.
+            broadcast("NodeSource is not used automatically because its bootstrap script "
+                    + "is unpinned and runs as root. To get a newer Node.js, review and run:\n"
+                    + "  " + RemoteScriptPolicy.manualCommand("https://deb.nodesource.com/setup_22.x") + "\n", profileId);
+            executeCommandAsRoot("apt update && apt install -y nodejs npm", profileId);
         } else if (isCommandAvailable("yum")) {
             executeCommandAsRoot("yum install -y nodejs npm", profileId);
         } else if (isCommandAvailable("dnf")) {
@@ -493,9 +490,21 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
 
     private void runUserInstallScript(Long profileId) throws Exception {
+        // Deno's installer is a remote script (curl ... | sh). Executing it
+        // silently is not allowed unless the operator opted in.
+        String url = "https://deno.land/install.sh";
+        boolean allowUnverified = Boolean.getBoolean(
+                RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY);
+        if (!RemoteScriptPolicy.mayExecute(url, null, allowUnverified)) {
+            broadcast(RemoteScriptPolicy.refusalMessage("Deno", url), profileId);
+            throw new Exception("Deno installer script was not executed: unpinned remote content. "
+                    + "Install Deno manually, or allow it with -D"
+                    + RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY + "=true");
+        }
+
         Process process = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("bash", "-c", "curl -fsSL https://deno.land/install.sh | sh");
+            ProcessBuilder pb = new ProcessBuilder("bash", "-c", "curl -fsSL " + url + " | sh");
             pb.redirectErrorStream(true);
 
             process = pb.start();

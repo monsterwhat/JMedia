@@ -494,7 +494,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
             broadcast("Deno installation completed\n", profileId);
             broadcast("[DENO_INSTALLATION_FINISHED]", profileId);
         } catch (Exception e) {
-            broadcast("PowerShell installation failed, trying Chocolatey...\n", profileId);
+            broadcast("Per-user installer not used (" + e.getMessage() + "). Trying Chocolatey...\n", profileId);
             broadcastInstallationProgress("deno", 50, true, profileId);
 
             try {
@@ -510,10 +510,19 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
 
     private void executePerUserPowerShellInstall(Long profileId) throws Exception {
+        String url = "https://deno.com/install.ps1";
+        boolean allowUnverified = Boolean.getBoolean(RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY);
+        if (!RemoteScriptPolicy.mayExecute(url, null, allowUnverified)) {
+            broadcast(RemoteScriptPolicy.refusalMessage("Deno", url), profileId);
+            throw new Exception("Deno installer script was not executed: unpinned remote content. "
+                    + "Install Deno manually, or allow it with -D"
+                    + RemoteScriptPolicy.ALLOW_UNVERIFIED_PROPERTY + "=true");
+        }
+
         Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                    "-Command", "irm https://deno.com/install.ps1 | iex");
+                    "-Command", "irm " + url + " | iex");
             pb.redirectErrorStream(true);
 
             process = pb.start();
