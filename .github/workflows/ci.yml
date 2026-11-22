@@ -49,10 +49,9 @@ jobs:
           retention-days: 30
 
       # Starts the packaged jar against a throwaway user.home and checks that it
-      # serves the login page and rejects anonymous API calls. Non-blocking while
-      # it bakes: make it blocking once it has passed a few consecutive runs.
+      # serves the login page and rejects anonymous API calls. Blocking: it has
+      # passed on every build since it was added (1.47.4, 1.47.5, 1.47.6, 1.47.7).
       - name: Smoke test the uber jar
         working-directory: .
-        continue-on-error: true
         timeout-minutes: 5
         run: bash JMedia/scripts/smoke-jar.sh JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
