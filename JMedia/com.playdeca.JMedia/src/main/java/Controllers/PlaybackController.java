@@ -1139,7 +1139,7 @@ public class PlaybackController {
         int songsPerGenre = dto.getSongsPerGenre() != null ? dto.getSongsPerGenre() : 0;
         st.setDjSongsPerGenre(Math.max(0, Math.min(10, songsPerGenre)));
         int crossfade = dto.getCrossfade() != null ? dto.getCrossfade() : -1;
-        st.setDjCrossfadeOverride(Math.max(-1, Math.min(12, crossfade)));
+        st.setDjCrossfadeOverride(Math.max(-1, Math.min(6, crossfade)));
         String strictness = dto.getStrictness() != null ? dto.getStrictness().toUpperCase() : "MEDIUM";
         if (!"LOW".equals(strictness) && !"MEDIUM".equals(strictness) && !"HIGH".equals(strictness)) {
             strictness = "MEDIUM";
@@ -1744,8 +1744,9 @@ public class PlaybackController {
             System.out.println("[DJ]   Entry: " + nextSong.getTitle() + " at " + transition.getEntryTime() + "s");
             System.out.println("[DJ]   Crossfade: " + transition.getCrossfadeSeconds() + "s, Confidence: " + transition.getConfidence());
             System.out.println("[DJ]   Reason: " + transition.getReason());
-            LOGGER.info(String.format("DJ Mode: Planned transition to '%s' at exit=%.1fs, entry=%.1fs (confidence=%.2f)",
-                    nextSong.getTitle(), transition.getExitTime(), transition.getEntryTime(), transition.getConfidence()));
+            LOGGER.info(String.format("DJ Mode: Planned transition to '%s' at exit=%.1fs, entry=%.1fs, fade=%ds (confidence=%.2f)",
+                    nextSong.getTitle(), transition.getExitTime(), transition.getEntryTime(),
+                    transition.getCrossfadeSeconds(), transition.getConfidence()));
         } else {
             // Do NOT call clearDjTransitionPlan - it would null djNextSongId
             // Instead, keep djNextSongId and reset only the transition fields

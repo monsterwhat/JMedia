@@ -100,10 +100,10 @@
                     <span class="dj-settings-label">Crossfade Override</span>
                     <div class="dj-segmented" data-dj-field="crossfade">
                         <button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>
-                        <button type="button" class="dj-seg-btn" data-dj-value="0">0s</button>
-                        <button type="button" class="dj-seg-btn" data-dj-value="3">3s</button>
-                        <button type="button" class="dj-seg-btn" data-dj-value="5">5s</button>
-                        <button type="button" class="dj-seg-btn" data-dj-value="10">10s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="1">1s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="2">2s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="4">4s</button>
+                        <button type="button" class="dj-seg-btn" data-dj-value="6">6s</button>
                     </div>
                 </div>
                 <div class="dj-settings-section">
