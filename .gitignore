@@ -127,5 +127,8 @@ package/
 JMedia/com.playdeca.JMedia/docs/plan.md
 JMedia/com.playdeca.JMedia/plan.md
 /scripts
+!/scripts/
+/scripts/*
+!/scripts/check-docs.sh
 movies_test.json
 cookies.txt
