@@ -385,6 +385,11 @@
                 djExitTime: state.djExitTime,
                 djTransitionPlanned: state.djTransitionPlanned,
                 djTransitionConfidence: state.djTransitionConfidence,
+                // Without these two the planner's fade and tempo nudge never
+                // reach the audio engine: this object is the only path state
+                // takes from the socket into StateManager.
+                djTransitionCrossfade: state.djTransitionCrossfade,
+                djTransitionRate: state.djTransitionRate,
                 djTransitionReason: state.djTransitionReason,
                 crossfadeDuration: state.crossfadeDuration
             };

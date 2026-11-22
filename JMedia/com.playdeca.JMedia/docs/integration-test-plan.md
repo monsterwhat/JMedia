@@ -17,6 +17,7 @@ machine.
 | Naming | `SmartNamingServiceTest`, `SiblingInferenceTest` | season/episode parsing, sibling fill |
 | HLS | `HlsServiceTest`, `HlsServiceCommandTest`, `HlsServiceSessionCleanupTest` | ffmpeg argument construction, session cleanup |
 | Auth bootstrap | `BootstrapCredentialsTest`, `UserPasswordStorageTest` | generated password entropy, bcrypt storage, must-change semantics |
+| DJ transition payload | `PlaybackStateSerializationTest` | the planned fade and tempo nudge survive JSON serialization |
 | Installers | `RemoteScriptPolicyTest` | no unpinned remote script, https only, opt-in |
 | Xtream ids | `XtreamIdsTest`, `LiveChannelGroupsTest` | canonical season keys, category derivation |
 
@@ -34,6 +35,10 @@ them is covered today:
 6. Uber-jar startup, argument handling, and shutdown.
 7. Multi-profile isolation (two profiles playing at once).
 8. Sync exchange against a second instance.
+
+Two of these now have a harness outside Maven: `JMedia/scripts/smoke-jar.sh`
+(covered 2 and 6 in CI) and `JMedia/scripts/dj-fade-check.mjs` (DJ fade
+execution, including the stale-clock fixture). Neither replaces items 3-5 or 7-8.
 
 ## 3. Proposed harness
 

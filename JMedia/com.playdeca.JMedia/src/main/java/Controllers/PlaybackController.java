@@ -80,6 +80,17 @@ public class PlaybackController {
     private final Map<Long, Long> lastBroadcastTime = new ConcurrentHashMap<>();
     private static final long BROADCAST_THROTTLE_MS = 250; // Max one broadcast every 250ms per profile
     private static final long PLAYBACK_UPDATE_INTERVAL_MS = 500; // Update every 500ms to prevent stream jumping
+    /**
+     * How long the server waits past the DJ exit point for the client to report
+     * {@code /transition-started} before advancing on its own.
+     * <p>
+     * The client owns the mix: it fires when its own element reaches the exit,
+     * and a lagging element legitimately reaches it later than the server clock.
+     * The previous 10 s window fired first under a ~20 s drift, and the
+     * beat-aligned transition degraded into a manual fade. 30 s covers a stalled
+     * or drifting element while still recovering from a dead client.
+     */
+    private static final double DJ_CLIENT_GRACE_SECONDS = 30.0;
 
     private static final Logger LOGGER = Logger.getLogger(PlaybackController.class.getName());
 
@@ -151,9 +162,10 @@ public class PlaybackController {
                         // Don't advance here — frontend handles the transition via /transition-started/
                         // This prevents a double-advance race where the timer also calls handleSongEnded()
                         // and skips past the DJ-planned next song.
-                        // 10-second safeguard: if frontend never reports back, fall back to advance.
-                        if (newTime >= djAdvanceTime + 10) {
-                            System.out.println("[DJ] ⚠️ Frontend did not report transition within 10s, falling back to server-side advance");
+                        // 30-second safeguard: if the client never reports back, fall back to advance.
+                        if (newTime >= djAdvanceTime + DJ_CLIENT_GRACE_SECONDS) {
+                            System.out.println("[DJ] Frontend did not report the transition within "
+                                    + (int) DJ_CLIENT_GRACE_SECONDS + "s, falling back to server-side advance");
                             handleSongEnded(profileId);
                         } else {
                             st.setCurrentTime(newTime);

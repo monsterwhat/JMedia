@@ -152,6 +152,7 @@ URL imports pass the URL to yt-dlp or spotDL, which contact the source service.
 | `JMedia/com.playdeca.JMedia/docs` | Design notes, plans, the sync matrix, and the integration test plan |
 | `scripts/check-docs.sh` | Documentation consistency check used by CI |
 | `JMedia/scripts/smoke-jar.sh` | Uber-jar startup smoke test (CI only; it uses a throwaway home directory) |
+| `JMedia/scripts/dj-fade-check.mjs` | Browser gate for DJ Mode fades (Playwright, dev-only; see below) |
 
 ## Development
 
@@ -170,6 +171,21 @@ The script fails when required docs are missing, when README references a local
 path that does not exist, when a release version is hardcoded in the README, when
 the published jar name drifts from the workflows, or when banned claims appear.
 The same script runs in the `Build` workflow before the Maven package step.
+
+DJ Mode has its own browser gate. It needs a running instance and Playwright
+(`cd JMedia/scripts && npm install && npx playwright install chromium`):
+
+```bash
+node JMedia/scripts/dj-fade-check.mjs --base http://127.0.0.1:8080 --password '...'
+node JMedia/scripts/dj-fade-check.mjs --base http://127.0.0.1:8080 --password '...' --mode drift
+```
+
+It asserts that the fade lasts the planned duration within 250 ms, that both
+gains cross monotonically and overlap for at least 80% of the plan, and that a
+planned entry beyond 45 s clamps to 45 s. `--mode drift` stalls the audio element
+for 14 s so the server clock runs ahead, then verifies the planned mix still
+executes; that is the failure mode that used to turn a beat-aligned transition
+into a manual fade.
 
 See `API.md` for the HTTP API and `JAVA_REQUIRED.md` for JDK installation notes.
 

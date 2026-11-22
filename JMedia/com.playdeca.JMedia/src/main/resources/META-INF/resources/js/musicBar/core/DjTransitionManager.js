@@ -224,11 +224,10 @@
             
             const nextSongId = state.djNextSongId;
             // The server picks a beat-aligned entry point, which can land deep
-            // into the next track (53s observed for a 3-4 minute song). Starting
-            // that far in means the listener misses most of it, so keep the mix
-            // point near the start and fall back to 0 when it is excessive.
-            // 45s keeps most beat-aligned entries: clamping to 0 throws the
-            // server's downbeat alignment away and makes the blend sound off.
+            // into the next track (101.5s observed for a long intro). Keep the
+            // mix point inside the window rather than discarding it: clamping to
+            // 0 threw away the planner's downbeat and turned a mix into a
+            // restart from the top of the track.
             const rawEntryTime = state.djEntryTime || 0;
 // Use duration-relative clamp: allow up to min(45, 0.6 * duration)
 // Fall back to the 45s guard when duration is unknown
@@ -236,10 +235,10 @@ let maxEntryTime = 45;
 if (state.duration && typeof state.duration === 'number' && state.duration > 0) {
     maxEntryTime = Math.min(45, 0.6 * state.duration);
 }
-const entryTime = rawEntryTime > maxEntryTime ? 0 : rawEntryTime;
+const safeEntry = (typeof rawEntryTime === 'number' && isFinite(rawEntryTime)) ? rawEntryTime : 0;
+const entryTime = Math.max(0, Math.min(safeEntry, maxEntryTime));
 if (entryTime !== rawEntryTime) {
-    var maxDesc = state.duration ? Math.min(45, 0.6 * state.duration) + 's' : '45s';
-    window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (max ' + maxDesc + ')');
+    window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (window max ' + maxEntryTime + 's)');
 }
             const exitTime = state.djExitTime || 0;
             

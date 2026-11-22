@@ -1,0 +1,12 @@
+{
+  "name": "jmedia-dj-fade-check",
+  "private": true,
+  "type": "module",
+  "description": "Browser gate for DJ Mode fade execution. Dev-only; the server itself has no Node dependency.",
+  "scripts": {
+    "fade-check": "node dj-fade-check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  }
+}

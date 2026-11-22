@@ -43,6 +43,12 @@
             djExitTime: 0,
             djTransitionPlanned: false,
             djTransitionConfidence: 0,
+            // These two are copied only because they are listed here:
+            // updateState() ignores keys the default object does not declare.
+            // Missing them silently dropped the planner's fade (the client fell
+            // back to 8 s) and its tempo nudge.
+            djTransitionCrossfade: 0,
+            djTransitionRate: 1.0,
             djTransitionReason: '',
             djModeActive: false,
             crossfadeDuration: 0,
@@ -369,6 +375,8 @@
                 djExitTime: 0,
                 djTransitionPlanned: false,
                 djTransitionConfidence: 0,
+                djTransitionCrossfade: 0,
+                djTransitionRate: 1.0,
                 djTransitionReason: '',
                 crossfadeDuration: 0
             };
@@ -442,6 +450,14 @@
                     djSkipsBeforeGenreChange: 1,
                     djYearMin: 0,
                     djYearMax: 0,
+                    djNextSongId: null,
+                    djEntryTime: 0,
+                    djExitTime: 0,
+                    djTransitionPlanned: false,
+                    djTransitionConfidence: 0,
+                    djTransitionCrossfade: 0,
+                    djTransitionRate: 1.0,
+                    djTransitionReason: '',
                     cue: [],
                     cueSize: 0,
                     hasLyrics: false,
