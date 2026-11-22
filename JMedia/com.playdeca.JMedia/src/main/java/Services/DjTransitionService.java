@@ -80,6 +80,34 @@ public class DjTransitionService {
         }
     }
 
+    /**
+     * Fade length policy for a planned transition. Pure so the boundaries can be
+     * tested without analysis data or a database.
+     * <p>
+     * A tempo-matched pair may overlap for longer because the incoming deck is
+     * nudged to the current tempo; without a nudge the overlap is capped at
+     * {@link #DEFAULT_MAX_CROSSFADE}. An explicit override is honoured but never
+     * escapes the 1 s floor or the matched ceiling.
+     *
+     * @param override explicit user override in seconds, null or negative when unset
+     * @param nextBpm  tempo of the incoming track
+     * @param rate     tempo nudge the planner chose (1.0 = none)
+     * @return overlap length in whole seconds, never less than 1
+     */
+    public static int resolveCrossfadeSeconds(Integer override, double nextBpm, double rate) {
+        int base;
+        if (override != null && override >= 0) {
+            base = override;
+        } else if (nextBpm > 120) {
+            base = 1;
+        } else {
+            base = 2;
+        }
+        base = Math.min(Math.max(base, 1), MATCHED_MAX_CROSSFADE);
+
+        return rate != 1.0 ? base : Math.min(base, DEFAULT_MAX_CROSSFADE);
+    }
+
     /** Calculate the optimal beat-aligned transition between two songs. */
     @Transactional(jakarta.transaction.Transactional.TxType.REQUIRED)
     public DjTransition calculateTransition(Song currentSong, Song nextSong, int crossfadeSeconds) {
@@ -213,24 +241,12 @@ public class DjTransitionService {
         }
 
         // Fade length: short by default, longer only when the tempo can be matched.
-        int baseCrossfade;
-        if (crossfadeOverride != null && crossfadeOverride >= 0) {
-            baseCrossfade = crossfadeOverride;
-        } else if (nextBpm > 120) {
-            baseCrossfade = 1;
-        } else {
-            baseCrossfade = 2;
-        }
-        baseCrossfade = Math.min(Math.max(baseCrossfade, 1), MATCHED_MAX_CROSSFADE);
-
         double bpmRatio = currentBpm > 0 ? nextBpm / currentBpm : 1.0;
         double rate = 1.0;
         if (currentBpm > 0 && nextBpm > 0 && Math.abs(bpmRatio - 1.0) <= MAX_TEMPO_NUDGE) {
             rate = Math.min(1.0 + MAX_TEMPO_NUDGE, Math.max(1.0 - MAX_TEMPO_NUDGE, 1.0 / bpmRatio));
         }
-        int adjustedCrossfade = rate != 1.0
-                ? baseCrossfade
-                : Math.min(baseCrossfade, DEFAULT_MAX_CROSSFADE);
+        int adjustedCrossfade = resolveCrossfadeSeconds(crossfadeOverride, nextBpm, rate);
 
         // Clamp the chosen exit so fade doesn't run past the end of the file
         double clampedExitTime = DjScoring.clampExit(bestCandidate.exitTime, currentDuration, adjustedCrossfade);

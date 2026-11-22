@@ -124,6 +124,11 @@ existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjExitTime(newState.getDjExitTime());
         existingState.setDjTransitionPlanned(newState.getDjTransitionPlanned());
         existingState.setDjTransitionConfidence(newState.getDjTransitionConfidence());
+        // The fade the planner actually chose, and the tempo nudge for the
+        // incoming deck. Not copying them left the client with a stale or
+        // missing value, so it fell back to a hardcoded 8 s fade.
+        existingState.setDjTransitionCrossfade(newState.getDjTransitionCrossfade());
+        existingState.setDjTransitionRate(newState.getDjTransitionRate());
         existingState.setDjTransitionReason(newState.getDjTransitionReason());
         existingState.setServerTime(newState.getServerTime());
 
@@ -167,6 +172,15 @@ state.setRepeatMode(defaultState.getRepeatMode());
         state.setDjSkipsBeforeGenreChange(defaultState.getDjSkipsBeforeGenreChange() != null ? defaultState.getDjSkipsBeforeGenreChange() : 1);
         state.setDjYearMin(defaultState.getDjYearMin() != null ? defaultState.getDjYearMin() : 0);
         state.setDjYearMax(defaultState.getDjYearMax() != null ? defaultState.getDjYearMax() : 0);
+        // A reset must not leave a transition plan pointing at the old queue.
+        state.setDjNextSongId(defaultState.getDjNextSongId());
+        state.setDjEntryTime(defaultState.getDjEntryTime());
+        state.setDjExitTime(defaultState.getDjExitTime());
+        state.setDjTransitionPlanned(defaultState.getDjTransitionPlanned());
+        state.setDjTransitionConfidence(defaultState.getDjTransitionConfidence());
+        state.setDjTransitionCrossfade(defaultState.getDjTransitionCrossfade());
+        state.setDjTransitionRate(defaultState.getDjTransitionRate());
+        state.setDjTransitionReason(defaultState.getDjTransitionReason());
         state.setServerTime(defaultState.getServerTime());
 
         em.merge(state);

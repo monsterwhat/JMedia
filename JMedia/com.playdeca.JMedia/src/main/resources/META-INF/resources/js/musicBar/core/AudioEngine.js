@@ -4,7 +4,15 @@
  */
 (function(window) {
     'use strict';
-    
+
+    /**
+     * Fade applied to a manual skip while DJ Mode is active. The planned
+     * transition supplies its own duration (the server plans 1-2 s, up to 6 s
+     * only when the tempo can be matched); this is used when the user skips,
+     * where no plan applies. It replaces an arbitrary 8 s fade.
+     */
+    var DJ_MANUAL_SKIP_FADE_SECONDS = 2;
+
     window.AudioEngine = {
         // Audio elements
         audio: null,
@@ -1815,7 +1823,14 @@
             const djManaged = !!(window.DjTransitionManager && window.DjTransitionManager.isTransitioning);
             const crossfading = !!(window.SynchronizationManager.getFlag && window.SynchronizationManager.getFlag('isCrossfading'));
             const configuredDuration = state?.crossfadeDuration;
-            const fadeDuration = configuredDuration > 0 ? configuredDuration : (djActive ? 8 : 0);
+            // In DJ Mode the fade comes from the plan (executed by
+            // DjTransitionManager with the server's duration), never from the
+            // global setting: DJ mode forces that setting to 8 s, which used to
+            // stretch a 1-2 s beat-aligned plan into an 8 s overlap. This branch
+            // only runs for a manual skip, so it uses the short skip fade.
+            const fadeDuration = djActive
+                ? DJ_MANUAL_SKIP_FADE_SECONDS
+                : (configuredDuration > 0 ? configuredDuration : 0);
             const active = this.getActivePlayer();
             const nearEnd = active && active.duration > 0 && (active.duration - active.currentTime) < 1.5;
             const manualDjChange = djActive && !djManaged && !crossfading && !nearEnd;

@@ -26,6 +26,13 @@
                (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
     }
 
+    /**
+     * Fade used only when the server planned a transition but sent no usable
+     * duration. Short on purpose: an arbitrary long fade over a beat-aligned
+     * plan leaves the outgoing deck audible past its exit point.
+     */
+    var DJ_FALLBACK_FADE_SECONDS = 2;
+
     window.DjTransitionManager = {
         // Transition state
         isTransitioning: false,
@@ -249,10 +256,13 @@ if (entryTime !== rawEntryTime) {
                 profileId: profileId,
                 streamUrl: '/api/music/stream/' + profileId + '/' + nextSongId,
                 reason: state.djTransitionReason || '',
-                // The planner's chosen fade wins; state.crossfadeDuration is the
+                // The planner's chosen fade wins. state.crossfadeDuration is the
                 // user's global setting and DJ mode forces it to 8 s, which used
-                // to override a 1-2 s beat-aligned plan.
-                crossfadeDuration: state.djTransitionCrossfade || state.crossfadeDuration || 8,
+                // to stretch a 1-2 s beat-aligned plan into an 8 s overlap.
+                // Never invent 8 s here; 2 s is the documented fallback.
+                crossfadeDuration: (typeof state.djTransitionCrossfade === 'number' && state.djTransitionCrossfade > 0)
+                    ? state.djTransitionCrossfade
+                    : DJ_FALLBACK_FADE_SECONDS,
                 // Tempo nudge for the incoming deck, 1.0 when the planner did not
                 // choose one.
                 rate: (typeof state.djTransitionRate === 'number' && state.djTransitionRate > 0)
@@ -444,7 +454,9 @@ if (entryTime !== rawEntryTime) {
             if (window.AudioEngine && window.AudioEngine.crossfadeTo) {
                 var nextSongId = this.transitionData.nextSongId;
                 var entryTime = this.transitionData.entryTime;
-                var crossfadeDuration = this.transitionData.crossfadeDuration || 8;
+                var crossfadeDuration = this.transitionData.crossfadeDuration > 0
+                    ? this.transitionData.crossfadeDuration
+                    : DJ_FALLBACK_FADE_SECONDS;
                 
                 this.updateDjIndicator('transitioning');
                 

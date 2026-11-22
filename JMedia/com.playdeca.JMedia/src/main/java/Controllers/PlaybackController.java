@@ -865,6 +865,8 @@ public class PlaybackController {
             st.setDjExitTime(null);
             st.setDjTransitionPlanned(null);
             st.setDjTransitionConfidence(null);
+            st.setDjTransitionCrossfade(null);
+            st.setDjTransitionRate(null);
             st.setDjTransitionReason(null);
             // Keep djEntryTime — advanceSong needs it for the next song's start position
             // Don't deactivate - keep DJ Mode running for continuous mixing
@@ -876,6 +878,8 @@ public class PlaybackController {
             st.setDjExitTime(null);
             st.setDjTransitionPlanned(null);
             st.setDjTransitionConfidence(null);
+            st.setDjTransitionCrossfade(null);
+            st.setDjTransitionRate(null);
             st.setDjTransitionReason(null);
             // Keep djEntryTime — advanceSong needs it for the next song's start position
         }
@@ -1708,6 +1712,8 @@ public class PlaybackController {
             st.setDjExitTime(null);
             st.setDjTransitionPlanned(null);
             st.setDjTransitionConfidence(null);
+            st.setDjTransitionCrossfade(null);
+            st.setDjTransitionRate(null);
             st.setDjTransitionReason(null);
             return;
         }

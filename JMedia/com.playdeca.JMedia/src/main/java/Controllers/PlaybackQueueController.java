@@ -652,6 +652,8 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
         state.setDjExitTime(null);
         state.setDjTransitionPlanned(null);
         state.setDjTransitionConfidence(null);
+        state.setDjTransitionCrossfade(null);
+        state.setDjTransitionRate(null);
         state.setDjTransitionReason(null);
         state.setDjGenreSkipCount(0);
     }
