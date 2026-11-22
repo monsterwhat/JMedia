@@ -29,23 +29,19 @@ post_json /api/auth/change-password "{\"currentPassword\":\"$PASSWORD\",\"newPas
 ADMIN_PASS='sync-test-pass-2026'
 login_status admin "$ADMIN_PASS" >/dev/null
 
-# sync_call <method> <path> [key] -> HTTP code
+# sync_call <method> <path> [key] [body] -> HTTP code, body in post.json.
+# Deliberately sends no cookie: this is what a peer instance looks like.
 sync_call() {
-  local method="$1" path="$2" key="${3:-}"
-  if [ -n "$key" ]; then
-    curl -s -b "$IT_COOKIE" -o "$IT_WORK/post.json" -w '%{http_code}' \
-      -X "$method" -H "X-JMedia-Sync-Key: $key" -H 'Content-Type: application/json' \
-      ${4:+-d "$4"} "$IT_BASE$path"
-  else
-    curl -s -b "$IT_COOKIE" -o "$IT_WORK/post.json" -w '%{http_code}' \
-      -X "$method" -H 'Content-Type: application/json' \
-      ${4:+-d "$4"} "$IT_BASE$path"
-  fi
+  local method="$1" path="$2" key="${3:-}" body="${4:-}"
+  local args=(-s -o "$IT_WORK/post.json" -w '%{http_code}' -X "$method")
+  [ -n "$key" ] && args+=(-H "X-JMedia-Sync-Key: $key")
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+  curl "${args[@]}" "$IT_BASE$path"
 }
 
 check "ping without a key is refused" 401 "$(sync_call GET /api/sync/ping)"
 check "ping with a guessed key is refused" 401 "$(sync_call GET /api/sync/ping jm_deadbeef)"
-check "a session cookie alone does not authorise sync" 401 "$(sync_call GET /api/sync/ping)"
+check "a session cookie alone does not authorise sync" 401 "$(curl -s -b "$IT_COOKIE" -o "$IT_WORK/post.json" -w '%{http_code}' "$IT_BASE/api/sync/ping")"
 
 # No key has been generated yet, so even the right shape must fail.
 check "sync is closed until a key is generated" 401 "$(sync_call GET /api/sync/ping jm_0000)"
@@ -61,6 +57,8 @@ printf 'PASS  generated sync key has the expected shape (%s chars)\n' "${#KEY}"
 
 check "ping with the generated key succeeds" 200 "$(sync_call GET /api/sync/ping "$KEY")"
 check_contains "ping returns pong" 'pong' "$(body)"
+check "a sync key cannot read sync settings" 401 "$(sync_call GET /api/sync/settings "$KEY")"
+check "a sync key cannot trigger a sync" 401 "$(sync_call POST /api/sync/trigger "$KEY" '{}')"
 check "ping with a wrong key is still refused" 401 "$(sync_call GET /api/sync/ping "${KEY}x")"
 check "exchange without a key is refused" 401 "$(sync_call POST /api/sync/exchange)"
 check "exchange with a wrong key is refused" 401 "$(sync_call POST /api/sync/exchange jm_wrong '{}')"

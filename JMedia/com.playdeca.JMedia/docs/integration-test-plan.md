@@ -50,6 +50,7 @@ execution, including the stale-clock fixture). Neither replaces items 3-5 or 7-8
 | `it-bootstrap.sh` | 2, and 3 partially | 19 checks: no shipped default works, generated password accepted once, block is `PASSWORD_CHANGE_REQUIRED` on API and a 307 on pages, policy rejects short/wrong/reused, change unblocks, restart kills the old password |
 | `it-migration.sh` | 1 | 14 checks: a 1.46.4 database opens under the current jar, the column is added, the legacy admin is healed, no ERROR line, the new password survives a restart |
 | `it-sync.sh` | 8 partially | 16 checks: no key, guessed key and session-only are all 401; a generated key works, is persisted, and a wrong key still fails |
+| `it-sync-exchange.sh` | 8 partially | Two real instances: mutual keys, swapped/missing key rejection, delivery of a unique subtitle, a repeat that adds no row (verified by counting the receiver's table), a partial failure that skips the bad record and stores the good one, key-only access denied on ordinary APIs. Two checks are skipped: the outbound run cannot finish because of the multi-datasource transaction, documented in `sync-matrix.md` |
 | `it-profiles.sh` | 7 | 24 checks: a second account sees only its own profile, the profile id in a playback URL cannot select another session, volume and sidebar settings do not cross, and playlists are owner-only for reads and writes |
 | `it-hls.sh` | 4 | 11 checks: ffmpeg-produced clip is scanned, a session is created, the master playlist is an m3u8, a segment is produced, destroy makes the playlist 404, unknown session 404 |
 

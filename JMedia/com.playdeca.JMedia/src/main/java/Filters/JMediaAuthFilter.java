@@ -144,13 +144,24 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
             return;
         }
 
-        if (path.startsWith("/api/sync/")) {
+        // Peer instances authenticate with a header, not a cookie. Keep this to
+        // the two endpoints a peer actually calls: everything else under
+        // /api/sync (settings, servers, trigger, logs) stays session-only, or a
+        // peer key would be able to rotate its own key.
+        boolean peerEndpoint = "/api/sync/exchange".equals(path) || "/api/sync/ping".equals(path);
+        if (peerEndpoint) {
             String syncKey = requestContext.getHeaderString("X-JMedia-Sync-Key");
             Settings settings = settingsService.getSettingsOrNull();
-            if (settings != null && syncKey != null && syncKey.equals(settings.getSyncApiKey())) {
+            String stored = settings != null ? settings.getSyncApiKey() : null;
+            if (stored != null && syncKey != null && syncKey.equals(stored)) {
                 LOG.debug("Allowing sync API request with valid key from {}", clientIp);
                 return;
             }
+            LOG.info("Sync key rejected for '{}': header={} stored={} settingsId={}",
+                    path,
+                    syncKey == null ? "absent" : syncKey.length() + " chars",
+                    stored == null ? "absent" : stored.length() + " chars",
+                    settings == null ? "no settings row" : settings.id);
         }
 
         // 4. Handle unauthenticated requests

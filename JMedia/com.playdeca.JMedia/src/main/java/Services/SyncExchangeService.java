@@ -197,6 +197,14 @@ public class SyncExchangeService {
             try {
                 SubtitleTrack localTrack = SubtitleTrack.findById(remoteTrack.trackId);
 
+                // Subtitles are created with an auto-assigned id, so the remote
+                // trackId cannot be trusted as a row id on the receiver. Match on
+                // the file path instead, otherwise every exchange inserts another
+                // copy of the same subtitle.
+                if (localTrack == null && remoteTrack.fullPath != null && !remoteTrack.fullPath.isBlank()) {
+                    localTrack = SubtitleTrack.find("fullPath", remoteTrack.fullPath).firstResult();
+                }
+
                 if (localTrack == null) {
                     localTrack = createSubtitleFromSyncData(remoteTrack);
                 }
@@ -204,7 +212,7 @@ public class SyncExchangeService {
                 remoteTrack.applyTo(localTrack);
                 videoEm.merge(localTrack);
                 if (response.updatedIds != null) {
-                    response.updatedIds.add(String.valueOf(remoteTrack.trackId));
+                    response.updatedIds.add(String.valueOf(localTrack.id != null ? localTrack.id : remoteTrack.trackId));
                 }
 
             } catch (Exception e) {

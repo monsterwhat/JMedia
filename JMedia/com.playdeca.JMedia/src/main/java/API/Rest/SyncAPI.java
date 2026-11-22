@@ -46,6 +46,20 @@ public class SyncAPI {
     @Inject
     RemoteJMediaClient remoteClient;
 
+    @Inject
+    Services.AuthService authService;
+
+    /** Key rotation and peer configuration are admin operations. */
+    private boolean isAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
+        return authService.isAdmin(headers);
+    }
+
+    private Response forbidden() {
+        return Response.status(Response.Status.FORBIDDEN)
+                .entity(ApiResponse.error("Admin access required"))
+                .build();
+    }
+
     @POST
     @Path("/trigger")
     public Response triggerSync(Map<String, Object> data) {
@@ -70,10 +84,10 @@ public class SyncAPI {
         final String finalSyncType = syncType;
         final int finalLimit = limit;
 
-        new Thread(() ->
-            io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(
-                () -> syncService.syncAllServers(finalSyncType, finalLimit)
-            ),
+        // No transaction here: the service manages its own units of work. Wrapping
+        // the whole run in one left the settings datasource enlisted before the
+        // music datasource was touched, which is exactly what Narayana refuses.
+        new Thread(() -> syncService.syncAllServers(finalSyncType, finalLimit),
             "SyncTriggerThread"
         ).start();
 
@@ -161,7 +175,11 @@ public class SyncAPI {
 
     @PUT
     @Path("/settings")
-    public Response updateSyncSettings(Map<String, Object> data) {
+    public Response updateSyncSettings(Map<String, Object> data,
+                                       @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return forbidden();
+        }
         Models.Settings.Settings settings = settingsService.getOrCreateSettings();
 
         if (data.containsKey("syncEnabled")) {
@@ -209,7 +227,10 @@ public class SyncAPI {
 
     @POST
     @Path("/settings/generate-api-key")
-    public Response generateApiKey() {
+    public Response generateApiKey(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return forbidden();
+        }
         SecureRandom random = new SecureRandom();
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);

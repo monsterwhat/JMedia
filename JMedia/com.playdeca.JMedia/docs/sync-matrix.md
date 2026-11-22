@@ -44,6 +44,19 @@ sync DTO:
 
 ## Known limits
 
+- **Outbound scheduled sync cannot complete.** `SyncService` writes its log row in
+  the settings database and then reads/writes songs in the music database. Narayana
+  refuses to enlist a second datasource in one JTA transaction
+  (`Failed to enlist. Check if a connection from another datasource is already
+  enlisted`), so the content step aborts and the log row stays `IN_PROGRESS`.
+  `it-sync-exchange.sh` drives a real two-instance sync and currently skips the two
+  assertions that would require a completed run. The inbound `exchange` path is
+  unaffected and fully exercised.
+- **Subtitle identity is the file path on the receiver.** Rows are created with an
+  auto-assigned id, so the remote `trackId` cannot be used as a row id. Matching on
+  `fullPath` is what makes a repeated exchange idempotent; before that fix every
+  delivery inserted another copy. The exchange response reports the *local* id in
+  `updatedIds`.
 - There is no create path for songs, videos, or collections. The receiver must
   already have a row with the same ID (videos, collections) or MusicBrainz ID
   (songs), so independently built libraries will not merge by title.

@@ -115,6 +115,13 @@ jobs:
             "https://github.com/monsterwhat/JMedia/releases/download/v${PREVIOUS_VERSION}/JMedia-runner.jar"
           OLD_JAR=/tmp/previous.jar bash JMedia/scripts/it/it-migration.sh
 
+      - name: Two-instance sync exchange
+        working-directory: .
+        timeout-minutes: 10
+        env:
+          JAR: ${{ env.JAR_PATH }}
+        run: bash JMedia/scripts/it/it-sync-exchange.sh
+
       - name: 3.5 sync authentication matrix
         working-directory: .
         timeout-minutes: 6

@@ -110,7 +110,16 @@ public class SyncService {
         syncAllServers("ALL", 0);
     }
 
-    @Transactional
+    /**
+     * Orchestrates a sync without holding a transaction.
+     * <p>
+     * JMedia keeps settings, music and video in three separate datasources. A
+     * single JTA transaction cannot enlist more than one of them (Narayana fails
+     * with "Failed to enlist. Check if a connection from another datasource is
+     * already enlisted"), so the previous @Transactional orchestration died on
+     * the first music query, rolled the log row back, and made outbound sync look
+     * like it had never run. Each unit of work now gets its own transaction.
+     */
     public void syncAllServers(String syncType, int limit) {
         if (syncInProgress) {
             LOGGER.warning("[Sync] Sync already in progress, skipping");
@@ -119,7 +128,8 @@ public class SyncService {
 
         syncInProgress = true;
         try {
-            List<SyncServer> servers = SyncServer.list("enabled", true);
+            List<SyncServer> servers = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
+                    .call(() -> SyncServer.list("enabled", true));
             if (servers.isEmpty()) {
                 LOGGER.info("[Sync] No enabled sync servers configured");
                 return;
@@ -141,13 +151,37 @@ public class SyncService {
         }
     }
 
-    @Transactional
     void syncWithServer(SyncServer server, Settings settings) {
-        syncWithServer(server, settings, "ALL", 0);
+        syncWithServerBody(server, settings, "ALL", 0);
     }
 
-    @Transactional
     void syncWithServer(SyncServer server, Settings settings, String syncType, int limit) {
+        syncWithServerBody(server, settings, syncType, limit);
+    }
+
+    @FunctionalInterface
+    private interface SyncStep {
+        void run() throws Exception;
+    }
+
+    /** Each content type gets its own transaction: they use different datasources. */
+    private void runInNewTransaction(SyncStep step) {
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> {
+            try {
+                step.run();
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
+     * Runs the sync in short, separate transactions: one for the log row, one per
+     * content type, one for the final status. See {@link #syncAllServers(String, int)}.
+     */
+    private void syncWithServerBody(SyncServer server, Settings settings, String syncType, int limit) {
         LOGGER.info("[Sync] Starting " + syncType + " sync with " + server.name + " (" + server.url + ")");
 
         SyncLog syncLog = new SyncLog();
@@ -156,7 +190,7 @@ public class SyncService {
         syncLog.status = "IN_PROGRESS";
         syncLog.syncType = syncType;
         syncLog.limitCount = limit;
-        em.persist(syncLog);
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> em.persist(syncLog));
 
         currentSyncLog = syncLog;
         currentServerName = server.name;
@@ -167,7 +201,7 @@ public class SyncService {
 
             if (syncAll || "MUSIC_ONLY".equals(syncType)) {
                 if (settings.getSyncMusicEnabled()) {
-                    syncMusic(server, syncLog, settings, limit);
+                    runInNewTransaction(() -> syncMusic(server, syncLog, settings, limit));
                 } else if (!syncAll) {
                     LOGGER.info("[Sync] Music sync is disabled in settings, skipping");
                 }
@@ -175,7 +209,7 @@ public class SyncService {
 
             if (syncAll || "VIDEO_ONLY".equals(syncType)) {
                 if (settings.getSyncVideoEnabled()) {
-                    syncVideo(server, syncLog, settings, limit);
+                    runInNewTransaction(() -> syncVideo(server, syncLog, settings, limit));
                 } else if (!syncAll) {
                     LOGGER.info("[Sync] Video sync is disabled in settings, skipping");
                 }
@@ -183,7 +217,7 @@ public class SyncService {
 
             if (syncAll || "SUBTITLES_ONLY".equals(syncType)) {
                 if (settings.getSyncSubtitlesEnabled()) {
-                    syncSubtitles(server, syncLog, settings, limit);
+                    runInNewTransaction(() -> syncSubtitles(server, syncLog, settings, limit));
                 } else if (!syncAll) {
                     LOGGER.info("[Sync] Subtitle sync is disabled in settings, skipping");
                 }
@@ -195,7 +229,7 @@ public class SyncService {
 
             if (syncAll || "PLAYLISTS_ONLY".equals(syncType)) {
                 if (settings.getSyncPlaylistsEnabled()) {
-                    syncPlaylists(server, syncLog, settings, limit);
+                    runInNewTransaction(() -> syncPlaylists(server, syncLog, settings, limit));
                 } else if (!syncAll) {
                     LOGGER.info("[Sync] Playlist sync is disabled in settings, skipping");
                 }
@@ -203,7 +237,7 @@ public class SyncService {
 
             if (syncAll || "TIMELINES_ONLY".equals(syncType)) {
                 if (settings.getSyncTimelinesEnabled()) {
-                    syncTimelines(server, syncLog, settings, limit);
+                    runInNewTransaction(() -> syncTimelines(server, syncLog, settings, limit));
                 } else if (!syncAll) {
                     LOGGER.info("[Sync] Timeline sync is disabled in settings, skipping");
                 }

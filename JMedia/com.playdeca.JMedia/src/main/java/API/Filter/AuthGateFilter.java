@@ -39,7 +39,12 @@ public class AuthGateFilter implements ContainerRequestFilter {
         "api/video/storyboard",
         "api/hls/master",
         "api/hls/playlist",
-        "api/hls/media"
+        "api/hls/media",
+        // Peer instances have no cookie; they authenticate with a sync header,
+        // which JMediaAuthFilter and SyncExchangeAPI validate. Only these two
+        // endpoints are reachable that way.
+        "api/sync/exchange",
+        "api/sync/ping"
     };
 
     @Context

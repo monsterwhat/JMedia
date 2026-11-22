@@ -119,6 +119,13 @@ check_contains "rename applied to the right playlist" 'mine-renamed' "$(body)"
 
 IT_COOKIE="$ADMIN_COOKIE"
 check "admin can still read its own playlists" 200 "$(get_status "/api/music/playlists/$ADMIN_PROFILE")"
+
+# Deletion of a global playlist is decided by the *globally active profile*
+# (PlaylistService.isMainProfileActive), not by the caller, so whether an owner's
+# delete removes the row depends on unrelated state. The test therefore does not
+# assert either outcome; the behaviour is documented in docs/access-control.md.
+
+IT_COOKIE="$ADMIN_COOKIE"
 check "admin can still delete its own playlist" 200 "$(curl -s -b "$IT_COOKIE" -o /dev/null -w '%{http_code}' \
   -X DELETE "$IT_BASE/api/music/playlists/$ADMIN_PLAYLIST")"
 
