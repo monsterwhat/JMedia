@@ -16,6 +16,9 @@ import java.util.List;
 @ApplicationScoped
 public class PlaylistService {
 
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger(PlaylistService.class);
+
     @PersistenceContext(unitName = "music")
     private EntityManager em;
 
@@ -68,6 +71,12 @@ public class PlaylistService {
                 managed.getSongs().clear();
 
                 em.remove(managed);
+            } else {
+                // The caller is neither the main profile nor the owner of a
+                // non-global playlist. This used to be a silent no-op, so the API
+                // answered 200 while the row stayed; record why nothing happened.
+                LOG.warn("Playlist {} not deleted: profile {} is neither owner nor main profile (global={})",
+                        playlist.id, playlist.getProfileId(), playlist.getIsGlobal());
             }
         }
     }

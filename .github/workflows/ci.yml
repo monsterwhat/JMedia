@@ -97,6 +97,13 @@ jobs:
           JAR: ${{ env.JAR_PATH }}
         run: bash JMedia/scripts/it/it-bootstrap.sh
 
+      - name: Multi-profile isolation
+        working-directory: .
+        timeout-minutes: 8
+        env:
+          JAR: ${{ env.JAR_PATH }}
+        run: bash JMedia/scripts/it/it-profiles.sh
+
       - name: 3.3 migration from the previous release
         working-directory: .
         timeout-minutes: 10

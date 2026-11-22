@@ -58,7 +58,27 @@ public class MusicPlaylistApi {
     private ProfileService profileService;
 
     @Inject
+    private Services.AuthService authService;
+
+    @Inject
     private SongService songService;
+
+    /**
+     * True when the caller may target this profile: admins always, otherwise the
+     * profile must belong to the signed-in user. The path-based endpoints are
+     * covered by {@link Filters.PlaylistAccessFilter}; this one checks the body.
+     */
+    private boolean canUseProfile(jakarta.ws.rs.core.HttpHeaders headers, Long profileId) {
+        Models.Settings.User caller = authService.getCurrentUser(headers);
+        if (caller == null) {
+            return false;
+        }
+        if ("admin".equals(caller.getGroupName())) {
+            return true;
+        }
+        Profile profile = profileService.findById(profileId);
+        return profile != null && caller.id != null && caller.id.equals(profile.userId);
+    }
 
     @GET
     @Path("/{profileId}")
@@ -76,11 +96,19 @@ public class MusicPlaylistApi {
 
     @POST
     @Path("/")
-    public Response createPlaylist(CreatePlaylistRequest request) {
+    public Response createPlaylist(CreatePlaylistRequest request,
+                                   @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
         try {
             if (request == null || request.name() == null || request.name().isBlank()) {
                 return Response.status(Response.Status.BAD_REQUEST)
                         .entity(ApiResponse.error("Name required"))
+                        .build();
+            }
+
+            if (request.profileId() != null && !canUseProfile(headers, request.profileId())) {
+                LOG.warn("Refused playlist creation into profile {} for a different account", request.profileId());
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity(ApiResponse.error("Profile access denied"))
                         .build();
             }
 

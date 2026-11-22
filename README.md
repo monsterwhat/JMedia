@@ -194,6 +194,7 @@ throwaway home directory on port 8099 and exercises one boundary:
 | Script | Covers |
 | --- | --- |
 | `it/it-bootstrap.sh` | Fresh install, generated password, forced change, restart persistence |
+| `it/it-profiles.sh` | Two accounts: playback state, volume, per-profile settings and playlists cannot cross |
 | `it/it-migration.sh` | Opens a 1.46.4 database with the current jar; schema upgrade and legacy admin healing |
 | `it/it-sync.sh` | Sync key matrix: no key, guessed key, session-only, valid key, restart persistence |
 | `it/it-hls.sh` | Real ffmpeg: scan a clip, create an HLS session, serve segments, destroy the session |
