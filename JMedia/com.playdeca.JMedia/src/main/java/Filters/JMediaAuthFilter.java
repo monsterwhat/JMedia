@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.UriInfo;
 import Services.SessionService;
 import Services.RateLimitService;
 import Services.SettingsService;
+import Services.UserService;
 import Models.Settings.Settings;
 import Utils.IpResolutionUtils;
 import io.vertx.core.http.HttpServerRequest;
@@ -66,6 +67,21 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
             "/api/hls/media/"
     );
 
+    /**
+     * Reachable while an account still carries its bootstrap password: the
+     * change-password flow itself, session status, logout, and the assets the
+     * change-password page needs to render.
+     */
+    private static final List<String> PASSWORD_CHANGE_ALLOWED = Arrays.asList(
+            "/api/auth/",
+            "/change-password",
+            "/login.html",
+            "/css/",
+            "/js/",
+            "/logo.png",
+            "/manifest.json"
+    );
+
     @Inject
     SessionService sessionService;
 
@@ -74,6 +90,9 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
 
     @Inject
     SettingsService settingsService;
+
+    @Inject
+    UserService userService;
 
     @Inject
     HttpServerRequest vertxRequest;
@@ -104,6 +123,22 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
         String sessionId = getSessionCookie(requestContext);
 
         if (sessionId != null && isSessionValid(sessionId, clientIp)) {
+            // A bootstrap password has to be replaced before anything else works.
+            if (requiresPasswordChange(sessionId, path)) {
+                LOG.info("Blocking '{}' for {} until the bootstrap password is changed", path, clientIp);
+                if (path.startsWith("/api/")) {
+                    requestContext.abortWith(Response.status(Response.Status.FORBIDDEN)
+                            .entity("{\"error\":\"Password change required\",\"code\":\"PASSWORD_CHANGE_REQUIRED\"}")
+                            .type("application/json")
+                            .build());
+                } else {
+                    requestContext.abortWith(Response.status(Response.Status.TEMPORARY_REDIRECT)
+                            .header("Location", "/change-password.html")
+                            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                            .build());
+                }
+                return;
+            }
             // Valid session - allow request immediately
             LOG.debug("Allowing authenticated request from {}", clientIp);
             return;
@@ -190,5 +225,16 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
 
         // Check session exists in SessionService
         return sessionService.validateSession(sessionId, clientIp);
+    }
+
+    /**
+     * True when the session's account still has to replace its bootstrap
+     * password, and this path is not part of the change-password flow.
+     */
+    private boolean requiresPasswordChange(String sessionId, String path) {
+        if (PASSWORD_CHANGE_ALLOWED.stream().anyMatch(path::startsWith)) {
+            return false;
+        }
+        return userService.requiresPasswordChange(sessionId);
     }
 }

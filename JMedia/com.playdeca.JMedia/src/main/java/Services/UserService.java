@@ -7,10 +7,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class UserService {
-    
+
+    private static final Logger LOG = LoggerFactory.getLogger(UserService.class);
+
     @Inject
     SessionService sessionService;
     
@@ -79,8 +83,7 @@ public class UserService {
     }
     
     @Transactional
-    public void delete(Long id) {
-        User user = User.findById(id);
+    public void delete(Long id) {        User user = User.findById(id);
         if (user == null) {
             throw new RuntimeException("User not found");
         }
@@ -92,5 +95,43 @@ public class UserService {
         Profile.delete("userId = ?1", id);
         Session.delete("userId = ?1", String.valueOf(id));
         user.delete();
+    }
+
+    /**
+     * True when the account behind this session must still replace its
+     * bootstrap password. Runs in its own transaction because the caller is a
+     * request filter, not a resource method.
+     */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public boolean requiresPasswordChange(String sessionId) {
+        Session session = Session.findBySessionId(sessionId);
+        if (session == null || session.username == null) {
+            return false;
+        }
+        User user = User.find("username", session.username).firstResult();
+        return user != null && user.isPasswordChangeRequired();
+    }
+
+    /**
+     * Replace a user's password with one they chose themselves and clear the
+     * bootstrap flag that was blocking the rest of the application.
+     * <p>
+     * Sessions are intentionally not dropped: the caller is this same user, and
+     * their cookie carries the account, not the password.
+     *
+     * @return true when the password was stored, false when the account is gone
+     */
+    @Transactional
+    public boolean changePassword(String username, String newPassword) {
+        User user = User.find("username", username).firstResult();
+        if (user == null) {
+            LOG.warn("Cannot change password: user '{}' no longer exists", username);
+            return false;
+        }
+
+        user.setPassword(newPassword);
+        user.setMustChangePassword(false);
+        LOG.info("Password changed for user '{}' (bootstrap flag cleared).", username);
+        return true;
     }
 }

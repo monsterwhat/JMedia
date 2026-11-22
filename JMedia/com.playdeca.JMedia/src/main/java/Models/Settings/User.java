@@ -18,6 +18,16 @@ public class User extends PanacheEntity {
     private String groupName;
     private java.time.LocalDateTime lastLoginAt;
     private java.time.LocalDateTime announcedAt;
+
+    /**
+     * Set when the account still carries a machine-generated bootstrap password.
+     * Everything except the password-change flow is blocked until cleared.
+     * <p>
+     * Nullable on purpose: Hibernate can add a nullable column to a populated
+     * table, and NULL means "no change required", so existing accounts are
+     * unaffected by the migration.
+     */
+    private Boolean mustChangePassword;
     
     // Getter for username
     public String getUsername() {
@@ -45,6 +55,11 @@ public class User extends PanacheEntity {
     // Method to check if user has hashed password (for migration)
     public boolean isHashedPassword() {
         return passwordHash != null && !passwordHash.isEmpty();
+    }
+
+    /** True when this account must replace its bootstrap password before use. */
+    public boolean isPasswordChangeRequired() {
+        return Boolean.TRUE.equals(mustChangePassword);
     }
     
     public String getGroupName() {

@@ -4,8 +4,10 @@ import API.ApiResponse;
 import Models.Settings.Session;
 import Models.Settings.User;
 import Services.AuthService;
+import Services.BootstrapCredentials;
 import Services.SessionService;
 import Services.RateLimitService;
+import Services.UserService;
 import Utils.IpResolutionUtils;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;
@@ -40,6 +42,12 @@ public class EnhancedAuthAPI {
     
     @Inject
     Controllers.SetupController setupController;
+
+    @Inject
+    UserService userService;
+
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(EnhancedAuthAPI.class);
 
     @ConfigProperty(name = "jmedia.local-network-cidrs",
             defaultValue = "192.168.100.0/24,192.168.1.0/24,10.50.0.0/24,127.0.0.1/32,::1/128")
@@ -99,7 +107,8 @@ public class EnhancedAuthAPI {
             return Response.ok()
                     .entity(ApiResponse.success(Map.of(
                         "message", "Login successful",
-                        "needsSetup", needsSetup
+                        "needsSetup", needsSetup,
+                        "mustChangePassword", user.isPasswordChangeRequired()
                     )))
                     .cookie(sessionCookie)
                     .build();
@@ -114,10 +123,76 @@ public class EnhancedAuthAPI {
                 .build();
     }
     
+    /**
+     * Self-service password change. This is the one endpoint a user with a
+     * bootstrap password can reach for anything other than reading their status,
+     * and it is what clears the must-change flag enforced by JMediaAuthFilter.
+     */
+    @POST
+    @Path("/change-password")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response changePassword(ChangePasswordRequest request, @Context HttpHeaders headers) {
+        if (request == null || request.currentPassword == null || request.newPassword == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Current and new password are required"))
+                    .build();
+        }
+
+        if (headers.getCookies() == null || !headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity(ApiResponse.error("Authentication required"))
+                    .build();
+        }
+
+        String sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
+        Session session = Session.findBySessionId(sessionId);
+        if (session == null || !session.active) {
+            return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity(ApiResponse.error("Invalid or expired session"))
+                    .build();
+        }
+
+        User user = User.find("username", session.username).firstResult();
+        if (user == null) {
+            LOGGER.warn("Password change requested for missing user '{}' (session {})", session.username, sessionId);
+            return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity(ApiResponse.error("Invalid or expired session"))
+                    .build();
+        }
+
+        if (!user.checkPassword(request.currentPassword)) {
+            LOGGER.warn("Rejected password change for '{}': current password did not match", session.username);
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Current password is incorrect"))
+                    .build();
+        }
+
+        if (!BootstrapCredentials.meetsPolicy(request.newPassword)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error(BootstrapCredentials.policyMessage()))
+                    .build();
+        }
+
+        if (request.newPassword.equals(request.currentPassword)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("The new password must be different from the current one"))
+                    .build();
+        }
+
+        if (!userService.changePassword(session.username, request.newPassword)) {
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(ApiResponse.error("The account changed while the request was processed; sign in again"))
+                    .build();
+        }
+
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of("message", "Password updated")))
+                .build();
+    }
+
     @POST
     @Path("/logout")
-    public Response logout(@Context HttpHeaders headers) {
-        // Get session cookie from headers
+    public Response logout(@Context HttpHeaders headers) {        // Get session cookie from headers
         String sessionId = null;
         if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
             sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
@@ -262,6 +337,11 @@ public class EnhancedAuthAPI {
         public String username;
         public String password;
         public String redirectUrl;
+    }
+
+    public static class ChangePasswordRequest {
+        public String currentPassword;
+        public String newPassword;
     }
     
     public static class SessionInfo {

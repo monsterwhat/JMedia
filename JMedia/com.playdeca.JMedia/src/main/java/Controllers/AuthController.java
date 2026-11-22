@@ -129,8 +129,13 @@ public class AuthController {
                 "                    successMessage.textContent = 'Login successful! Redirecting...';\n" +
                 "                    successMessage.classList.remove('is-hidden');\n" +
                 "                    \n" +
-                "                    // Redirect to setup if admin and first time\n" +
-                "                    const targetUrl = (data.data && data.data.needsSetup) ? '/setup' : redirectUrl;\n" +
+                "                    // A bootstrap password must be replaced before anything else\n" +
+                "                    let targetUrl = redirectUrl;\n" +
+                "                    if (data.data && data.data.mustChangePassword) {\n" +
+                "                        targetUrl = '/change-password.html';\n" +
+                "                    } else if (data.data && data.data.needsSetup) {\n" +
+                "                        targetUrl = '/setup';\n" +
+                "                    }\n" +
                 "                    \n" +
                 "                    setTimeout(() => {\n" +
                 "                        window.location.href = targetUrl;\n" +
