@@ -40,6 +40,21 @@ Two of these now have a harness outside Maven: `JMedia/scripts/smoke-jar.sh`
 (covered 2 and 6 in CI) and `JMedia/scripts/dj-fade-check.mjs` (DJ fade
 execution, including the stale-clock fixture). Neither replaces items 3-5 or 7-8.
 
+## 2a. Implemented (packaged runtime)
+
+`JMedia/scripts/it/` runs against the built uber-jar in the
+`Integration (packaged runtime)` CI job:
+
+| Test | Covers item | Assertions |
+| --- | --- | --- |
+| `it-bootstrap.sh` | 2, and 3 partially | 19 checks: no shipped default works, generated password accepted once, block is `PASSWORD_CHANGE_REQUIRED` on API and a 307 on pages, policy rejects short/wrong/reused, change unblocks, restart kills the old password |
+| `it-migration.sh` | 1 | 14 checks: a 1.46.4 database opens under the current jar, the column is added, the legacy admin is healed, no ERROR line, the new password survives a restart |
+| `it-sync.sh` | 8 partially | 16 checks: no key, guessed key and session-only are all 401; a generated key works, is persisted, and a wrong key still fails |
+| `it-hls.sh` | 4 | 11 checks: ffmpeg-produced clip is scanned, a session is created, the master playlist is an m3u8, a segment is produced, destroy makes the playlist 404, unknown session 404 |
+
+Still open: 5 (Xtream against a real client), 7 (multi-profile isolation), and
+the full sync exchange against a second instance.
+
 ## 3. Proposed harness
 
 Constraint from `dj-mode-plan.md` (L-D1): no new **runtime** dependencies. Test

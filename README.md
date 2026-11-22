@@ -187,6 +187,20 @@ for 14 s so the server clock runs ahead, then verifies the planned mix still
 executes; that is the failure mode that used to turn a beat-aligned transition
 into a manual fade.
 
+The packaged-runtime integration tests live in `JMedia/scripts/it/` and run as the
+`Integration (packaged runtime)` CI job. Each one starts the uber-jar against a
+throwaway home directory on port 8099 and exercises one boundary:
+
+| Script | Covers |
+| --- | --- |
+| `it/it-bootstrap.sh` | Fresh install, generated password, forced change, restart persistence |
+| `it/it-migration.sh` | Opens a 1.46.4 database with the current jar; schema upgrade and legacy admin healing |
+| `it/it-sync.sh` | Sync key matrix: no key, guessed key, session-only, valid key, restart persistence |
+| `it/it-hls.sh` | Real ffmpeg: scan a clip, create an HLS session, serve segments, destroy the session |
+
+Run one locally with `JAR=path/to/JMedia-runner.jar bash JMedia/scripts/it/it-sync.sh`
+(needs JDK 25; set `JAVA_BIN` if `java` is not on PATH for the right version).
+
 See `API.md` for the HTTP API and `JAVA_REQUIRED.md` for JDK installation notes.
 
 ## License

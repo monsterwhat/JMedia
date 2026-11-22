@@ -55,3 +55,61 @@ jobs:
         working-directory: .
         timeout-minutes: 5
         run: bash JMedia/scripts/smoke-jar.sh JMedia/com.playdeca.JMedia/target/JMedia-runner.jar
+
+  integration:
+    name: Integration (packaged runtime)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Download the packaged jar
+        uses: actions/download-artifact@v5
+        with:
+          name: JMedia-runner
+          path: target
+
+      - name: Tool versions
+        run: |
+          java -version
+          ffmpeg -version | head -1
+
+      - name: 3.2 fresh bootstrap and forced password change
+        working-directory: .
+        timeout-minutes: 6
+        env:
+          JAR: target/JMedia-runner.jar
+        run: bash JMedia/scripts/it/it-bootstrap.sh
+
+      - name: 3.3 migration from the previous release
+        working-directory: .
+        timeout-minutes: 10
+        env:
+          JAR: target/JMedia-runner.jar
+          PREVIOUS_VERSION: 1.46.4
+        run: |
+          curl -fsSL -o /tmp/previous.jar \
+            "https://github.com/monsterwhat/JMedia/releases/download/v${PREVIOUS_VERSION}/JMedia-runner.jar"
+          OLD_JAR=/tmp/previous.jar bash JMedia/scripts/it/it-migration.sh
+
+      - name: 3.5 sync authentication matrix
+        working-directory: .
+        timeout-minutes: 6
+        env:
+          JAR: target/JMedia-runner.jar
+        run: bash JMedia/scripts/it/it-sync.sh
+
+      - name: 3.4 HLS session lifecycle
+        working-directory: .
+        timeout-minutes: 10
+        env:
+          JAR: target/JMedia-runner.jar
+        run: bash JMedia/scripts/it/it-hls.sh
