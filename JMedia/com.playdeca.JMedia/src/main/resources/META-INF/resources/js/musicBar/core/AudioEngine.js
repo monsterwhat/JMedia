@@ -80,9 +80,12 @@
             // previous failure so we do not break playback twice.
             this._dualAudio = this.isIOS() ? null : 'on';
             try {
-                if (this.isIOS() && localStorage.getItem('jmedia_dual_audio') === 'off') {
-                    this._dualAudio = 'off';
-                }
+                // Older builds persisted a failed probe as 'off', which downgraded
+                // that device to single-deck fades forever after one transient
+                // failure (screen still locked, context suspended, first bytes not
+                // buffered yet). The probe is session-scoped now, so clear any
+                // legacy flag and let this load re-probe.
+                localStorage.removeItem('jmedia_dual_audio');
             } catch (err) {
                 console.warn('AudioEngine: could not read dual-audio capability', err);
             }
@@ -830,17 +833,18 @@
             }, outMs + 20);
         },
 
-        /** Remember a failed dual-audio probe for this device. */
+        /** Remember a failed dual-audio probe for this SESSION only. */
         _setDualAudioSupport: function(ok) {
             this._dualAudio = ok ? 'on' : 'off';
             try {
-                if (ok) {
-                    localStorage.removeItem('jmedia_dual_audio');
-                } else {
-                    localStorage.setItem('jmedia_dual_audio', 'off');
-                }
+                // Never persist a failure. The verdict depends on a running
+                // AudioContext and a buffered element, and both can be temporarily
+                // false on iOS; persisting "off" kept the device on single-deck
+                // fades for good. Worst case per load is one fallback fade, then
+                // the next page load probes again.
+                localStorage.removeItem('jmedia_dual_audio');
             } catch (err) {
-                console.warn('AudioEngine: could not persist dual-audio capability', err);
+                console.warn('AudioEngine: could not clear dual-audio capability', err);
             }
         },
 
@@ -1353,9 +1357,23 @@
                     // committing to an overlap. If they cannot, use the
                     // single-deck fade instead of a silent or duplicated deck.
                     if (this.isIOS() && this._dualAudio !== 'off') {
-                        // Sample twice, after any metadata seek has settled, so a
-                        // seek jump cannot masquerade as playback progress.
-                        setTimeout(() => {
+                        // A suspended AudioContext or an element that has not
+                        // buffered yet says nothing about whether two decks can run
+                        // together, so wait up to 1 s for both before judging.
+                        const probeDeadline = Date.now() + 1000;
+                        const probeDualAudio = () => {
+                            const ctxState = self.ctx ? self.ctx.state : 'none';
+                            const ctxReady = !self.ctx || ctxState === 'running';
+                            const buffered = nextPlayer.readyState >= 2;
+                            if ((!ctxReady || !buffered) && Date.now() < probeDeadline) {
+                                if (!ctxReady && self._ensureContextRunning) {
+                                    self._ensureContextRunning('dual-audio-probe');
+                                }
+                                setTimeout(probeDualAudio, 150);
+                                return;
+                            }
+                            // Sample twice, after any metadata seek has settled, so a
+                            // seek jump cannot masquerade as playback progress.
                             const t1 = nextPlayer.currentTime || 0;
                             setTimeout(() => {
                                 const t2 = nextPlayer.currentTime || 0;
@@ -1368,28 +1386,30 @@
                                     currentPlayer.id + ' outPaused=' + currentPlayer.paused +
                                     ' in=' + nextPlayer.id + ' nextPaused=' + nextPlayer.paused +
                                     ' t1=' + t1.toFixed(2) + ' t2=' + t2.toFixed(2) +
-                                    ' ctx=' + (self.ctx ? self.ctx.state : 'none') + ' ok=' + advanced);
+                                    ' ctx=' + ctxState + ' ready=' + nextPlayer.readyState +
+                                    ' ok=' + advanced);
                                 if (!advanced) {
-                                    window.Helpers?.log?.('[AudioEngine] iOS dual-audio probe failed — using single-deck fades');
-                                    this._setDualAudioSupport(false);
-                                    this._isCrossfading = false;
-                                    this._pendingVolume = null;
+                                    window.Helpers?.log?.('[AudioEngine] iOS dual-audio probe failed — single-deck fades for this session');
+                                    self._setDualAudioSupport(false);
+                                    self._isCrossfading = false;
+                                    self._pendingVolume = null;
                                     if (window.SynchronizationManager) {
                                         window.SynchronizationManager.setFlag('isCrossfading', false);
                                     }
-                                    this._unloadPlayer(nextPlayer, 'dual-audio probe failed');
+                                    self._unloadPlayer(nextPlayer, 'dual-audio probe failed');
                                     // Restore the previous active player since the fade never started
-                                    this.activePlayer = previousActivePlayer;
-                                    this._singleDeckFadeSwap(currentPlayer, songId, seekTime, targetVolume);
+                                    self.activePlayer = previousActivePlayer;
+                                    self._singleDeckFadeSwap(currentPlayer, songId, seekTime, targetVolume);
                                     return;
                                 }
-                                this._setDualAudioSupport(true);
+                                self._setDualAudioSupport(true);
                                 // Incoming deck is now playing — flip activePlayer so
                                 // getActivePlayer() returns the fading-in element.
-                                this.activePlayer = previousActivePlayer === 1 ? 2 : 1;
+                                self.activePlayer = previousActivePlayer === 1 ? 2 : 1;
                                 beginFade();
                             }, 200);
-                        }, 200);
+                        };
+                        setTimeout(probeDualAudio, 200);
                         return;
                     }
                     // Incoming deck is now playing — flip activePlayer so
