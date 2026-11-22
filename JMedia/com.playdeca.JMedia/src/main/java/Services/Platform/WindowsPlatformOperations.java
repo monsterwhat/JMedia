@@ -399,37 +399,21 @@ public class WindowsPlatformOperations implements PlatformOperations {
     public void installFFmpeg(Long profileId) throws Exception {
         broadcastInstallationProgress("ffmpeg", 0, true, profileId);
         broadcast("Installing FFmpeg via Chocolatey...\n", profileId);
-        
+
         try {
             String chocoInstallScript = "choco install ffmpeg -y";
             executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
             broadcastInstallationProgress("ffmpeg", 100, false, profileId);
             broadcast("FFmpeg installation completed via Chocolatey\n", profileId);
         } catch (Exception e) {
-            broadcast("Chocolatey not available, downloading FFmpeg manually...\n", profileId);
-            broadcastInstallationProgress("ffmpeg", 25, true, profileId);
-            
-            String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile '$env:TEMP\\ffmpeg.zip'";
-            executePowerShellCommandAsAdmin(downloadScript, profileId);
-            
-            broadcastInstallationProgress("ffmpeg", 50, true, profileId);
-            broadcast("Extracting FFmpeg...\n", profileId);
-            
-            String extractScript = "Expand-Archive -Path '$env:TEMP\\ffmpeg.zip' -DestinationPath '$env:TEMP\\ffmpeg' -Force";
-            executePowerShellCommandAsAdmin(extractScript, profileId);
-            
-            broadcastInstallationProgress("ffmpeg", 75, true, profileId);
-            broadcast("Installing FFmpeg to system...\n", profileId);
-            
-            String installScript = "New-Item -Path 'C:\\Program Files\\FFmpeg' -ItemType Directory -Force; "
-                    + "Get-ChildItem '$env:TEMP\\ffmpeg\\ffmpeg-*' | ForEach-Object { Move-Item $_.FullName 'C:\\Program Files\\FFmpeg\\bin' -Force }; "
-                    + "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:\\Program Files\\FFmpeg\\bin', 'Machine')";
-            executePowerShellCommandAsAdmin(installScript, profileId);
-            
-            executePowerShellCommandAsAdmin("Remove-Item '$env:TEMP\\ffmpeg.zip' -ErrorAction SilentlyContinue; Remove-Item '$env:TEMP\\ffmpeg' -Recurse -ErrorAction SilentlyContinue", profileId);
-            
-            broadcastInstallationProgress("ffmpeg", 100, false, profileId);
-            broadcast("FFmpeg installation completed via manual installer\n", profileId);
+            // No direct download: the vendor republishes the archive daily and
+            // publishes no digest, so there is nothing to pin or verify.
+            String guidance = InstallerGuidance.directDownloadRefusal(
+                    "FFmpeg", InstallerGuidance.ffmpegCommand(), InstallerGuidance.ffmpegManualUrl());
+            broadcast(guidance, profileId);
+            throw new Exception("FFmpeg was not installed: Chocolatey is unavailable and the direct "
+                    + "download was refused (unpinned, unverifiable archive). Install it with a package "
+                    + "manager, then retry. " + e.getMessage(), e);
         }
     }
     
@@ -463,23 +447,14 @@ public class WindowsPlatformOperations implements PlatformOperations {
             broadcast("Tesseract installation completed via Chocolatey\n", profileId);
             broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
         } catch (Exception e) {
-            broadcast("Chocolatey not available, downloading Tesseract manually...\n", profileId);
-            broadcastInstallationProgress("tesseract", 25, true, profileId);
-            
-            String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/UB-Mannheim/tesseract/releases/latest/download/tesseract-ocr-w64-setup.exe' -OutFile '$env:TEMP\\tesseract-installer.exe'";
-            executePowerShellCommandAsAdmin(downloadScript, profileId);
-            
-            broadcastInstallationProgress("tesseract", 50, true, profileId);
-            broadcast("Installing Tesseract (this may take a few minutes)...\n", profileId);
-            
-            String installScript = "Start-Process -FilePath '$env:TEMP\\tesseract-installer.exe' -ArgumentList '/S' -Wait -Verb RunAs";
-            executePowerShellCommandAsAdmin(installScript, profileId);
-            
-            executePowerShellCommandAsAdmin("Remove-Item '$env:TEMP\\tesseract-installer.exe' -ErrorAction SilentlyContinue", profileId);
-            
-            broadcastInstallationProgress("tesseract", 100, false, profileId);
-            broadcast("Tesseract installation completed via manual installer\n", profileId);
-            broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+            // Same reasoning as FFmpeg: the "latest" installer is republished
+            // without a digest, so it is not downloaded automatically.
+            String guidance = InstallerGuidance.directDownloadRefusal(
+                    "Tesseract", InstallerGuidance.tesseractCommand(), InstallerGuidance.tesseractManualUrl());
+            broadcast(guidance, profileId);
+            throw new Exception("Tesseract was not installed: Chocolatey is unavailable and the direct "
+                    + "download was refused (unpinned, unverifiable installer). Install it with a package "
+                    + "manager, then retry. " + e.getMessage(), e);
         }
     }
 
