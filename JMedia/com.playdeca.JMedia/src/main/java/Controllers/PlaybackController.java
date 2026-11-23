@@ -411,7 +411,7 @@ public class PlaybackController {
             
             // Plan DJ Mode transition immediately for the selected song (independent of Smart Shuffle)
             if (Boolean.TRUE.equals(st.getDjModeActive())) {
-                planNextDjTransition(st, profileId);
+                planDjTransitionForNewSong(st, profileId);
             }
             
             startPlaybackTimer(profileId); // Start timer for new song
@@ -686,9 +686,9 @@ public class PlaybackController {
                         st.setCrossfadeDuration(8);
                     }
                     clearDjTransitionPlan(st);
-                    planNextDjTransition(st, profileId);
+                    planDjTransitionForNewSong(st, profileId);
                 }
-                
+
                 startPlaybackTimer(profileId);
                 updateState(profileId, st, true);
                 return;
@@ -811,6 +811,18 @@ public class PlaybackController {
             // Advance state immediately to the next song
             Song nextSong = findSong(nextSongId);
             if (nextSong != null) {
+                // Advance the queue through the normal path while the OLD song is
+                // still current, so repeat modes, the Smart Shuffle source pool
+                // (originalCue) and queue refills behave exactly as on a natural
+                // song end. Removing the old song by hand here broke Repeat ALL
+                // and shrank originalCue until refills fell back to the whole
+                // library. The plan is still marked, so advance() keeps
+                // djNextSongId instead of re-picking.
+                playbackQueueController.advance(st, true, false, false, profileId);
+                // The client is already playing nextSongId: the queue must agree
+                // even if advance() resolved a different song.
+                alignCueToSong(st, nextSongId);
+
                 st.setCurrentSongId(nextSongId);
                 st.setArtistName(nextSong.getArtist());
                 st.setSongName(nextSong.getTitle());
@@ -825,33 +837,13 @@ public class PlaybackController {
                 st.setCurrentTime((entryTime != null ? entryTime : 0) + Math.max(0, fade));
                 st.setPositionVersion(st.getPositionVersion() + 1);
                 st.setPlaying(true);
-                
-                // Remove the OLD (played) song from the cue so the queue stays accurate
-                if (st.getCue() != null && oldSongId != null) {
-                    st.getCue().remove(oldSongId);
-                }
-                // Also clean up originalCue for shuffle consistency
-                if (st.getOriginalCue() != null && oldSongId != null) {
-                    st.getOriginalCue().remove(oldSongId);
-                }
-                
-                // Set index to the next song (now at oldSongId's former position)
-                if (st.getCue() != null) {
-                    int idx = st.getCue().indexOf(nextSongId);
-                    if (idx != -1) {
-                        st.setCueIndex(idx);
-                    } else {
-                        // nextSongId not in cue — reset to valid position
-                        st.setCueIndex(st.getCue().isEmpty() ? -1 : 0);
-                    }
-                }
-                
+
                 clearDjTransitionPlan(st);
-                
+
                 // Plan next DJ transition for the NEW current song (if DJ Mode still active)
                 if (Boolean.TRUE.equals(st.getDjModeActive())) {
                     System.out.println("[DJ] Planning next transition for new song: " + nextSong.getTitle());
-                    planNextDjTransition(st, profileId);
+                    planDjTransitionForNewSong(st, profileId);
                 }
                 
                 updateState(profileId, st, true);
@@ -1678,10 +1670,52 @@ public class PlaybackController {
      * Called after advanceSong when DJ Mode is active. DJ only mixes the song
      * that Smart Shuffle (or the user's queue) already placed next.
      */
+    /**
+     * A new song just started under DJ Mode: let Smart Shuffle choose the
+     * following song first, then plan the mix into it. Only for song starts;
+     * re-plans (analysis finished, settings changed) must keep the queued song.
+     */
+    private void planDjTransitionForNewSong(PlaybackState st, Long profileId) {
+        if (!Boolean.TRUE.equals(st.getDjModeActive())) {
+            return;
+        }
+        if (st.getRepeatMode() != PlaybackState.RepeatMode.ONE) {
+            playbackQueueController.prepareSmartNextForDj(st, profileId);
+        }
+        planNextDjTransition(st, profileId);
+    }
+
+    /**
+     * Point the queue at the song the client is already playing after a DJ
+     * transition: use its existing slot, or insert it at the current position.
+     */
+    static void alignCueToSong(PlaybackState st, Long songId) {
+        if (songId == null) {
+            return;
+        }
+        List<Long> cue = st.getCue();
+        if (cue == null) {
+            cue = new ArrayList<>();
+            st.setCue(cue);
+        }
+        int idx = cue.indexOf(songId);
+        if (idx == -1) {
+            idx = Math.max(0, Math.min(st.getCueIndex(), cue.size()));
+            cue.add(idx, songId);
+        }
+        st.setCueIndex(idx);
+    }
+
     private void planNextDjTransition(PlaybackState st, Long profileId) {
         // DJ Mode is INDEPENDENT of Smart Shuffle - plan transition if DJ Mode is active
         if (!Boolean.TRUE.equals(st.getDjModeActive())) {
             System.out.println("[DJ] planNextDjTransition: DJ Mode not active, skipping");
+            return;
+        }
+        // Repeat ONE replays the current song; a mix into the next one would
+        // silently ignore it.
+        if (st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
+            clearDjTransitionPlan(st);
             return;
         }
 

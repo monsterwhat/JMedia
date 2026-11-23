@@ -15,18 +15,6 @@
     'use strict';
 
     /**
-     * Detect iOS — prefer PlayerUtils.isIOS() when available, else UA + touch heuristics.
-     */
-    function isIOS() {
-        if (window.PlayerUtils && typeof window.PlayerUtils.isIOS === 'function') {
-            return window.PlayerUtils.isIOS();
-        }
-        return /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
-               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
-               (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
-    }
-
-    /**
      * Fade used only when the server planned a transition but sent no usable
      * duration. Short on purpose: an arbitrary long fade over a beat-aligned
      * plan leaves the outgoing deck audible past its exit point.
@@ -442,14 +430,9 @@ if (entryTime !== rawEntryTime) {
             // executor does not fetch next-song metadata or update currentSongId.
             // The already-known djNextSongId drives preload/fade below.
 
-            // iOS: single-element direct swap — iOS only allows one audio stream,
-            // so the dual-player crossfade would be silent. Swap src on the SAME
-            // active element instead. Desktop keeps the crossfadeTo path below.
-            if (isIOS()) {
-                this.executeIosDirectSwap();
-                return;
-            }
-
+            // iOS goes through crossfadeTo too: it probes whether two elements
+            // can play at once and falls back to a single-deck fade by itself.
+            // A separate direct src swap here gave iOS a hard cut and a gap.
             if (window.AudioEngine && window.AudioEngine.crossfadeTo) {
                 var nextSongId = this.transitionData.nextSongId;
                 var entryTime = this.transitionData.entryTime;
@@ -562,113 +545,6 @@ if (entryTime !== rawEntryTime) {
                     self.cancelTransition();
                 };
             }, 100);
-        },
-        
-        /**
-         * iOS direct swap — replace the active player's source with the next song.
-         * iOS only allows a single audio stream, so the dual-player crossfade is
-         * silent; we swap src on the SAME element instead.
-         */
-        executeIosDirectSwap: function() {
-            var self = this;
-            var primaryAudio = window.AudioEngine ? window.AudioEngine.getActivePlayer() : null;
-            if (!primaryAudio) {
-                console.error('[DJ] iOS direct swap failed: no active audio element');
-                window.Helpers.log('[DJ] No active audio element for iOS direct swap');
-                this.cancelTransition();
-                return;
-            }
-            
-            var entryTime = this.transitionData.entryTime;
-            var streamUrl = this.transitionData.streamUrl;
-            
-            window.Helpers?.log?.('[DJ] iOS direct swap: switching active player to ' + streamUrl + ' at ' + entryTime + 's');
-            window.Helpers.log('[DJ] iOS direct swap to next song at entry=' + entryTime + 's');
-            
-            this.updateDjIndicator('switching');
-            
-            // Save current volume
-            var savedVolume = primaryAudio.volume;
-            
-            // Switch source on the SAME element (single-stream iOS)
-            primaryAudio.src = streamUrl;
-            primaryAudio._currentSongId = String(self.transitionData.nextSongId);
-            primaryAudio.load();
-            
-            // Short gain ramp instead of a hard src cut. The element is ALREADY
-            // routed through AudioEngine's graph (source -> lowshelf -> gain), so
-            // use that gain: creating a second MediaElementSource for the same
-            // element throws InvalidStateError and would break the iOS path.
-            if (window.AudioEngine && window.AudioEngine.ctx && window.AudioEngine.nodes
-                    && window.AudioEngine.nodes.g1) {
-                try {
-                    var gainParam = window.AudioEngine.nodes.g1.gain;
-                    var rampNow = window.AudioEngine.ctx.currentTime;
-                    // Ramp back to the user's gain, not element.volume (pinned at 1.0).
-                    var restoreLevel = gainParam.value > 0 ? gainParam.value : 0.3;
-                    gainParam.cancelScheduledValues(rampNow);
-                    gainParam.setValueAtTime(0.0001, rampNow);
-                    gainParam.linearRampToValueAtTime(restoreLevel, rampNow + 0.1);
-                } catch (err) {
-                    window.Helpers?.log?.('[DJ] iOS gain ramp failed', err);
-                }
-            }
-            
-            var prevLoadedMetadata = primaryAudio.onloadedmetadata;
-            var prevError = primaryAudio.onerror;
-            primaryAudio.onloadedmetadata = function() {
-                window.Helpers?.log?.('[DJ] iOS metadata loaded, seeking to ' + entryTime + 's');
-                primaryAudio.currentTime = entryTime;
-                primaryAudio.play().then(function() {
-                    window.Helpers?.log?.('[DJ] iOS next song playing from ' + entryTime + 's');
-                    window.Helpers.log('[DJ] iOS transition complete - now playing next song');
-
-                    // Restore volume
-                    primaryAudio.volume = savedVolume;
-
-                    // Notify server that transition has started
-                    if (self.transitionData && self.transitionData.profileId) {
-                        self.notifyTransitionStarted(self.transitionData.profileId);
-                    }
-                    if (window.SynchronizationManager) {
-                        window.SynchronizationManager.setFlag('isCrossfading', false);
-                    }
-
-                    // Clean up
-                    self.transitionPrepared = false;
-                    self.isTransitioning = false;
-                    self.transitionData = null;
-
-                    self.stopMonitoring();
-
-                    // Restore AudioEngine's handlers that were replaced for this swap
-                    primaryAudio.onloadedmetadata = prevLoadedMetadata;
-                    primaryAudio.onerror = prevError;
-
-                    // Update UI indicator
-                    self.updateDjIndicator('complete');
-                }).catch(function(e) {
-                    console.error('[DJ] iOS direct play failed', e);
-                    console.error('[DJ] iOS direct play failed: ' + (e && e.message ? e.message : e));
-                    // Restore volume and cancel
-                    primaryAudio.volume = savedVolume;
-                    if (e && e.name === 'NotAllowedError') {
-                        window.showToast('Tap play to resume');
-                    }
-                    primaryAudio.onloadedmetadata = prevLoadedMetadata;
-                    primaryAudio.onerror = prevError;
-                    self.cancelTransition();
-                });
-            };
-
-            primaryAudio.onerror = function(e) {
-                console.error('[DJ] iOS failed to load next song:', e);
-                console.error('[DJ] iOS failed to load next song');
-                primaryAudio.volume = savedVolume;
-                primaryAudio.onloadedmetadata = prevLoadedMetadata;
-                primaryAudio.onerror = prevError;
-                self.cancelTransition();
-            };
         },
         
         /**

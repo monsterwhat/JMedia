@@ -765,7 +765,43 @@ public void songSelected(Long songId, Long profileId) {
         enforceQueueWindow(state);
     }
 
+    /**
+     * Smart Shuffle pick for DJ Mode, run when a song STARTS.
+     *
+     * <p>DJ Mode plans the transition into the next queued song as soon as a
+     * song starts, and a planned transition makes the advance keep that song.
+     * Picking at advance time (as without DJ Mode) therefore never happened
+     * while transitions succeeded. Picking here, before the plan is made,
+     * gives DJ Mode the same Smart Shuffle choices as normal playback.
+     */
+    public void prepareSmartNextForDj(PlaybackState state, Long profileId) {
+        if (state.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            return;
+        }
+        List<Long> cue = state.getCue();
+        if (cue == null || state.getCueIndex() < 0) {
+            return;
+        }
+        findAndPrepareNextSmartSong(state, false, profileId, true);
+        enforceMaxConsecutiveByArtistInCue(state, state.getCue());
+        int relocated = state.getCue().indexOf(state.getCurrentSongId());
+        if (relocated != -1) {
+            state.setCueIndex(relocated);
+        }
+    }
+
 private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId) {
+    findAndPrepareNextSmartSong(state, skippedEarly, profileId, false);
+}
+
+/**
+ * @param atSongStart true when called as a song starts (DJ Mode). The
+ *        previous song's skip/natural-end outcome was already counted by
+ *        the advance, so the skip streak and any planned transition are left
+ *        alone.
+ */
+private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId,
+                                         boolean atSongStart) {
     // A manual selection asks for one smart re-target even in mixed mode.
     // Consume the flag immediately: this is a one-shot, not a permanent mode.
     boolean retargetManual = state.isSmartShuffleRetargetPending();
@@ -774,12 +810,13 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
 
     // A natural advance (song ended on its own) breaks any consecutive-skip streak
-    if (!skippedEarly) {
+    if (!skippedEarly && !atSongStart) {
         state.setDjGenreSkipCount(0);
     }
     // FIX: If a DJ transition is already planned, DO NOT pick a new random song.
     // We must respect the song the DJ has already analyzed and aligned.
-    if (!skippedEarly && Boolean.TRUE.equals(state.getDjTransitionPlanned()) && state.getDjNextSongId() != null) {
+    if (!atSongStart && !skippedEarly && Boolean.TRUE.equals(state.getDjTransitionPlanned())
+            && state.getDjNextSongId() != null) {
         System.out.println("[DJ] Respecting already planned transition to song ID: " + state.getDjNextSongId());
         return;
     }

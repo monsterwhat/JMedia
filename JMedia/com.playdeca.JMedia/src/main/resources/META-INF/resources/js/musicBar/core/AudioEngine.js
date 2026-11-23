@@ -962,6 +962,45 @@
             }
         },
 
+        /**
+         * Bring a tempo-nudged deck back to normal speed after a DJ fade.
+         * The nudge only exists to beat-match the overlap; leaving it on made the
+         * whole song play up to 6 % fast or slow, drifted the server clock and
+         * skewed the next transition's tempo match (planned from analysed BPM).
+         * playbackRate cannot be automated, so step it over a few seconds; each
+         * step is ~0.5 % and inaudible. Stops if the deck changes song.
+         */
+        _easeRateToNormal: function(player, seconds) {
+            if (!player) return;
+            if (player._rateEaseTimer) {
+                clearInterval(player._rateEaseTimer);
+                player._rateEaseTimer = null;
+            }
+            const start = player.playbackRate;
+            if (!isFinite(start) || Math.abs(start - 1.0) < 0.001) {
+                player.playbackRate = 1.0;
+                player._djRate = 1.0;
+                return;
+            }
+            const songId = player._currentSongId;
+            const steps = 12;
+            const stepMs = ((seconds || 4) * 1000) / steps;
+            let step = 0;
+            player._rateEaseTimer = setInterval(() => {
+                step++;
+                if (player._currentSongId !== songId || step >= steps) {
+                    clearInterval(player._rateEaseTimer);
+                    player._rateEaseTimer = null;
+                    if (player._currentSongId === songId) {
+                        player.playbackRate = 1.0;
+                        player._djRate = 1.0;
+                    }
+                    return;
+                }
+                player.playbackRate = start + (1.0 - start) * (step / steps);
+            }, stepMs);
+        },
+
         crossfadeTo: function(songId, entryTime, duration, djManaged, rate) {
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo — video is active');
@@ -1302,6 +1341,8 @@
                         
                         // The swap is done: restore both filters for the next mix.
                         this._resetDeckFilters();
+                        // The overlap is over: release the beat-matching nudge.
+                        this._easeRateToNormal(nextPlayer);
                         this._isCrossfading = false;
             };
 
@@ -1607,6 +1648,10 @@
             this._resetDeckFilters();
             // A fresh song always starts at normal speed; any tempo nudge belonged
             // to the previous transition.
+            if (player._rateEaseTimer) {
+                clearInterval(player._rateEaseTimer);
+                player._rateEaseTimer = null;
+            }
             player.playbackRate = 1.0;
             player._djRate = 1.0;
             player._currentSongId = currentSong.id;
