@@ -40,6 +40,13 @@ class DjScoringKeyTest {
     }
 
     @Test
+    void flatSymbolIsRecognised() {
+        assertEquals(0.15, DjScoring.keyBonus("D♭", "major", "C#", "major"), 0.0001);
+        assertEquals(0.15, DjScoring.keyBonus("B♭", "minor", "A#", "minor"), 0.0001);
+        assertEquals(0.15, DjScoring.keyBonus("F♯", "major", "Gb", "major"), 0.0001);
+    }
+
+    @Test
     void unknownKeyIsNeutral() {
         assertEquals(0.0, DjScoring.keyBonus(null, "major", "C", "major"), 0.0001);
         assertEquals(0.0, DjScoring.keyBonus("C", null, "C", "major"), 0.0001);

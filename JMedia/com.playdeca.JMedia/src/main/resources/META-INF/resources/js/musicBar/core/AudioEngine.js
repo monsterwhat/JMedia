@@ -1284,11 +1284,13 @@
                             window.DjTransitionManager.updateDjIndicator('complete');
                         }
                         
-                        // FINAL STATE UPDATE: DJ-managed transitions use the entry
-                        // position the server recorded; manual/normal crossfades
-                        // use the player's actual position so the progress bar does
-                        // not jump back by the fade duration.
-                        const finalTime = djManaged ? seekTime : (newPlayer.currentTime || seekTime);
+                        // FINAL STATE UPDATE: use the incoming deck's real position
+                        // for every fade. DJ-managed fades used the entry time, which
+                        // put the client behind by the fade length while the server
+                        // added the fade on top: the two clocks disagreed by twice
+                        // the fade. The server now records the entry time when the
+                        // fade starts, so both sides track the same position.
+                        const finalTime = newPlayer.currentTime || seekTime;
                         if (window.StateManager) {
                             window.StateManager.updateState({ 
                                 duration: newPlayer.duration || 0,

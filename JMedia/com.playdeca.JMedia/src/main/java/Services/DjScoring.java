@@ -150,7 +150,9 @@ public final class DjScoring {
         }
         String normalized = key.trim().toUpperCase(java.util.Locale.ROOT)
                 .replace('♯', '#')
-                .replace('♭', 'b')
+                // Upper-case B: the lookup keys are upper case ("DB"), and this
+                // runs after toUpperCase, so a lower-case 'b' never matched.
+                .replace('♭', 'B')
                 .replace(" ", "");
         return isMinor(scale) ? CAMELOT_MINOR.get(normalized) : CAMELOT_MAJOR.get(normalized);
     }

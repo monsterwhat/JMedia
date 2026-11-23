@@ -117,6 +117,23 @@ public class DjTransitionService {
     @Transactional(jakarta.transaction.Transactional.TxType.REQUIRED)
     public DjTransition calculateTransition(Song currentSong, Song nextSong, int crossfadeSeconds,
                                             Integer crossfadeOverride, String strictness) {
+        DjTransition transition = planTransition(currentSong, nextSong, crossfadeOverride);
+        // Strictness applies to every plan, including the low-confidence
+        // fallback, which used to return before this check.
+        if (!passesStrictness(transition, strictness)) {
+            LOG.info(String.format("DJ strictness HIGH rejected low-confidence transition (confidence: %.2f)",
+                    transition.getConfidence()));
+            return null;
+        }
+        return transition;
+    }
+
+    /** HIGH strictness rejects any plan below 0.4 confidence; other levels accept all. */
+    public static boolean passesStrictness(DjTransition transition, String strictness) {
+        return transition == null || !"HIGH".equalsIgnoreCase(strictness) || transition.getConfidence() >= 0.4;
+    }
+
+    private DjTransition planTransition(Song currentSong, Song nextSong, Integer crossfadeOverride) {
         if (currentSong == null || nextSong == null) {
             LOG.warn("Null song(s) provided for transition calculation");
             return null;
@@ -162,7 +179,8 @@ public class DjTransitionService {
         if (exitBeats.size() < MIN_EXIT_BEATS) {
             LOG.info("Too few beats ({}) for song {}", exitBeats.size(), currentSong.getTitle());
             // Fall back: use last beat of current, first beat of next
-            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "Too few exit beats, using fallback", currentDuration);
+            return createFallbackTransition(currentBeats, nextBeats, crossfadeOverride,
+                    nextAnalysis.getAverageBpm(), "Too few exit beats, using fallback", currentDuration);
         }
 
         // Step 2: Check BPM compatibility
@@ -237,7 +255,8 @@ public class DjTransitionService {
 
         // Step 4: If no compatible pair found, use fallback
         if (bestCandidate == null) {
-            return createFallbackTransition(currentBeats, nextBeats, crossfadeSeconds, "No compatible beat pair found", currentDuration);
+            return createFallbackTransition(currentBeats, nextBeats, crossfadeOverride,
+                    nextBpm, "No compatible beat pair found", currentDuration);
         }
 
         // Fade length: short by default, longer only when the tempo can be matched.
@@ -264,11 +283,6 @@ public class DjTransitionService {
             reason,
             rate
         );
-
-        if ("HIGH".equalsIgnoreCase(strictness) && confidence < 0.4) {
-            LOG.info(String.format("DJ strictness HIGH rejected low-confidence transition (confidence: %.2f)", confidence));
-            return null;
-        }
 
         LOG.info(String.format("Calculated transition: %s → %s (confidence: %.2f)", 
             currentSong.getTitle(), nextSong.getTitle(), confidence));
@@ -448,7 +462,8 @@ public class DjTransitionService {
      *  Clamps exit time and fade duration per Gate B specifications.
      */
     private DjTransition createFallbackTransition(List<BeatInfo> currentBeats, List<BeatInfo> nextBeats,
-                                                  int crossfadeSeconds, String reason, double currentDuration) {
+                                                  Integer crossfadeOverride, double nextBpm,
+                                                  String reason, double currentDuration) {
         if (currentBeats.isEmpty() || nextBeats.isEmpty()) {
             LOG.warn("Cannot create fallback: empty beat lists");
             return null;
@@ -475,11 +490,13 @@ public class DjTransitionService {
             exitBeat = currentBeats.get(currentBeats.size() - 1);
         }
 
-        // Clamp exit time so fade doesn't run past the end of the file
-        double exitTime = DjScoring.clampExit(exitBeat.getTime(), currentDuration, crossfadeSeconds);
+        // Same fade policy as a scored plan. The fallback never tempo-matches
+        // (rate 1.0), so it gets the short unmatched cap; it used to take the
+        // global crossfade (8 s in DJ Mode) clamped only to 6 s.
+        int fadeSeconds = resolveCrossfadeSeconds(crossfadeOverride, nextBpm, 1.0);
 
-        // Clamp fade to 1..6 seconds per gate specification
-        int fadeSeconds = Math.max(1, Math.min(6, crossfadeSeconds));
+        // Clamp exit time so fade doesn't run past the end of the file
+        double exitTime = DjScoring.clampExit(exitBeat.getTime(), currentDuration, fadeSeconds);
 
         // Try to find first downbeat in next song (preferably a downbeat)
         BeatInfo firstBeat = nextBeats.get(0);
@@ -496,15 +513,6 @@ public class DjTransitionService {
                 if (beat.getTime() >= 2.0) {
                     firstBeat = beat;
                     break;
-                }
-            }
-            // Absolute floor: if no beat >= 2s, use the first beat at >= 2s
-            if (firstBeat.getTime() < 2.0) {
-                for (BeatInfo beat : nextBeats) {
-                    if (beat.getTime() >= 2.0) {
-                        firstBeat = beat;
-                        break;
-                    }
                 }
             }
             // Last resort: use the first beat in the entry window

@@ -157,7 +157,11 @@ public class PlaybackController {
                 // Check if we've reached the transition point
                 // DJ Mode: wait until djExitTime + crossfadeDuration to give frontend time to crossfade
                 if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjExitTime() != null && st.getDuration() > 0) {
-                    double djAdvanceTime = st.getDjExitTime() + crossfadeDuration;
+                    // Wait for the planned fade (1-6 s), not the global crossfade
+                    // that DJ Mode sets to 8 s.
+                    int djFade = st.getDjTransitionCrossfade() != null && st.getDjTransitionCrossfade() > 0
+                            ? st.getDjTransitionCrossfade() : crossfadeDuration;
+                    double djAdvanceTime = st.getDjExitTime() + djFade;
                     if (newTime >= djAdvanceTime) {
                         // Don't advance here — frontend handles the transition via /transition-started/
                         // This prevents a double-advance race where the timer also calls handleSongEnded()
@@ -827,14 +831,12 @@ public class PlaybackController {
                 st.setArtistName(nextSong.getArtist());
                 st.setSongName(nextSong.getTitle());
                 st.setDuration(nextSong.getDurationSeconds());
-                // The client reports transition-started AFTER the fade, so the
-                // new track is already this far in. Using the entry time alone
-                // left the server clock behind by the fade length, which made
-                // clients that follow the clock seek backwards.
-                double fade =
-                        st.getDjTransitionCrossfade() != null ? st.getDjTransitionCrossfade()
-                        : (st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 0);
-                st.setCurrentTime((entryTime != null ? entryTime : 0) + Math.max(0, fade));
+                // The client reports transition-started as soon as the fade
+                // STARTS (crossfadeTo accepted it), when the incoming deck is at
+                // the entry point. Adding the fade length here put the server
+                // clock ahead by the fade; the client's finalize step now reports
+                // the deck's real position instead of the entry time.
+                st.setCurrentTime(entryTime != null ? entryTime : 0);
                 st.setPositionVersion(st.getPositionVersion() + 1);
                 st.setPlaying(true);
 
@@ -860,32 +862,17 @@ public class PlaybackController {
         System.out.println("  DJ Transition planned: " + st.getDjTransitionPlanned());
         System.out.println("  ShuffleMode: " + st.getShuffleMode());
         
-        // If DJ Mode was active and a transition was planned, keep DJ Mode active
-        // The frontend handled the crossfade, we just need to clear the plan and let advanceSong re-plan
-        if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned())) {
-            System.out.println("[DJ] Transition completed, keeping DJ Mode active for next song");
-            LOGGER.info("DJ Mode: Transition completed, planning next transition");
-            st.setDjNextSongId(null);
-            st.setDjExitTime(null);
-            st.setDjTransitionPlanned(null);
-            st.setDjTransitionConfidence(null);
-            st.setDjTransitionCrossfade(null);
-            st.setDjTransitionRate(null);
-            st.setDjTransitionReason(null);
-            // Keep djEntryTime — advanceSong needs it for the next song's start position
-            // Don't deactivate - keep DJ Mode running for continuous mixing
-        } else if (Boolean.TRUE.equals(st.getDjModeActive())) {
-            // DJ Mode was active but no transition was planned (e.g., song ended before trigger)
-            // Keep DJ Mode active for the next song
-            System.out.println("[DJ] No transition was planned, keeping DJ Mode active");
-            st.setDjNextSongId(null);
-            st.setDjExitTime(null);
-            st.setDjTransitionPlanned(null);
-            st.setDjTransitionConfidence(null);
-            st.setDjTransitionCrossfade(null);
-            st.setDjTransitionRate(null);
-            st.setDjTransitionReason(null);
-            // Keep djEntryTime — advanceSong needs it for the next song's start position
+        // A natural end means no DJ crossfade happened: the client reports a
+        // real transition through handleTransitionStarted, never here (this is
+        // the 30 s fallback or a missed trigger). Clear the whole plan,
+        // including djEntryTime. Keeping the entry point started the next
+        // song mid-track with a hard cut, and in Smart Shuffle block mode the
+        // advance below can pick a different song than the one it was planned for.
+        // DJ Mode itself stays on; advanceSong re-plans for the next song.
+        if (Boolean.TRUE.equals(st.getDjModeActive())) {
+            System.out.println("[DJ] Song ended without a DJ crossfade (planned=" + st.getDjTransitionPlanned()
+                    + "), starting the next song from the top");
+            clearDjTransitionPlan(st);
         }
         
         LOGGER.info("Song ended naturally.");

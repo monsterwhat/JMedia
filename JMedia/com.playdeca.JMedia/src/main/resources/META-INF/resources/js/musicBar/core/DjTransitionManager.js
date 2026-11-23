@@ -217,12 +217,10 @@
             // 0 threw away the planner's downbeat and turned a mix into a
             // restart from the top of the track.
             const rawEntryTime = state.djEntryTime || 0;
-// Use duration-relative clamp: allow up to min(45, 0.6 * duration)
-// Fall back to the 45s guard when duration is unknown
-let maxEntryTime = 45;
-if (state.duration && typeof state.duration === 'number' && state.duration > 0) {
-    maxEntryTime = Math.min(45, 0.6 * state.duration);
-}
+            // Flat 45 s guard. state.duration is the OUTGOING song's length, so
+            // a duration-relative cap clamped the next song by the wrong track.
+            // The server already limits entry to the first 40 % of the next song.
+            const maxEntryTime = 45;
 const safeEntry = (typeof rawEntryTime === 'number' && isFinite(rawEntryTime)) ? rawEntryTime : 0;
 const entryTime = Math.max(0, Math.min(safeEntry, maxEntryTime));
 if (entryTime !== rawEntryTime) {
