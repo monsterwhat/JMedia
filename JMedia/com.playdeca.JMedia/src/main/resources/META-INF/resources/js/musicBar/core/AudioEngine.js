@@ -725,11 +725,12 @@
          * before an await, with a small lookahead so the curve cannot start in
          * the past.
          */
-        _startEqualPowerCrossfade: function(outGain, inGain, outLevel, inLevel, duration, bassSwap) {
+        _startEqualPowerCrossfade: function(outGain, inGain, outLevel, inLevel, duration, bassSwap, scheduledStart) {
             const ctx = this.ctx;
             if (!ctx || !outGain || !inGain) return null;
 
-            const t0 = ctx.currentTime + 0.06;
+            const requestedStart = Number.isFinite(scheduledStart) ? scheduledStart : 0;
+            const t0 = Math.max(ctx.currentTime + 0.02, requestedStart || ctx.currentTime + 0.06);
             const d = Math.max(0.25, duration || 2);
 
             [outGain, inGain].forEach((g) => {
@@ -1001,7 +1002,7 @@
             }, stepMs);
         },
 
-        crossfadeTo: function(songId, entryTime, duration, djManaged, rate) {
+        crossfadeTo: function(songId, entryTime, duration, djManaged, rate, scheduleDelaySeconds) {
             if (window.videoPlaying) {
                 window.Helpers?.log?.('[AudioEngine] Blocked crossfadeTo — video is active');
                 this._isCrossfading = false;
@@ -1177,6 +1178,10 @@
 
             // Store entryTime for later use
             const seekTime = entryTime || 0;
+            const scheduledDelay = Number.isFinite(scheduleDelaySeconds) && scheduleDelaySeconds > 0
+                ? scheduleDelaySeconds : 0;
+            const scheduledStartAt = this.ctx && scheduledDelay > 0
+                ? this.ctx.currentTime + scheduledDelay : null;
             
             // 1. Prepare next player state - set entry time BEFORE playing
             if (nextPlayer.readyState > 0) {
@@ -1202,7 +1207,8 @@
 
                     const currentLevel = Math.max(0.0001, currentGain.gain.value);
                     const fade = self._startEqualPowerCrossfade(
-                        currentGain, nextGain, currentLevel, targetVolume, fadeTime, true);
+                        currentGain, nextGain, currentLevel, targetVolume, fadeTime, true,
+                        scheduledStartAt);
 
                     if (fade) {
                         window.Helpers.log('AudioEngine: Equal-power crossfade scheduled (' + fadeTime +
@@ -1496,8 +1502,26 @@
                 });
             };
 
+            const launch = () => {
+                    this._scheduledLaunchTimer = null;
+                    startPlayback();
+                };
+            const scheduleLaunch = () => {
+                if (scheduledDelay > 0) {
+                    // Recalculate from the AudioContext clock in case preload
+                    // completed later through the canplay listener.
+                    const remaining = scheduledStartAt && this.ctx
+                        ? Math.max(0, scheduledStartAt - this.ctx.currentTime)
+                        : scheduledDelay;
+                    this._scheduledLaunchTimer = setTimeout(
+                        launch, Math.max(0, remaining * 1000 - 75));
+                } else {
+                    launch();
+                }
+            };
+
             if (nextPlayer.readyState >= 3) { // HAVE_FUTURE_DATA — enough buffered to run the fade
-                startPlayback();
+                scheduleLaunch();
             } else {
                 let crossfadeReadyDone = false;
                 var crossfadeTimeout = setTimeout(() => {
@@ -1543,7 +1567,7 @@
                     crossfadeReadyDone = true;
                     clearTimeout(crossfadeTimeout);
                     nextPlayer.removeEventListener('canplay', onReady);
-                    startPlayback();
+                    scheduleLaunch();
                 }
                 nextPlayer.addEventListener('canplay', onReady);
             }
@@ -1630,6 +1654,22 @@
         },
 
         getCurrentTime: function() { return this.getActivePlayer()?.currentTime || 0; },
+
+        canScheduleDjTransition: function() {
+            return !!this.ctx && this._dualAudio !== 'off';
+        },
+
+        cancelScheduledDjTransition: function() {
+            if (this._scheduledLaunchTimer) {
+                clearTimeout(this._scheduledLaunchTimer);
+                this._scheduledLaunchTimer = null;
+                this._isCrossfading = false;
+                this._pendingVolume = null;
+                if (window.SynchronizationManager) {
+                    window.SynchronizationManager.setFlag('isCrossfading', false);
+                }
+            }
+        },
         getDuration: function() { return this.getActivePlayer()?.duration || 0; },
         isPlaying: function() { return !this.getActivePlayer()?.paused; },
         isPaused: function() { return !!this.getActivePlayer()?.paused; },

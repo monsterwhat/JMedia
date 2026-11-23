@@ -20,6 +20,7 @@
      * plan leaves the outgoing deck audible past its exit point.
      */
     var DJ_FALLBACK_FADE_SECONDS = 2;
+    var DJ_SCHEDULE_LEAD_SECONDS = 1.0;
 
     window.DjTransitionManager = {
         // Transition state
@@ -31,6 +32,7 @@
         _timeupdateHandler: null,
         _timeupdateTarget: null,
         _completeIndicatorTimer: null,
+        _scheduledNotifyTimer: null,
         
         /**
          * Initialize the DJ transition manager
@@ -321,6 +323,22 @@
                 // REMOVED: Safety buffer that prevented transitions in the first 30s.
                 // This allows transitions to trigger even if the user seeks to the beginning.
 
+                var scheduleLead = window.AudioEngine
+                    && window.AudioEngine.canScheduleDjTransition
+                    && window.AudioEngine.canScheduleDjTransition()
+                    ? DJ_SCHEDULE_LEAD_SECONDS : 0;
+                if (exitTime > 0 && remaining > 0 && remaining <= scheduleLead) {
+                    if (window.AudioEngine && !window.AudioEngine._nextPreloadReady
+                            && !window.AudioEngine._nextPreloadFailed) {
+                        window.Helpers.log('[DJ] Waiting for preload before scheduling transition...');
+                        return;
+                    }
+                    window.Helpers?.log?.('[DJ] Scheduling transition ' + remaining.toFixed(3)
+                        + 's ahead on AudioContext clock');
+                    self.executeTransition(remaining);
+                    return;
+                }
+
                 if (exitTime > 0 && currentTime >= exitTime) {
                     // Check if preloaded audio is ready before executing the transition.
                     // This prevents executing a crossfade when buffering hasn't finished.
@@ -394,7 +412,7 @@
         /**
          * Execute the seamless beat-aligned transition
          */
-        executeTransition: function() {
+        executeTransition: function(scheduleDelaySeconds) {
             if (this.isTransitioning) return;
             if (!this.transitionData) return;
 
@@ -442,7 +460,7 @@
                 // Execute the actual dual-player crossfade and only advance the
                 // server state when the audio engine accepted it.
                 var started = window.AudioEngine.crossfadeTo(nextSongId, entryTime, crossfadeDuration, true,
-                    this.transitionData.rate || 1.0);
+                    this.transitionData.rate || 1.0, scheduleDelaySeconds || 0);
                 if (started === false) {
                     this.isTransitioning = false;
                     if (window.SynchronizationManager) {
@@ -459,9 +477,19 @@
                     return;
                 }
                 
-                // Notify server that transition has started
+                // Notify just before the scheduled audible start. The audio
+                // engine owns the exact gain transition; this keeps server state
+                // close without advancing it a full second early.
                 if (this.transitionData.profileId) {
-                    this.notifyTransitionStarted(this.transitionData.profileId);
+                    var notifyDelay = Math.max(0, ((scheduleDelaySeconds || 0) - 0.05) * 1000);
+                    var notifyData = this.transitionData;
+                    var notify = () => {
+                        if (this.isTransitioning && this.transitionData === notifyData) {
+                            this.notifyTransitionStarted(notifyData.profileId);
+                        }
+                        this._scheduledNotifyTimer = null;
+                    };
+                    this._scheduledNotifyTimer = setTimeout(notify, notifyDelay);
                 }
                 return;
             }
@@ -548,6 +576,11 @@
          * Cancel an in-progress or prepared transition
          */
         cancelTransition: function() {
+            if (this._scheduledNotifyTimer) {
+                clearTimeout(this._scheduledNotifyTimer);
+                this._scheduledNotifyTimer = null;
+            }
+            window.AudioEngine?.cancelScheduledDjTransition?.();
             if (this._completeIndicatorTimer) {
                 clearTimeout(this._completeIndicatorTimer);
                 this._completeIndicatorTimer = null;
@@ -568,6 +601,10 @@
         
         /** called when a crossfade is aborted so isTransitioning cannot stay true forever */
         onTransitionAborted: function() {
+            if (this._scheduledNotifyTimer) {
+                clearTimeout(this._scheduledNotifyTimer);
+                this._scheduledNotifyTimer = null;
+            }
             this.isTransitioning = false;
             this.transitionPrepared = false;
             this.transitionData = null;
