@@ -41,11 +41,40 @@ public class VideoConversionService {
         String targetAudioCodec, // "aac", "ac3", "eac3", "copy" — default "aac"
         Integer crf,             // 18-28 — default 23
         String preset,           // FFmpeg preset — default depends on encoder
-        Integer maxHeight        // 0 = no limit, or 720/1080/1440/2160 — default 1080
+        Integer maxHeight,       // 0 = no limit, or 720/1080/1440/2160 — default 0
+        boolean keepOriginal     // keep the source as "<name>.<ext>.original" — default true
     ) {
+        /**
+         * Safe defaults: no resolution cap and the original is kept. The old
+         * defaults capped at 1080p and deleted the source after a lossy
+         * re-encode, so a 4K file was permanently downgraded.
+         */
         public static ConversionOptions defaults() {
-            return new ConversionOptions("h264", "mp4", "aac", 23, null, 1080);
+            return new ConversionOptions("h264", "mp4", "aac", 23, null, 0, true);
         }
+
+        /** Keeps the original unless told otherwise. */
+        public ConversionOptions(String targetCodec, String targetContainer, String targetAudioCodec,
+                                 Integer crf, String preset, Integer maxHeight) {
+            this(targetCodec, targetContainer, targetAudioCodec, crf, preset, maxHeight, true);
+        }
+    }
+
+    /** Suffix for a kept original. Not a video extension, so the scanner never imports it. */
+    static final String ORIGINAL_SUFFIX = ".original";
+
+    /**
+     * Where a kept original goes: {@code Movie.mkv -> Movie.mkv.original},
+     * then {@code Movie.mkv.original.1}, ... if that name is taken. Same folder,
+     * so the move is a cheap rename on the same volume.
+     */
+    static Path backupPathFor(Path input) {
+        Path candidate = input.resolveSibling(input.getFileName() + ORIGINAL_SUFFIX);
+        int n = 1;
+        while (Files.exists(candidate)) {
+            candidate = input.resolveSibling(input.getFileName() + ORIGINAL_SUFFIX + "." + n++);
+        }
+        return candidate;
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoConversionService.class);
@@ -123,7 +152,13 @@ public class VideoConversionService {
     /** A completed conversion whose destructive finalize (old-file deletion +
      *  DB path swap) was deferred because the video was actively streaming.
      *  Completed by finalizePendingIfIdle once the video is idle. */
-    private record PendingFinalize(Path inputPath, Path outputPath, long createdAt) {}
+    /**
+     * A converted file waiting for its source to stop streaming. The new file
+     * stays at {@code tempOutput} (hidden from the scanner) until the swap:
+     * replacing or renaming a file that is open for streaming fails on Windows.
+     */
+    private record PendingFinalize(Path inputPath, Path tempOutput, Path outputPath,
+                                   boolean keepOriginal, long createdAt) {}
 
     private final ConcurrentHashMap<Long, PendingFinalize> pendingFinalizes = new ConcurrentHashMap<>();
 
@@ -545,6 +580,12 @@ public class VideoConversionService {
                 : inputFile.getName().replaceFirst("\\.[^.]+$", "");
         String outputExt = job.options.targetContainer();
         Path outputPath = inputPath.getParent().resolve(baseName + "." + outputExt);
+        // D19: another file already owns that name (movie.avi converting next to
+        // a movie.mp4 from movie.mkv) - add the video id instead of replacing it.
+        if (Files.exists(outputPath)
+                && !outputPath.toAbsolutePath().normalize().equals(inputPath.toAbsolutePath().normalize())) {
+            outputPath = inputPath.getParent().resolve(baseName + "-" + video.id + "." + outputExt);
+        }
         Path tempOutput = inputPath.getParent().resolve("." + baseName + ".tmp." + outputExt);
 
         // Determine hardware acceleration
@@ -576,6 +617,16 @@ public class VideoConversionService {
         List<Integer> textSubtitleStreams = subtitleProbe.textStreams();
         List<Integer> imageSubtitleStreams = subtitleProbe.imageStreams();
 
+        // Bit depth and HDR decide the output pixel format; refuse HDR -> H.264
+        // before spending hours on an encode that would look washed out.
+        SourceVideoInfo sourceVideo = probeSourceVideo(ffprobePath, inputFile.getAbsolutePath());
+        String refusal = hdrRefusal(targetCodec, sourceVideo);
+        if (refusal != null) {
+            throw new IOException(refusal);
+        }
+        // Per-track audio decisions need every track's codec and channel count.
+        List<AudioTrack> audioTracks = ffprobeAudioService.extractAudioTracks(video, inputFile.getAbsolutePath());
+
         Exception lastException = null;
         boolean conversionStarted = false;
 
@@ -606,7 +657,8 @@ public class VideoConversionService {
                 }
                 try {
                     List<String> command = buildFfmpegCommand(ffmpegPath, inputFile, tempOutput, video,
-                            encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams, job.options, conversionLease);
+                            encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams, job.options, conversionLease,
+                            sourceVideo, audioTracks);
                     runFfmpegProcess(job, command, video, inputFile, outputPath, tempOutput);
                     conversionStarted = true;
                 } finally {
@@ -671,65 +723,100 @@ public class VideoConversionService {
             throw new IOException("Conversion produced an empty or missing output file");
         }
 
-        // Windows file locks can make the atomic replace fail transiently
-        moveTempToFinal(tempOutput, outputPath);
-
-        // Extract image-based subtitle streams as .sup files alongside the output
+        // Extract image-based subtitle streams as .sup files next to the output.
+        // Done before the swap, while the source is still at its own path.
         if (!imageSubtitleStreams.isEmpty()) {
             job.message = "Extracting subtitles...";
             extractImageSubtitleStreams(ffmpegPath, inputPath.toFile(), outputPath, imageSubtitleStreams);
         }
 
+        boolean keepOriginal = job.options == null || job.options.keepOriginal();
+
         job.message = "Updating database...";
         job.progressPercent = 98;
 
-        // Defer the destructive finalize (old-file deletion + DB path swap)
-        // while the video is actively streaming: the live transcode has the
-        // source file open, and swapping the DB path mid-playback makes
-        // subsequent player requests resolve to a different serving mode
-        // (remux → direct-faststart), which manifests as playback restarting
-        // from 0. finalizePendingIfIdle completes the swap once the video is
-        // idle (on the next stream request).
+        // Defer the swap (moving the new file in, keeping or deleting the old
+        // one, DB path update) while the video is actively streaming: the live
+        // transcode has the source file open, and swapping the DB path
+        // mid-playback makes subsequent player requests resolve to a different
+        // serving mode (remux -> direct-faststart), which manifests as playback
+        // restarting from 0. The new file waits at tempOutput (hidden from the
+        // scanner); finalizePendingIfIdle completes the swap on the next stream
+        // request once the video is idle.
         if (transcodingService.hasActiveTranscodesForVideo(video.id)) {
-            pendingFinalizes.put(video.id, new PendingFinalize(inputPath, outputPath, System.currentTimeMillis()));
+            pendingFinalizes.put(video.id, new PendingFinalize(inputPath, tempOutput, outputPath,
+                    keepOriginal, System.currentTimeMillis()));
             job.status = ConversionJob.Status.COMPLETED;
             job.progressPercent = 100;
             job.message = "Converted; finalize deferred until video is no longer streaming";
             job.endTime = System.currentTimeMillis();
-            LOG.info("Deferred finalize for video {} (actively streaming); old-file deletion + DB swap pending", video.id);
+            LOG.info("Deferred finalize for video {} (actively streaming); file swap + DB update pending", video.id);
             return;
         }
 
-        // Delete old file with retry (Windows file locks)
-        // Only delete if it's actually a different file — converting an already-MP4 file
-        // (due to container misdetection) would make inputPath == outputPath, and deleting
-        // the "old" file would wipe the freshly-converted output.
-        // Use normalize() instead of toRealPath() because the input file may have been
-        // overwritten by the ATOMIC_MOVE above (when inputPath == outputPath), so toRealPath()
-        // would fail with IOException.
-        // D18 fix: wrap delete+update in a per-videoId lock so a concurrent
-        // stream-open cannot observe the file mid-transition.
-        Object finalizeLock = finalizeLocks.computeIfAbsent(video.id, k -> new Object());
-        synchronized (finalizeLock) {
-            if (!inputPath.toAbsolutePath().normalize().equals(outputPath.toAbsolutePath().normalize())) {
-                deleteOldFileWithRetry(inputPath);
-            } else {
-                LOG.info("Input and output paths are identical, skipping old file deletion: {}", inputPath);
-            }
-
-            // Update Video entity
-            updateVideoRecord(video, outputPath, inputPath);
-        }
+        swapInConvertedFile(video, inputPath, tempOutput, outputPath, keepOriginal);
 
         job.status = ConversionJob.Status.COMPLETED;
         job.progressPercent = 100;
-        job.message = "Conversion completed successfully!";
+        job.message = keepOriginal
+                ? "Conversion completed successfully! Original kept as " + inputPath.getFileName() + ORIGINAL_SUFFIX
+                : "Conversion completed successfully!";
         job.endTime = System.currentTimeMillis();
     }
 
     /**
-     * Completes a deferred conversion finalize (old-file deletion + DB path
-     * swap) once the video is no longer actively streaming. Called from the
+     * Puts the converted file in place and points the video record at it.
+     *
+     * <p>keepOriginal: the source is renamed to {@code <name>.<ext>.original}
+     * first (also when input and output share a path, e.g. MP4 to MP4, which
+     * previously overwrote the source). If moving the new file in then fails,
+     * the original is moved back. Otherwise the old behaviour: replace, then
+     * delete a source at a different path.
+     *
+     * <p>D18: runs under a per-video lock so a concurrent stream-open cannot
+     * observe the file mid-transition.
+     */
+    private void swapInConvertedFile(Video video, Path inputPath, Path tempOutput, Path outputPath,
+                                     boolean keepOriginal) throws IOException {
+        boolean samePath = inputPath.toAbsolutePath().normalize()
+                .equals(outputPath.toAbsolutePath().normalize());
+        Object finalizeLock = finalizeLocks.computeIfAbsent(video.id, k -> new Object());
+        synchronized (finalizeLock) {
+            if (keepOriginal) {
+                Path backup = null;
+                if (Files.exists(inputPath)) {
+                    backup = backupPathFor(inputPath);
+                    moveWithRetry(inputPath, backup);
+                    LOG.info("Kept original for video {} as {}", video.id, backup);
+                }
+                try {
+                    moveTempToFinal(tempOutput, outputPath);
+                } catch (IOException e) {
+                    if (backup != null) {
+                        try {
+                            moveWithRetry(backup, inputPath);
+                        } catch (IOException restoreError) {
+                            LOG.error("Could not restore original {} from {}: {}", inputPath, backup,
+                                    restoreError.getMessage());
+                        }
+                    }
+                    throw e;
+                }
+            } else {
+                moveTempToFinal(tempOutput, outputPath);
+                if (!samePath) {
+                    deleteOldFileWithRetry(inputPath);
+                } else {
+                    LOG.info("Input and output paths are identical, nothing to delete: {}", inputPath);
+                }
+            }
+            updateVideoRecord(video, outputPath, inputPath);
+        }
+    }
+
+    /**
+     * Completes a deferred conversion finalize (file swap + DB path update)
+     * once the video is no longer actively streaming. Called from the
      * streaming path BEFORE the video record is resolved, so a completed
      * conversion is picked up without ever switching serving mode mid-playback.
      *
@@ -747,28 +834,37 @@ public class VideoConversionService {
         try {
             Video video = videoService.findById(videoId);
             if (video == null) return false;
-            Path current = video.path != null
-                    ? java.nio.file.Paths.get(video.path).toAbsolutePath().normalize()
-                    : null;
-            if (current != null && current.equals(pending.outputPath().toAbsolutePath().normalize())) {
-                return false; // already swapped
+            if (!Files.exists(pending.tempOutput())) {
+                LOG.warn("Deferred finalize for video {}: converted file {} is gone, nothing to swap",
+                        videoId, pending.tempOutput());
+                return false;
             }
-            // D18 fix: wrap delete+update in a per-videoId lock so a concurrent
-            // stream-open cannot observe the file mid-transition.
-            Object finalizeLock = finalizeLocks.computeIfAbsent(videoId, k -> new Object());
-            synchronized (finalizeLock) {
-                if (!pending.inputPath().toAbsolutePath().normalize()
-                        .equals(pending.outputPath().toAbsolutePath().normalize())) {
-                    deleteOldFileWithRetry(pending.inputPath());
-                }
-                updateVideoRecord(video, pending.outputPath(), pending.inputPath());
-            }
+            swapInConvertedFile(video, pending.inputPath(), pending.tempOutput(), pending.outputPath(),
+                    pending.keepOriginal());
             LOG.info("Completed deferred finalize for video {}: path={}", videoId, pending.outputPath());
             return true;
         } catch (Exception e) {
             LOG.warn("Deferred finalize failed for video {}: {}", videoId, e.getMessage());
             pendingFinalizes.put(videoId, pending); // retry on the next touch
             return false;
+        }
+    }
+
+    /** Rename with a few retries (Windows file locks). */
+    private void moveWithRetry(Path from, Path to) throws IOException {
+        int maxAttempts = 3;
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                Files.move(from, to, StandardCopyOption.ATOMIC_MOVE);
+                return;
+            } catch (IOException e) {
+                LOG.warn("Failed to move {} to {} (attempt {}/{}): {}", from, to, i + 1, maxAttempts, e.getMessage());
+                if (i == maxAttempts - 1) throw e;
+                try { Thread.sleep(500); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
     }
 
@@ -903,7 +999,8 @@ public class VideoConversionService {
                                              Video video, String videoEncoder,
                                              boolean isHardwareAttempt, String hardwareDecoder,
                                              String preset, List<Integer> textSubtitleStreams,
-                                             ConversionOptions options, GpuScheduler.GpuLease gpuLease) {
+                                             ConversionOptions options, GpuScheduler.GpuLease gpuLease,
+                                             SourceVideoInfo source, List<AudioTrack> audioTracks) {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -986,12 +1083,19 @@ public class VideoConversionService {
 
         command.add("-i"); command.add(inputFile.getAbsolutePath());
 
-        command.add("-map"); command.add("0:v");
+        // 0:V = real video streams only. 0:v also matched cover art and other
+        // attached pictures, which were then encoded as an extra video track.
+        command.add("-map"); command.add("0:V");
         command.add("-c:v"); command.add(videoEncoder);
 
         String softwareEncoder = options.targetCodec().startsWith("hevc") ? "libx265"
                 : options.targetCodec().startsWith("av1") ? "libsvtav1"
                 : "libx264";
+
+        // 10-bit sources stay 10-bit for HEVC/AV1 (H.264 output is always 8-bit;
+        // HDR to H.264 is refused before this point, see hdrRefusal).
+        boolean tenBit = keepsHighBitDepth(options.targetCodec(), source);
+        String gpuFormat = tenBit ? "p010" : "nv12";
 
         if (!videoEncoder.equals(softwareEncoder)) {
             // HW encoder quality settings
@@ -999,8 +1103,10 @@ public class VideoConversionService {
                 command.add("-preset"); command.add(preset);
                 command.add("-rc"); command.add("vbr");
                 command.add("-cq"); command.add(String.valueOf(crf));
-                String profile = videoEncoder.contains("hevc") ? "main" : "high";
-                command.add("-profile:v"); command.add(profile);
+                if (!videoEncoder.contains("av1")) {
+                    String profile = videoEncoder.contains("hevc") ? (tenBit ? "main10" : "main") : "high";
+                    command.add("-profile:v"); command.add(profile);
+                }
             } else if (videoEncoder.contains("amf")) {
                 // -preset and -quality are the same AMF option (the later one
                 // wins), so only -quality is passed.
@@ -1018,10 +1124,13 @@ public class VideoConversionService {
                 command.add("-preset"); command.add(preset);
                 command.add("-crf"); command.add(String.valueOf(crf));
             }
+            if (tenBit && videoEncoder.contains("hevc") && !videoEncoder.contains("nvenc")) {
+                command.add("-profile:v"); command.add("main10");
+            }
             if (videoEncoder.contains("h264") || videoEncoder.contains("hevc")) {
                 boolean addedGpuFmtFilter = false;
-                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution) == null) {
-                    String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution);
+                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat) == null) {
+                    String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution, gpuFormat);
                     if (fmtFilter != null) {
                         command.add("-vf"); command.add(fmtFilter);
                         addedGpuFmtFilter = true;
@@ -1033,40 +1142,29 @@ public class VideoConversionService {
                 // Frames on the GPU are converted by the vendor scale filter below;
                 // a software -pix_fmt on them fails ("Impossible to convert ... cuda").
                 if (HlsService.shouldWriteSoftwarePixFmt(addedGpuFmtFilter, hwFramesOnDevice)) {
-                    command.add("-pix_fmt"); command.add("nv12");
+                    command.add("-pix_fmt"); command.add(tenBit ? "p010le" : "nv12");
                 }
             }
         } else {
             command.add("-preset"); command.add(preset);
             command.add("-crf"); command.add(String.valueOf(crf));
-            command.add("-pix_fmt"); command.add("yuv420p");
+            command.add("-pix_fmt"); command.add(tenBit ? "yuv420p10le" : "yuv420p");
         }
+
+        // Colour tags (primaries, transfer, matrix) need no flags: FFmpeg carries
+        // them from the decoded frames to the encoder, HDR10/HLG included.
 
         // Scale filter — cap at configured max height, never upscale
         if (maxHeight > 0) {
-            String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution);
+            String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat);
             if (scaleFilter != null) {
                 command.add("-vf"); command.add(scaleFilter);
             }
         }
 
-        // Audio
-        command.add("-map"); command.add("0:a");
-        String audioCodec = options.targetAudioCodec();
-        if ("copy".equalsIgnoreCase(audioCodec)) {
-            command.add("-c:a"); command.add("copy");
-            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
-                command.add("-bsf:a"); command.add("aac_adtstoasc");
-            }
-        } else if (!isMkv && isAudioCodecMp4Compatible(video.audioCodec)) {
-            command.add("-c:a"); command.add("copy");
-            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
-                command.add("-bsf:a"); command.add("aac_adtstoasc");
-            }
-        } else {
-            LOG.info("Audio codec '{}' being transcoded to {}", video.audioCodec, audioCodec);
-            command.addAll(List.of("-c:a", audioCodec, "-b:a", "192k", "-ac", "2"));
-        }
+        // Audio: decided per track (0:a? so files without audio still convert).
+        command.add("-map"); command.add("0:a?");
+        command.addAll(audioArgs(audioTracks, options.targetAudioCodec(), isMkv));
 
         // Subtitles
         if (isMkv) {
@@ -1099,11 +1197,130 @@ public class VideoConversionService {
         return command;
     }
 
-    private boolean isAudioCodecMp4Compatible(String audioCodec) {
+    private static boolean isAudioCodecMp4Compatible(String audioCodec) {
         if (audioCodec == null) {
             return true; // unknown — try copy, fail through if it doesn't work
         }
         return MP4_COMPATIBLE_AUDIO_CODECS.contains(audioCodec.toLowerCase(Locale.ROOT));
+    }
+
+    // ── Source video facts (bit depth, HDR) ───────────────────────────────
+
+    /** Pixel format and colour description of the source's main video stream. */
+    record SourceVideoInfo(String pixFmt, String colorTransfer, String colorPrimaries, String colorSpace) {
+        static final SourceVideoInfo UNKNOWN = new SourceVideoInfo(null, null, null, null);
+
+        /** 10/12/16-bit formats: yuv420p10le, p010le, yuv422p12le, ... */
+        boolean isHighBitDepth() {
+            return pixFmt != null && pixFmt.toLowerCase(Locale.ROOT).matches(".*(10|12|14|16)(le|be)$");
+        }
+
+        /** HDR10/HDR10+/Dolby Vision base layer (PQ) or HLG. */
+        boolean isHdr() {
+            if (colorTransfer == null) return false;
+            String t = colorTransfer.toLowerCase(Locale.ROOT);
+            return t.equals("smpte2084") || t.equals("arib-std-b67");
+        }
+    }
+
+    /** H.264 output is always 8-bit; HEVC and AV1 keep a 10-bit (or deeper) source at 10-bit. */
+    static boolean keepsHighBitDepth(String targetCodec, SourceVideoInfo source) {
+        return source != null && source.isHighBitDepth()
+                && targetCodec != null && !targetCodec.startsWith("h264");
+    }
+
+    /**
+     * Why this conversion must not run, or null. There is no tone mapping, so
+     * HDR to 8-bit H.264 would permanently produce a washed-out picture.
+     */
+    static String hdrRefusal(String targetCodec, SourceVideoInfo source) {
+        if (source != null && source.isHdr() && (targetCodec == null || targetCodec.startsWith("h264"))) {
+            return "This video is HDR (" + source.colorTransfer() + "). Converting it to H.264 would make it "
+                    + "look washed out, because HDR cannot be kept in 8-bit H.264. Choose HEVC or AV1 to keep HDR.";
+        }
+        return null;
+    }
+
+    private SourceVideoInfo probeSourceVideo(String ffprobePath, String inputPath) {
+        if (ffprobePath == null) return SourceVideoInfo.UNKNOWN;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    ffprobePath,
+                    "-v", "error",
+                    "-select_streams", "V:0",
+                    "-show_entries", "stream=pix_fmt,color_transfer,color_primaries,color_space",
+                    "-of", "default=noprint_wrappers=1",
+                    inputPath
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            java.util.Map<String, String> values = new java.util.HashMap<>();
+            try (Scanner sc = new Scanner(process.getInputStream())) {
+                while (sc.hasNextLine()) {
+                    String line = sc.nextLine().trim();
+                    int eq = line.indexOf('=');
+                    if (eq > 0) values.put(line.substring(0, eq), line.substring(eq + 1));
+                }
+            }
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                LOG.warn("FFprobe video probe timed out for: {}", inputPath);
+                return SourceVideoInfo.UNKNOWN;
+            }
+            return new SourceVideoInfo(values.get("pix_fmt"), values.get("color_transfer"),
+                    values.get("color_primaries"), values.get("color_space"));
+        } catch (Exception e) {
+            LOG.warn("Failed to probe video stream of {}: {}", inputPath, e.getMessage());
+            return SourceVideoInfo.UNKNOWN;
+        }
+    }
+
+    // ── Audio (per track) ─────────────────────────────────────────────────
+
+    /**
+     * Per-track audio options for {@code -map 0:a?}. A track is copied when it
+     * can go into the target container as it is; otherwise it is encoded with
+     * the chosen codec at its own channel count (the old command downmixed every
+     * track to stereo, and judged MP4 compatibility on the first track only).
+     * AC-3/E-AC-3 top out at 5.1, so 7.1 goes to 6 channels for those.
+     */
+    static List<String> audioArgs(List<AudioTrack> tracks, String targetAudioCodec, boolean isMkv) {
+        String target = targetAudioCodec == null ? "aac" : targetAudioCodec.toLowerCase(Locale.ROOT);
+        String encoder = "copy".equals(target) ? "aac" : target;
+        List<String> args = new ArrayList<>();
+        if (tracks == null || tracks.isEmpty()) {
+            // No probe data: copy what MP4 can hold is unknown, so encode, keeping channels.
+            if ("copy".equals(target) && isMkv) {
+                args.addAll(List.of("-c:a", "copy"));
+            } else {
+                args.addAll(List.of("-c:a", encoder, "-b:a", "384k"));
+            }
+            return args;
+        }
+        for (int i = 0; i < tracks.size(); i++) {
+            AudioTrack track = tracks.get(i);
+            String codec = track.codec != null ? track.codec.toLowerCase(Locale.ROOT) : null;
+            boolean copy = "copy".equals(target)
+                    ? (isMkv || isAudioCodecMp4Compatible(codec))
+                    : (isMkv ? target.equals(codec) : (codec != null && isAudioCodecMp4Compatible(codec)));
+            if (copy) {
+                args.add("-c:a:" + i); args.add("copy");
+                if ("aac".equals(codec) && !isMkv) {
+                    args.add("-bsf:a:" + i); args.add("aac_adtstoasc");
+                }
+                continue;
+            }
+            int channels = track.channels != null && track.channels > 0 ? track.channels : 2;
+            boolean dolby = encoder.equals("ac3") || encoder.equals("eac3");
+            if (dolby && channels > 6) {
+                args.add("-ac:a:" + i); args.add("6");
+                channels = 6;
+            }
+            String bitrate = channels <= 2 ? "192k" : channels <= 6 ? (dolby ? "448k" : "384k") : "512k";
+            args.add("-c:a:" + i); args.add(encoder);
+            args.add("-b:a:" + i); args.add(bitrate);
+        }
+        return args;
     }
 
     /**
@@ -1208,7 +1425,8 @@ public class VideoConversionService {
 
     // ── Scale filter (mirrors TranscodingService.buildScaleFilter) ────────
 
-    private String buildScaleFilter(String hardwareDecoder, String videoEncoder, int targetHeight, String resolution) {
+    private String buildScaleFilter(String hardwareDecoder, String videoEncoder, int targetHeight, String resolution,
+                                    String gpuFormat) {
         if (targetHeight <= 0) return null;
 
         int w = 1920, h = 1080;
@@ -1243,13 +1461,13 @@ public class VideoConversionService {
         boolean encoderIsVideoToolbox = videoEncoder != null && videoEncoder.contains("videotoolbox");
 
         if (decoderIsCuda && encoderIsNvenc) {
-            return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
+            return "scale_cuda=" + targetW + ":" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsQsv && encoderIsQsv) {
-            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
+            return "scale_qsv=" + targetW + ":" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsVaapi && encoderIsVaapi) {
-            return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
+            return "scale_vaapi=" + targetW + ":" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsAmf && encoderIsAmf) {
-            return "scale_amf=" + targetW + ":" + targetH + ":format=nv12";
+            return "scale_amf=" + targetW + ":" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsVideoToolbox && encoderIsVideoToolbox) {
             return "scale=" + targetW + ":" + targetH;
         }
@@ -1258,7 +1476,8 @@ public class VideoConversionService {
         return "scale=" + targetW + ":" + targetH;
     }
 
-    private String buildFormatFilter(String hardwareDecoder, String videoEncoder, String resolution) {
+    private String buildFormatFilter(String hardwareDecoder, String videoEncoder, String resolution,
+                                     String gpuFormat) {
         if (hardwareDecoder == null || videoEncoder == null) return null;
 
         int w = 1920, h = 1080;
@@ -1280,13 +1499,13 @@ public class VideoConversionService {
         boolean encoderIsAmf = videoEncoder.contains("amf");
 
         if (decoderIsCuda && encoderIsNvenc)
-            return "scale_cuda=" + w + ":" + h + ":format=nv12";
+            return "scale_cuda=" + w + ":" + h + ":format=" + gpuFormat;
         if (decoderIsQsv && encoderIsQsv)
-            return "scale_qsv=" + w + ":" + h + ":format=nv12";
+            return "scale_qsv=" + w + ":" + h + ":format=" + gpuFormat;
         if (decoderIsVaapi && encoderIsVaapi)
-            return "scale_vaapi=" + w + ":" + h + ":format=nv12";
+            return "scale_vaapi=" + w + ":" + h + ":format=" + gpuFormat;
         if (decoderIsAmf && encoderIsAmf)
-            return "scale_amf=" + w + ":" + h + ":format=nv12";
+            return "scale_amf=" + w + ":" + h + ":format=" + gpuFormat;
 
         return null;
     }

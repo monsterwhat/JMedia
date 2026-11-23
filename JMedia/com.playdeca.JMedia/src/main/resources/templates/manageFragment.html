@@ -198,13 +198,21 @@
                 <div class="control">
                     <div class="select is-fullwidth">
                         <select id="convertMaxHeight">
-                            <option value="0">No limit</option>
+                            <option value="0" selected>No limit</option>
                             <option value="2160">4K (2160p)</option>
                             <option value="1440">2K (1440p)</option>
-                            <option value="1080" selected>Full HD (1080p)</option>
+                            <option value="1080">Full HD (1080p)</option>
                             <option value="720">HD (720p)</option>
                         </select>
                     </div>
+                </div>
+            </div>
+            <div class="field">
+                <div class="control">
+                    <label class="checkbox">
+                        <input id="convertKeepOriginal" type="checkbox" checked>
+                        Keep the original file (renamed to <code>name.ext.original</code>)
+                    </label>
                 </div>
             </div>
         </section>
@@ -360,7 +368,8 @@
             targetAudioCodec: document.getElementById('convertAudioCodec').value,
             crf: parseInt(document.getElementById('convertCrf').value),
             preset: document.getElementById('convertPreset').value || null,
-            maxHeight: parseInt(document.getElementById('convertMaxHeight').value)
+            maxHeight: parseInt(document.getElementById('convertMaxHeight').value),
+            keepOriginal: document.getElementById('convertKeepOriginal').checked
         };
 
         closeConvertModal();

@@ -1027,7 +1027,8 @@ public class VideoManagementApi {
                 request.options.targetAudioCodec != null ? request.options.targetAudioCodec : "aac",
                 request.options.crf != null ? request.options.crf : 23,
                 request.options.preset,
-                request.options.maxHeight != null ? request.options.maxHeight : 1080
+                request.options.maxHeight != null ? request.options.maxHeight : 0,
+                request.options.keepOriginal == null || request.options.keepOriginal
             );
         }
 
@@ -1087,7 +1088,8 @@ public class VideoManagementApi {
                 body.targetAudioCodec != null ? body.targetAudioCodec : "aac",
                 body.crf != null ? body.crf : 23,
                 body.preset,
-                body.maxHeight != null ? body.maxHeight : 1080
+                body.maxHeight != null ? body.maxHeight : 0,
+                body.keepOriginal == null || body.keepOriginal
             );
         }
 
@@ -1151,6 +1153,8 @@ public class VideoManagementApi {
         public Integer crf;
         public String preset;
         public Integer maxHeight;
+        /** Keep the source as "<name>.<ext>.original"; null means yes. */
+        public Boolean keepOriginal;
     }
 
     public static class BatchConversionRequest {
