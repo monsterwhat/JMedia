@@ -305,6 +305,15 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             findAndPrepareNextSmartSong(state, skippedEarly, profileId);
             // Re-enforce the artist cap after the smart pick.
             enforceMaxConsecutiveByArtistInCue(state, state.getCue());
+            // The smart pick may have moved a song from before the current one,
+            // shifting the current song left. Re-read its position: a stale local
+            // index skips the pick (Repeat ALL) or removes it instead of the
+            // finished song (Repeat OFF).
+            int relocated = cue.indexOf(state.getCurrentSongId());
+            if (relocated != -1) {
+                cueIndex = relocated;
+                state.setCueIndex(relocated);
+            }
         }
 
         if (state.getRepeatMode() == PlaybackState.RepeatMode.OFF) {
@@ -825,7 +834,7 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         boolean forceDifferentGenre = applySelectionFilters
                 && state.getDjSongsPerGenre() != null && state.getDjSongsPerGenre() > 0
                 && currentSong.getGenre() != null && !currentSong.getGenre().isBlank()
-                && countConsecutiveSameGenre(state, cue, currentSong) >= state.getDjSongsPerGenre();
+                && countConsecutiveSameGenre(profileId, currentSong, state.getDjSongsPerGenre()) >= state.getDjSongsPerGenre();
 
         // DJ Mode skip threshold: switch genre on the Nth consecutive early skip.
         // 0 disables genre switching on skip (never switch); N >= 1 switches on the
@@ -1200,30 +1209,38 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         return true;
     }
 
-    private int countConsecutiveSameGenre(PlaybackState state, List<Long> cue, Song currentSong) {
-        if (currentSong == null || cue == null || cue.isEmpty()) {
+    /**
+     * Length of the current same-genre run: the current song plus the
+     * consecutive same-genre songs at the top of the playback history.
+     *
+     * <p>Reads persisted history rather than the cue: with Repeat OFF played
+     * songs are removed from the cue, so the current song always sits at index
+     * 0 and a cue-based count was stuck at 1, which meant genre blocks never
+     * ended. History is written when the next song starts, so at pick time it
+     * holds the songs played before the current one. Only {@code limit - 1}
+     * entries are needed to decide whether the run reached {@code limit}.
+     */
+    private int countConsecutiveSameGenre(Long profileId, Song currentSong, int limit) {
+        if (currentSong == null) {
             return 0;
         }
-        String currentGenre = genreKey(currentSong.getGenre());
-        int currentIndex = state.getCueIndex();
-        if (currentIndex < 0 || currentIndex >= cue.size()) {
+        if (limit <= 1 || profileId == null) {
             return 1;
         }
+        String currentGenre = genreKey(currentSong.getGenre());
+        List<Long> recent = playbackHistoryService.getRecentlyPlayedSongIds(limit - 1, profileId);
+        if (recent == null || recent.isEmpty()) {
+            return 1;
+        }
+        java.util.Map<Long, Song> recentById = songService.findByIds(recent).stream()
+                .collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s, (a, b) -> a));
         int streak = 1;
-        int i = currentIndex - 1;
-        while (i >= 0) {
-            int from = Math.max(0, i - 49);
-            java.util.Map<Long, Song> batchById = songService.findByIds(cue.subList(from, i + 1)).stream()
-                    .collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s, (a, b) -> a));
-            for (int j = i; j >= from; j--) {
-                Song song = batchById.get(cue.get(j));
-                if (song != null && genreKey(song.getGenre()).equals(currentGenre)) {
-                    streak++;
-                } else {
-                    return streak;
-                }
+        for (Long id : recent) {
+            Song song = id != null ? recentById.get(id) : null;
+            if (song == null || !genreKey(song.getGenre()).equals(currentGenre)) {
+                break;
             }
-            i = from - 1;
+            streak++;
         }
         return streak;
     }
