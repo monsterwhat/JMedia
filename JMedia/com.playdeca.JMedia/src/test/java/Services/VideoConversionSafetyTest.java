@@ -104,12 +104,6 @@ class VideoConversionSafetyTest {
         assertFalse(VideoConversionService.needsToneMap("h264", VideoConversionService.SourceVideoInfo.UNKNOWN));
     }
 
-    @Test
-    void toneMapEndsInEightBitBt709() {
-        String f = VideoConversionService.TONE_MAP_FILTER;
-        assertTrue(f.contains("tonemap="));
-        assertTrue(f.endsWith("zscale=t=bt709:m=bt709:r=tv,format=yuv420p"));
-    }
 
     // ── audio ──
 

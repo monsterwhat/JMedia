@@ -113,6 +113,9 @@ public class VideoConversionService {
     @Inject
     TranscodingService transcodingService;
 
+    @Inject
+    HdrToneMapService hdrToneMapService;
+
     // ── Audio remux (permanent audio fix) ─────────────────────────────────
 
     /* Codecs safe to bit-copy into MP4 and play natively in every browser
@@ -1063,21 +1066,10 @@ public class VideoConversionService {
             }
         }
 
-        // Tone mapping runs on the CPU, so decoded frames must come back to system
-        // memory: drop -hwaccel_output_format (hardware decode itself still runs).
-        boolean toneMap = needsToneMap(options.targetCodec(), source);
-        if (toneMap) {
-            int i = command.indexOf("-hwaccel_output_format");
-            if (i >= 0) {
-                command.remove(i + 1);
-                command.remove(i);
-            }
-        }
-
         // True when decode frames stay on the device (-hwaccel_output_format matched
         // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
         // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
-        boolean hwFramesOnDevice = !toneMap && isHardwareAttempt && hardwareDecoder != null
+        boolean hwFramesOnDevice = isHardwareAttempt && hardwareDecoder != null
                 && ((hardwareDecoder.contains("cuvid") && videoEncoder.contains("nvenc"))
                     || (hardwareDecoder.contains("qsv") && videoEncoder.contains("qsv"))
                     || (hardwareDecoder.contains("vaapi") && videoEncoder.contains("vaapi"))
@@ -1165,17 +1157,12 @@ public class VideoConversionService {
         // Colour tags (primaries, transfer, matrix) need no flags: FFmpeg carries
         // them from the decoded frames to the encoder, HDR10/HLG included.
 
-        // Scale filter — cap at configured max height, never upscale. With tone
-        // mapping the frames are in system memory, so the scale is a software one
-        // and both share a single -vf (a second -vf would replace the first).
-        String scaleFilter = maxHeight > 0
-                ? buildScaleFilter(toneMap ? null : hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat)
-                : null;
-        if (toneMap) {
-            command.add("-vf");
-            command.add(scaleFilter != null ? scaleFilter + "," + TONE_MAP_FILTER : TONE_MAP_FILTER);
-        } else if (scaleFilter != null) {
-            command.add("-vf"); command.add(scaleFilter);
+        // Scale filter — cap at configured max height, never upscale
+        if (maxHeight > 0) {
+            String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat);
+            if (scaleFilter != null) {
+                command.add("-vf"); command.add(scaleFilter);
+            }
         }
 
         // Audio: decided per track (0:a? so files without audio still convert).
@@ -1208,6 +1195,23 @@ public class VideoConversionService {
 
         command.add("-y"); // overwrite temp output
         command.add(tempOutput.toAbsolutePath().toString());
+
+        // HDR to H.264: tone-map with the best method this GPU/FFmpeg has (no
+        // real-time limit for a permanent conversion). The plan replaces the
+        // builder's -vf/-pix_fmt and scales to maxHeight itself.
+        if (needsToneMap(options.targetCodec(), source)) {
+            HdrToneMapService.Plan plan = hdrToneMapService.plan(
+                    isHardwareAttempt ? hardwareDecoder : null, videoEncoder, video.resolution, maxHeight, false);
+            if (plan == null) {
+                // Never write a permanently washed-out copy.
+                throw new IllegalStateException("This video is HDR and the installed FFmpeg has no tone-mapping "
+                        + "filter (zscale, libplacebo, tonemap_opencl, vpp_qsv or tonemap_vaapi). Convert to HEVC "
+                        + "or AV1 to keep HDR, or install a full FFmpeg build.");
+            }
+            LOG.info("Conversion of video {} tone-maps HDR to SDR via {} at {}x{}", video.id, plan.method(),
+                    plan.width(), plan.height());
+            command = HdrToneMapService.apply(command, plan);
+        }
 
         LOG.info("Convert FFmpeg command: {}", String.join(" ", command));
         return command;
@@ -1252,14 +1256,6 @@ public class VideoConversionService {
     static boolean needsToneMap(String targetCodec, SourceVideoInfo source) {
         return source != null && source.isHdr() && (targetCodec == null || targetCodec.startsWith("h264"));
     }
-
-    /**
-     * HDR10/HLG to SDR BT.709 on the CPU (zscale + tonemap, Hable curve):
-     * linearise, convert BT.2020 to BT.709 primaries, compress the highlights,
-     * then encode back to BT.709 limited range 8-bit.
-     */
-    static final String TONE_MAP_FILTER = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-            + "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
     private SourceVideoInfo probeSourceVideo(String ffprobePath, String inputPath) {
         if (ffprobePath == null) return SourceVideoInfo.UNKNOWN;

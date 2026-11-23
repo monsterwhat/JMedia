@@ -185,6 +185,7 @@ public class HlsService {
     @Inject PgsOcrService pgsOcrService;
     @Inject TranscodingService transcodingService;
     @Inject KeyframeIndexService keyframeIndexService;
+    @Inject HdrToneMapService hdrToneMapService;
 
     private final Map<String, HlsSession> activeSessions = new ConcurrentHashMap<>();
     private Path hlsBasePath;
@@ -928,6 +929,13 @@ public class HlsService {
             LOG.warn("[HLS] session={} master declares AAC but copies non-AAC audio {}; hls.js/MSE will reject it",
                 session.sessionId, audioCodec);
         }
+
+        // HDR source to 8-bit H.264: tone-map on the GPU when possible (vpp_qsv on
+        // Intel, tonemap_vaapi, libplacebo/OpenCL), else on the CPU at <= 1080p.
+        boolean hwUsed = useHardware && hwPipelineViable;
+        command = new ArrayList<>(hdrToneMapService.toneMapIfNeeded(command, resolvedPath,
+                hwUsed ? hwDecoder : null, hwUsed ? hwEncoder : "libx264",
+                session.video.resolution, variant.height, true));
 
         LOG.info("Starting HLS encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", command));
 

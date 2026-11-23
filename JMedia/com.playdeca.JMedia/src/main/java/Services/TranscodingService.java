@@ -93,6 +93,9 @@ public class TranscodingService {
     GpuScheduler gpuScheduler;
 
     @Inject
+    HdrToneMapService hdrToneMapService;
+
+    @Inject
     SettingsService settingsService;
 
     @Inject
@@ -1788,6 +1791,12 @@ public class TranscodingService {
         command.add("-max_muxing_queue_size"); command.add("1024");
         command.add("pipe:1");
 
+        // HDR source to 8-bit H.264: tone-map on the GPU when the hardware and
+        // FFmpeg build allow it, else on the CPU at no more than 1080p (real time).
+        command = new ArrayList<>(hdrToneMapService.toneMapIfNeeded(command, videoFile.getAbsolutePath(),
+                useHardware && needsVideoTranscode ? hardwareDecoder : null, videoEncoder,
+                video.resolution, qualityHeight, true));
+
         String ffmpegAudioMode = transcodeAudio ? "aac" : "copy";
         LOG.info("[FFMPEG] videoId={} hw={} decoder={} encoder={} audio={} scale={}",
             video.id, useHardware, hardwareDecoder, videoEncoder, ffmpegAudioMode,
@@ -2938,7 +2947,7 @@ public class TranscodingService {
                         addedGpuFmtFilter = true;
                     }
                 }
-                if (!addedGpuFmtFilter) {
+                if (HlsService.shouldWriteSoftwarePixFmt(addedGpuFmtFilter, hwFramesOnDevice)) {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
@@ -2977,6 +2986,11 @@ public class TranscodingService {
         command.add("-max_muxing_queue_size"); command.add("1024");
         command.add("-y");
         command.add(tempFile.toAbsolutePath().toString());
+
+        // Must tone-map exactly like the main stream or the gap would look different.
+        command = new ArrayList<>(hdrToneMapService.toneMapIfNeeded(command, videoFile.getAbsolutePath(),
+                useHardware && needsVideoTranscode ? hardwareDecoder : null, videoEncoder,
+                video.resolution, qualityHeight, true));
 
         LOG.info("[GAP] videoId={} start={}s duration={}s hw={} decoder={} encoder={} audio={}",
                 video.id, gapStartSeconds, gapDurationSeconds, useHardware, hardwareDecoder,
