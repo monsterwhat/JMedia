@@ -1002,7 +1002,8 @@ public class VideoConversionService {
                 String profile = videoEncoder.contains("hevc") ? "main" : "high";
                 command.add("-profile:v"); command.add(profile);
             } else if (videoEncoder.contains("amf")) {
-                command.add("-preset"); command.add(preset);
+                // -preset and -quality are the same AMF option (the later one
+                // wins), so only -quality is passed.
                 command.add("-usage"); command.add("transcoding");
                 command.add("-quality"); command.add("quality");
             } else if (videoEncoder.contains("qsv")) {
@@ -1029,8 +1030,10 @@ public class VideoConversionService {
                         addedGpuFmtFilter = true;
                     }
                 }
-                if (!addedGpuFmtFilter) {
-                    command.add("-pix_fmt"); command.add(videoEncoder.contains("hevc") ? "nv12" : "nv12");
+                // Frames on the GPU are converted by the vendor scale filter below;
+                // a software -pix_fmt on them fails ("Impossible to convert ... cuda").
+                if (HlsService.shouldWriteSoftwarePixFmt(addedGpuFmtFilter, hwFramesOnDevice)) {
+                    command.add("-pix_fmt"); command.add("nv12");
                 }
             }
         } else {

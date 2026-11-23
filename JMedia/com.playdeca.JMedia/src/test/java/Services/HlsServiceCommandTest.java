@@ -2,6 +2,7 @@ package Services;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,6 +36,22 @@ class HlsServiceCommandTest {
         assertTrue(HlsService.shouldUseVendorFormatFilter(false, true),
                 "10-bit P010 must be converted to NV12 even without downscale");
         assertTrue(HlsService.shouldUseVendorFormatFilter(true, true));
+    }
+
+    @Test
+    void forcedKeyframesAreIdrOnEncodersThatNeedTheOption() {
+        assertEquals(java.util.List.of("-forced-idr", "1"), HlsService.forcedIdrArgs("h264_nvenc"));
+        assertEquals(java.util.List.of("-forced-idr", "1"), HlsService.forcedIdrArgs("hevc_nvenc"));
+        assertEquals(java.util.List.of("-forced_idr", "1"), HlsService.forcedIdrArgs("h264_qsv"));
+        assertEquals(java.util.List.of("-forced_idr", "1"), HlsService.forcedIdrArgs("hevc_amf"));
+    }
+
+    @Test
+    void encodersThatAlreadyEmitIdrGetNoExtraOption() {
+        assertTrue(HlsService.forcedIdrArgs("libx264").isEmpty());
+        assertTrue(HlsService.forcedIdrArgs("h264_vaapi").isEmpty());
+        assertTrue(HlsService.forcedIdrArgs("h264_videotoolbox").isEmpty());
+        assertTrue(HlsService.forcedIdrArgs(null).isEmpty());
     }
 
     @Test

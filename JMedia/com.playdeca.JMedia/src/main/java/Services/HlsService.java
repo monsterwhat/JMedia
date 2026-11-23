@@ -817,10 +817,12 @@ public class HlsService {
             LOG.info("Using hardware encoder for HLS: {}", hwEncoder);
             command.add(hwEncoder);
             if (hwEncoder.contains("amf")) {
-                command.add("-preset"); command.add("speed");
+                // -preset and -quality are the same AMF option; the later one
+                // won, so keep only the value that applied.
                 command.add("-usage"); command.add("transcoding");
                 command.add("-quality"); command.add("quality");
-            } else {
+            } else if (hwEncoder.contains("nvenc") || hwEncoder.contains("qsv")) {
+                // VAAPI and VideoToolbox have no -preset option.
                 command.add("-preset"); command.add("fast");
             }
             if (hwEncoder.contains("nvenc")) {
@@ -895,6 +897,10 @@ public class HlsService {
         // Force an IDR every segment duration so time-based splits land on keyframes
         // and every segment is independently decodable (see copy path note above).
         command.add("-force_key_frames"); command.add("expr:gte(t,n_forced*6)");
+        // NVENC, QSV and AMF turn forced keyframes into plain I-frames unless
+        // told otherwise, so segments did not start on an IDR even though the
+        // master playlist declares INDEPENDENT-SEGMENTS.
+        command.addAll(forcedIdrArgs(useHardware && hwPipelineViable ? hwEncoder : "libx264"));
 
         // HLS output args
         command.add("-f"); command.add("hls");
@@ -1085,7 +1091,10 @@ public class HlsService {
                 command.add("-map");
                 command.add("0:" + track.trackIndex);
                 command.add("-c:a");
-                if (isCopyableCodec(track.codec)) {
+                // Same rule as the single-track and copy-mode paths: the master
+                // declares AAC, so only AAC is copied. isCopyableCodec also let
+                // AC-3/E-AC-3/DTS through, which hls.js/MSE then rejects.
+                if (isCopyableAudioForSession(session, track.codec)) {
                     command.add("copy");
                 } else {
                     command.add("aac");
@@ -1368,6 +1377,18 @@ public class HlsService {
      * "Impossible to convert between ... qsv -> yuv420p". The vendor filter
      * performs the P010 -> NV12 conversion instead.
      */
+    /**
+     * Encoder option that makes {@code -force_key_frames} emit IDR frames.
+     * libx264, VAAPI and VideoToolbox already do; NVENC spells it
+     * {@code -forced-idr}, QSV and AMF {@code -forced_idr}.
+     */
+    static List<String> forcedIdrArgs(String encoder) {
+        if (encoder == null) return List.of();
+        if (encoder.contains("nvenc")) return List.of("-forced-idr", "1");
+        if (encoder.contains("qsv") || encoder.contains("amf")) return List.of("-forced_idr", "1");
+        return List.of();
+    }
+
     static boolean shouldWriteSoftwarePixFmt(boolean addedGpuFmtFilter, boolean hwFramesOnDevice) {
         return !addedGpuFmtFilter && !hwFramesOnDevice;
     }

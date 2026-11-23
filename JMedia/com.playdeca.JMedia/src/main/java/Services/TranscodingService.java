@@ -1618,12 +1618,14 @@ public class TranscodingService {
             command.add("-c:v"); command.add(videoEncoder);
             if (!videoEncoder.equals("copy")) {
                 if (videoEncoder.contains("amf")) {
-                    command.add("-preset"); command.add("speed");
+                    // AMF's -preset and -quality are the same option ("encoding
+                    // quality preset"); passing "-preset speed -quality quality"
+                    // just let the later one win. Keep the value that applied.
                     command.add("-usage"); command.add("transcoding");
                     command.add("-quality"); command.add("quality");
-                } else if (videoEncoder.contains("vaapi")) {
-                    // VAAPI encoders have no -preset option (quality via
-                    // -rc_mode/-qp below); passing one fails the command.
+                } else if (videoEncoder.contains("vaapi") || videoEncoder.contains("videotoolbox")) {
+                    // VAAPI and VideoToolbox encoders have no -preset option
+                    // (FFmpeg ignores it); quality is set below.
                 } else {
                     command.add("-preset"); command.add(preset);
                 }
@@ -1675,7 +1677,11 @@ public class TranscodingService {
                         addedGpuFmtFilter = true;
                     }
                 }
-                if (!addedGpuFmtFilter) {
+                // Never a software pixel format on frames that stay on the GPU:
+                // when a downscale is requested, the vendor scale filter below
+                // (scale_cuda/qsv/vaapi/amf ...:format=nv12) does the conversion,
+                // and a bare -pix_fmt fails with "Impossible to convert ... cuda".
+                if (HlsService.shouldWriteSoftwarePixFmt(addedGpuFmtFilter, hwFramesOnDevice)) {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
             }
@@ -1755,8 +1761,10 @@ public class TranscodingService {
             command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", seekSeconds));
         }
 
-        // Low-latency streaming: flush output immediately, skip input buffering, discard corrupt data
-        command.add("-fflags"); command.add("+discardcorrupt+nobuffer+flush_packets");
+        // Flush each packet to the pipe immediately. (+nobuffer and +discardcorrupt
+        // were listed here too, but they are demuxer flags: as output options they
+        // never applied.)
+        command.add("-fflags"); command.add("+flush_packets");
         command.add("-flags"); command.add("low_delay");
         command.add("-max_delay"); command.add("0");
         command.add("-muxdelay"); command.add("0");
@@ -1775,9 +1783,10 @@ public class TranscodingService {
         command.add("-avoid_negative_ts"); command.add("make_zero");
         
         command.add("-ignore_unknown");
-        command.add("pipe:1");
-
+        // Must precede the output: after pipe:1 FFmpeg ignored it ("Trailing
+        // option(s) found in the command: may be ignored").
         command.add("-max_muxing_queue_size"); command.add("1024");
+        command.add("pipe:1");
 
         String ffmpegAudioMode = transcodeAudio ? "aac" : "copy";
         LOG.info("[FFMPEG] videoId={} hw={} decoder={} encoder={} audio={} scale={}",
