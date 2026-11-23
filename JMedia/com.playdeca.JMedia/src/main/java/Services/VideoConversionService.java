@@ -617,12 +617,12 @@ public class VideoConversionService {
         List<Integer> textSubtitleStreams = subtitleProbe.textStreams();
         List<Integer> imageSubtitleStreams = subtitleProbe.imageStreams();
 
-        // Bit depth and HDR decide the output pixel format; refuse HDR -> H.264
-        // before spending hours on an encode that would look washed out.
+        // Bit depth and HDR decide the output pixel format, and whether HDR has
+        // to be tone-mapped (to H.264).
         SourceVideoInfo sourceVideo = probeSourceVideo(ffprobePath, inputFile.getAbsolutePath());
-        String refusal = hdrRefusal(targetCodec, sourceVideo);
-        if (refusal != null) {
-            throw new IOException(refusal);
+        if (needsToneMap(targetCodec, sourceVideo)) {
+            LOG.info("Video {} is HDR ({}); tone-mapping to SDR for {}", video.id,
+                    sourceVideo.colorTransfer(), targetCodec);
         }
         // Per-track audio decisions need every track's codec and channel count.
         List<AudioTrack> audioTracks = ffprobeAudioService.extractAudioTracks(video, inputFile.getAbsolutePath());
@@ -1063,10 +1063,21 @@ public class VideoConversionService {
             }
         }
 
+        // Tone mapping runs on the CPU, so decoded frames must come back to system
+        // memory: drop -hwaccel_output_format (hardware decode itself still runs).
+        boolean toneMap = needsToneMap(options.targetCodec(), source);
+        if (toneMap) {
+            int i = command.indexOf("-hwaccel_output_format");
+            if (i >= 0) {
+                command.remove(i + 1);
+                command.remove(i);
+            }
+        }
+
         // True when decode frames stay on the device (-hwaccel_output_format matched
         // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
         // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
-        boolean hwFramesOnDevice = isHardwareAttempt && hardwareDecoder != null
+        boolean hwFramesOnDevice = !toneMap && isHardwareAttempt && hardwareDecoder != null
                 && ((hardwareDecoder.contains("cuvid") && videoEncoder.contains("nvenc"))
                     || (hardwareDecoder.contains("qsv") && videoEncoder.contains("qsv"))
                     || (hardwareDecoder.contains("vaapi") && videoEncoder.contains("vaapi"))
@@ -1154,12 +1165,17 @@ public class VideoConversionService {
         // Colour tags (primaries, transfer, matrix) need no flags: FFmpeg carries
         // them from the decoded frames to the encoder, HDR10/HLG included.
 
-        // Scale filter — cap at configured max height, never upscale
-        if (maxHeight > 0) {
-            String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat);
-            if (scaleFilter != null) {
-                command.add("-vf"); command.add(scaleFilter);
-            }
+        // Scale filter — cap at configured max height, never upscale. With tone
+        // mapping the frames are in system memory, so the scale is a software one
+        // and both share a single -vf (a second -vf would replace the first).
+        String scaleFilter = maxHeight > 0
+                ? buildScaleFilter(toneMap ? null : hardwareDecoder, videoEncoder, maxHeight, video.resolution, gpuFormat)
+                : null;
+        if (toneMap) {
+            command.add("-vf");
+            command.add(scaleFilter != null ? scaleFilter + "," + TONE_MAP_FILTER : TONE_MAP_FILTER);
+        } else if (scaleFilter != null) {
+            command.add("-vf"); command.add(scaleFilter);
         }
 
         // Audio: decided per track (0:a? so files without audio still convert).
@@ -1230,16 +1246,20 @@ public class VideoConversionService {
     }
 
     /**
-     * Why this conversion must not run, or null. There is no tone mapping, so
-     * HDR to 8-bit H.264 would permanently produce a washed-out picture.
+     * HDR going to 8-bit H.264 must be tone-mapped to SDR; without it the
+     * picture comes out washed out and grey. HEVC/AV1 keep HDR as it is.
      */
-    static String hdrRefusal(String targetCodec, SourceVideoInfo source) {
-        if (source != null && source.isHdr() && (targetCodec == null || targetCodec.startsWith("h264"))) {
-            return "This video is HDR (" + source.colorTransfer() + "). Converting it to H.264 would make it "
-                    + "look washed out, because HDR cannot be kept in 8-bit H.264. Choose HEVC or AV1 to keep HDR.";
-        }
-        return null;
+    static boolean needsToneMap(String targetCodec, SourceVideoInfo source) {
+        return source != null && source.isHdr() && (targetCodec == null || targetCodec.startsWith("h264"));
     }
+
+    /**
+     * HDR10/HLG to SDR BT.709 on the CPU (zscale + tonemap, Hable curve):
+     * linearise, convert BT.2020 to BT.709 primaries, compress the highlights,
+     * then encode back to BT.709 limited range 8-bit.
+     */
+    static final String TONE_MAP_FILTER = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+            + "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
     private SourceVideoInfo probeSourceVideo(String ffprobePath, String inputPath) {
         if (ffprobePath == null) return SourceVideoInfo.UNKNOWN;
@@ -1467,7 +1487,7 @@ public class VideoConversionService {
         } else if (decoderIsVaapi && encoderIsVaapi) {
             return "scale_vaapi=" + targetW + ":" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsAmf && encoderIsAmf) {
-            return "scale_amf=" + targetW + ":" + targetH + ":format=" + gpuFormat;
+            return "vpp_amf=w=" + targetW + ":h=" + targetH + ":format=" + gpuFormat;
         } else if (decoderIsVideoToolbox && encoderIsVideoToolbox) {
             return "scale=" + targetW + ":" + targetH;
         }
@@ -1505,7 +1525,7 @@ public class VideoConversionService {
         if (decoderIsVaapi && encoderIsVaapi)
             return "scale_vaapi=" + w + ":" + h + ":format=" + gpuFormat;
         if (decoderIsAmf && encoderIsAmf)
-            return "scale_amf=" + w + ":" + h + ":format=" + gpuFormat;
+            return "vpp_amf=w=" + w + ":h=" + h + ":format=" + gpuFormat;
 
         return null;
     }

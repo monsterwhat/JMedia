@@ -1444,7 +1444,7 @@ public class HlsService {
         } else if (decoderIsVaapi && encoderIsVaapi) {
             return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
-            return "scale_amf=" + targetW + ":" + targetH + ":format=nv12";
+            return "vpp_amf=w=" + targetW + ":h=" + targetH + ":format=nv12";
         } else if (decoderIsVideoToolbox && encoderIsVideoToolbox) {
             return "scale=" + targetW + ":" + targetH;
         }
@@ -1495,7 +1495,7 @@ public class HlsService {
         if (decoderIsVaapi && encoderIsVaapi)
             return "scale_vaapi=" + w + ":" + h + ":format=nv12";
         if (decoderIsAmf && encoderIsAmf)
-            return "scale_amf=" + w + ":" + h + ":format=nv12";
+            return "vpp_amf=w=" + w + ":h=" + h + ":format=nv12";
 
         return null;
     }

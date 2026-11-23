@@ -2,8 +2,8 @@ package Services;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -91,17 +91,24 @@ class VideoConversionSafetyTest {
     }
 
     @Test
-    void hdrToH264IsRefused() {
-        assertNotNull(VideoConversionService.hdrRefusal("h264", src("yuv420p10le", "smpte2084")));
-        assertNotNull(VideoConversionService.hdrRefusal("h264", src("yuv420p10le", "arib-std-b67")));
+    void hdrToH264IsToneMapped() {
+        assertTrue(VideoConversionService.needsToneMap("h264", src("yuv420p10le", "smpte2084")));
+        assertTrue(VideoConversionService.needsToneMap("h264", src("yuv420p10le", "arib-std-b67")));
     }
 
     @Test
-    void hdrToHevcOrAv1AndSdrToH264AreAllowed() {
-        assertNull(VideoConversionService.hdrRefusal("hevc", src("yuv420p10le", "smpte2084")));
-        assertNull(VideoConversionService.hdrRefusal("av1", src("yuv420p10le", "smpte2084")));
-        assertNull(VideoConversionService.hdrRefusal("h264", src("yuv420p10le", "bt709")));
-        assertNull(VideoConversionService.hdrRefusal("h264", VideoConversionService.SourceVideoInfo.UNKNOWN));
+    void hdrToHevcOrAv1KeepsHdrAndSdrIsLeftAlone() {
+        assertFalse(VideoConversionService.needsToneMap("hevc", src("yuv420p10le", "smpte2084")));
+        assertFalse(VideoConversionService.needsToneMap("av1", src("yuv420p10le", "smpte2084")));
+        assertFalse(VideoConversionService.needsToneMap("h264", src("yuv420p10le", "bt709")));
+        assertFalse(VideoConversionService.needsToneMap("h264", VideoConversionService.SourceVideoInfo.UNKNOWN));
+    }
+
+    @Test
+    void toneMapEndsInEightBitBt709() {
+        String f = VideoConversionService.TONE_MAP_FILTER;
+        assertTrue(f.contains("tonemap="));
+        assertTrue(f.endsWith("zscale=t=bt709:m=bt709:r=tv,format=yuv420p"));
     }
 
     // ── audio ──
