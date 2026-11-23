@@ -217,15 +217,14 @@
             // 0 threw away the planner's downbeat and turned a mix into a
             // restart from the top of the track.
             const rawEntryTime = state.djEntryTime || 0;
-            // Flat 45 s guard. state.duration is the OUTGOING song's length, so
-            // a duration-relative cap clamped the next song by the wrong track.
-            // The server already limits entry to the first 40 % of the next song.
-            const maxEntryTime = 45;
-const safeEntry = (typeof rawEntryTime === 'number' && isFinite(rawEntryTime)) ? rawEntryTime : 0;
-const entryTime = Math.max(0, Math.min(safeEntry, maxEntryTime));
-if (entryTime !== rawEntryTime) {
-    window.Helpers.log('[DJ] Clamped entry point from ' + rawEntryTime + 's to ' + entryTime + 's (window max ' + maxEntryTime + 's)');
-}
+            // The server validates the entry against the incoming track's
+            // duration. Do not clamp against state.duration here: that is the
+            // outgoing track and can disagree with the server's plan.
+            const safeEntry = (typeof rawEntryTime === 'number' && isFinite(rawEntryTime)) ? rawEntryTime : 0;
+            const entryTime = Math.max(0, safeEntry);
+            if (entryTime !== rawEntryTime) {
+                window.Helpers.log('[DJ] Clamped invalid entry point from ' + rawEntryTime + 's to ' + entryTime + 's');
+            }
             const exitTime = state.djExitTime || 0;
             
             // Don't prepare transition if we don't have a valid next song ID

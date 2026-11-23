@@ -133,6 +133,13 @@ public class DjTransitionService {
         return transition == null || !"HIGH".equalsIgnoreCase(strictness) || transition.getConfidence() >= 0.4;
     }
 
+    static double clampFallbackEntryTime(double entryTime, double nextDuration) {
+        double maximum = nextDuration > 0
+                ? Math.min(45.0, nextDuration * DjScoring.EXIT_WINDOW_END)
+                : 45.0;
+        return Math.max(0.0, Math.min(entryTime, maximum));
+    }
+
     private DjTransition planTransition(Song currentSong, Song nextSong, Integer crossfadeOverride) {
         if (currentSong == null || nextSong == null) {
             LOG.warn("Null song(s) provided for transition calculation");
@@ -180,7 +187,8 @@ public class DjTransitionService {
             LOG.info("Too few beats ({}) for song {}", exitBeats.size(), currentSong.getTitle());
             // Fall back: use last beat of current, first beat of next
             return createFallbackTransition(currentBeats, nextBeats, crossfadeOverride,
-                    nextAnalysis.getAverageBpm(), "Too few exit beats, using fallback", currentDuration);
+                    nextAnalysis.getAverageBpm(), "Too few exit beats, using fallback", currentDuration,
+                    nextSong.getDurationSeconds());
         }
 
         // Step 2: Check BPM compatibility
@@ -232,18 +240,11 @@ public class DjTransitionService {
                 // 2. Spectral similarity (timbre match)
                 score += calculateSpectralSimilarityOptimized(exitBeat, entryBeat, currentFeatures, nextFeatures);
 
-                // 3. BPM compatibility
-                score += (1.0 - bpmRatioDiff) * 0.5;
-
-                // 4. Energy/Volume continuity (local onset strength, pre-parsed features)
+                // 3. Energy/Volume continuity (local onset strength, pre-parsed features)
                 double entryStrength = computeMeanStrength(nextFeatures, entryBeat.getIndex(), entryBeat.getTime());
                 score += DjScoring.energyBonus(exitStrength, entryStrength);
 
-                // 5. Harmonic compatibility (Camelot), penalty only, 0 when unknown
-                score += DjScoring.keyBonus(currentSong.getMusicalKey(), currentSong.getKeyScale(),
-                        nextSong.getMusicalKey(), nextSong.getKeyScale());
-
-                // 6. Position scoring (prefer end of current, beginning of next)
+                // 4. Position scoring (prefer end of current, beginning of next)
                 score += scorePosition(exitBeat, entryBeat, currentDuration, nextDuration);
                 
                 if (score > bestScore) {
@@ -256,7 +257,7 @@ public class DjTransitionService {
         // Step 4: If no compatible pair found, use fallback
         if (bestCandidate == null) {
             return createFallbackTransition(currentBeats, nextBeats, crossfadeOverride,
-                    nextBpm, "No compatible beat pair found", currentDuration);
+                    nextBpm, "No compatible beat pair found", currentDuration, nextDuration);
         }
 
         // Fade length: short by default, longer only when the tempo can be matched.
@@ -271,7 +272,10 @@ public class DjTransitionService {
         double clampedExitTime = DjScoring.clampExit(bestCandidate.exitTime, currentDuration, adjustedCrossfade);
 
         // Step 5: Build result - use DjScoring for confidence normalization
-        double confidence = DjScoring.normalizeConfidence(bestScore, bpmRatioDiff);
+        double harmonicBonus = DjScoring.keyBonus(currentSong.getMusicalKey(), currentSong.getKeyScale(),
+                nextSong.getMusicalKey(), nextSong.getKeyScale());
+        double confidenceRaw = bestScore + (1.0 - bpmRatioDiff) * 0.5 + harmonicBonus;
+        double confidence = DjScoring.normalizeConfidence(confidenceRaw, bpmRatioDiff);
 
         String reason = buildReasonString(exitBeats, limitedNextBeats, bestCandidate, currentBpm, nextBpm);
 
@@ -463,7 +467,8 @@ public class DjTransitionService {
      */
     private DjTransition createFallbackTransition(List<BeatInfo> currentBeats, List<BeatInfo> nextBeats,
                                                   Integer crossfadeOverride, double nextBpm,
-                                                  String reason, double currentDuration) {
+                                                  String reason, double currentDuration,
+                                                  double nextDuration) {
         if (currentBeats.isEmpty() || nextBeats.isEmpty()) {
             LOG.warn("Cannot create fallback: empty beat lists");
             return null;
@@ -521,12 +526,14 @@ public class DjTransitionService {
             }
         }
 
-        LOG.info(String.format("Fallback transition: exit at %.2fs → entry at %.2fs (%s)", 
-            exitTime, firstBeat.getTime(), reason));
+        double entryTime = clampFallbackEntryTime(firstBeat.getTime(), nextDuration);
+
+        LOG.info(String.format("Fallback transition: exit at %.2fs → entry at %.2fs (%s)",
+            exitTime, entryTime, reason));
 
         return new DjTransition(
             exitTime,
-            firstBeat.getTime(),
+            entryTime,
             fadeSeconds,
             0.3, // Low confidence for fallback
             reason,

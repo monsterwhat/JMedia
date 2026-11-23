@@ -949,14 +949,14 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                     bpmTolerance,
                     exclusions,
                     songPool,
-                    20 // Get up to 20 candidates for scoring
+                    50 // Keep enough BPM-near candidates for variety scoring
             );
         } else {
             candidates = songService.findCandidatesByGenre(
                     targetGenre,
                     exclusions,
                     songPool,
-                    20
+                    50
             );
         }
 
@@ -1043,13 +1043,16 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return candidates.get(0);
         }
 
-        // Score each candidate
+        // Shuffle before sorting so equal scores do not inherit database order
+        // or HashMap iteration order.
+        List<Song> shuffledCandidates = new ArrayList<>(candidates);
+        Collections.shuffle(shuffledCandidates);
         java.util.Map<Song, Integer> songScores = new java.util.HashMap<>();
         String lastAlbum = state.getLastPlayedAlbum();
         String lastArtist = state.getLastPlayedArtist();
         int consecutiveAlbums = state.getConsecutiveAlbumPlays();
 
-        for (Song candidate : candidates) {
+        for (Song candidate : shuffledCandidates) {
             int score = 0;
             String candidateAlbum = candidate.getAlbum();
             String candidateArtist = candidate.getArtist();
@@ -1090,30 +1093,30 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         }
 
         // Sort by score descending and take top 5
-        List<java.util.Map.Entry<Song, Integer>> sorted = songScores.entrySet().stream()
-                .sorted(java.util.Map.Entry.<Song, Integer>comparingByValue().reversed())
+        List<Song> sortedSongs = shuffledCandidates.stream()
+                .sorted(java.util.Comparator.comparingInt((Song song) -> songScores.get(song)).reversed())
                 .limit(5)
                 .toList();
 
-        if (sorted.isEmpty()) {
+        if (sortedSongs.isEmpty()) {
             return candidates.get(0);
         }
 
         // Weighted random selection from top candidates
         // Higher scores get higher probability
-        int totalWeight = sorted.stream().mapToInt(java.util.Map.Entry::getValue).map(s -> Math.max(s + 5, 1)).sum();
+        int totalWeight = sortedSongs.stream().mapToInt(song -> Math.max(songScores.get(song) + 5, 1)).sum();
         int randomWeight = new java.util.Random().nextInt(totalWeight);
         int currentWeight = 0;
 
-        for (java.util.Map.Entry<Song, Integer> entry : sorted) {
-            int weight = Math.max(entry.getValue() + 5, 1); // +5 to ensure positive weights
+        for (Song song : sortedSongs) {
+            int weight = Math.max(songScores.get(song) + 5, 1); // +5 to ensure positive weights
             currentWeight += weight;
             if (randomWeight < currentWeight) {
-                return entry.getKey();
+                return song;
             }
         }
 
-        return sorted.get(0).getKey(); // Fallback to highest scored
+        return sortedSongs.get(0); // Fallback to highest scored
     }
 
     /**

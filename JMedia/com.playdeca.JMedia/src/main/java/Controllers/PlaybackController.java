@@ -37,6 +37,10 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PlaybackController {
 
+    static boolean shouldUseRegularCrossfade(boolean djActive, Boolean djTransitionPlanned) {
+        return !djActive || Boolean.TRUE.equals(djTransitionPlanned);
+    }
+
     private final Map<Long, PlaybackState> memoryStates = new ConcurrentHashMap<>();
 
     // Safety net against a client-side DJ crossfade race: never accept DJ
@@ -179,7 +183,10 @@ public class PlaybackController {
                         st.setCurrentTime(newTime);
                         broadcastStateIfNecessary(st, profileId);
                     }
-                } else if (crossfadeDuration > 0 && st.getDuration() > crossfadeDuration && newTime >= crossfadeThreshold && st.getDuration() > 0) {
+                } else if (shouldUseRegularCrossfade(Boolean.TRUE.equals(st.getDjModeActive()),
+                        st.getDjTransitionPlanned())
+                        && crossfadeDuration > 0 && st.getDuration() > crossfadeDuration
+                        && newTime >= crossfadeThreshold && st.getDuration() > 0) {
                     // Regular crossfade point reached
                     handleSongEnded(profileId);
                 } else if (newTime >= st.getDuration() && st.getDuration() > 0) {
@@ -1712,6 +1719,7 @@ public class PlaybackController {
         int cueIndex = st.getCueIndex();
         if (cue == null || cueIndex < 0 || cueIndex >= cue.size() - 1) {
             System.out.println("[DJ] planNextDjTransition: No next song in queue (cueIndex=" + cueIndex + ", size=" + (cue != null ? cue.size() : 0) + ")");
+            clearDjTransitionPlan(st);
             return;
         }
 
@@ -1721,6 +1729,7 @@ public class PlaybackController {
 
         if (currentSong == null || nextSong == null) {
             System.out.println("[DJ] planNextDjTransition: Song not found (current=" + currentSong + ", next=" + nextSong + ")");
+            clearDjTransitionPlan(st);
             return;
         }
 
@@ -1756,6 +1765,14 @@ public class PlaybackController {
                 st.getDjCrossfadeOverride(), st.getDjStrictness());
 
         if (transition != null) {
+            double latestUsefulExit = currentSong.getDurationSeconds()
+                    - transition.getCrossfadeSeconds() - 0.25;
+            if (st.getCurrentTime() >= latestUsefulExit
+                    || transition.getExitTime() <= st.getCurrentTime()) {
+                System.out.println("[DJ] Transition arrived too late; using normal end-of-song playback");
+                clearDjTransitionPlan(st);
+                return;
+            }
             st.setDjNextSongId(nextSongId);
             st.setDjEntryTime(transition.getEntryTime());
             // Clamp exit so a transition planned mid-song (currentTime already past
