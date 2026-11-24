@@ -84,11 +84,10 @@
             const target = end + 1;
             p._autoSkipGuard = { section: section, end: target, until: Date.now() + 10000 };
 
-            if (p.needsTranscode) {
-                p.streamMgr.performServerSeek(target);
-            } else {
-                p.video.currentTime = target;
-            }
+            // performServerSeek picks the right way for every route (raw file,
+            // remux/transcode, HLS); needsTranscode alone was wrong on HLS-for-audio
+            // and fallback streams, where currentTime is relative to the stream origin.
+            p.streamMgr.performServerSeek(target);
 
             this._showAutoSkipNotice(section);
         }
@@ -124,11 +123,7 @@
                 const target = Math.min(outroEnd + 1, Math.max(mediaEnd - 0.5, 0));
                 console.log('[SimplePlayer] Outro skipped, ' + Math.round(tail)
                         + 's of tail remains — resuming after the credits');
-                if (p.needsTranscode) {
-                    p.streamMgr.performServerSeek(target);
-                } else {
-                    p.video.currentTime = target;
-                }
+                p.streamMgr.performServerSeek(target);
                 return;
             }
             p.playNextEpisode();
@@ -157,11 +152,7 @@
             if (p._autoSkipUndoTime > 0) {
                 p._isUndoing = true;
 
-                if (p.needsTranscode) {
-                    p.streamMgr.performServerSeek(p._autoSkipUndoTime);
-                } else {
-                    p.video.currentTime = p._autoSkipUndoTime;
-                }
+                p.streamMgr.performServerSeek(p._autoSkipUndoTime);
 
                 // Track this section as manually undone — prevents re-auto-skip
                 if (p._autoSkipSection) {
@@ -230,11 +221,7 @@
             } else {
                 const endKey = section + 'End';
                 const end = p.markers[endKey];
-                if (p.needsTranscode) {
-                    p.streamMgr.performServerSeek(end);
-                } else {
-                    p.video.currentTime = end;
-                }
+                p.streamMgr.performServerSeek(end);
             }
         }
     };

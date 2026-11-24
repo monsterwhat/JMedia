@@ -13,7 +13,9 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.File;
@@ -178,6 +180,75 @@ public class VideoStreamResource {
         return firstOrNewSession;
     }
 
+    /**
+     * True when this request is answered with the raw file (Range requests,
+     * ?start= ignored) instead of a remux/transcode that starts at ?start=.
+     * Shared by streamVideo and streamMode so the two can never disagree.
+     *
+     * <p>A raw file serve cannot transcode the audio track, so it is only taken
+     * when the client can decode the container's audio too (e.g. AC-3/E-AC-3 on
+     * machines without the OS Dolby codec), and when no specific audio track or
+     * quality is requested.
+     */
+    private boolean servesRawFile(Models.Video.Video video, String userAgent, boolean isFastStart,
+                                  boolean transcodeNeeded, int qualityHeight, int audioTrackIndex,
+                                  String audioCodecsParam) {
+        if (qualityHeight > 0 || !isFastStart || transcodeNeeded || audioTrackIndex >= 0) {
+            return false;
+        }
+        if (parseSourceHeight(video.resolution) <= 0) {
+            return false;
+        }
+        return transcodingService.canCopyAudioForClient(video, userAgent, audioCodecsParam);
+    }
+
+    /**
+     * How /stream/{id}.mp4 would answer these parameters, without streaming:
+     * {@code {"mode":"direct"}} for the raw file, {@code {"mode":"stream"}} for
+     * a remux/transcode. The player seeks a raw file itself (the browser fetches
+     * the bytes by Range) and every other stream through a ?start= reload; it
+     * cannot read the response headers of its own media element, so it asks here.
+     */
+    @GET
+    @Path("/stream/{videoId:[0-9]+}/mode")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response streamMode(@PathParam("videoId") Long videoId,
+                               @HeaderParam("User-Agent") String userAgent,
+                               @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
+                               @QueryParam("quality") @DefaultValue("0") int qualityHeight,
+                               @QueryParam("nativeHevc") String nativeHevcParam,
+                               @QueryParam("nativeAv1") String nativeAv1Param,
+                               @QueryParam("forceTranscode") String forceTranscodeParam,
+                               @QueryParam("codecs") String codecsParam,
+                               @QueryParam("audioCodecs") String audioCodecsParam) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
+        if (video == null || video.path == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        java.nio.file.Path basePath = java.nio.file.Paths.get(video.path);
+        java.nio.file.Path filePath = basePath.isAbsolute() || videoLibraryPath == null
+                ? basePath : java.nio.file.Paths.get(videoLibraryPath, video.path);
+        File videoFile = filePath.toFile();
+        if (!videoFile.isFile() || video.videoCodec == null) {
+            return Response.ok("{\"mode\":\"stream\"}").build();
+        }
+        java.util.Set<String> clientCodecs = new java.util.LinkedHashSet<>(
+                TranscodingService.parseClientCodecs(codecsParam));
+        if (isTruthy(nativeHevcParam)) clientCodecs.add(TranscodingService.CODEC_HEVC);
+        if (isTruthy(nativeAv1Param)) clientCodecs.add("av1");
+        boolean isFastStart = !videoFile.getName().toLowerCase().endsWith(".mkv") && hasFastStart(videoFile);
+        String outputCodec = transcodingService.resolveOutputCodec(
+                video, userAgent, clientCodecs, qualityHeight, isTruthy(forceTranscodeParam));
+        boolean transcodeNeeded = !TranscodingService.CODEC_COPY.equals(outputCodec);
+        boolean raw = servesRawFile(video, userAgent, isFastStart, transcodeNeeded, qualityHeight,
+                audioTrackIndex, audioCodecsParam);
+        return Response.ok(raw ? "{\"mode\":\"direct\"}" : "{\"mode\":\"stream\"}").build();
+    }
+
     @GET
     @Path("/stream/{videoId:[0-9]+}.mp4")
     public Response streamVideo(@PathParam("videoId") Long videoId, 
@@ -293,11 +364,8 @@ public class VideoStreamResource {
         }
         if (qualityHeight <= 0) {
             int sourceHeight = parseSourceHeight(video.resolution);
-            // A raw file serve cannot transcode the audio track, so only take
-            // this fast path when the client can decode the container's audio
-            // too (e.g. AC-3/E-AC-3 on machines without the OS Dolby codec).
-            boolean canCopyAudio = transcodingService.canCopyAudioForClient(video, userAgent, audioCodecsParam);
-            if (isFastStart && !transcodeNeeded && sourceHeight > 0 && audioTrackIndex < 0 && canCopyAudio) {
+            if (servesRawFile(video, userAgent, isFastStart, transcodeNeeded, qualityHeight,
+                    audioTrackIndex, audioCodecsParam)) {
                 // Faststart + natively playable codec → serve directly at source
                 // resolution. No re-encoding to downscale is CPU-intensive and
                 // counterproductive: transcoded H.264 at 720p often uses more

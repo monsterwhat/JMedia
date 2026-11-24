@@ -1398,9 +1398,71 @@
             this.destroyLocalHlsSession();
         }
 
+        /** A stream URL without its per-request trace= cache-buster, for comparing sources. */
+        static streamKey(url) {
+            if (!url) return null;
+            try {
+                const u = new URL(url, window.location.href);
+                u.searchParams.delete('trace');
+                return u.pathname + '?' + u.searchParams.toString();
+            } catch (e) {
+                return null;
+            }
+        }
+
+        /**
+         * Asks the server whether `url` is answered with the raw file
+         * (/api/video/stream/{id}/mode). A raw file ignores ?start=, so it must be
+         * seeked by the browser; reloading it with ?start= restarted the film at
+         * 0:00 while the clock showed the target. The answer belongs to this exact
+         * URL (trace= aside): any other source - a remux, a transcode, another
+         * audio track, a fallback - is not raw until asked again.
+         */
+        async probeRawDirect(url) {
+            const p = this.player;
+            const key = window.PlayerStreamManager.streamKey(url);
+            if (!key || !p.videoId) return;
+            try {
+                const u = new URL(url, window.location.href);
+                u.searchParams.delete('trace');
+                u.searchParams.delete('start');
+                const res = await fetch('/api/video/stream/' + p.videoId + '/mode?' + u.searchParams.toString(),
+                        { credentials: 'include', cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (p._destroyed) return;
+                p._rawDirectKey = data && data.mode === 'direct' ? key : null;
+                dbg('[SimplePlayer] Stream mode for ' + key + ': ' + (data && data.mode));
+            } catch (e) {
+                console.warn('[SimplePlayer] Stream mode probe failed:', e);
+            }
+        }
+
+        /** True while the element plays a source the server confirmed as the raw file. */
+        isRawDirect() {
+            const p = this.player;
+            if (!p._rawDirectKey || p._hlsInstance || p._hlsSessionId || p._hlsSessionPending || p.externalUrl) {
+                return false;
+            }
+            return window.PlayerStreamManager.streamKey(p.video.currentSrc || p.video.src) === p._rawDirectKey;
+        }
+
         performServerSeek(time) {
             const p = this.player;
             dbg(`[SimplePlayer] Performing server-side seek to ${time}s`);
+
+            // Raw file: the browser seeks it (Range requests), wherever the target is.
+            if (this.isRawDirect()) {
+                const d = p.video.duration;
+                let target = Math.max(0, time - (p.streamStartOffset || 0));
+                if (isFinite(d) && d > 0) target = Math.min(target, Math.max(0, d - 0.5));
+                dbg(`[SimplePlayer] Raw-file seek to ${target}s`);
+                p.video.currentTime = target;
+                if (!p._userPaused) {
+                    p.video.play().catch((e) => dbg('[SimplePlayer] Play after raw-file seek requires gesture:', e));
+                }
+                return;
+            }
 
             // Local HLS session: prefer a cheap client-side seek when the target is
             // already in the encoded manifest, so small skips (back/forward a few
@@ -1426,9 +1488,12 @@
                     try { p.video.currentTime = relTime; } catch (e) {
                         console.warn('[SimplePlayer] HLS in-manifest seek failed', e);
                     }
-                    p.video.play().catch(function (e) {
-                        console.warn('[SimplePlayer] play() after HLS in-manifest seek was blocked:', e);
-                    });
+                    // A seek while paused stays paused (keys and skip buttons seek too).
+                    if (!p._userPaused) {
+                        p.video.play().catch(function (e) {
+                            console.warn('[SimplePlayer] play() after HLS in-manifest seek was blocked:', e);
+                        });
+                    }
                     return;
                 }
                 this.recreateLocalHlsSession(time);
@@ -1457,7 +1522,9 @@
                 if (inBuffer && !p._qualitySwitching) {
                     dbg(`[SimplePlayer] Client-side seek to ${time}s (relative ${relativeTime}s in buffer)`);
                     p.video.currentTime = relativeTime;
-                    p.video.play().catch(e => dbg('[SimplePlayer] Play after seek requires gesture:', e));
+                    if (!p._userPaused) {
+                        p.video.play().catch(e => dbg('[SimplePlayer] Play after seek requires gesture:', e));
+                    }
                     return;
                 }
                 dbg(`[SimplePlayer] Past buffer (buffered to ${bufferedEnd}s), using server-side seek`);

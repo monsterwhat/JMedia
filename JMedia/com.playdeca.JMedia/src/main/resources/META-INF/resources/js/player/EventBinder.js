@@ -324,7 +324,9 @@
                             p.streamMgr.recreateLocalHlsSession(pos);
                             return;
                         }
-                        if (p.needsTranscode) {
+                        // Server-positioned streams (remux/transcode) restart at ?start=;
+                        // only the raw file ignores it.
+                        if (!p.streamMgr.isRawDirect()) {
                             p.streamStartOffset = pos;
                             p.initialResumeTime = 0;
                             p.video.src = p.streamMgr.buildStreamUrl(pos);
@@ -395,11 +397,8 @@
                     const currentDisplayTime = p.video.currentTime + (p.streamStartOffset || 0);
                     const newTime = Math.max(0, currentDisplayTime + skipAmount);
 
-                    if (p.needsTranscode) {
-                        p.streamMgr.performServerSeek(newTime);
-                    } else {
-                        p.video.currentTime = newTime - (p.streamStartOffset || 0);
-                    }
+                    // One seek path for every route (raw file, remux/transcode, HLS).
+                    p.streamMgr.performServerSeek(newTime);
 
                     p.controlsManager.showControls();
                 };

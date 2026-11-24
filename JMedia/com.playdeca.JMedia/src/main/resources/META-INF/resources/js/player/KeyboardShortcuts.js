@@ -8,7 +8,14 @@
 
         handleKeydown(e) {
             const p = this.player;
-            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+            const el = document.activeElement;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+                    || el.isContentEditable)) return;
+            // Leave browser and OS shortcuts alone: Ctrl+F (find) toggled fullscreen,
+            // Ctrl+L / Alt+Arrow (address bar, back/forward) seeked, Ctrl+K/M played
+            // and muted. Only Ctrl+Alt+D (debug dialog) uses modifiers here.
+            const debugCombo = e.code === 'KeyD' && e.ctrlKey && e.altKey;
+            if ((e.ctrlKey || e.metaKey || e.altKey) && !debugCombo) return;
             switch(e.code) {
                 case 'Space':
                 case 'KeyK': e.preventDefault(); p.bigPlay.click(); break;
@@ -16,12 +23,8 @@
                     {
                         const currentDisplayTime = p.video.currentTime + (p.streamStartOffset || 0);
                         const newTime = Math.max(0, currentDisplayTime - 10);
-
-                        if (p.needsTranscode) {
-                            p.streamMgr.performServerSeek(newTime);
-                        } else {
-                            p.video.currentTime = Math.max(0, p.video.currentTime - 10);
-                        }
+                        // One seek path for every route (raw file, remux/transcode, HLS).
+                        p.streamMgr.performServerSeek(newTime);
                         p.controlsManager.showControls();
                     }
                     break;
@@ -30,12 +33,7 @@
                         const maxDur = p.totalDuration || p.video.duration;
                         const currentDisplayTime = p.video.currentTime + (p.streamStartOffset || 0);
                         const newTime = Math.min(maxDur || p.video.duration, currentDisplayTime + 10);
-
-                        if (p.needsTranscode) {
-                            p.streamMgr.performServerSeek(newTime);
-                        } else {
-                            p.video.currentTime = Math.min(maxDur || p.video.duration, p.video.currentTime + 10);
-                        }
+                        p.streamMgr.performServerSeek(newTime);
                         p.controlsManager.showControls();
                     }
                     break;

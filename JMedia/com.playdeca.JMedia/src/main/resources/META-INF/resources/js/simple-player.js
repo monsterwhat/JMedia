@@ -595,6 +595,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                 if (this._canNativeHevc) extraParams.push('nativeHevc=1');
                 if (this._canNativeAv1) extraParams.push('nativeAv1=1');
                 this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams });
+                // Learn whether this is the raw file (seek in the browser) or a
+                // remux (seek with ?start=); off the critical path.
+                this.streamMgr.probeRawDirect(this.video.src);
                 this.subtitleController.loadSubtitles();
                 this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
                 // Guards the copy path against a silent HEVC decode stall that
