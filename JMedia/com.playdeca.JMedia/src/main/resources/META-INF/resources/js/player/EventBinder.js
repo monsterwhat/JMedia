@@ -610,6 +610,34 @@
                 p.fullscreenMgr.requestFullscreen(e);
             };
 
+            // Picture-in-Picture (Chrome, Edge, Safari). The browser's own controls
+            // are hidden, so this button is the only way in. Only rendered when the
+            // browser supports it (UIBuilder).
+            if (p.pipBtn) {
+                p.pipBtn.onclick = async (e) => {
+                    if (e) e.stopPropagation();
+                    try {
+                        if (document.pictureInPictureElement === p.video) {
+                            await document.exitPictureInPicture();
+                        } else {
+                            if (document.fullscreenElement && document.exitFullscreen) {
+                                await document.exitFullscreen();
+                            }
+                            await p.video.requestPictureInPicture();
+                        }
+                    } catch (err) {
+                        console.warn('[SimplePlayer] Picture-in-Picture failed:', err);
+                        if (window.Toast) window.Toast.warning('Picture-in-picture is not available right now');
+                    }
+                };
+                const pipIcon = p.pipBtn.querySelector('i');
+                const setPipIcon = (inPip) => {
+                    if (pipIcon) pipIcon.className = inPip ? 'pi pi-window-maximize' : 'pi pi-window-minimize';
+                };
+                p.video.addEventListener('enterpictureinpicture', () => setPipIcon(true));
+                p.video.addEventListener('leavepictureinpicture', () => setPipIcon(false));
+            }
+
             // Stored on the player and removed in destroy(): these are document/window
             // level listeners, so without teardown every episode switch left another
             // player reacting to fullscreen and orientation changes.

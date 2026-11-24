@@ -8,9 +8,10 @@
     })();
     const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
 
-    /** Set when an HEVC copy failed in this browser: stop advertising HEVC for a while. */
+    /** Set when a direct HEVC/AV1 stream failed in this browser: stop advertising it for a while. */
     const HEVC_FAILED_KEY = 'jmedia_hevc_direct_failed_at';
-    const HEVC_FAILED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+    const AV1_FAILED_KEY = 'jmedia_av1_direct_failed_at';
+    const CODEC_FAILED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
     window.PlayerStreamManager = class {
         constructor(player) {
@@ -75,50 +76,72 @@
          * the browser cannot decode (the HEVC black-player case).
          */
         disableClientCodecs() {
-            // A copy this browser said it could decode just failed. If HEVC was
-            // advertised, remember that in this browser so the next videos do not
-            // sit through the same black screen and watchdog before transcoding.
-            if (this._clientCodecs && this._clientCodecs.indexOf('hevc') !== -1) {
+            // A copy this browser said it could decode just failed. Remember the
+            // advertised codecs in this browser so the next videos do not sit
+            // through the same black screen and watchdog before transcoding.
+            const Cls = window.PlayerStreamManager;
+            const advertised = this._clientCodecs || [];
+            if (advertised.indexOf('hevc') !== -1) {
                 try { localStorage.setItem(HEVC_FAILED_KEY, String(Date.now())); } catch (e) { /* private mode */ }
-                const Cls = window.PlayerStreamManager;
                 if (Cls && Cls._decodeCaps) Cls._decodeCaps.hevcMain10Hw = false;
                 console.warn('[SimplePlayer] HEVC direct play failed here; transcoding HEVC in this browser from now on');
+            }
+            if (advertised.indexOf('av1') !== -1) {
+                try { localStorage.setItem(AV1_FAILED_KEY, String(Date.now())); } catch (e) { /* private mode */ }
+                if (Cls && Cls._decodeCaps) Cls._decodeCaps.av1 = false;
+                console.warn('[SimplePlayer] AV1 direct play failed here; transcoding AV1 in this browser from now on');
             }
             this._clientCodecs = [];
         }
 
         /**
          * One-time decode probe through mediaCapabilities.decodingInfo(), run
-         * before the first stream opens. Chromium's canPlayType() and
-         * MediaSource.isTypeSupported() say yes to HEVC even without a working
-         * decoder, so they never proved it. decodingInfo() reports whether the
-         * GPU decodes it (powerEfficient); Chromium decodes HEVC in hardware only.
-         * Probes HEVC Main 10 at 4K, the common case in this library.
+         * before the first stream opens.
+         * - HEVC Main 10 4K must be supported AND power-efficient (hardware):
+         *   Chromium's canPlayType()/isTypeSupported() say yes to HEVC without a
+         *   working decoder, and Chromium decodes HEVC in hardware only.
+         * - AV1 10-bit 4K must be supported AND smooth (hardware or a software
+         *   decoder fast enough). The older check took canPlayType "maybe" and
+         *   tested 8-bit only.
+         * A codec whose direct play failed in this browser stays off for 30 days.
          *
-         * @returns {Promise<Object>} cached { hevcMain10Hw: boolean }
+         * @returns {Promise<Object>} cached { hevcMain10Hw: boolean, av1: boolean|null }
+         *          (av1 null: no mediaCapabilities, use the legacy check)
          */
         static probeDecodeCapabilities() {
             const Cls = window.PlayerStreamManager;
             if (Cls._decodeCapsPromise) return Cls._decodeCapsPromise;
-            const caps = { hevcMain10Hw: false };
+            const caps = { hevcMain10Hw: false, av1: null };
+            const recentlyFailed = (key) => {
+                let at = 0;
+                try { at = parseInt(localStorage.getItem(key) || '0', 10) || 0; } catch (e) { /* private mode */ }
+                return at > 0 && Date.now() - at < CODEC_FAILED_TTL_MS;
+            };
+            const probe = (contentType) => navigator.mediaCapabilities.decodingInfo({
+                type: 'media-source',
+                video: { contentType: contentType, width: 3840, height: 2160, bitrate: 25000000, framerate: 24 }
+            });
             Cls._decodeCapsPromise = (async () => {
-                try {
-                    let failedAt = 0;
-                    try { failedAt = parseInt(localStorage.getItem(HEVC_FAILED_KEY) || '0', 10) || 0; } catch (e) { /* private mode */ }
-                    const recentlyFailed = failedAt > 0 && Date.now() - failedAt < HEVC_FAILED_TTL_MS;
-                    if (!recentlyFailed && navigator.mediaCapabilities
-                            && typeof navigator.mediaCapabilities.decodingInfo === 'function') {
-                        const r = await navigator.mediaCapabilities.decodingInfo({
-                            type: 'media-source',
-                            video: {
-                                contentType: 'video/mp4; codecs="hvc1.2.4.L153.B0"',
-                                width: 3840, height: 2160, bitrate: 25000000, framerate: 24
-                            }
-                        });
-                        caps.hevcMain10Hw = !!(r && r.supported && r.powerEfficient);
+                const mc = navigator.mediaCapabilities;
+                if (mc && typeof mc.decodingInfo === 'function') {
+                    try {
+                        if (!recentlyFailed(HEVC_FAILED_KEY)) {
+                            const r = await probe('video/mp4; codecs="hvc1.2.4.L153.B0"');
+                            caps.hevcMain10Hw = !!(r && r.supported && r.powerEfficient);
+                        }
+                    } catch (e) {
+                        console.warn('[SimplePlayer] HEVC decode probe failed:', e);
                     }
-                } catch (e) {
-                    console.warn('[SimplePlayer] decode capability probe failed:', e);
+                    try {
+                        if (recentlyFailed(AV1_FAILED_KEY)) {
+                            caps.av1 = false;
+                        } else {
+                            const r = await probe('video/mp4; codecs="av01.0.12M.10"');
+                            caps.av1 = !!(r && r.supported && r.smooth);
+                        }
+                    } catch (e) {
+                        console.warn('[SimplePlayer] AV1 decode probe failed:', e);
+                    }
                 }
                 Cls._decodeCaps = caps;
                 return caps;
@@ -288,11 +311,19 @@
          * Chrome 70+, Edge 79+, Firefox 67+, and Brave (Chromium-based).
          * No browser exclusion is needed — a simple probe suffices.
          * iOS Safari does NOT support AV1 (except iPhone 15 Pro+ for hardware decode).
+         *
+         * Once probeDecodeCapabilities() has answered, its result (10-bit 4K,
+         * decoded smoothly) decides. The fallback below is only for browsers
+         * without mediaCapabilities.
          */
         static hasNativeAv1Support() {
             var ua = (navigator.userAgent || '').toLowerCase();
             if (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1 || ua.indexOf('ipod') !== -1) {
                 return false;
+            }
+            const caps = window.PlayerStreamManager && window.PlayerStreamManager._decodeCaps;
+            if (caps && caps.av1 !== null && caps.av1 !== undefined) {
+                return caps.av1;
             }
             const video = document.createElement('video');
             return MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"') ||
@@ -774,13 +805,18 @@
                 (typeof window.ManagedMediaSource !== 'undefined') &&
                 /Safari/.test(navigator.userAgent || '') &&
                 !/Chrome|Chromium|Edg|OPR|Firefox/.test(navigator.userAgent || '');
+            // hls.js keeps every played second by default (backBufferLength:
+            // Infinity), so a two-hour film grew the tab's memory until the
+            // browser evicted on its own. 90 s still makes a short seek back instant.
+            const BACK_BUFFER_SECONDS = 90;
             const hlsConfig = (opts && opts.live === false)
-                ? { preferManagedMediaSource: preferManagedMediaSource }
+                ? { preferManagedMediaSource: preferManagedMediaSource, backBufferLength: BACK_BUFFER_SECONDS }
                 : {
                     liveSyncDurationCount: 3,
                     liveMaxLatencyDurationCount: 6,
                     maxLiveSyncPlaybackRate: 1.5,
-                    preferManagedMediaSource: preferManagedMediaSource
+                    preferManagedMediaSource: preferManagedMediaSource,
+                    backBufferLength: BACK_BUFFER_SECONDS
                 };
             const hls = new Hls(hlsConfig);
             p._hlsInstance = hls;

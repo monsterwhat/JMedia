@@ -92,6 +92,9 @@
 
                         <button class="control-btn" id="videoSpeedBtn"><span id="speedValue">1.0x</span></button>
                         <button class="control-btn" id="videoSubtitleBtn"><i class="pi pi-cog"></i></button>
+                        ${document.pictureInPictureEnabled && !p.video.disablePictureInPicture
+                            ? '<button class="control-btn" id="videoPipBtn" title="Picture in picture" aria-label="Picture in picture"><i class="pi pi-window-minimize"></i></button>'
+                            : ''}
                         <button class="control-btn" id="videoFullscreenBtn"><i class="pi pi-expand"></i></button>
                     </div>
                 </div>
@@ -216,6 +219,7 @@
             p.volSlider = p.container.querySelector('.volume-slider');
             p.muteBtn = p.container.querySelector('#videoMuteBtn');
             p.fullscreenBtn = p.container.querySelector('#videoFullscreenBtn');
+            p.pipBtn = p.container.querySelector('#videoPipBtn');
             p.speedBtn = p.container.querySelector('#videoSpeedBtn');
             p.speedValue = p.container.querySelector('#speedValue');
             p.subtitleBtn = p.container.querySelector('#videoSubtitleBtn');

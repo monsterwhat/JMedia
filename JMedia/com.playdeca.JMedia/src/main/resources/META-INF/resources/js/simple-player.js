@@ -361,11 +361,16 @@ if (typeof window.SimplePlayer === 'undefined') {
             this._boundKeydown = (e) => this.keyboardShortcuts.handleKeydown(e);
             window.addEventListener('keydown', this._boundKeydown);
 
-            // Defer the WebSocket connection until the first `playing` event so
-            // init stays off the critical path. One-shot listener; the _isLive
-            // guard and onStateUpdate/onCommand handlers live inside _initWebSocket.
+            // Keep the WebSocket off the critical path, but do not wait for playback
+            // to start: Chrome blocks autoplay with sound (and holds media in a
+            // background tab), so a video opened from another device often never
+            // reaches `playing` - and without a connection its remote play, seek
+            // and track commands had nothing to reach. Connect on the first
+            // `playing` or after 2 s, whichever comes first (_initWebSocket runs
+            // once; the _isLive guard and handlers live inside it).
             const deferWsInit = () => { if (!this._destroyed) this._initWebSocket(); };
             this.video.addEventListener('playing', deferWsInit, { once: true });
+            this._wsInitTimer = setTimeout(deferWsInit, 2000);
 
             this.externalUrl = this.container.dataset.externalUrl || null;
             this.externalOriginalUrl = this.container.dataset.externalOriginalUrl || null;
@@ -1017,7 +1022,16 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (this.video.paused) {
                             window.__jmediaDbg('[SimplePlayer] Remote toggle-play -> play (clearing user-pause gate)');
                             this._userPaused = false; this._userPausedAt = 0;
-                            this.video.play().catch(function(e) { console.error('[SimplePlayer] Remote play failed', e); });
+                            this.video.play().catch((e) => {
+                                // Chrome needs a click on this device before it plays with
+                                // sound; a remote command is not one. Say so here instead of
+                                // failing silently.
+                                if (e && e.name === 'NotAllowedError') {
+                                    if (window.Toast) window.Toast.info('Press play here to start - the browser blocked playback from another device');
+                                } else {
+                                    console.error('[SimplePlayer] Remote play failed', e);
+                                }
+                            });
                         } else {
                             window.__jmediaDbg('[SimplePlayer] Remote toggle-play -> pause (engaging user-pause gate)');
                             this._userPaused = true; this._userPausedAt = Date.now();
@@ -1165,7 +1179,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // Clear every timer that can outlive teardown (double-clear is harmless).
             const _timerKeys = ['_waitingTimer', '_toastTimer', '_broadcastTimer', '_qualityResetTimer',
                 '_touchToggleTimer', '_fsBufferTimer', '_fsBufferTimeout', '_fsRestoreTimer',
-                '_storyboardRetryTimer', '_swapSafetyTimer', '_bigPlayGuardTimer'];
+                '_storyboardRetryTimer', '_swapSafetyTimer', '_bigPlayGuardTimer', '_wsInitTimer'];
             _timerKeys.forEach((k) => {
                 const h = this[k];
                 if (h) {
