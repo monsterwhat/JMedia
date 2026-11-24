@@ -277,15 +277,15 @@
         }
 
         /**
-         * The family written into the ASS style. ASS is rendered by libass inside
-         * a worker, which cannot use the browser's installed fonts in Firefox
-         * (Local Font Access is unsupported), and only the bundled font file is
-         * registered there. Naming the bundled family is therefore the honest
-         * choice: what the script asks for is what is drawn, with no missing-font
-         * warning. Honouring Segoe UI requires bundling a metric-compatible clone.
+         * The family written into the ASS style. This must NOT equal defaultFont:
+         * JASSUB only loads the bundled fallback when libass asks for a different
+         * family, so requesting "liberation sans" directly left it with no font at
+         * all ("failed to find any fallback with glyph 0x0"). A distinct name
+         * triggers the substitution, which then resolves to Liberation Sans.
          */
         assFontName(style) {
-            return 'liberation sans';
+            const raw = (style && style.font) || "'Segoe UI'";
+            return raw.replace(/['"]/g, '').split(',')[0].trim().toLowerCase();
         }
 
         applyStyleToAssContent(content, style) {
