@@ -352,6 +352,13 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
      * instead of playing a song outside the DJ pool.
      */
     private Long resolveNextDjSong(PlaybackState state, List<Long> cue, int startIndex, Long fallback) {
+        if (fallback == null) {
+            // A null entry in the cue (or a stopped state) has no song to resolve;
+            // passing it to songService.find threw "Identifier may not be null".
+            LOG.warn("DJ resolve skipped: fallback song id is null (cueSize={}, index={})",
+                    cue == null ? -1 : cue.size(), startIndex);
+            return null;
+        }
         if (!hasDjRestriction(state) || cue == null || cue.isEmpty()) {
             return fallback;
         }
@@ -834,7 +841,17 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         return;
     }
 
-    Song currentSong = songService.find(state.getCurrentSongId());
+    // A null current song (playback stopped, or the queue was consumed) has no
+    // genre to re-target. songService.find(null) throws IllegalArgumentException
+    // "Identifier may not be null", which surfaced as a 500 on every toggle and
+    // next and left playback dead.
+    Long currentSongId = state.getCurrentSongId();
+    if (currentSongId == null) {
+        LOG.debug("[smart] no current song to re-target; leaving the queue order alone");
+        return;
+    }
+
+    Song currentSong = songService.find(currentSongId);
 
         if (currentSong == null) {
             return;

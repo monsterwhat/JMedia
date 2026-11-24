@@ -17,7 +17,10 @@ import jakarta.ws.rs.core.Response;
 
 @Blocking
 @Path("/api/music/playback")
-@Consumes(MediaType.APPLICATION_JSON)
+// Most endpoints take no body, and clients post them with any (or no) content
+// type; a class-level JSON restriction answered 415 to those. Any method that
+// needs a body still parses it with Jackson, and absent bodies stay null.
+@Consumes(MediaType.WILDCARD)
 @Produces(MediaType.APPLICATION_JSON)
 public class PlaybackAPI {
 
