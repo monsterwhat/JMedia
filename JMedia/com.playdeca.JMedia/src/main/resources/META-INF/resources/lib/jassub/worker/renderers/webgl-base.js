@@ -1,0 +1,97 @@
+import { CanvasRendererBase } from "./canvas-base.js";
+export const MAX_ATLAS_SCREENS = 128;
+export const ATLAS_IDLE_MS = 20_000;
+// one number for a position in the atlas, so the upload cache does not build a string per image
+// 14 bits for x and y fit a 16384 texture, and the result stays below 2^53 for 2^25 layers
+export function atlasPosition(x, y, layer) {
+    return (layer * 16384 + y) * 16384 + x;
+}
+export class WebGLRendererBase extends CanvasRendererBase {
+    gl;
+    program;
+    // Uniform locations
+    u_resolution = null;
+    u_colorMatrix = null;
+    u_colorOffset = null;
+    ctrl = new AbortController();
+    constructor(canvas) {
+        super(canvas);
+        canvas.addEventListener('webglcontextlost', e => {
+            e.preventDefault();
+            this.gl = null;
+        }, this.ctrl);
+        canvas.addEventListener('webglcontextrestored', () => this._initGL(), this.ctrl);
+    }
+    createProgram(vertexSource, fragmentSource) {
+        // Create shaders
+        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, vertexSource);
+        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, fragmentSource);
+        // Create program
+        const program = this.gl.createProgram();
+        if (!program)
+            throw new Error('Failed to create program');
+        this.gl.attachShader(program, vertexShader);
+        this.gl.attachShader(program, fragmentShader);
+        this.gl.linkProgram(program);
+        if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+            const info = this.gl.getProgramInfoLog(program);
+            this.gl.deleteProgram(program);
+            throw new Error('Failed to link program: ' + info);
+        }
+        this.gl.deleteShader(vertexShader);
+        this.gl.deleteShader(fragmentShader);
+        this.program = program;
+    }
+    createShader(type, source) {
+        const shader = this.gl.createShader(type);
+        if (!shader)
+            throw new Error('Failed to create shader');
+        this.gl.shaderSource(shader, source);
+        this.gl.compileShader(shader);
+        if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+            const info = this.gl.getShaderInfoLog(shader);
+            this.gl.deleteShader(shader);
+            throw new Error('Failed to compile shader: ' + info);
+        }
+        return shader;
+    }
+    setColorConversion(matrix) {
+        this.colorMatrix = matrix;
+        if (!this.gl)
+            return;
+        this.gl.uniformMatrix3fv(this.u_colorMatrix, false, matrix.subarray(0, 9));
+        this.gl.uniform3fv(this.u_colorOffset, matrix.subarray(9));
+    }
+    beginFrame(images) {
+        const resize = this.applyScheduledResize();
+        // Update viewport and resolution uniform
+        if (resize) {
+            this.gl.viewport(0, 0, resize.width, resize.height);
+            this.gl.uniform2f(this.u_resolution, resize.width, resize.height);
+        }
+        // Clear canvas
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        if (images.length === 0) {
+            this.gl.flush();
+            return false;
+        }
+        return true;
+    }
+    applyCommonState(textureUniform) {
+        // Set up blending for premultiplied alpha
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+        // Use the program
+        this.gl.useProgram(this.program);
+        // Set texture unit
+        this.gl.uniform1i(textureUniform, 0);
+        this.setColorConversion(this.colorMatrix);
+        // Set one-time GL state
+        this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+        this.gl.clearColor(0, 0, 0, 0);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        this.gl.uniform2f(this.u_resolution, this.canvas.width, this.canvas.height);
+    }
+}
+//# sourceMappingURL=webgl-base.js.map

@@ -1,0 +1,327 @@
+// WebGL2 renderer
+import { ATLAS_IDLE_MS, MAX_ATLAS_SCREENS, WebGLRendererBase, atlasPosition } from "./webgl-base.js";
+// GLSL ES 3.0 Vertex Shader with Instancing
+const VERTEX_SHADER = /* glsl */ `#version 300 es
+precision highp float;
+
+const vec2 QUAD_POSITIONS[6] = vec2[6](
+  vec2(0.0, 0.0),
+  vec2(1.0, 0.0),
+  vec2(0.0, 1.0),
+  vec2(1.0, 0.0),
+  vec2(1.0, 1.0),
+  vec2(0.0, 1.0)
+);
+
+uniform vec2 u_resolution;
+
+// Instance attributes
+in vec4 a_destRect;  // x, y, w, h
+in vec2 a_srcXY;     // atlas x, y
+in vec4 a_color;     // r, g, b, a
+in float a_layer;    // atlas layer
+
+flat out vec2 v_destXY;
+flat out vec4 v_color;
+flat out vec2 v_texSize;
+flat out vec2 v_srcXY;
+flat out float v_layer;
+
+void main() {
+  vec2 quadPos = QUAD_POSITIONS[gl_VertexID];
+  vec2 pixelPos = a_destRect.xy + quadPos * a_destRect.zw;
+  vec2 clipPos = (pixelPos / u_resolution) * 2.0 - 1.0;
+  clipPos.y = -clipPos.y;
+
+  gl_Position = vec4(clipPos, 0.0, 1.0);
+  v_destXY = a_destRect.xy;
+  v_color = a_color;
+  v_texSize = a_destRect.zw;
+  v_srcXY = a_srcXY;
+  v_layer = a_layer;
+}
+`;
+// GLSL ES 3.0 Fragment Shader - use texelFetch for pixel-perfect sampling
+const FRAGMENT_SHADER = /* glsl */ `#version 300 es
+precision highp float;
+precision highp sampler2DArray;
+
+uniform sampler2DArray u_atlas;
+uniform mat3 u_colorMatrix;
+uniform vec3 u_colorOffset;
+uniform vec2 u_resolution;
+
+flat in vec2 v_destXY;
+flat in vec4 v_color;
+flat in vec2 v_texSize;
+flat in vec2 v_srcXY;
+flat in float v_layer;
+
+out vec4 fragColor;
+
+void main() {
+  // Flip Y: WebGL's gl_FragCoord.y is 0 at bottom, but destXY.y is from top
+  vec2 fragPos = vec2(gl_FragCoord.x, u_resolution.y - gl_FragCoord.y);
+
+  // Calculate local position within the quad (screen coords)
+  vec2 localPos = fragPos - v_destXY;
+
+  // Convert to integer texel coordinates for texelFetch
+  ivec2 texCoord = ivec2(floor(localPos));
+
+  // Bounds check (prevents out-of-bounds access)
+  ivec2 texSizeI = ivec2(v_texSize);
+  if (texCoord.x < 0 || texCoord.y < 0 || texCoord.x >= texSizeI.x || texCoord.y >= texSizeI.y) {
+    discard;
+  }
+
+  // texelFetch: integer coords, no interpolation, no precision issues
+  float mask = texelFetch(u_atlas, ivec3(ivec2(v_srcXY) + texCoord, int(v_layer)), 0).r;
+
+  // Convert to the color space of the video (identity if no conversion needed)
+  vec3 correctedColor = clamp(u_colorMatrix * v_color.rgb + u_colorOffset, 0.0, 1.0);
+
+  // libass color alpha: 0 = opaque, 255 = transparent (inverted)
+  float colorAlpha = 1.0 - v_color.a;
+
+  // Final alpha = colorAlpha * mask
+  float a = colorAlpha * mask;
+
+  // Premultiplied alpha output
+  fragColor = vec4(correctedColor * a, a);
+}
+`;
+const ATLAS_PADDING = 1;
+const INITIAL_INSTANCES = 256;
+// One instance is 4 floats (dest rect), 2 floats (atlas position), 4 normalized bytes (color) and 1 float (atlas layer)
+const INSTANCE_STRIDE = 32;
+const ATLAS_ROUND = 64;
+// size layers so a frame fills about this many, many small layers make the packer try each one per image
+const ATLAS_TARGET_LAYERS = 8;
+// the area may not raise the layer size above this, large layers leave wide gaps next to long lines
+const ATLAS_AREA_SIZE_CAP = 1024;
+export class WebGL2Renderer extends WebGLRendererBase {
+    vao;
+    u_atlas = null;
+    // Interleaved instance buffer: dest rect, atlas position, color, then layer
+    instanceBuffer;
+    instanceData;
+    instanceFloats;
+    instanceBytes;
+    instanceCapacity = 0;
+    atlas = null;
+    atlasFullAt = 0;
+    maxTextureSize = 0;
+    maxArrayTextureLayers = 0;
+    // source key to the position its pixels have in the atlas
+    uploadCache = new Map();
+    _createInstanceData() {
+        this.instanceData = new ArrayBuffer(this.instanceCapacity * INSTANCE_STRIDE);
+        this.instanceFloats = new Float32Array(this.instanceData);
+        this.instanceBytes = new Uint8Array(this.instanceData);
+    }
+    ensureInstanceCapacity(count) {
+        if (count <= this.instanceCapacity)
+            return;
+        this.instanceCapacity = Math.max(count, this.instanceCapacity * 2, INITIAL_INSTANCES);
+        this._createInstanceData();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.instanceCapacity * INSTANCE_STRIDE, this.gl.DYNAMIC_DRAW);
+    }
+    constructor(canvas) {
+        super(canvas);
+        try {
+            this._initGL();
+        }
+        catch (e) {
+            this.destroy();
+            throw e;
+        }
+    }
+    _initGL() {
+        const gl = this.canvas.getContext('webgl2', {
+            alpha: true,
+            premultipliedAlpha: true,
+            antialias: false,
+            depth: false,
+            preserveDrawingBuffer: false,
+            stencil: false,
+            desynchronized: true,
+            powerPreference: 'default'
+        });
+        if (!gl) {
+            throw new Error('Could not get WebGL2 context');
+        }
+        this.gl = gl;
+        this.maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
+        this.maxArrayTextureLayers = this.gl.getParameter(this.gl.MAX_ARRAY_TEXTURE_LAYERS);
+        this.atlas = null;
+        this.uploadCache.clear();
+        this.createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
+        // Get uniform locations
+        this.u_resolution = this.gl.getUniformLocation(this.program, 'u_resolution');
+        this.u_atlas = this.gl.getUniformLocation(this.program, 'u_atlas');
+        this.u_colorMatrix = this.gl.getUniformLocation(this.program, 'u_colorMatrix');
+        this.u_colorOffset = this.gl.getUniformLocation(this.program, 'u_colorOffset');
+        // Create the interleaved instance buffer
+        this.instanceBuffer = this.gl.createBuffer();
+        this.instanceCapacity = 0;
+        this.ensureInstanceCapacity(INITIAL_INSTANCES);
+        // Create a VAO (required for WebGL2)
+        this.vao = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.vao);
+        // Setup instance attributes
+        const destRectLoc = this.gl.getAttribLocation(this.program, 'a_destRect');
+        this.gl.enableVertexAttribArray(destRectLoc);
+        this.gl.vertexAttribPointer(destRectLoc, 4, this.gl.FLOAT, false, INSTANCE_STRIDE, 0);
+        this.gl.vertexAttribDivisor(destRectLoc, 1);
+        const srcXYLoc = this.gl.getAttribLocation(this.program, 'a_srcXY');
+        this.gl.enableVertexAttribArray(srcXYLoc);
+        this.gl.vertexAttribPointer(srcXYLoc, 2, this.gl.FLOAT, false, INSTANCE_STRIDE, 16);
+        this.gl.vertexAttribDivisor(srcXYLoc, 1);
+        const colorLoc = this.gl.getAttribLocation(this.program, 'a_color');
+        this.gl.enableVertexAttribArray(colorLoc);
+        this.gl.vertexAttribPointer(colorLoc, 4, this.gl.UNSIGNED_BYTE, true, INSTANCE_STRIDE, 24);
+        this.gl.vertexAttribDivisor(colorLoc, 1);
+        const layerLoc = this.gl.getAttribLocation(this.program, 'a_layer');
+        this.gl.enableVertexAttribArray(layerLoc);
+        this.gl.vertexAttribPointer(layerLoc, 1, this.gl.FLOAT, false, INSTANCE_STRIDE, 28);
+        this.gl.vertexAttribDivisor(layerLoc, 1);
+        this.applyCommonState(this.u_atlas);
+    }
+    createAtlasTexture(size, depth) {
+        if (this.atlas) {
+            this.gl.deleteTexture(this.atlas.texture);
+        }
+        const texture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D_ARRAY, texture);
+        // Allocate storage for texture
+        this.gl.texImage3D(this.gl.TEXTURE_2D_ARRAY, 0, this.gl.R8, size, size, depth, 0, this.gl.RED, this.gl.UNSIGNED_BYTE, null // Firefox cries about uninitialized data, but is slower with zero initialized data...
+        );
+        // Set texture parameters (no filtering needed for texelFetch, but set anyway)
+        this.gl.texParameteri(this.gl.TEXTURE_2D_ARRAY, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D_ARRAY, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D_ARRAY, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D_ARRAY, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D_ARRAY, this.gl.TEXTURE_MAX_LEVEL, 0);
+        this.atlas = { texture, size, depth };
+    }
+    render(images, heap) {
+        if (!this.gl || !this.beginFrame(images))
+            return;
+        // Filter valid images and build atlas items in one pass
+        let maxDimension = 0;
+        let totalArea = 0;
+        const items = [];
+        for (const img of images) {
+            if (img.w > this.maxTextureSize || img.h > this.maxTextureSize)
+                continue;
+            items.push({
+                img,
+                x: 0,
+                y: 0,
+                layer: 0,
+                sourceKey: img.cache_id && `${img.cache_id}:${img.bitmap}:${img.w}:${img.h}:${img.stride}`
+            });
+            maxDimension = Math.max(maxDimension, img.w, img.h);
+            totalArea += img.w * img.h;
+        }
+        if (items.length === 0) {
+            this.gl.flush();
+            return;
+        }
+        const areaSize = Math.min(ATLAS_AREA_SIZE_CAP, Math.sqrt(totalArea / ATLAS_TARGET_LAYERS));
+        const initialSize = Math.min(this.maxTextureSize, Math.ceil(Math.max(maxDimension, areaSize) / ATLAS_ROUND) * ATLAS_ROUND);
+        let size = Math.max(this.atlas?.size ?? 0, initialSize);
+        const maxLayers = this.maxArrayTextureLayers || 256;
+        // Place tallest-first, keep original draw order.
+        const ordered = [...items].sort((a, b) => b.img.h - a.img.h);
+        let pageCount = this.packAtlas(ordered, size, ATLAS_PADDING, true);
+        // A larger layer holds more images. This only helps against the layer limit of the hardware.
+        while (pageCount > maxLayers && size < this.maxTextureSize) {
+            size = Math.min(this.maxTextureSize, size * 2);
+            pageCount = this.packAtlas(ordered, size, ATLAS_PADDING, true);
+        }
+        // A single layer always fits, so one large image still draws.
+        const maxBytes = MAX_ATLAS_SCREENS * this.canvas.width * this.canvas.height;
+        if (pageCount > maxLayers || (pageCount > 1 && size * size * pageCount > maxBytes)) {
+            console.warn('JASSUB: frame exceeds texture array capacity');
+            this.gl.flush();
+            return;
+        }
+        // wait for the previous frame before uploading, so a slow GPU drops frames instead of queuing them
+        // while this call blocks, the main thread drops video frames, so a slow GPU skips frames instead of queuing them
+        // a WebGLSync lock could replace finish() here in the future
+        this.gl.finish();
+        const oldCache = this.uploadCache;
+        const now = performance.now();
+        // Packing fills the first layers, so only trailing layers become idle.
+        const grow = !this.atlas || this.atlas.size < size || this.atlas.depth < pageCount;
+        const shrink = !grow && pageCount < this.atlas.depth && now - this.atlasFullAt > ATLAS_IDLE_MS;
+        if (grow || shrink) {
+            this.createAtlasTexture(size, pageCount);
+            oldCache.clear();
+        }
+        if (pageCount === this.atlas.depth)
+            this.atlasFullAt = now;
+        this.ensureInstanceCapacity(items.length);
+        this.uploadCache = new Map();
+        let instanceCount = 0;
+        // Upload textures
+        for (const { img, x, y, layer, sourceKey } of items) {
+            let cached = false;
+            if (sourceKey) {
+                const position = atlasPosition(x, y, layer);
+                cached = oldCache.get(sourceKey) === position || this.uploadCache.get(sourceKey) === position;
+                this.uploadCache.set(sourceKey, position);
+            }
+            if (!cached) {
+                // Upload bitmap data to texture array layer
+                this.gl.pixelStorei(this.gl.UNPACK_ROW_LENGTH, img.stride);
+                this.gl.texSubImage3D(this.gl.TEXTURE_2D_ARRAY, 0, x, y, layer, // x, y, z offset
+                img.w, img.h, 1, // depth (1 layer)
+                this.gl.RED, this.gl.UNSIGNED_BYTE, heap, img.bitmap);
+            }
+            // Fill the interleaved instance data
+            const f = instanceCount * 8;
+            this.instanceFloats[f] = img.dst_x;
+            this.instanceFloats[f + 1] = img.dst_y;
+            this.instanceFloats[f + 2] = img.w;
+            this.instanceFloats[f + 3] = img.h;
+            this.instanceFloats[f + 4] = x;
+            this.instanceFloats[f + 5] = y;
+            this.instanceFloats[f + 7] = layer;
+            const b = instanceCount * INSTANCE_STRIDE + 24;
+            this.instanceBytes[b] = (img.color >>> 24) & 0xFF;
+            this.instanceBytes[b + 1] = (img.color >>> 16) & 0xFF;
+            this.instanceBytes[b + 2] = (img.color >>> 8) & 0xFF;
+            this.instanceBytes[b + 3] = img.color & 0xFF;
+            instanceCount++;
+        }
+        this.gl.pixelStorei(this.gl.UNPACK_ROW_LENGTH, 0);
+        if (instanceCount !== 0) {
+            // Upload the instance data in one call
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+            this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceBytes, 0, instanceCount * INSTANCE_STRIDE);
+            // Single instanced draw call
+            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, instanceCount);
+        }
+        // Submit the queued commands before the task ends, so the compositor picks
+        // up this frame.
+        this.gl.flush();
+    }
+    destroy() {
+        this.ctrl.abort();
+        this.uploadCache.clear();
+        if (!this.gl)
+            return;
+        if (this.atlas)
+            this.gl.deleteTexture(this.atlas.texture);
+        this.gl.deleteBuffer(this.instanceBuffer);
+        this.gl.deleteVertexArray(this.vao);
+        this.gl.deleteProgram(this.program);
+        this.gl.getExtension('WEBGL_lose_context')?.loseContext();
+        this.instanceBuffer = this.vao = this.program = this.gl = this.atlas = null;
+    }
+}
+//# sourceMappingURL=webgl2-renderer.js.map

@@ -101,9 +101,8 @@ public class VideoPlaybackAPI {
         try {
             Response denied = requireProfileAccess(profileId, currentUser(headers));
             if (denied != null) return denied;
-            // togglePlay() already broadcasts the authoritative state (playing=true/false)
-            // to every video WS session; a redundant broadcastCommand("toggle-play") would
-            // make clients apply the state AND toggle again, net-undoing the pause/play.
+            // togglePlay() sends the player an absolute "set-playing" command (players no
+            // longer take play/pause from state broadcasts), so no "toggle-play" here.
             videoController.togglePlay(profileId);
             return Response.ok("{\"success\":true,\"message\":\"Playback toggled\"}").build();
         } catch (Exception e) {
@@ -230,10 +229,8 @@ public class VideoPlaybackAPI {
         try {
             Response denied = requireProfileAccess(profileId, currentUser(headers));
             if (denied != null) return denied;
+            // setSeconds sends the player its "seek" command (REST and WS seeks alike).
             videoController.setSeconds(seconds, profileId);
-            com.fasterxml.jackson.databind.node.ObjectNode seekPayload = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
-            seekPayload.put("value", seconds);
-            videoSocket.broadcastCommand("seek", seekPayload, profileId);
             return Response.ok("{\"success\":true,\"message\":\"Seeked to " + seconds + " seconds\",\"position\":" + seconds + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

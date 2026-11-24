@@ -27,8 +27,6 @@
             p.muteKey = 'jmedia_video_mute_' + p.profileId;
             p.userActiveTimeout = null;
             p.isIOSNativeFullscreen = false;
-            p._streamFallbackCount = 0;
-            p._maxStreamFallbacks = 2;
             p._preferredQuality = 0;
             p._previousQuality = 0;
             p._qualitySwitching = false;

@@ -21,7 +21,7 @@
         /* Fresh per-request query param so Firefox's session media cache can't
          * resume a stale transcode (immutable Cache-Control + deterministic ETag
          * make completed segments resumable) — a fresh trace= forces a real
-         * fetch against the server's current phantom clock. */
+         * fetch of the server's current stream. */
         _traceId() {
             return `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
         }
@@ -370,60 +370,15 @@
 
             p._showLoading('Loading video...');
 
-            // A HEVC copy that the client cannot actually decode can stall
-            // without ever firing a `video` error. Escalate to a forced H.264
-            // transcode when playback has not started in time.
-            this._armPlaybackWatchdog('direct', () => {
-                const resumeAt = p.lastKnownGoodPosition > 0 ? p.lastKnownGoodPosition : 0;
-                if (p._destroyed || p._userPaused) return;
-                this.disableClientCodecs();
-                p.video.src = this.buildStreamUrl(resumeAt, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
-                p.video.load();
-                p.video.play().catch(function(e) { console.error('[SimplePlayer] Watchdog retry play failed', e); });
-            }, 15000);
+            // Start check, stalls and errors: PlayerRecovery (a copy this browser
+            // cannot decode, which may never raise an error, is escalated).
+            if (p.recovery) p.recovery.begin('direct');
 
             p.video.addEventListener('loadedmetadata', () => {
                 dbg('[SimplePlayer] Direct stream metadata loaded, duration:', p.video.duration);
                 p.applyInitialState();
                 p.loadSubtitles();
             }, { once: true });
-
-            p.video.addEventListener('playing', () => {
-                p._streamFallbackCount = 0;
-                this._clearPlaybackWatchdog();
-                p._hideLoading();
-            }, { once: true });
-
-            // Skip if caller (simple-player) manages its own persistent error handler — avoids double-counting the fallback budget.
-            if (!p._setupStreamErrorHandler) {
-                p._streamErrorHandler = (e) => {
-                    if (p._userPaused) {
-                        dbg('[SimplePlayer] Direct stream error suppressed — user pause active, not retrying');
-                        return;
-                    }
-                    p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
-                    console.error('[SimplePlayer] Direct stream error (fallback ' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + '):', p.video.error);
-                    if (p._streamFallbackCount < p._maxStreamFallbacks) {
-                        p._showLoading('Stream error, retrying...');
-                        setTimeout(() => {
-                            if (p._userPaused) {
-                                dbg('[SimplePlayer] Blocked stream-error retry play — user pause active');
-                                return;
-                            }
-                            const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
-                            p.streamStartOffset = currentTime;
-                            p.lastKnownGoodPosition = 0;
-                            p.video.src = this.buildStreamUrl(currentTime);
-                            p.video.load();
-                            dbg('[SimplePlayer] Stream-error retry play()');
-                            p.video.play().catch(function(e) { console.error('[SimplePlayer] Stream-error retry play failed', e); });
-                        }, 1000);
-                    } else {
-                        p._showLoading('Playback failed after ' + p._maxStreamFallbacks + ' attempts');
-                    }
-                };
-                p.video.addEventListener('error', p._streamErrorHandler);
-            }
 
             if (p._userPaused) {
                 dbg('[SimplePlayer] Initial auto-play suppressed — user pause active');
@@ -601,7 +556,8 @@
                             (v && v.readyState) + ', vw=' + (v && v.videoWidth) + '); falling back to direct');
                         p._hlsNative = false;
                         try { v.pause(); } catch (e) { /* element already torn down */ }
-                        this.fallbackToDirectStream(savedTime);
+                        if (p.recovery) p.recovery.fail('hls');
+                        else this.fallbackToDirectStream(savedTime);
                     }, 15000);
                     const markNativeHlsOk = () => {
                         if (p.video && p.video.videoWidth > 0) {
@@ -620,13 +576,13 @@
                     p.video.addEventListener('loadeddata', markNativeHlsOk, { once: true });
                     p.video.addEventListener('playing', markNativeHlsOk);
                     p.video.addEventListener('error', () => {
+                        // PlayerRecovery handles the error itself (reconnect, then escalate).
                         console.error('[SimplePlayer] Native HLS error:', p.video.error);
                         clearTimeout(p._nativeHlsWatchdog);
                         p._nativeHlsWatchdog = null;
                         p._hlsNative = false;
-                        this.fallbackToDirectStream(savedTime);
                     }, { once: true });
-                    p.video.addEventListener('playing', () => p._hideLoading(), { once: true });
+                    if (p.recovery) p.recovery.begin('hls-native');
                     p.video.play().catch((e) => {
                         dbg('[SimplePlayer] iOS native HLS play blocked, awaiting gesture:', e);
                     });
@@ -653,21 +609,6 @@
         }
 
         /**
-         * Cancel a pending playback-start watchdog. Safe to call repeatedly.
-         * The watchdog exists because some HEVC/MSE failures on Windows
-         * Chromium never surface as a `video` error or a fatal hls.js error �?"
-         * the element simply never leaves the buffering state, so the UI
-         * spinner would otherwise stay forever with no fallback.
-         */
-        _clearPlaybackWatchdog() {
-            const p = this.player;
-            if (p._playbackWatchdog) {
-                clearTimeout(p._playbackWatchdog);
-                p._playbackWatchdog = null;
-            }
-        }
-
-        /**
          * Seconds of media buffered at the end of the element's ranges. Used to
          * tell "the stream is dead" apart from "the encoder is still producing
          * in real time": the latter keeps this number growing even while
@@ -681,56 +622,6 @@
             } catch (e) {
                 return 0;
             }
-        }
-
-        /**
-         * Escalate to an H.264 transcode when playback has not actually
-         * started within `ms`. `onTimeout` receives no arguments and must be
-         * idempotent; the watchdog is cleared before it runs.
-         *
-         * A slow-but-healthy stream is given more time instead of being
-         * restarted: re-opening the source aborts the in-flight play() and
-         * launches a second transcode from scratch, which is how a 1080p
-         * movie that simply needed another 10 seconds ended up never playing.
-         */
-        _armPlaybackWatchdog(label, onTimeout, ms) {
-            const p = this.player;
-            this._clearPlaybackWatchdog();
-            const deadline = ms || 15000;
-            const MAX_EXTENSIONS = 3;
-            let extensions = 0;
-
-            const arm = (bufferedAtWindowStart) => {
-                p._playbackWatchdog = setTimeout(() => {
-                    p._playbackWatchdog = null;
-                    if (p._destroyed) return;
-                    const v = p.video;
-                    const started = v && !v.paused && v.readyState >= 2 && v.currentTime > 0.1;
-                    if (started) return;
-                    if (v && v.readyState >= 2) {
-                        // The stream decoded fine; the element is simply paused, usually
-                        // because a deep link opened it without a user gesture and Chrome
-                        // blocked autoplay. Reloading here aborts a healthy stream and
-                        // produces "play() interrupted by a new load request" in a loop.
-                        dbg('[SimplePlayer] Watchdog: stream ready (readyState ' + v.readyState + ') but paused - waiting for the user to press play');
-                        if (typeof p._hideLoading === 'function') p._hideLoading();
-                        return;
-                    }
-                    const bufferedNow = this._bufferedEnd(v);
-                    if (bufferedNow > bufferedAtWindowStart + 0.05 && extensions < MAX_EXTENSIONS) {
-                        extensions++;
-                        dbg('[SimplePlayer] Watchdog: no playback yet but the stream is still arriving (' +
-                            bufferedNow.toFixed(1) + 's buffered, window ' + extensions + '/' + MAX_EXTENSIONS +
-                            ') - waiting instead of restarting');
-                        arm(bufferedNow);
-                        return;
-                    }
-                    console.warn('[SimplePlayer] Playback did not start within ' + deadline * (extensions + 1) + 'ms (' + label + '); escalating to H.264');
-                    onTimeout();
-                }, deadline);
-            };
-
-            arm(this._bufferedEnd(p.video));
         }
 
         /**
@@ -839,18 +730,7 @@
             hls.loadSource(url);
             hls.attachMedia(p.video);
 
-            this._armPlaybackWatchdog('hls', () => {
-                if (p._userPaused) return;
-                if (p._hlsInstance === hls) {
-                    hls.destroy();
-                    p._hlsInstance = null;
-                }
-                if (fallbackToDirect) {
-                    this.fallbackToDirectStream(savedTime);
-                } else {
-                    p._showLoading('Playback error');
-                }
-            }, 15000);
+            if (p.recovery) p.recovery.begin('hls');
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 if (p._destroyed || p._hlsInstance !== hls) return;
@@ -885,24 +765,30 @@
                         (data.error && data.error.message) || data.reason || '(no detail)',
                         data.frag ? ('frag sn ' + data.frag.sn + ' ' + String(data.frag.url || '').slice(-70)) : '(no frag)');
                 }
-                this._clearPlaybackWatchdog();
                 if (p._userPaused) {
                     dbg('[SimplePlayer] HLS fatal error suppressed — user pause active, not retrying');
                     return;
                 }
+                // hls.js could not recover in place: PlayerRecovery escalates local
+                // sessions to a forced transcode; external/live streams show an error.
+                const giveUp = () => {
+                    try { hls.destroy(); } catch (e) { /* already gone */ }
+                    if (p._hlsInstance === hls) p._hlsInstance = null;
+                    if (p.recovery) {
+                        p.recovery.fail('hls');
+                    } else if (fallbackToDirect) {
+                        this.fallbackToDirectStream(savedTime);
+                    } else {
+                        p._showLoading('Playback error');
+                    }
+                };
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                     p._hlsNetworkRetries = (p._hlsNetworkRetries || 0) + 1;
                     if (p._hlsNetworkRetries < 3) {
                         dbg('[SimplePlayer] HLS network retry ' + p._hlsNetworkRetries + '/3 — startLoad()');
                         hls.startLoad();
                     } else {
-                        hls.destroy();
-                        p._hlsInstance = null;
-                        if (fallbackToDirect) {
-                            this.fallbackToDirectStream(savedTime);
-                        } else {
-                            p._showLoading('Playback error');
-                        }
+                        giveUp();
                     }
                 } else {
                     // Media errors (a failed append or parse, a decoder hiccup) are
@@ -924,26 +810,20 @@
                             console.error('[SimplePlayer] HLS in-place recovery failed', e);
                         }
                     }
-                    if (fallbackToDirect) {
-                        hls.destroy();
-                        p._hlsInstance = null;
-                        this.fallbackToDirectStream(savedTime);
-                    } else {
-                        p._showLoading('Playback error');
-                    }
+                    giveUp();
                 }
             });
-
-            p.video.addEventListener('playing', () => {
-                this._clearPlaybackWatchdog();
-                p._hideLoading();
-            }, { once: true });
 
             p.setMusicSuspended(true);
             p.startProgressReporting();
         }
 
-        fallbackToDirectStream(savedTime) {
+        /**
+         * Forced H.264 transcode (the escalation step). `position` is the absolute
+         * place to resume from when PlayerRecovery knows it; otherwise it is
+         * derived from the last played position (savedTime is kept for callers).
+         */
+        fallbackToDirectStream(savedTime, position) {
             const p = this.player;
             if (p._fallbackInProgress || p._destroyed || !document.body.contains(p.container)) return;
             p._fallbackInProgress = true;
@@ -960,7 +840,10 @@
             }
             this.destroyLocalHlsSession();
 
-            const absTime = Math.max(0, p.streamStartOffset > 0 ? p.lastKnownGoodPosition + p.streamStartOffset : p.lastKnownGoodPosition);
+            const absTime = (typeof position === 'number' && position >= 0)
+                ? position
+                : Math.max(0, p.streamStartOffset > 0 ? p.lastKnownGoodPosition + p.streamStartOffset : p.lastKnownGoodPosition);
+            p.initialResumeTime = 0;
             p.streamStartOffset = absTime;
 
             const setupFallback = () => {
@@ -970,11 +853,8 @@
                 this.disableClientCodecs();
                 p.video.src = this.buildStreamUrl(absTime, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                 p.video.load();
-                this._armPlaybackWatchdog('fallback', () => {
-                    if (p._userPaused) return;
-                    p._fallbackInProgress = false;
-                    p._showLoading('Playback failed - try reloading');
-                }, 25000);
+                // A forced transcode gets longer to start; failing again ends recovery.
+                if (p.recovery) p.recovery.begin('fallback', { deadlineMs: 25000 });
                 p.video.addEventListener('loadedmetadata', () => {
                     p._fallbackInProgress = false;
                     p.applyInitialState();
@@ -982,12 +862,9 @@
                 }, { once: true });
                 p.video.addEventListener('playing', () => {
                     p._fallbackInProgress = false;
-                    this._clearPlaybackWatchdog();
-                    p._hideLoading();
                 }, { once: true });
                 p.video.addEventListener('error', () => {
                     p._fallbackInProgress = false;
-                    this._clearPlaybackWatchdog();
                 }, { once: true });
                 p.video.play().catch((e) => {
                     console.warn('[SimplePlayer] play() after fallback-to-direct was blocked:', e);
@@ -1067,7 +944,7 @@
                 console.error('[StreamManager] load() failed during teardown', e);
             }
             this.clearStreamErrorHandlers();
-            this._clearPlaybackWatchdog();
+            if (p.recovery) p.recovery.cancel();
             if (!opts.keepHlsSession) this.destroyLocalHlsSession();
         }
 
@@ -1115,7 +992,7 @@
             const p = this.player;
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
-            p._streamFallbackCount = 0;
+            if (p.recovery) p.recovery.reset();
             if (p._stallTimer) {
                 clearTimeout(p._stallTimer);
                 p._stallTimer = null;
@@ -1207,9 +1084,10 @@
                 }, { once: true });
             }
             p.video.load();
+            if (p.recovery) p.recovery.begin('audio-switch');
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
-            // the server's phantom clock snaps to the new absolute position.
+            // the server records the new absolute position.
             this._confirmSeekPosition();
 
             // F6: re-apply playbackRate after src+load reset
@@ -1352,7 +1230,7 @@
             this.initLocalHlsStream(Math.max(0, time));
 
             // On playing, clear the swap guard and send ONE confirmation broadcast
-            // so the server's phantom clock snaps to the new absolute position.
+            // so the server records the new absolute position.
             this._confirmSeekPosition();
 
             // The rebuilt session goes through MANIFEST_PARSED -> play(), but a
@@ -1376,7 +1254,6 @@
          */
         destroy() {
             const p = this.player;
-            this._clearPlaybackWatchdog();
             this.clearStreamErrorHandlers();
             if (p) {
                 ['_seekRetryTimer', '_swapSafetyTimer', '_stallTimer', '_midStallTimer',
@@ -1532,51 +1409,10 @@
 
             this._doServerSeek(time);
 
-            if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
-                // Pin the video this restore belongs to. The retry interval below lives for
-                // up to 6s, and without this a pending interval from the previous episode
-                // would keep clicking subtitle options on whatever video is playing by then
-                // (or on a destroyed player).
-                const seekVideoId = p.videoId;
-                const reloadSubtitles = async () => {
-                    if (p._destroyed || p.videoId !== seekVideoId) return;
-                    dbg('[SimplePlayer] Reloading subtitles after seek, track:', p.lastSelectedTrackId);
-                    await p.loadSubtitles(true);
-
-                    const checkAndRestore = () => {
-                        if (p._destroyed || p.videoId !== seekVideoId) {
-                            return true; // stop the retry loop quietly
-                        }
-                        const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
-                        if (activeOpt) {
-                            dbg('[SimplePlayer] Restoring subtitle track after seek:', p.lastSelectedTrackId);
-                            activeOpt.click();
-                            return true;
-                        }
-                        return false;
-                    };
-
-                    if (!checkAndRestore()) {
-                        let attempts = 0;
-                        const retryInterval = setInterval(() => {
-                            if (checkAndRestore() || attempts++ > 20) {
-                                clearInterval(retryInterval);
-                                if (attempts > 20) {
-                                    console.warn('[SimplePlayer] Failed to restore subtitle track after seek:', p.lastSelectedTrackId);
-                                }
-                            }
-                        }, 300);
-                    }
-                };
-
-                if (p.video.readyState >= 1) {
-                    setTimeout(() => reloadSubtitles(), 500);
-                } else {
-                    p.video.addEventListener('loadedmetadata', () => {
-                        setTimeout(() => reloadSubtitles(), 500);
-                    }, { once: true });
-                }
-            }
+            // Subtitles: _doServerSeek rebuilds the active track once the new stream
+            // has loaded (loadSubtitles re-selects lastSelectedTrackId itself). The
+            // extra rebuild plus 300 ms click-polling that used to follow here only
+            // rebuilt the same track two more times.
         }
 
         /**
@@ -1656,42 +1492,10 @@
             // stale handler and the transcode watchdog before reloading, then install
             // a seek-scoped handler that retries at the seek target instead.
             this.clearStreamErrorHandlers();
-            this._clearPlaybackWatchdog();
             if (p._seekRetryTimer) { clearTimeout(p._seekRetryTimer); p._seekRetryTimer = null; }
-            p._streamFallbackCount = 0;
-
-            // Seek-scoped error handler. The rest of the player is now unprotected
-            // (the initial-open handler was removed above), so without this a real
-            // failure would leave a dead player. Retries always reload at the seek
-            // target, never at the original resume position. `seekSrcAssigned` makes
-            // the handler ignore the empty-src error raised while the old resource is
-            // torn down, so it cannot mistake teardown for a failed seek.
-            let seekSrcAssigned = false;
-            const onSeekError = () => {
-                if (!seekSrcAssigned) return;
-                if (p._destroyed || seekGen !== p._seekGen) return;
-                p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
-                const maxFallbacks = p._maxStreamFallbacks || 3;
-                console.error('[SimplePlayer] Seek stream error (fallback ' + p._streamFallbackCount + '/' + maxFallbacks + '):', p.video.error);
-                if (p._streamFallbackCount >= maxFallbacks) {
-                    p._showLoading('Playback failed after ' + p._streamFallbackCount + ' attempts');
-                    return;
-                }
-                p._showLoading('Stream error, retrying...');
-                if (p._seekRetryTimer) clearTimeout(p._seekRetryTimer);
-                p._seekRetryTimer = setTimeout(() => {
-                    if (p._destroyed || seekGen !== p._seekGen) return;
-                    // streamStartOffset may have been corrected down to the real
-                    // keyframe/segment origin: that is the safe place to resume.
-                    const retryTarget = Math.max(0, p.streamStartOffset || time);
-                    dbg(`[SimplePlayer] Retrying seek at ${retryTarget}s (attempt ${p._streamFallbackCount}/${maxFallbacks})`);
-                    p.video.src = this.buildStreamUrl(retryTarget);
-                    p.video.load();
-                    p.video.play().catch((e) => dbg('[SimplePlayer] Seek retry play blocked, awaiting gesture:', e));
-                }, Math.min(8000, 2000 * p._streamFallbackCount));
-            };
-            p._seekErrorHandler = onSeekError;
-            p.video.addEventListener('error', onSeekError);
+            // A user seek is a fresh start for recovery. Errors on the new source
+            // go to PlayerRecovery, which retries at the current (= seek) position.
+            if (p.recovery) p.recovery.reset();
 
             if (p.buffering) p.buffering.style.display = 'block';
 
@@ -1713,9 +1517,9 @@
             // answers. Waiting for that probe before setting src left the player black
             // for up to 18s (6s then 12s) on a cold encoder, because the probe is served
             // through the same transcode path as the stream.
-            seekSrcAssigned = true;
             p.video.src = seekUrl;
             p.video.load();
+            if (p.recovery) p.recovery.begin('seek');
             // Autoplay attribute alone is unreliable here: the reload happens outside
             // the original user gesture (remote/keyboard/auto seeks), so the browser may
             // block it silently with no pause event — leaving the playing icon over a
@@ -1737,7 +1541,7 @@
             });
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so
-            // the server's phantom clock snaps to the new absolute position (element + offset).
+            // the server records the new absolute position (element + offset).
             this._confirmSeekPosition(seekGen);
 
             // Mid-segment coverage serve lands the element clock at relTarget (segment

@@ -10,10 +10,9 @@
             const p = this.player;
             if (p._prog) clearInterval(p._prog);
             let restTick = 0;
-            // ~1s cadence keeps lastClientReportAt on the server fresh (its mirror window
-            // is 1500ms) so the phantom clock follows the real player instead of advancing
-            // independently and drifting/jumping the position. The REST DB progress save
-            // is still throttled to every 5th tick (~5s) to bound writes.
+            // ~1 s cadence: this player's position is the source of truth and the
+            // server relays it to the profile's other devices (remote views). The REST
+            // DB progress save is throttled to every 5th tick (~5 s) to bound writes.
             p._prog = setInterval(() => {
                 if (!p.video.paused && p.video.currentTime > 0) {
                     restTick++;
@@ -92,15 +91,17 @@
             if (force) {
                 console.log('[SimplePlayer] saveNow forced (playing=' + !isPaused + ')');
             }
-            p._lastProgressSave = now;
-            if (p.video.currentTime > 0 || p.streamStartOffset > 0) {
-                var displayTime = p.video.currentTime + (p.streamStartOffset || 0);
-                this._reportProgress(displayTime, !p.video.paused);
-            } else if (isPaused) {
-                var displayTime2 = (p.video.currentTime || 0) + (p.streamStartOffset || 0);
-                this._reportProgress(displayTime2, false);
-                console.log('[SimplePlayer] Pause progress report (time=' + displayTime2 + ')');
+            var displayTime = (p.video.currentTime || 0) + (p.streamStartOffset || 0);
+            // Nothing has played yet and the element sits at 0: the resume seek
+            // has not happened (direct file before loadedmetadata, autoplay
+            // blocked). Reporting 0 here, on pause/hide/pagehide/teardown,
+            // overwrote the saved resume point and dropped the title from
+            // Continue Watching when a video was opened and left before it loaded.
+            if (!p._hasPlayedData && displayTime < 1) {
+                return;
             }
+            p._lastProgressSave = now;
+            this._reportProgress(displayTime, !p.video.paused);
         }
 
         setMusicSuspended(s) {

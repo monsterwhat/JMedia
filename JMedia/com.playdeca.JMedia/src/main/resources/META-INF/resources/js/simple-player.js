@@ -149,11 +149,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             // Per-instance suppression window blocking stale broadcasts during an in-place WS source swap (B9).
             this._swapInProgress = false;
             this._swapSafetyTimer = null;
-            this._localSeekAt = 0;
-            this._localSeekPos = -1;
-            // Timestamp of the last timeupdate: proves the element is actually
-            // advancing. The drift-seek below refuses to follow the server state
-            // while this is stale (stalled/errored element — phantom clock guard).
+            // Timestamp of the last timeupdate (diagnostics: proves the element is
+            // actually advancing).
             this._lastProgressAt = 0;
             // User-gesture pause gate: once the user explicitly pauses, server
             // state sync must NOT re-assert play() until the user explicitly
@@ -183,6 +180,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.subtitleSettingsUI = new window.PlayerSubtitleSettingsUI(this);
             // Media keys / browser media hub control the video while it plays.
             this.mediaSession = window.PlayerMediaSession ? new window.PlayerMediaSession(this) : null;
+            // The one place that decides when playback has failed and how to recover.
+            this.recovery = window.PlayerRecovery ? new window.PlayerRecovery(this) : null;
 
             window.currentPlayerInstance = this;
             window.player = this;
@@ -334,8 +333,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.streamStartOffset = 0;
             this.lastKnownGoodPosition = 0;
             this._hasPlayedData = false;
-            this._streamFallbackCount = 0;
-            this._healthySince = 0;
+            if (this.recovery) this.recovery.reset();
             // Direct files resume with a client-side seek on loadedmetadata; the
             // transcode and HLS routes start the stream at dataset.startTime.
             this.initialResumeTime = start;
@@ -534,57 +532,39 @@ if (typeof window.SimplePlayer === 'undefined') {
                     // segment starts deep inside that segment's own timeline). Use the
                     // origin the server reports so the clock and subtitle offset match
                     // the picture instead of the request.
+                    // Start the stream right away and correct the clock when the origin
+                    // probe answers (as _doServerSeek does). Waiting for the probe first
+                    // delayed every Firefox start: the probe goes through the same
+                    // transcode path, up to 6 s + 12 s on a cold encoder.
                     const probeVideoId = this.videoId;
+                    const originGen = this._originGen = (this._originGen || 0) + 1;
+                    this.video.src = streamUrl;
+                    this.streamMgr._preloadSubtitleTracks()
+                        .catch(e => console.warn('[SimplePlayer] Subtitle preload failed:', e));
+                    this.subtitleController.loadSubtitles();
+                    // Start check, stalls and errors: PlayerRecovery (a source that
+                    // never starts is escalated to a forced H.264 transcode).
+                    if (this.recovery) this.recovery.begin('transcode');
+                    this.video.play().then(() => {
+                    }).catch(e => {
+                        console.warn('[SimplePlayer] Autoplay blocked, waiting for a user gesture:', e);
+                    });
                     this.streamMgr.resolveStreamOrigin(streamUrl).then((origin) => {
-                        if (this._destroyed || this.videoId !== probeVideoId) return;
-                        if (origin !== null) {
-                            this.streamStartOffset = origin;
-                            this._streamOriginAuthoritative = true;
-                        }
-                        // Assign src first (with the origin probe as today), then
-                        // load subtitles. Subtitle preload is NOT awaited on the
-                        // critical path; kick it off (unawaited) after src is set.
-                        this.video.src = streamUrl;
-                        this.streamMgr._preloadSubtitleTracks()
-                            .catch(e => console.warn('[SimplePlayer] Subtitle preload failed:', e));
+                        // A newer open/retry or another video owns the clock now.
+                        if (this._destroyed || this.videoId !== probeVideoId || originGen !== this._originGen) return;
+                        // A seek or track switch since then replaced the source.
+                        let stillCurrent = false;
+                        try { stillCurrent = this.video.src === new URL(streamUrl, window.location.href).href; } catch (e) { /* keep false */ }
+                        if (!stillCurrent) return;
+                        if (origin === null) return;
+                        this._streamOriginAuthoritative = true;
+                        if (Math.abs(origin - (this.streamStartOffset || 0)) < 0.05) return;
+                        this.streamStartOffset = origin;
+                        // Subtitles were requested with the requested offset; rebuild
+                        // them on the real content start.
                         this.subtitleController.loadSubtitles();
-                        this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
-                        // Some HEVC transcode failures never fire a `video` error;
-                        // escalate to H.264 if playback has not started in time.
-                        this.streamMgr._armPlaybackWatchdog('transcode', () => {
-                            if (this._destroyed || this._userPaused) return;
-                            this.streamMgr.disableClientCodecs();
-                            this.video.src = this.streamMgr.buildStreamUrl(target, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
-                            this.video.load();
-                            this.video.play().catch(function(e) {
-                                console.error('[SimplePlayer] Transcode watchdog retry play failed', e);
-                            });
-                        }, 15000);
-                        this.video.play().then(() => {
-                        }).catch(e => {
-                            console.warn('[SimplePlayer] Autoplay blocked, waiting for a user gesture:', e);
-                        });
                     });
                 };
-                const setupStreamErrorHandler = () => {
-                    if (this._destroyed || !document.body.contains(this.container)) return;
-                    this._streamFallbackCount = (this._streamFallbackCount || 0) + 1;
-                    console.error('[SimplePlayer] Direct stream error (fallback ' + this._streamFallbackCount + '/' + this._maxStreamFallbacks + '):', this.video.error);
-                    if (this._streamFallbackCount < this._maxStreamFallbacks) {
-                        this._showLoading('Stream error, retrying...');
-                        // Retry where the viewer is, not where the stream was opened:
-                        // an error 40 minutes in used to jump back to the resume point.
-                        const retryAt = this._hasPlayedData ? this._currentAbsolutePosition() : savedTime;
-                        setTimeout(() => {
-                            if (this._destroyed || !document.body.contains(this.container)) return;
-                            setupStream(retryAt);
-                        }, 1000);
-                    } else {
-                        this._showLoading('Playback failed - try reloading');
-                    }
-                };
-                this._setupStreamErrorHandler = setupStreamErrorHandler;
-                this.video.addEventListener('error', this._setupStreamErrorHandler);
                 setupStream(savedTime);
             } else {
                 /* Load from beginning; client-side seek in loadedmetadata handles resume.
@@ -599,55 +579,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                 // remux (seek with ?start=); off the critical path.
                 this.streamMgr.probeRawDirect(this.video.src);
                 this.subtitleController.loadSubtitles();
-                this.video.addEventListener('playing', () => this.streamMgr._clearPlaybackWatchdog(), { once: true });
-                // Guards the copy path against a silent HEVC decode stall that
-                // never raises a `video` error on some Windows Chromium builds.
-                this.streamMgr._armPlaybackWatchdog('copy', () => {
-                    if (this._destroyed || this._userPaused) return;
-                    // The copy attempt just failed to decode; never advertise the
-                    // codec again or the server will copy the same unplayable stream.
-                    this.streamMgr.disableClientCodecs();
-                    this.video.src = this.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
-                    this.video.load();
-                    this.video.play().catch(function(e) {
-                        console.error('[SimplePlayer] Copy watchdog retry play failed', e);
-                    });
-                }, 15000);
-                // F2a: Attach error handler for plain direct stream (was only on transcode path)
-                var self = this;
-                this._setupStreamErrorHandler = function() {
-                    if (self._destroyed || !document.body.contains(self.container)) return;
-                    self._streamFallbackCount = (self._streamFallbackCount || 0) + 1;
-                    console.error('[SimplePlayer] Direct stream error (fallback ' + self._streamFallbackCount + '/' + self._maxStreamFallbacks + '):', self.video.error);
-                    if (self._streamFallbackCount < self._maxStreamFallbacks) {
-                        self._showLoading('Stream error, retrying...');
-                        // Where to resume: the current position once playback has run,
-                        // otherwise the pending resume point. Restarting at 0 (as before)
-                        // threw the viewer back to the start of the movie.
-                        const retryAt = self._hasPlayedData
-                            ? self._currentAbsolutePosition()
-                            : (self.initialResumeTime > 0 ? self.initialResumeTime : savedTime);
-                        setTimeout(function() {
-                            if (self._destroyed || !document.body.contains(self.container)) return;
-                            // A forced transcode honours ?start=, so the element's 0 is
-                            // retryAt; no client-side resume seek is needed afterwards.
-                            self.streamStartOffset = retryAt > 0 ? retryAt : 0;
-                            self.initialResumeTime = 0;
-                            // Escalate, don't repeat: the copy/remux already failed once,
-                            // so drop any native-codec bypass and force a server transcode.
-                            self.streamMgr.disableClientCodecs();
-                            self.video.src = self.streamMgr.buildStreamUrl(retryAt > 0 ? retryAt : null,
-                                { extraParams: ['forceTranscode=true'], audioCodecs: '' });
-                            self.video.load();
-                            self.video.play().catch(function (e) {
-                                console.warn('[SimplePlayer] play() after transcode escalation was blocked:', e);
-                            });
-                        }, 1000);
-                    } else {
-                        self._showLoading('Playback failed - try reloading');
-                    }
-                };
-                this.video.addEventListener('error', this._setupStreamErrorHandler);
+                // A copy that this browser cannot decode may stall without an error;
+                // PlayerRecovery escalates it (and records the codec as failed).
+                if (this.recovery) this.recovery.begin('direct');
                 this.video.play().then(() => {
                 }).catch(e => {
                     console.warn('[SimplePlayer] Autoplay blocked, waiting for a user gesture:', e);
@@ -810,7 +744,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // Drop the old element's error/retry handlers so the new source gets a
                             // fresh retry budget via the StreamManager machinery (initDirectStream).
                             this.streamMgr.clearStreamErrorHandlers();
-                            this._streamFallbackCount = 0;
+                            if (this.recovery) this.recovery.reset();
 
                             // New episode starts fresh — never inherit the old episode's position.
                             // Transcode resumes via server-side ?start= (streamStartOffset carries
@@ -903,57 +837,13 @@ if (typeof window.SimplePlayer === 'undefined') {
                             }
                             return;  // still hits the finally block
                         }
-                        if (!this._swapInProgress) {
-                        if (state.playing && this.video.paused) {
-                            if (this._userPaused) {
-                                window.__jmediaDbg('[SimplePlayer] Blocked server play — user pause active (stateSync playing=true ignored, _userPausedAt=' + this._userPausedAt + ')');
-                            } else {
-                                window.__jmediaDbg('[SimplePlayer] Resuming playback from server state (playing=true)');
-                                this.video.play().catch(function(e) { console.error('[SimplePlayer] Server-triggered play failed', e); });
-                            }
-                        } else if (!state.playing && !this.video.paused) {
-                            window.__jmediaDbg('[SimplePlayer] Pausing playback from server state (playing=false)');
-                            try { this.video.pause(); window.__jmediaDbg('[SimplePlayer] video.pause() issued (server state)'); } catch (e) { console.error('[SimplePlayer] Server-triggered pause failed', e); }
-                        }
-                        }
-                        // Drift protection skipped during a swap window: the new element sits at 0
-                        // while the server timer broadcasts growing time, which would seek-yank it.
-                        if (!this._swapInProgress && typeof state.currentTime === 'number') {
-                            // Only follow server truth while this player is genuinely
-                            // progressing. A stalled element (autoplay rejection, failed
-                            // load, endless buffering) emits no timeupdate; yanking it to
-                            // the server's phantom clock (which advances whenever a client
-                            // is silent >1500ms) causes seek storms and repeated
-                            // server-side transcodes. Remote seeks still sync: a healthy
-                            // player fires timeupdate ~4x/sec, keeping the gate open.
-                            const progressAge = Date.now() - this._lastProgressAt;
-                            if (!this.video.paused && progressAge < 8000) {
-                                // Server time is absolute; this element is relative (0-based) for ?start= streams.
-                                const target = state.currentTime - (this.streamStartOffset || 0);
-                                // S4: phantom-behind guard — when the server absolute
-                                // clock is behind this element's stream window start,
-                                // target goes negative; yanking currentTime backwards
-                                // past the buffer frontier stalls playback.
-                                if (target < 0) return;
-                                const dur = this.video.duration;
-                                const drift = Math.abs(this.video.currentTime - target);
-                                const lockAge = Date.now() - this._localSeekAt;
-                                const locked = this._localSeekPos >= 0 && lockAge < 3000;
-                                const converged = locked && Math.abs(target - this._localSeekPos) < 5;
-                                if (converged) this._localSeekPos = -1;
-                                // S5: cap forward yanks so the server phantom clock (or a stale
-                                // broadcast) can't jump playback ahead of real elapsed time — a
-                                // forward yank is what inflated the resume point / force-plays.
-                                // Backward corrections and genuine remote (locked) seeks still apply.
-                                const MAX_FORWARD_YANK = 5;
-                                const yankIsForward = (target - this.video.currentTime) > MAX_FORWARD_YANK;
-                                if (drift > 3 && (!yankIsForward || locked) && (!locked || converged)) {
-                                    // Bound to loaded duration: seeking a
-                                    // data-less element past its end fires spurious 'ended'.
-                                    this.video.currentTime = (isFinite(dur) && dur > 0 && target > dur - 1) ? dur - 1 : target;
-                                }
-                            }
-                        }
+                        // Position and play/pause are NOT taken from state broadcasts:
+                        // this player's own element is the source of truth. The server
+                        // relays what the player reports to other devices, and remote
+                        // seek/play/pause arrive as explicit commands (onCommand: seek,
+                        // set-playing). Following broadcast time/playing here was the
+                        // drift correction that fought the element (yanks, seek storms,
+                        // force-play after a pause).
                     } finally {
                         this._applyingServerState = false;
                     }
@@ -1020,6 +910,22 @@ if (typeof window.SimplePlayer === 'undefined') {
                             }
                         };
                         trySelect();
+                    } else if (ctype === 'set-playing') {
+                        if (this._destroyed) return;
+                        const wantPlaying = !!(cmd.payload && cmd.payload.playing);
+                        if (wantPlaying && this.video.paused) {
+                            this._userPaused = false; this._userPausedAt = 0;
+                            this.video.play().catch((e) => {
+                                if (e && e.name === 'NotAllowedError') {
+                                    if (window.Toast) window.Toast.info('Press play here to start - the browser blocked playback from another device');
+                                } else {
+                                    console.error('[SimplePlayer] Remote play failed', e);
+                                }
+                            });
+                        } else if (!wantPlaying && !this.video.paused) {
+                            this._userPaused = true; this._userPausedAt = Date.now();
+                            try { this.video.pause(); } catch (e) { console.error('[SimplePlayer] Remote pause failed', e); }
+                        }
                     } else if (ctype === 'toggle-play') {
                         if (this._destroyed) return;
                         if (this.video.paused) {
@@ -1178,6 +1084,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
             if (this.mediaSession) {
                 this.mediaSession.release();
+            }
+            if (this.recovery) {
+                this.recovery.destroy();
             }
             // Clear every timer that can outlive teardown (double-clear is harmless).
             const _timerKeys = ['_waitingTimer', '_toastTimer', '_broadcastTimer', '_qualityResetTimer',

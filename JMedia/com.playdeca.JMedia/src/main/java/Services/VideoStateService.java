@@ -87,16 +87,42 @@ public class VideoStateService {
         }
 
         VideoState state = getOrCreate(video, profileId);
-        state.currentTime = currentTimeSeconds;
-        state.lastUpdated = LocalDateTime.now();
-
-        // Calculate watch progress
         double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
+        if (!applyProgress(state, currentTimeSeconds, durationSeconds)) {
+            return;
+        }
+        state.lastUpdated = LocalDateTime.now();
+        state.persist();
+    }
+
+    /**
+     * Applies a progress report to a state. Pure so the rules are testable.
+     *
+     * <ul>
+     *   <li>A report under 1 s never replaces real progress: a player that was
+     *       opened and left before its resume seek reported 0, which reset the
+     *       resume point and removed the title from Continue Watching. Starting
+     *       over still works: the next report (a few seconds in) replaces it.
+     *       Deliberate resets go through removeFromContinueWatching /
+     *       toggleWatched, which write the state directly.</li>
+     *   <li>"Watched" is kept once reached: re-watching a scene or scrubbing
+     *       back used to mark a finished title unwatched again.</li>
+     * </ul>
+     *
+     * @return false when the report was ignored
+     */
+    static boolean applyProgress(VideoState state, double currentTimeSeconds, double durationSeconds) {
+        if (currentTimeSeconds < 1.0 && state.currentTime >= 1.0) {
+            return false;
+        }
+        state.currentTime = currentTimeSeconds;
         if (durationSeconds > 0) {
             state.watchProgress = Math.min(1.0, currentTimeSeconds / durationSeconds);
-            state.watched = state.watchProgress >= 0.95;
+            if (state.watchProgress >= 0.95) {
+                state.watched = true;
+            }
         }
-        state.persist();
+        return true;
     }
 
     public List<VideoState> getInProgressVideos() {

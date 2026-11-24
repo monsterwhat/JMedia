@@ -15,6 +15,9 @@
     // selection until the page is reloaded. Bound it and kill the worker ourselves.
     const ASS_DESTROY_TIMEOUT_MS = 800;
 
+    /** JASSUB 2.5.36 as ES modules, see lib/jassub/README.md. */
+    const JASSUB_BASE = '/lib/jassub/';
+
     function warnSubtitleApiOnce() {
         if (!window.__subtitleApiMissingWarned) {
             window.__subtitleApiMissingWarned = true;
@@ -90,12 +93,17 @@
         }
 
         /**
-         * Whether ASS tracks should be drawn on the JASSUB canvas instead of using
-         * the server-generated WebVTT track. Off by default while the bundled
-         * JASSUB build cannot initialise its worker.
+         * Whether ASS tracks are drawn by JASSUB (positioning, fonts, signs,
+         * karaoke) instead of the server's plain WebVTT conversion. On by default
+         * now that lib/jassub is a matching JASSUB 2.5.36 build;
+         * localStorage.jmedia_ass_renderer = 'false' switches back to WebVTT.
          */
         assCanvasEnabled() {
-            return localStorage.getItem('jmedia_ass_renderer') === 'true';
+            try {
+                return localStorage.getItem('jmedia_ass_renderer') !== 'false';
+            } catch (e) {
+                return true;
+            }
         }
 
         /**
@@ -131,13 +139,9 @@
 
         async loadJassub() {
             if (window.JASSUB) return;
-            return new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                s.src = '/lib/jassub/jassub.bundle.js';
-                s.onload = () => resolve();
-                s.onerror = () => reject(new Error('Failed to load JASSUB'));
-                document.head.appendChild(s);
-            });
+            // JASSUB 2 ships as ES modules (see lib/jassub/README.md); the module
+            // namespace keeps the `JASSUB.default` shape used below.
+            window.JASSUB = await import(JASSUB_BASE + 'jassub.js');
         }
 
         async initAssSubtitle(trackId) {
@@ -197,18 +201,28 @@
                 const userCorrection = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
                 const totalOffset = (p.streamStartOffset || 0) + userCorrection;
 
+                // JASSUB 2 has two worker files: workerUrl is its renderer worker,
+                // wasm(Worker)Url the libass WebAssembly and its glue. Passing the glue
+                // as workerUrl (as before) left `ready` unresolved forever. defaultFont
+                // is a font NAME (the file goes in availableFonts) and timeOffset is
+                // in seconds - it is added to the video's mediaTime.
                 p.jassubRenderer = new JASSUB.default({
                     video: p.video,
                     canvas: canvas,
                     subContent: content,
-                    workerUrl: '/lib/jassub/jassub-worker.js',
-                    wasmUrl: '/lib/jassub/jassub-worker.wasm',
-                    modernWasmUrl: '/lib/jassub/jassub-worker-modern.wasm',
-                    defaultFont: '/lib/jassub/default.woff2',
-                    timeOffset: totalOffset * 1000,
+                    workerUrl: JASSUB_BASE + 'worker/worker.js',
+                    wasmUrl: JASSUB_BASE + 'wasm/jassub-worker.wasm',
+                    wasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker.js',
+                    modernWasmUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.wasm',
+                    modernWasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.js',
+                    availableFonts: { 'liberation sans': JASSUB_BASE + 'default.woff2' },
+                    defaultFont: 'liberation sans',
+                    // Local fonts only (with permission); never fetch from Google Fonts.
+                    queryFonts: 'local',
+                    timeOffset: totalOffset,
                     prescaleFactor: 1.0,
                     prescaleHeightLimit: 1080,
-                    maxRenderHeight: 0,
+                    maxRenderHeight: 2160,
                     debug: false
                 });
 
@@ -365,16 +379,12 @@
 
                                 if (t.id !== 'off') {
                                     const isAss = t.format === 'ass' || t.format === 'ssa';
-                                    // ASS canvas rendering depends on the bundled JASSUB
-                                    // worker, which is incomplete in lib/jassub (the
-                                    // worker entry is the raw emscripten module, not the
-                                    // abslink endpoint), so its ready promise never
-                                    // resolves. The server converts ASS/SSA to WebVTT at
-                                    // /api/video/subtitles/track/<id>, which every browser
-                                    // (iOS Safari included) renders natively, so native
-                                    // tracks are the default and the canvas path is
-                                    // opt-in for when a matching JASSUB build is shipped.
-                                    const useAssCanvas = isAss && this.assCanvasEnabled();
+                                    // ASS/SSA are drawn by JASSUB (lib/jassub, 2.5.36), which
+                                    // keeps positioning, fonts, signs and karaoke. iOS keeps
+                                    // the server's WebVTT conversion: its native fullscreen
+                                    // shows text tracks but never a canvas overlay. Opt out
+                                    // anywhere with localStorage.jmedia_ass_renderer='false'.
+                                    const useAssCanvas = isAss && !p.utils.isIOS() && this.assCanvasEnabled();
                                     if (useAssCanvas) {
                                         this.initAssSubtitle(t.id);
                                     } else {

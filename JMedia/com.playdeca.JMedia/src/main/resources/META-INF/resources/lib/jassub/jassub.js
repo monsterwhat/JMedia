@@ -1,14 +1,7 @@
-import 'rvfc-polyfill';
-import { proxy, releaseProxy, transfer } from 'abslink';
-import { wrap } from 'abslink/w3c';
+import './vendor/rvfc-polyfill/index.js';
+import { proxy, releaseProxy, transfer } from './vendor/abslink/src/abslink.js';
+import { wrap } from './vendor/abslink/adapters/w3c.js';
 import { Debug } from "./debug.js";
-export const webYCbCrMap = {
-    rgb: 'RGB',
-    bt709: 'BT709',
-    // these might not be exactly correct? oops?
-    bt470bg: 'BT601', // alias BT.601 PAL... whats the difference?
-    smpte170m: 'BT601' // alias BT.601 NTSC... whats the difference?
-};
 export default class JASSUB {
     timeOffset;
     prescaleFactor;
@@ -24,8 +17,11 @@ export default class JASSUB {
     _videoColorSpace = null;
     _canvas;
     _ro = new ResizeObserver(async () => {
-        await this.ready;
-        this.resize();
+        try {
+            await this.ready;
+            this.resize();
+        }
+        catch { }
     });
     _destroyed = false;
     _lastDemandTime;
@@ -51,8 +47,10 @@ export default class JASSUB {
         const ctrl = this._canvas.transferControlToOffscreen();
         this.debug = opts.debug ? new Debug() : null;
         this.prescaleFactor = opts.prescaleFactor ?? 1.0;
+        // for <1 this is a floor, for >1 this is a ceiling, for =1 it does nothing
         this.prescaleHeightLimit = opts.prescaleHeightLimit ?? 1080;
-        this.maxRenderHeight = opts.maxRenderHeight ?? 0; // 0 - no limit.
+        // limit to 4K, higher renders cost far more memory and time for little visible gain. 0 - no limit
+        this.maxRenderHeight = opts.maxRenderHeight ?? 2160;
         // yes this is awful, but bundlers check for new Worker(new URL()) patterns, so can't use new Worker(workerUrl ?? new URL(...)) ... bruh
         this._worker = opts.workerUrl
             ? new Worker(opts.workerUrl, { name: 'jassub-worker', type: 'module' })
@@ -60,12 +58,17 @@ export default class JASSUB {
         const Renderer = wrap(this._worker);
         const modern = opts.modernWasmUrl ?? new URL('./wasm/jassub-worker-modern.wasm', import.meta.url).href;
         const normal = opts.wasmUrl ?? new URL('./wasm/jassub-worker.wasm', import.meta.url).href;
+        const modernWorker = opts.modernWasmWorkerUrl ?? new URL('./wasm/jassub-worker-modern.js', import.meta.url).href;
+        const normalWorker = opts.wasmWorkerUrl ?? new URL('./wasm/jassub-worker.js', import.meta.url).href;
+        // the modern build uses mimalloc, which is faster but grows the heap 2 to 3 times more, so low memory devices use the legacy build
+        const useModern = !!JASSUB._supportsSIMD && (navigator.deviceMemory ?? Infinity) > 2;
         const availableFonts = opts.availableFonts ?? {};
         if (!availableFonts['liberation sans'] && !opts.defaultFont) {
             availableFonts['liberation sans'] = new URL('./default.woff2', import.meta.url).href;
         }
         this.ready = new Renderer({
-            wasmUrl: JASSUB._supportsSIMD ? modern : normal,
+            wasmUrl: useModern ? modern : normal,
+            wasmWorkerUrl: useModern ? modernWorker : normalWorker,
             width: ctrl.width,
             height: ctrl.height,
             subUrl: opts.subUrl,
@@ -74,8 +77,8 @@ export default class JASSUB {
             availableFonts,
             defaultFont: opts.defaultFont ?? 'liberation sans',
             debug: !!opts.debug,
-            libassMemoryLimit: opts.libassMemoryLimit ?? 0,
-            libassGlyphLimit: opts.libassGlyphLimit ?? 0,
+            libassMemoryLimit: opts.libassMemoryLimit ?? ((navigator.deviceMemory ?? Infinity) <= 2 ? 32 : 128),
+            libassGlyphLimit: opts.libassGlyphLimit ?? ((navigator.deviceMemory ?? Infinity) <= 2 ? 1000 : 3000),
             queryFonts: opts.queryFonts ?? 'local'
         }, proxy(font => this._getLocalFont(font)), transfer(ctrl, [ctrl])).then((renderer) => {
             this.renderer = renderer;
@@ -92,7 +95,23 @@ export default class JASSUB {
         if (JASSUB._supportsSIMD != null)
             return;
         try {
-            JASSUB._supportsSIMD = WebAssembly.validate(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11));
+            JASSUB._supportsSIMD = WebAssembly.validate(Uint8Array.of(
+            // WASM magic number + version 1
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 
+            // Type section: 1 type, func () -> v128
+            0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b, 
+            // function section 1 function, type index 0
+            0x03, 0x02, 0x01, 0x00, 
+            // code section 1 body, 0 locals
+            0x0a, 0x2b, 0x01, 0x29, 0x00, 
+            // v128.const i32x4 0 0 0 0
+            0xfd, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            // v128.const i32x4 0 0 0 0
+            0xfd, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            // i8x16.relaxed_swizzle relaxed SIMD
+            0xfd, 0x80, 0x02, 
+            // end
+            0x0b));
         }
         catch (e) {
             JASSUB._supportsSIMD = false;
@@ -119,7 +138,11 @@ export default class JASSUB {
             this._canvas.style.top = videoSize.y + 'px';
             this._canvas.style.left = videoSize.x + 'px';
         }
-        await this.renderer._resizeCanvas(renderWidth, renderHeight, this._videoWidth || renderWidth, this._videoHeight || renderHeight);
+        // The storage size is the video resolution. Do not set it for canvas-only
+        // rendering. If it is set to the render size, libass scales blur, borders
+        // and shadows by the render size instead of the script resolution
+        // (libass issue #591).
+        await this.renderer._resizeCanvas(renderWidth, renderHeight, this._video ? (this._videoWidth || renderWidth) : 0, this._video ? (this._videoHeight || renderHeight) : 0);
         if (this._lastDemandTime)
             await this._demandRender(forceRepaint);
     }
@@ -164,8 +187,11 @@ export default class JASSUB {
             target.addEventListener('loadedmetadata', this._boundUpdateColorSpace);
             this._updateColorSpace({ target });
         }
+        const loop = ++this._rvfcLoop;
         await this.ready;
-        this._video.requestVideoFrameCallback((now, data) => this._handleRVFC(data));
+        if (loop !== this._rvfcLoop)
+            return;
+        target.requestVideoFrameCallback((now, data) => this._handleRVFC(loop, data));
     }
     async _getLocalFont(font, weight = 'regular') {
         // electron by default has all permissions enabled, and it doesn't have perm query
@@ -184,15 +210,16 @@ export default class JASSUB {
             }
         }
     }
-    _handleRVFC(data) {
-        if (this._destroyed)
+    _rvfcLoop = 0;
+    _handleRVFC(loop, data) {
+        if (this._destroyed || loop !== this._rvfcLoop)
             return;
-        this.manualRender(data);
-        this._video.requestVideoFrameCallback((now, data) => this._handleRVFC(data));
+        this.manualRender(data).catch(console.error);
+        this._video.requestVideoFrameCallback((now, data) => this._handleRVFC(loop, data));
     }
-    manualRender(data) {
+    manualRender(data, repaint = false) {
         this._lastDemandTime = data;
-        return this._demandRender();
+        return this._demandRender(repaint);
     }
     async _demandRender(repaint = false) {
         const { mediaTime, width, height } = this._lastDemandTime;
@@ -208,10 +235,17 @@ export default class JASSUB {
         }
         this.busy = true;
         this._skipped = false;
-        this.debug?._startFrame();
-        await this.renderer._draw(mediaTime + this.timeOffset, repaint);
-        this.debug?._endFrame(this._lastDemandTime);
-        this.busy = false;
+        try {
+            this.debug?._startFrame();
+            await this.renderer._draw(mediaTime + this.timeOffset, repaint);
+            this.debug?._endFrame(this._lastDemandTime);
+        }
+        catch (e) {
+            console.error(e);
+        }
+        finally {
+            this.busy = false;
+        }
         if (this._skipped)
             await this._demandRender();
     }
@@ -222,9 +256,10 @@ export default class JASSUB {
                 return;
             try {
                 const frame = new VideoFrame(this._video);
+                const { matrix, fullRange } = frame.colorSpace;
                 frame.close();
                 await this.ready;
-                await this.renderer._setColorSpace(webYCbCrMap[frame.colorSpace.matrix]);
+                await this.renderer._setColorSpace(matrix, fullRange);
             }
             catch (e) {
                 // sources can be tainted
@@ -242,9 +277,13 @@ export default class JASSUB {
         this._destroyed = true;
         this._canvas.remove();
         this._removeListeners();
-        await this.ready;
-        await this.renderer?.[releaseProxy]();
-        this._worker.terminate();
+        try {
+            await this.ready;
+            await this.renderer?.[releaseProxy]();
+        }
+        finally {
+            this._worker.terminate();
+        }
     }
 }
 //# sourceMappingURL=jassub.js.map

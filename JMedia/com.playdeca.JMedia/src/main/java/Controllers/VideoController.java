@@ -13,18 +13,10 @@ import Services.VideoHistoryService;
 import Services.VideoService;
 import Services.VideoStateService;
 import Services.CollectionWatchProgressService;
-import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import jakarta.annotation.PreDestroy;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -42,13 +34,16 @@ public class VideoController {
     @Inject CollectionWatchProgressService collectionWatchProgressService;
     @Inject VideoSocket ws;
 
-    private ScheduledExecutorService scheduler;
-    // Per-profile playback timers keyed by profileId, mirroring PlaybackController
-    // (music). Before this, a single global timer + activePlayingProfileId meant
-    // only ONE profile could ever be "playing" at a time — the second profile's
-    // WS reports were written into the first's state row or dropped entirely.
-    private final Map<Long, ScheduledFuture<?>> playbackTasks = new ConcurrentHashMap<>();
-    private static final long PLAYBACK_UPDATE_INTERVAL_MS = 300;
+    /*
+     * The playing browser is the source of truth for position and play/pause.
+     * The server used to run a 300 ms "phantom clock" per profile that advanced
+     * currentTime whenever the player had been quiet for 1.5 s and broadcast it;
+     * players then seeked to it ("drift correction"). Two clocks fought: forward
+     * yanks, seek storms, inflated resume points, force-plays after a pause - each
+     * patched with another guard. Now the server records what the player reports
+     * (reportClientState) and relays it to the profile's other devices, and every
+     * remote action reaches the player as an explicit command (sendCommand).
+     */
 
     /** A client report arriving within this window after a command, whose position
      *  diverges beyond the tolerance, is stale — the commanding client has already
@@ -59,78 +54,6 @@ public class VideoController {
     private static final Logger LOGGER = Logger.getLogger(VideoController.class.getName());
 
     public VideoController() {}
-
-    @PostConstruct
-    public void init() {
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-    }
-
-    public void shutdownScheduler() {
-        playbackTasks.values().forEach(task -> task.cancel(true));
-        if (scheduler != null) scheduler.shutdownNow();
-    }
-
-    private synchronized void startPlaybackTimer(Long profileId) {
-        if (profileId == null) return;
-        ScheduledFuture<?> existing = playbackTasks.get(profileId);
-        if (existing != null && !existing.isDone()) {
-            existing.cancel(false);
-        }
-        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> processPlaybackTick(profileId), 0, PLAYBACK_UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
-        playbackTasks.put(profileId, task);
-    }
-
-    /** Window after a client report during which the tick mirrors the client's truth
-     *  instead of advancing the phantom clock, so the server never overrides a local action. */
-    private static final long CLIENT_REPORT_MIRROR_WINDOW_MS = 1500;
-    private final Map<Long, Long> lastClientReportAt = new ConcurrentHashMap<>();
-
-    // No @Transactional here: this runs on a plain scheduler thread (startPlaybackTimer).
-    // A JTA tx on it would enlist BOTH persistence units (Profile via default PU, session
-    // state via video PU) and nest a REQUIRES_NEW suspend/resume inside - the same overlap
-    // that produced "Enlisted connection used without active transaction" on WS threads
-    // (see reportClientState note). Each service call below opens its own short single-PU tx.
-    protected synchronized void processPlaybackTick(Long profileId) {
-        if (profileId == null) return;
-
-        Profile playingProfile = Profile.findById(profileId);
-        if (playingProfile == null || playingProfile.userId == null) return;
-
-        SettingsService.setCurrentUserId(playingProfile.userId);
-        try {
-            ProfileSessionState st = getState(profileId);
-            if (st.playing && st.currentVideoId != null) {
-                /* A client just reported its own truth (seek/play/pause): mirror it to every
-                   session WITHOUT advancing the phantom clock, so the server can never
-                   override what the user just did on the player. The phantom clock resumes
-                   only after the client has been silent for the full mirror window. */
-                if (System.currentTimeMillis() - lastClientReportAt.getOrDefault(profileId, 0L) < CLIENT_REPORT_MIRROR_WINDOW_MS) {
-                    updateState(st, true);
-                } else {
-                    double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
-                    Video currentVideo = findVideo(st.currentVideoId);
-                    double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
-                    if (newTime >= duration && duration > 0) {
-                        handleVideoEnded(profileId);
-                    } else {
-                        st.currentTime = newTime;
-                        updateState(st, true);
-                    }
-                }
-            }
-        } finally {
-            SettingsService.clearCurrentUserId();
-        }
-    }
-
-    private synchronized void stopPlaybackTimer(Long profileId) {
-        if (profileId == null) return;
-        ScheduledFuture<?> task = playbackTasks.remove(profileId);
-        lastClientReportAt.remove(profileId);
-        if (task != null && !task.isDone()) {
-            task.cancel(false);
-        }
-    }
 
     public synchronized ProfileSessionState getState() {
         ProfileSessionState state = profileSessionStateService.getOrCreate();
@@ -223,13 +146,13 @@ public class VideoController {
         if (playing && isReportStale(st, currentTime)) {
             return; // DROP: the commanding client already has the new position via broadcast
         }
-        lastClientReportAt.put(profileId != null ? profileId : activePlayingProfileId, System.currentTimeMillis());
         st.currentVideoId = videoId;
         st.playing = playing;
         st.currentTime = currentTime;
-        Long timerProfile = st.profileId != null ? st.profileId : profileId;
-        if (playing) startPlaybackTimer(timerProfile); else stopPlaybackTimer(timerProfile);
-        updateState(st, false);
+        // Relay the player's own state to the profile's other devices (remote
+        // views). Players ignore position/playing in state broadcasts, so this
+        // can never move the player that sent it.
+        updateState(st, true);
     }
 
     public synchronized void selectVideo(Long id) {
@@ -250,10 +173,9 @@ public class VideoController {
             current = findVideo(st.cue.get(0));
         }
 
-        if (current != null && current.id.equals(id)) {
+        boolean toggledSameVideo = current != null && current.id.equals(id);
+        if (toggledSameVideo) {
             st.playing = !st.playing;
-            if (st.playing) startPlaybackTimer(st.profileId);
-            else stopPlaybackTimer(st.profileId);
         } else {
             st.currentVideoId = id;
             Video newVideo = findVideo(id);
@@ -280,10 +202,12 @@ public class VideoController {
             if (st.cue != null) {
                 st.cueIndex = st.cue.indexOf(id);
             }
-            startPlaybackTimer(st.profileId);
         }
         st.lastUpdateTime = System.currentTimeMillis();
         updateState(st, true);
+        if (toggledSameVideo) {
+            sendPlayingCommand(st, profileId);
+        }
     }
 
     private void addVideoToCueIfNotPresent(ProfileSessionState st, Long videoId) {
@@ -296,7 +220,6 @@ public class VideoController {
         ProfileSessionState st = getState(profileId);
         videoQueueController.clear(st);
         st.collectionId = null;
-        stopPlaybackTimer(st.profileId != null ? st.profileId : profileId);
         st.playing = false;
         st.lastUpdateTime = System.currentTimeMillis();
         updateState(st, true);
@@ -340,7 +263,6 @@ public class VideoController {
         st.currentVideoId = nextVideoId;
         st.currentTime = 0;
         st.playing = true;
-        startPlaybackTimer(st.profileId != null ? st.profileId : profileId);
         st.lastUpdateTime = System.currentTimeMillis();
         updateState(st, true);
     }
@@ -363,6 +285,7 @@ public class VideoController {
             st.currentTime = 0;
             st.lastUpdateTime = System.currentTimeMillis();
             updateState(st, true);
+            sendSeekCommand(0, st, profileId);
             return;
         }
         advanceVideo(false, false, profileId);
@@ -374,7 +297,6 @@ public class VideoController {
 
     public synchronized void handleVideoEnded(Long profileId) {
         ProfileSessionState st = getState(profileId);
-        stopPlaybackTimer(st.profileId != null ? st.profileId : profileId);
         st.playing = false;
         st.lastUpdateTime = System.currentTimeMillis();
         updateState(st, true);
@@ -396,23 +318,18 @@ public class VideoController {
     public synchronized void togglePlay(Long profileId) {
         ProfileSessionState state = getState(profileId);
         videoQueueController.togglePlay(state);
-        Long timerProfile = state.profileId != null ? state.profileId : profileId;
-        if (state.playing) startPlaybackTimer(timerProfile);
-        else stopPlaybackTimer(timerProfile);
         state.lastUpdateTime = System.currentTimeMillis();
         updateState(state, true);
+        // The player applies play/pause only from commands, not from state.
+        sendPlayingCommand(state, profileId);
     }
 
-    /** Stops the phantom-clock timer and persists the resume position once no video
-     *  session for a profile remains. Before this, a closed tab left the 300ms timer
-     *  running (nothing stopped it), so the clock kept inflating st.currentTime and
-     *  corrupted the saved resume point (movies resumed 30s-1min ahead). */
+    /** Persists the resume position once no video session for a profile remains.
+     *  st.currentTime is the player's last report (no server clock advances it). */
     public synchronized void onClientDisconnect(Long profileId) {
         if (profileId == null) return;
         ProfileSessionState st = profileSessionStateService.findByProfileId(profileId);
         if (st == null) return;
-        stopPlaybackTimer(profileId);
-        lastClientReportAt.remove(profileId);
         st.lastUpdateTime = System.currentTimeMillis();
         if (st.currentVideoId != null && st.currentTime > 0) {
             Video vid = findVideo(st.currentVideoId);
@@ -454,6 +371,29 @@ public class VideoController {
         videoQueueController.setSeconds(st, seconds);
         st.lastUpdateTime = System.currentTimeMillis();
         updateState(st, true);
+        sendSeekCommand(st.currentTime, st, profileId);
+    }
+
+    private Long commandProfile(ProfileSessionState st, Long profileId) {
+        return st.profileId != null ? st.profileId : profileId;
+    }
+
+    /** Tells the profile's player to seek; a state broadcast no longer moves it. */
+    private void sendSeekCommand(double seconds, ProfileSessionState st, Long profileId) {
+        if (ws == null) return;
+        com.fasterxml.jackson.databind.node.ObjectNode payload =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        payload.put("value", seconds);
+        ws.broadcastCommand("seek", payload, commandProfile(st, profileId));
+    }
+
+    /** Tells the profile's player to play or pause (absolute, so it can never double-toggle). */
+    private void sendPlayingCommand(ProfileSessionState st, Long profileId) {
+        if (ws == null) return;
+        com.fasterxml.jackson.databind.node.ObjectNode payload =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        payload.put("playing", st.playing);
+        ws.broadcastCommand("set-playing", payload, commandProfile(st, profileId));
     }
 
     public synchronized Video getCurrentVideo() {
@@ -540,23 +480,4 @@ public class VideoController {
     public List<VideoHistory> getHistory() {
         return videoHistoryService.getHistory(1, 100);
     }
-    
-    @PreDestroy
-    public void shutdown() {
-        playbackTasks.values().forEach(task -> task.cancel(true));
-        if (scheduler != null && !scheduler.isShutdown()) {
-            LOGGER.info("Shutting down VideoController scheduler");
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    LOGGER.warning("VideoController scheduler did not terminate gracefully, forcing shutdown");
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                LOGGER.warning("Interrupted while waiting for VideoController scheduler to terminate");
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
     }
-}
