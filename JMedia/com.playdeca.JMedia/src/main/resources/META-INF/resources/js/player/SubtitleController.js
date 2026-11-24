@@ -180,10 +180,16 @@
                 let content = await res.text();
 
                 // Apply user's saved style preferences (font, size, color) to ASS content
-                const savedStyle = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
-                if (savedStyle.size || savedStyle.color || savedStyle.font) {
-                    content = this.applyStyleToAssContent(content, savedStyle);
+                let savedStyle = {};
+                try {
+                    savedStyle = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+                } catch (e) {
+                    console.warn('[SimplePlayer] Ignoring unreadable subtitle style settings', e);
                 }
+                // ASS carries its own [V4+ Styles] block, so "the same style" has to be
+                // written into the script: the configured family, size and colour are
+                // applied to every Style line (the defaults match the WebVTT style).
+                content = this.applyStyleToAssContent(content, savedStyle);
 
                 // Drop any stale canvas so a previously rendered language can never linger
                 // under the new renderer (Firefox in particular kept the old frame).
@@ -200,6 +206,20 @@
 
                 const userCorrection = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
                 const totalOffset = (p.streamStartOffset || 0) + userCorrection;
+
+                // Font resolution. JASSUB only gets local fonts when the browser
+                // supports the Local Font Access permission; Firefox rejects
+                // 'local-fonts' outright ("not a valid value for PermissionName"),
+                // so a style asking for Segoe UI or Trebuchet MS fell back to the
+                // bundled file with a warning. Register the configured family as an
+                // alias of the bundled font so the name resolves and the fallback is
+                // intentional rather than a failure.
+                const fontUrl = JASSUB_BASE + 'default.woff2';
+                const chosenFont = this.assFontName(savedStyle);
+                const availableFonts = { 'liberation sans': fontUrl };
+                if (chosenFont) {
+                    availableFonts[chosenFont] = fontUrl;
+                }
 
                 // JASSUB 2 has two worker files: workerUrl is its renderer worker,
                 // wasm(Worker)Url the libass WebAssembly and its glue. Passing the glue
@@ -218,8 +238,8 @@
                     wasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker.js',
                     modernWasmUrl: '/wasm/jassub-worker-modern.wasm',
                     modernWasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.js',
-                    availableFonts: { 'liberation sans': JASSUB_BASE + 'default.woff2' },
-                    defaultFont: 'liberation sans',
+                    availableFonts: availableFonts,
+                    defaultFont: chosenFont || 'liberation sans',
                     // Local fonts only (with permission); never fetch from Google Fonts.
                     queryFonts: 'local',
                     timeOffset: totalOffset,
@@ -262,11 +282,17 @@
                 r.toString(16).padStart(2, '0').toUpperCase();
         }
 
+        /** Normalised font family name used both in the ASS style and the font map. */
+        assFontName(style) {
+            const raw = (style && style.font) || "'Segoe UI'";
+            return raw.replace(/['"]/g, '').split(',')[0].trim().toLowerCase();
+        }
+
         applyStyleToAssContent(content, style) {
             const fontSize = style.size || 20;
             const colorHex = style.color || '#ffffff';
             const assColor = this.hexToAssColor(colorHex);
-            const fontName = (style.font || "'Segoe UI'").replace(/['"]/g, '').split(',')[0].trim();
+            const fontName = this.assFontName(style);
 
             return content.replace(/^(Style:\s*[^,]*),([^,]*),([^,]*),([^,]*),/gm,
                 (match, prefix, oldFont, oldSize, oldColor) => {
