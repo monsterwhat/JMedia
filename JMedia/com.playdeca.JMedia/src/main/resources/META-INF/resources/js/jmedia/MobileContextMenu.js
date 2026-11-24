@@ -306,6 +306,16 @@
             }
         }
 
+        /**
+         * Id of the playlist whose songs are currently listed, or null. The
+         * sidebar marks it with `nav-playlist-<id>` and `.active`.
+         */
+        activePlaylistId() {
+            const active = document.querySelector('.nav-sub-item.active');
+            const match = active && active.id ? active.id.match(/nav-playlist-(\d+)/) : null;
+            return match ? parseInt(match[1], 10) : null;
+        }
+
         showContextMenu(target, isDesktop = false) {
             const menu = document.getElementById('mobileContextMenu');
             if (!menu) return;
@@ -334,6 +344,18 @@
                 const targets = (li.dataset.targets || '').split(/\s+/).filter(Boolean);
                 li.hidden = !targets.includes(t.type);
             });
+
+            // "Remove from Playlist" only makes sense while a playlist is open;
+            // the active one is the sidebar entry the list is showing.
+            const activePlaylistId = this.activePlaylistId();
+            menu.querySelectorAll('li[data-action="remove-from-playlist"]').forEach(li => {
+                li.hidden = li.hidden || !activePlaylistId;
+            });
+            if (activePlaylistId) {
+                menu.dataset.playlistId = String(activePlaylistId);
+            } else {
+                delete menu.dataset.playlistId;
+            }
 
             menu.setAttribute('aria-hidden', 'false');
 
@@ -439,6 +461,37 @@
             const songId = isSong ? (t.songId || t.value) : null;
 
             switch (action) {
+                case 'remove-from-playlist': {
+                    const menuEl = document.getElementById('mobileContextMenu');
+                    const playlistId = menuEl && menuEl.dataset.playlistId
+                        ? parseInt(menuEl.dataset.playlistId, 10)
+                        : null;
+                    if (!playlistId || !songId) {
+                        console.warn('[MobileContextMenu] remove-from-playlist without an open playlist');
+                        if (window.showToast) window.showToast('Open a playlist first', 'error');
+                        break;
+                    }
+                    const row = t.element && t.element.closest
+                        ? t.element.closest('[data-song-id], .song-row')
+                        : null;
+                    JMedia.PlaybackApi.removeSongFromPlaylist(playlistId, songId)
+                        .then((res) => {
+                            if (!res.ok) throw new Error('HTTP ' + res.status);
+                            if (row && row.parentNode) row.remove();
+                            if (window.showToast) window.showToast('Removed from playlist', 'success');
+                            if (typeof window.loadMobilePlaylistSongs === 'function') {
+                                window.loadMobilePlaylistSongs(playlistId);
+                            }
+                            window.dispatchEvent(new CustomEvent('playlistChanged', {
+                                detail: { playlistId, songId, removed: true }
+                            }));
+                        })
+                        .catch((err) => {
+                            console.error('[MobileContextMenu] Failed to remove song from playlist', err);
+                            if (window.showToast) window.showToast('Could not remove from playlist', 'error');
+                        });
+                    break;
+                }
                 case 'queue':
                     if (!songId) { console.warn('[MobileContextMenu] No valid song ID found'); break; }
                     if (window.htmx) {

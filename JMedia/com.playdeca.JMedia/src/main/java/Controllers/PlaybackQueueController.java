@@ -225,7 +225,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                 state.setCueIndex(0);
                 state.setCurrentSongId(state.getCue().get(0));
                 enforceQueueWindow(state);
-            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
+            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0), manualAdvance);
             }
             return null;
         }
@@ -234,7 +234,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             state.setCueIndex(0);
             state.setCurrentSongId(state.getCue().get(0));
             enforceQueueWindow(state);
-            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0));
+            return resolveNextDjSong(state, state.getCue(), 0, state.getCue().get(0), manualAdvance);
         }
         state.getCue().remove(0);
         state.setCueIndex(-1);
@@ -296,7 +296,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                 return null;
             }
             state.setCueIndex(0);
-            return resolveNextDjSong(state, cue, 0, cue.get(0));
+            return resolveNextDjSong(state, cue, 0, cue.get(0), manualAdvance);
         }
 
         // Smart Shuffle is the only selector. DJ Mode only mixes, so it must not
@@ -330,13 +330,13 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             // Keep index at current position because list shifted
             int nextIdx = Math.min(cueIndex, cue.size() - 1);
             state.setCueIndex(nextIdx);
-            return resolveNextDjSong(state, cue, nextIdx, cue.get(nextIdx));
+            return resolveNextDjSong(state, cue, nextIdx, cue.get(nextIdx), manualAdvance);
         }
 
         // Logic for RepeatMode.ALL or ONE
         int nextIndex = (cueIndex + 1) % cue.size();
         state.setCueIndex(nextIndex);
-        return resolveNextDjSong(state, cue, nextIndex, cue.get(nextIndex));
+        return resolveNextDjSong(state, cue, nextIndex, cue.get(nextIndex), manualAdvance);
         } finally {
             enforceQueueWindow(state);
         }
@@ -352,6 +352,17 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
      * instead of playing a song outside the DJ pool.
      */
     private Long resolveNextDjSong(PlaybackState state, List<Long> cue, int startIndex, Long fallback) {
+        return resolveNextDjSong(state, cue, startIndex, fallback, false);
+    }
+
+    /**
+     * @param manualAdvance true when the user pressed next/skip. A manual skip must
+     *        always advance: applying the DJ genre/year pool to it meant that a
+     *        queue whose songs are all outside the pool stopped playback entirely
+     *        ("No next song found") instead of moving on.
+     */
+    private Long resolveNextDjSong(PlaybackState state, List<Long> cue, int startIndex, Long fallback,
+                                   boolean manualAdvance) {
         if (fallback == null) {
             // A null entry in the cue (or a stopped state) has no song to resolve;
             // passing it to songService.find threw "Identifier may not be null".

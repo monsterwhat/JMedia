@@ -127,6 +127,15 @@
             });
         },
 
+        removeSongFromPlaylist: function(playlistId, songId) {
+            if (!playlistId || !songId) {
+                return Promise.reject(new Error('Missing parameters'));
+            }
+            return fetch(`/api/music/playlists/${playlistId}/songs/${songId}`, {
+                method: 'DELETE'
+            });
+        },
+
         setPlaybackTime: function(newTime, fromClient) {
             if (window.TimeController) {
                 if (fromClient) {
