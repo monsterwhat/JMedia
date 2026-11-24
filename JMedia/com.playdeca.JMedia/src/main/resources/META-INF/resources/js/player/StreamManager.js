@@ -1120,6 +1120,32 @@
 
         getAudioTracks() {
             const p = this.player;
+            // The server's track list (loaded by AudioTrackSelector) is the source of
+            // truth: every browser has it, its ids are what selectTrack() takes, and
+            // each track carries the ffprobe index the stream URL needs.
+            // video.audioTracks only exists in Safari (empty on Chrome/Firefox, so
+            // remote selection never found a track) and its positions are not
+            // server stream indexes.
+            const db = window.availableAudioTracks;
+            if (Array.isArray(db) && db.length > 0 && !db._displayOnly) {
+                const selector = p.audioTrackSelector;
+                const chosen = selector ? selector.currentTrackId : null;
+                const hasChoice = chosen !== null && chosen !== undefined && chosen !== 'default';
+                return db.map((t) => ({
+                    id: String(t.id),
+                    trackIndex: t.trackIndex,
+                    languageCode: t.languageCode,
+                    languageName: t.languageName,
+                    displayName: t.displayName || t.languageName || t.languageCode,
+                    isDefault: !!t.isDefault,
+                    channels: t.channels,
+                    title: t.title,
+                    isActive: hasChoice ? String(t.id) === String(chosen)
+                        : (p.currentAudioTrackIndex != null && p.currentAudioTrackIndex >= 0
+                            ? t.trackIndex === p.currentAudioTrackIndex
+                            : !!t.isDefault)
+                }));
+            }
             if (p.video.audioTracks) {
                 const tracks = [];
                 for (let i = 0; i < p.video.audioTracks.length; i++) {
@@ -1132,7 +1158,9 @@
                         isDefault: t.isDefault,
                         channels: t.channels,
                         title: t.title,
-                        isActive: true
+                        // Display-only fallback; `enabled` is the element's own flag
+                        // (marking every track active made the active index always 0).
+                        isActive: !!t.enabled
                     });
                 }
                 return tracks;

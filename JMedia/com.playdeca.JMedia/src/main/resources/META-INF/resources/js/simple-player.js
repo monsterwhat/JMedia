@@ -143,28 +143,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 window.__attachVideoPlaybackDiag(this.video);
             }
 
-            this.needsTranscode = this.container.dataset.needsTranscode === 'true';
-            this.needsConversion = this.container.dataset.needsConversion === 'true';
-            this.dataHlsEnabled = this.container.dataset.hlsEnabled === 'true';
-            this._canNativeHevc = false;
-            // HEVC is intentionally NOT overridden client-side. MediaSource's
-            // isTypeSupported() reports true on Windows Chromium whenever the OS
-            // codec is installed, even when the GPU/driver cannot decode the
-            // stream, which produced black players. The server decides HEVC vs
-            // H.264 (Windows Chromium is always transcoded to H.264).
-            const codec = (this.container.dataset.videoCodec || '').toLowerCase();
-            this._canNativeAv1 = false;
-            // Browser-native AV1 override: if the server flagged transcode but the
-            // browser can play AV1 natively (Chrome 70+, Edge 79+, Firefox 67+),
-            // skip the server-side FFmpeg transcode and request the lightweight remux.
-            if ((this.needsTranscode || this.needsConversion) && (codec.includes('av1') || codec.includes('av01'))) {
-                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeAv1Support()) {
-                    this.needsTranscode = false;
-                    this.needsConversion = false;
-                    this._canNativeAv1 = true;
-                    window.__jmediaDbg('[SimplePlayer] Browser supports AV1 natively — skipping server transcode');
-                }
-            }
+            this._applyRoutingFlags();
             this.streamStartOffset = 0;
             this.lastKnownGoodPosition = 0;
             // Per-instance suppression window blocking stale broadcasts during an in-place WS source swap (B9).
@@ -245,6 +224,118 @@ if (typeof window.SimplePlayer === 'undefined') {
                     this.video.addEventListener('loadedmetadata', () => setTimeout(restoreFs, 300), { once: true });
                 }
             }
+        }
+
+        /**
+         * Per-video routing facts from the container's data attributes (rendered
+         * by the server for this video). Re-run whenever the player is pointed at
+         * a different video, or the previous video's codec decides the route.
+         */
+        _applyRoutingFlags() {
+            this.needsTranscode = this.container.dataset.needsTranscode === 'true';
+            this.needsConversion = this.container.dataset.needsConversion === 'true';
+            this.dataHlsEnabled = this.container.dataset.hlsEnabled === 'true';
+            this._canNativeHevc = false;
+            // HEVC is intentionally NOT overridden client-side. MediaSource's
+            // isTypeSupported() reports true on Windows Chromium whenever the OS
+            // codec is installed, even when the GPU/driver cannot decode the
+            // stream, which produced black players. The server decides HEVC vs
+            // H.264 (Windows Chromium is always transcoded to H.264).
+            const codec = (this.container.dataset.videoCodec || '').toLowerCase();
+            this._canNativeAv1 = false;
+            // Browser-native AV1 override: if the server flagged transcode but the
+            // browser can play AV1 natively (Chrome 70+, Edge 79+, Firefox 67+),
+            // skip the server-side FFmpeg transcode and request the lightweight remux.
+            if ((this.needsTranscode || this.needsConversion) && (codec.includes('av1') || codec.includes('av01'))) {
+                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeAv1Support()) {
+                    this.needsTranscode = false;
+                    this.needsConversion = false;
+                    this._canNativeAv1 = true;
+                    window.__jmediaDbg('[SimplePlayer] Browser supports AV1 natively — skipping server transcode');
+                }
+            }
+        }
+
+        /**
+         * Re-points the player at another video chosen by the server (another
+         * device, auto-advance) without navigating. The previous video's codec,
+         * transcode and HLS flags must not decide how the new one is opened, so
+         * the server-rendered player page for the new video supplies its data
+         * attributes, and the normal open path (_openStreamWhenAudioResolved ->
+         * _openStream) picks the route - HLS included, which the old in-place
+         * initDirectStream swap never used.
+         */
+        async _reopenForVideo(newId, startAt) {
+            // Stop the old video now; the new page data arrives asynchronously.
+            if (this._hlsInstance) {
+                try { this._hlsInstance.destroy(); } catch (e) { /* already gone */ }
+                this._hlsInstance = null;
+            }
+            this.streamMgr._teardownSource({ keepHlsSession: false });
+
+            let fresh = null;
+            try {
+                const res = await fetch('/api/video/ui/playback-fragment?videoId=' + encodeURIComponent(newId),
+                        { credentials: 'include' });
+                if (res.ok) {
+                    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                    fresh = doc.querySelector('[data-needs-transcode]');
+                } else {
+                    console.warn('[SimplePlayer] Player data for video ' + newId + ' returned ' + res.status);
+                }
+            } catch (e) {
+                console.warn('[SimplePlayer] Could not load player data for video ' + newId + ':', e);
+            }
+            // Superseded by another switch or torn down while fetching.
+            if (this._destroyed || String(this.videoId) !== String(newId)) return;
+
+            if (fresh) {
+                // Everything the server rendered for the new video, except identity
+                // the player already owns.
+                Object.keys(fresh.dataset).forEach((key) => {
+                    if (key !== 'profileId' && key !== 'startTime') {
+                        this.container.dataset[key] = fresh.dataset[key];
+                    }
+                });
+            } else {
+                console.warn('[SimplePlayer] Opening video ' + newId + ' with the previous video\'s routing flags');
+            }
+            const start = startAt > 0 ? startAt : 0;
+            this.container.dataset.startTime = String(start);
+
+            // Per-video state the old swap kept from the previous episode.
+            const rawDur = parseFloat(this.container.dataset.duration || 0);
+            this.totalDuration = rawDur > 5000 ? rawDur / 1000 : rawDur;
+            this.markers = {
+                introStart: parseFloat(this.container.dataset.introStart || 0),
+                introEnd: parseFloat(this.container.dataset.introEnd || 0),
+                outroStart: parseFloat(this.container.dataset.outroStart || 0),
+                outroEnd: parseFloat(this.container.dataset.outroEnd || 0),
+                recapStart: parseFloat(this.container.dataset.recapStart || 0),
+                recapEnd: parseFloat(this.container.dataset.recapEnd || 0)
+            };
+            this.originalMarkers = { ...this.markers };
+            this._autoSkippedSections = new Set();
+            this._outroSkipDisabled = false;
+            this.currentAudioTrackIndex = null;
+            this.storyboard = { metadata: null, loaded: false };
+            this._storyboardLoadScheduled = false;
+            this._storyboardLoaded = false;
+            this.streamStartOffset = 0;
+            this.lastKnownGoodPosition = 0;
+            this._hasPlayedData = false;
+            this._streamFallbackCount = 0;
+            this._healthySince = 0;
+            // Direct files resume with a client-side seek on loadedmetadata; the
+            // transcode and HLS routes start the stream at dataset.startTime.
+            this.initialResumeTime = start;
+            this._applyRoutingFlags();
+
+            // Not open yet: the saved audio preference for the new video is then
+            // recorded and carried by the single open request, instead of
+            // switchAudioTrack reloading a stream that is about to be opened.
+            this._streamOpened = false;
+            this._openStreamWhenAudioResolved();
         }
 
         _isIOS() { return this.utils.isIOS(); }
@@ -412,10 +503,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.streamMgr.initLocalHlsStream(savedTime);
                 this.subtitleController.loadSubtitles();
             } else if (this.needsTranscode || audioNeedsHls) {
-                const setupStream = () => {
-                    const target = savedTime > 0 ? savedTime : null;
+                const setupStream = (startAt) => {
+                    const target = startAt > 0 ? startAt : null;
                     const streamUrl = this.streamMgr.buildStreamUrl(target);
-                    this.streamStartOffset = savedTime > 0 ? savedTime : 0;
+                    this.streamStartOffset = startAt > 0 ? startAt : 0;
                     // The element may begin earlier than the requested position (a copy
                     // seek starts at the previous keyframe, and a seek into an existing
                     // segment starts deep inside that segment's own timeline). Use the
@@ -459,9 +550,12 @@ if (typeof window.SimplePlayer === 'undefined') {
                     console.error('[SimplePlayer] Direct stream error (fallback ' + this._streamFallbackCount + '/' + this._maxStreamFallbacks + '):', this.video.error);
                     if (this._streamFallbackCount < this._maxStreamFallbacks) {
                         this._showLoading('Stream error, retrying...');
+                        // Retry where the viewer is, not where the stream was opened:
+                        // an error 40 minutes in used to jump back to the resume point.
+                        const retryAt = this._hasPlayedData ? this._currentAbsolutePosition() : savedTime;
                         setTimeout(() => {
                             if (this._destroyed || !document.body.contains(this.container)) return;
-                            setupStream();
+                            setupStream(retryAt);
                         }, 1000);
                     } else {
                         this._showLoading('Playback failed - try reloading');
@@ -469,7 +563,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 };
                 this._setupStreamErrorHandler = setupStreamErrorHandler;
                 this.video.addEventListener('error', this._setupStreamErrorHandler);
-                setupStream();
+                setupStream(savedTime);
             } else {
                 /* Load from beginning; client-side seek in loadedmetadata handles resume.
                    Server-side ?start= can fail for direct streams, causing the progress bar
@@ -502,13 +596,23 @@ if (typeof window.SimplePlayer === 'undefined') {
                     console.error('[SimplePlayer] Direct stream error (fallback ' + self._streamFallbackCount + '/' + self._maxStreamFallbacks + '):', self.video.error);
                     if (self._streamFallbackCount < self._maxStreamFallbacks) {
                         self._showLoading('Stream error, retrying...');
+                        // Where to resume: the current position once playback has run,
+                        // otherwise the pending resume point. Restarting at 0 (as before)
+                        // threw the viewer back to the start of the movie.
+                        const retryAt = self._hasPlayedData
+                            ? self._currentAbsolutePosition()
+                            : (self.initialResumeTime > 0 ? self.initialResumeTime : savedTime);
                         setTimeout(function() {
                             if (self._destroyed || !document.body.contains(self.container)) return;
-                            self.streamStartOffset = 0;
+                            // A forced transcode honours ?start=, so the element's 0 is
+                            // retryAt; no client-side resume seek is needed afterwards.
+                            self.streamStartOffset = retryAt > 0 ? retryAt : 0;
+                            self.initialResumeTime = 0;
                             // Escalate, don't repeat: the copy/remux already failed once,
                             // so drop any native-codec bypass and force a server transcode.
                             self.streamMgr.disableClientCodecs();
-                            self.video.src = self.streamMgr.buildStreamUrl(null, { extraParams: ['forceTranscode=true'], audioCodecs: '' });
+                            self.video.src = self.streamMgr.buildStreamUrl(retryAt > 0 ? retryAt : null,
+                                { extraParams: ['forceTranscode=true'], audioCodecs: '' });
                             self.video.load();
                             self.video.play().catch(function (e) {
                                 console.warn('[SimplePlayer] play() after transcode escalation was blocked:', e);
@@ -736,9 +840,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                             } catch (e) {
                                 console.warn('[SimplePlayer] Could not refresh the player header:', e);
                             }
-                            this.streamStartOffset = (this.needsTranscode && newStateTime > 0) ? Math.max(0, newStateTime) : 0;
-                            this.lastKnownGoodPosition = 0;
-                            this.initialResumeTime = 0;
+                            // Offset, resume point and the rest of the per-video state are
+                            // reset in _reopenForVideo, from the NEW video's data.
 
                             // Restore volume/mute from localStorage
                             const vol = parseFloat(localStorage.getItem('jmedia_video_volume_' + profileId) || '0.7');
@@ -753,17 +856,6 @@ if (typeof window.SimplePlayer === 'undefined') {
                             this.state.muted = mute;
                             if (this.controlsManager) this.controlsManager.updateVolumeUI();
 
-                            // Resume: selectVideo → state.currentTime > 0 → seek the new source there;
-                            // advanceVideo → server sets 0 → no seek. Direct files seek client-side;
-                            // transcode was positioned by ?start= (streamStartOffset > 0) (B10).
-                            this.video.addEventListener('loadedmetadata', () => {
-                                if (newStateTime > 0 && this.streamStartOffset === 0 && this.video && !this._destroyed) {
-                                    try { this.video.currentTime = newStateTime; } catch (e) {
-                                        console.warn('[SimplePlayer] resume seek after source swap failed', e);
-                                    }
-                                }
-                            }, { once: true });
-
                             // Suppression exit: playing/loadeddata/error, or the 10s safety timeout.
                             // On playing, send ONE confirmation broadcast so the server playback
                             // timer restarts with the new id (B6) — it now passes the swap guard.
@@ -774,10 +866,11 @@ if (typeof window.SimplePlayer === 'undefined') {
                             this.video.addEventListener('loadeddata', () => this._clearSwapInProgress(), { once: true });
                             this.video.addEventListener('error', () => this._clearSwapInProgress(), { once: true });
 
-                            // Load the new source through the StreamManager retry machinery
-                            // (cache-busted ?trace=, bounded error retry as on initial load).
-                            // Pass newStateTime so transcode resumes via server-side ?start=.
-                            this.streamMgr.initDirectStream(newStateTime);
+                            // Open the new video through the normal routing (HLS, transcode or
+                            // direct) using ITS flags; resumes at newStateTime (selectVideo) or
+                            // 0 (advanceVideo). The old initDirectStream swap used the previous
+                            // video's needsTranscode/codec flags and never took the HLS route.
+                            this._reopenForVideo(newId, newStateTime);
                             if (!this._swapInProgress && !state.playing) {
                                 try { this.video.pause(); } catch (e) {
                                     console.warn('[SimplePlayer] pause during source swap failed', e);
@@ -882,7 +975,18 @@ if (typeof window.SimplePlayer === 'undefined') {
                             if (this._destroyed) return;
                             const tracks = this.streamMgr?.getAudioTracks?.() || [];
                             if (tracks.length > 0 && tracks[idx]) {
-                                this.streamMgr.setAudioTrack(tracks[idx].id);
+                                const track = tracks[idx];
+                                // Same path as picking it in the menu: resolves the DB id
+                                // to the ffprobe stream index, updates the menu and saves
+                                // the preference. setAudioTrack(id) took the DB id itself
+                                // as the stream index and switched to the wrong track.
+                                if (track.trackIndex !== undefined && this.audioTrackSelector
+                                        && typeof this.audioTrackSelector.selectTrack === 'function') {
+                                    this.audioTrackSelector.selectTrack(track.id);
+                                } else {
+                                    console.warn('[SimplePlayer] Remote audio selection: track ' + idx
+                                        + ' has no server stream index; ignoring');
+                                }
                                 return;
                             }
                             if (attempt < maxAttempts) {
@@ -929,6 +1033,17 @@ if (typeof window.SimplePlayer === 'undefined') {
          */
         _isAlive() {
             return !this._destroyed && !!this.container && document.body.contains(this.container);
+        }
+
+        /**
+         * Absolute content position the viewer is at. The element's clock is
+         * relative for a ?start= stream, so add the stream origin. Uses the last
+         * position that actually played: after an error, currentTime can already
+         * be reset.
+         */
+        _currentAbsolutePosition() {
+            const rel = this.lastKnownGoodPosition > 0 ? this.lastKnownGoodPosition : (this.video.currentTime || 0);
+            return Math.max(0, rel + (this.streamStartOffset || 0));
         }
 
         _broadcastState() {

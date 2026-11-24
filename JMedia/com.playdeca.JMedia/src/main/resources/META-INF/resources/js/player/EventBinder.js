@@ -8,6 +8,13 @@
     })();
     const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
 
+    /** Clean playback after which a used retry is given back. */
+    const HEALTHY_PLAYBACK_MS = 30000;
+    /** Mid-playback buffering before a reconnect (was 60 s). */
+    const MID_STALL_MS = 15000;
+    /** Extra 15 s windows granted while data is still arriving (slow but alive). */
+    const MID_STALL_MAX_EXTENSIONS = 3;
+
     window.PlayerEventBinder = class {
         constructor(player) {
             this.player = player;
@@ -185,6 +192,20 @@
                     if (!p._hasPlayedData && p.utils.isIOS()) console.debug('[iOS-DEBUG] _hasPlayedData set to true at currentTime=' + p.video.currentTime);
                     p.lastKnownGoodPosition = p.video.currentTime;
                     p._hasPlayedData = true;
+                    // A recovery that has played cleanly for 30 s is over: give the
+                    // retry budget back. It was shared by every error and stall path
+                    // and never refilled, so one hiccup left no retry for the rest
+                    // of a two-hour film.
+                    if (p._streamFallbackCount > 0) {
+                        const now = Date.now();
+                        if (!p._healthySince) {
+                            p._healthySince = now;
+                        } else if (now - p._healthySince > HEALTHY_PLAYBACK_MS) {
+                            dbg('[SimplePlayer] Playback healthy for 30s - retry budget restored');
+                            p._streamFallbackCount = 0;
+                            p._healthySince = 0;
+                        }
+                    }
                     if (p._stallTimer) {
                         clearTimeout(p._stallTimer);
                         p._stallTimer = null;
@@ -258,40 +279,74 @@
             p._waitingTimer = null;
             p.video.onwaiting = () => {
                 p.buffering.style.display = 'block';
+                // Buffering ends the healthy streak that refills the retry budget.
+                p._healthySince = 0;
                 if (p._waitingStart === 0) p._waitingStart = Date.now();
                 if (p._waitingTimer) return;
-                p._waitingTimer = setTimeout(() => {
-                    p._waitingTimer = null;
-                    p._waitingStart = 0;
-                    if (p._destroyed) return;
-                    if (p._userPaused) {
-                        dbg('[SimplePlayer] 60s waiting stall suppressed — user pause active');
-                        return;
-                    }
-                    if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && (p.video.networkState !== HTMLMediaElement.NETWORK_LOADING || !p._lastProgressAt || (Date.now() - p._lastProgressAt > 65000))) {
-                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] 60s waiting stall: currentTime=' + p.video.currentTime + ' _hasPlayedData=' + p._hasPlayedData + ' lastKnownGoodPosition=' + p.lastKnownGoodPosition + ' networkState=' + p.video.networkState + ' _streamFallbackCount=' + (p._streamFallbackCount || 0));
-                        console.warn('[SimplePlayer] Mid-playback stall detected (>60s), retrying at position', p.lastKnownGoodPosition);
+                const bufferedEnd = () => (p.streamMgr && typeof p.streamMgr._bufferedEnd === 'function')
+                    ? p.streamMgr._bufferedEnd(p.video) : 0;
+                // Reconnect after 15 s of buffering (was 60 s of spinner). While data
+                // is still arriving the stream is slow, not dead - a reload would only
+                // restart the transcode - so allow up to three more windows for it.
+                let extensions = 0;
+                const arm = (bufferedAtWindowStart) => {
+                    p._waitingTimer = setTimeout(() => {
+                        p._waitingTimer = null;
+                        if (p._destroyed) return;
+                        if (p._userPaused) {
+                            dbg('[SimplePlayer] Mid-playback stall check suppressed — user pause active');
+                            p._waitingStart = 0;
+                            return;
+                        }
+                        const bufferedNow = bufferedEnd();
+                        if (bufferedNow > bufferedAtWindowStart + 0.5 && extensions < MID_STALL_MAX_EXTENSIONS) {
+                            extensions++;
+                            dbg('[SimplePlayer] Still buffering but data is arriving (' + bufferedNow.toFixed(1)
+                                + 's buffered) - waiting another ' + (MID_STALL_MS / 1000) + 's');
+                            arm(bufferedNow);
+                            return;
+                        }
+                        p._waitingStart = 0;
+                        if (!p._hasPlayedData || !(p.lastKnownGoodPosition > 0)) return;
+                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] mid-playback stall: currentTime=' + p.video.currentTime + ' lastKnownGoodPosition=' + p.lastKnownGoodPosition + ' networkState=' + p.video.networkState + ' _streamFallbackCount=' + (p._streamFallbackCount || 0));
+                        const pos = p._currentAbsolutePosition();
+                        console.warn('[SimplePlayer] Mid-playback stall detected, reconnecting at', pos);
                         p.streamMgr.clearStreamErrorHandlers();
                         p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
-                        if (p._streamFallbackCount < p._maxStreamFallbacks) {
-                            if (window.Toast) window.Toast.warning('Playback stalled - reconnecting... (' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + ')');
-                            const pos = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
-                            // F2b: Direct files ignore ?start=, so reset offset to 0 for correct position reporting
-                            p.streamStartOffset = p.needsTranscode ? pos : 0;
-                            p.lastKnownGoodPosition = 0;
-                            p.video.src = p.streamMgr.buildStreamUrl(p.needsTranscode ? pos : null);
-                            p.video.load();
-                            if (p._userPaused) {
-                                dbg('[SimplePlayer] Blocked 60s stall-recovery play — user pause active');
-                            } else {
-                                dbg('[SimplePlayer] 60s stall-recovery play()');
-                                p.video.play().catch(function(e) { console.error('[SimplePlayer] 60s stall-recovery play failed', e); });
-                            }
-                        } else {
+                        if (p._streamFallbackCount >= p._maxStreamFallbacks) {
                             if (window.Toast) window.Toast.error('Playback failed - please reload');
+                            return;
                         }
-                    }
-                }, 60000);
+                        if (window.Toast) window.Toast.warning('Playback stalled - reconnecting... (' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + ')');
+                        // HLS: rebuild the session at the position. Assigning a plain
+                        // src here (as before) replaced hls.js with a progressive stream.
+                        if (p._hlsSessionId || p._hlsSessionPending) {
+                            p.streamMgr.recreateLocalHlsSession(pos);
+                            return;
+                        }
+                        if (p.needsTranscode) {
+                            p.streamStartOffset = pos;
+                            p.initialResumeTime = 0;
+                            p.video.src = p.streamMgr.buildStreamUrl(pos);
+                        } else {
+                            // F2b: direct files ignore ?start=: load from 0 and let the
+                            // loadedmetadata resume seek put the viewer back at pos
+                            // (resetting the offset alone restarted the film at 0:00).
+                            p.streamStartOffset = 0;
+                            p.initialResumeTime = pos;
+                            p.video.src = p.streamMgr.buildStreamUrl(null);
+                        }
+                        p.lastKnownGoodPosition = 0;
+                        p.video.load();
+                        if (p._userPaused) {
+                            dbg('[SimplePlayer] Blocked stall-recovery play — user pause active');
+                        } else {
+                            dbg('[SimplePlayer] Stall-recovery play()');
+                            p.video.play().catch(function(e) { console.error('[SimplePlayer] Stall-recovery play failed', e); });
+                        }
+                    }, MID_STALL_MS);
+                };
+                arm(bufferedEnd());
             };
             p.video.onplaying = () => {
                 p.buffering.style.display = 'none';

@@ -105,6 +105,9 @@
             // and never use it for ?audioTrack= resolution.
             const p = this.player;
             if (p && p.getAudioTracks) {
+                // getAudioTracks() prefers window.availableAudioTracks; whatever is
+                // there now belongs to an earlier video, so drop it first.
+                window.availableAudioTracks = null;
                 const playerTracks = p.getAudioTracks();
                 if (playerTracks && playerTracks.length > 0) {
                     window.availableAudioTracks = playerTracks;
