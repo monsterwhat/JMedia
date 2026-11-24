@@ -48,12 +48,12 @@ class TranscodingServiceTest {
     }
 
     @Test
-    void testWindowsChromiumAlwaysTranscodesHevcEvenWhenProven() {
-        // MediaSource.isTypeSupported() reports HEVC on Windows Chromium even
-        // when the GPU/driver cannot actually decode it. A proven flag must not
-        // whitelist the copy path: these clients always get H.264.
-        assertTrue(service.isTranscodeNeededForWeb(video("hevc"), CHROME_WINDOWS, true));
-        assertTrue(service.isTranscodeNeededForWeb(video("h265"), CHROME_WINDOWS, true));
+    void testWindowsChromiumCopiesHevcOnlyWhenProven() {
+        // The client proves HEVC with mediaCapabilities.decodingInfo() (Main 10 4K,
+        // hardware). Proven: copy. Unproven: transcode, as before.
+        assertFalse(service.isTranscodeNeededForWeb(video("hevc"), CHROME_WINDOWS, true));
+        assertFalse(service.isTranscodeNeededForWeb(video("h265"), EDGE_WINDOWS, true));
+        assertTrue(service.isTranscodeNeededForWeb(video("hevc"), CHROME_WINDOWS, false));
     }
 
     @Test
@@ -139,12 +139,20 @@ class TranscodingServiceTest {
     }
 
     @Test
-    void testWindowsChromiumHevcAlwaysResolvesToH264() {
-        // Even a client that advertises HEVC gets H.264 on Windows Chromium;
-        // the probe is not a reliable decode guarantee there.
+    void testWindowsChromiumProvenHevcResolvesToCopy() {
+        // A Windows Chromium client that proved hardware HEVC decode plays the
+        // source as is instead of costing a server transcode.
+        service.discoveryService = discoveryWithHardware("h264", "hevc");
+        assertEquals(TranscodingService.CODEC_COPY, service.resolveOutputCodec(
+                video("hevc", "1920x1080"), CHROME_WINDOWS, java.util.Set.of("hevc"), 0, false));
+    }
+
+    @Test
+    void testWindowsChromiumForcedTranscodeStaysH264() {
+        // After a failed copy the client escalates; that must never be HEVC again.
         service.discoveryService = discoveryWithHardware("h264", "hevc");
         assertEquals(TranscodingService.CODEC_H264, service.resolveOutputCodec(
-                video("hevc", "1920x1080"), CHROME_WINDOWS, java.util.Set.of("hevc"), 0, false));
+                video("hevc", "1920x1080"), CHROME_WINDOWS, java.util.Set.of("hevc"), 0, true));
     }
 
     @Test

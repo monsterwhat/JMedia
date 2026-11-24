@@ -181,6 +181,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.eventBinder = new window.PlayerEventBinder(this);
             this.audioTrackSelector = new window.PlayerAudioTrackSelector(this);
             this.subtitleSettingsUI = new window.PlayerSubtitleSettingsUI(this);
+            // Media keys / browser media hub control the video while it plays.
+            this.mediaSession = window.PlayerMediaSession ? new window.PlayerMediaSession(this) : null;
 
             window.currentPlayerInstance = this;
             window.player = this;
@@ -236,12 +238,20 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.needsConversion = this.container.dataset.needsConversion === 'true';
             this.dataHlsEnabled = this.container.dataset.hlsEnabled === 'true';
             this._canNativeHevc = false;
-            // HEVC is intentionally NOT overridden client-side. MediaSource's
-            // isTypeSupported() reports true on Windows Chromium whenever the OS
-            // codec is installed, even when the GPU/driver cannot decode the
-            // stream, which produced black players. The server decides HEVC vs
-            // H.264 (Windows Chromium is always transcoded to H.264).
             const codec = (this.container.dataset.videoCodec || '').toLowerCase();
+            // HEVC direct play, only on proof: canPlayType/isTypeSupported said yes
+            // on Chromium without a working decoder (black players), so the proof
+            // is the mediaCapabilities hardware-decode probe (Main 10 4K), run
+            // before the stream opens. The page was rendered without it, so the
+            // server's "needs transcode" is overridden here, as for AV1 below.
+            if ((this.needsTranscode || this.needsConversion) && (codec.includes('hevc') || codec.includes('h265'))) {
+                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport()) {
+                    this.needsTranscode = false;
+                    this.needsConversion = false;
+                    this._canNativeHevc = true;
+                    window.__jmediaDbg('[SimplePlayer] Browser decodes HEVC Main 10 in hardware — skipping server transcode');
+                }
+            }
             this._canNativeAv1 = false;
             // Browser-native AV1 override: if the server flagged transcode but the
             // browser can play AV1 natively (Chrome 70+, Edge 79+, Firefox 67+),
@@ -381,9 +391,18 @@ if (typeof window.SimplePlayer === 'undefined') {
          */
         _openStreamWhenAudioResolved() {
             let opened = false;
+            // The hardware-decode probe decides whether HEVC can play as is; it
+            // answers in milliseconds and is cached for the page.
+            const probe = (window.PlayerStreamManager
+                    && typeof window.PlayerStreamManager.probeDecodeCapabilities === 'function')
+                ? window.PlayerStreamManager.probeDecodeCapabilities().catch(() => null)
+                : Promise.resolve(null);
             const open = () => {
                 if (opened || this._destroyed) return;
                 opened = true;
+                // Re-derive the route with the probe's answer (or without it, when
+                // the 1.5 s cap fired first: then HEVC is transcoded as before).
+                this._applyRoutingFlags();
                 this._openStream();
             };
             // Start hls.js in parallel with audio-track resolution for the HLS
@@ -402,18 +421,16 @@ if (typeof window.SimplePlayer === 'undefined') {
                 });
             }
             const selector = this.audioTrackSelector;
-            if (!selector || typeof selector.init !== 'function') {
-                open();
-                return;
-            }
             const cap = setTimeout(() => {
-                console.warn('[SimplePlayer] Audio tracks slow to resolve; opening stream with the current selection');
+                console.warn('[SimplePlayer] Audio tracks / decode probe slow to resolve; opening stream with the current selection');
                 open();
             }, 1500);
-            Promise.resolve()
-                .then(() => selector.init())
-                .catch(e => console.warn('[SimplePlayer] Audio track resolution failed; opening stream anyway:', e))
-                .then(() => { clearTimeout(cap); open(); });
+            const audioReady = (!selector || typeof selector.init !== 'function')
+                ? Promise.resolve()
+                : Promise.resolve()
+                    .then(() => selector.init())
+                    .catch(e => console.warn('[SimplePlayer] Audio track resolution failed; opening stream anyway:', e));
+            Promise.all([audioReady, probe]).then(() => { clearTimeout(cap); open(); });
         }
 
         /** Opens the media stream. Run once, after the audio preference is known. */
@@ -1141,6 +1158,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
             if (this.audioTrackSelector && typeof this.audioTrackSelector.destroy === 'function') {
                 this.audioTrackSelector.destroy();
+            }
+            if (this.mediaSession) {
+                this.mediaSession.release();
             }
             // Clear every timer that can outlive teardown (double-clear is harmless).
             const _timerKeys = ['_waitingTimer', '_toastTimer', '_broadcastTimer', '_qualityResetTimer',

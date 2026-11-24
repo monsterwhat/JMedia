@@ -8,6 +8,10 @@
     })();
     const dbg = JMEDIA_DEBUG ? console.log.bind(console) : function () {};
 
+    /** Set when an HEVC copy failed in this browser: stop advertising HEVC for a while. */
+    const HEVC_FAILED_KEY = 'jmedia_hevc_direct_failed_at';
+    const HEVC_FAILED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
     window.PlayerStreamManager = class {
         constructor(player) {
             this.player = player;
@@ -71,7 +75,55 @@
          * the browser cannot decode (the HEVC black-player case).
          */
         disableClientCodecs() {
+            // A copy this browser said it could decode just failed. If HEVC was
+            // advertised, remember that in this browser so the next videos do not
+            // sit through the same black screen and watchdog before transcoding.
+            if (this._clientCodecs && this._clientCodecs.indexOf('hevc') !== -1) {
+                try { localStorage.setItem(HEVC_FAILED_KEY, String(Date.now())); } catch (e) { /* private mode */ }
+                const Cls = window.PlayerStreamManager;
+                if (Cls && Cls._decodeCaps) Cls._decodeCaps.hevcMain10Hw = false;
+                console.warn('[SimplePlayer] HEVC direct play failed here; transcoding HEVC in this browser from now on');
+            }
             this._clientCodecs = [];
+        }
+
+        /**
+         * One-time decode probe through mediaCapabilities.decodingInfo(), run
+         * before the first stream opens. Chromium's canPlayType() and
+         * MediaSource.isTypeSupported() say yes to HEVC even without a working
+         * decoder, so they never proved it. decodingInfo() reports whether the
+         * GPU decodes it (powerEfficient); Chromium decodes HEVC in hardware only.
+         * Probes HEVC Main 10 at 4K, the common case in this library.
+         *
+         * @returns {Promise<Object>} cached { hevcMain10Hw: boolean }
+         */
+        static probeDecodeCapabilities() {
+            const Cls = window.PlayerStreamManager;
+            if (Cls._decodeCapsPromise) return Cls._decodeCapsPromise;
+            const caps = { hevcMain10Hw: false };
+            Cls._decodeCapsPromise = (async () => {
+                try {
+                    let failedAt = 0;
+                    try { failedAt = parseInt(localStorage.getItem(HEVC_FAILED_KEY) || '0', 10) || 0; } catch (e) { /* private mode */ }
+                    const recentlyFailed = failedAt > 0 && Date.now() - failedAt < HEVC_FAILED_TTL_MS;
+                    if (!recentlyFailed && navigator.mediaCapabilities
+                            && typeof navigator.mediaCapabilities.decodingInfo === 'function') {
+                        const r = await navigator.mediaCapabilities.decodingInfo({
+                            type: 'media-source',
+                            video: {
+                                contentType: 'video/mp4; codecs="hvc1.2.4.L153.B0"',
+                                width: 3840, height: 2160, bitrate: 25000000, framerate: 24
+                            }
+                        });
+                        caps.hevcMain10Hw = !!(r && r.supported && r.powerEfficient);
+                    }
+                } catch (e) {
+                    console.warn('[SimplePlayer] decode capability probe failed:', e);
+                }
+                Cls._decodeCaps = caps;
+                return caps;
+            })();
+            return Cls._decodeCapsPromise;
         }
 
         /**
@@ -86,7 +138,8 @@
          * @returns {string[]} supported codec tags, e.g. ['hevc','av1']
          */
         clientCodecList() {
-            if (this._clientCodecs) return this._clientCodecs;
+            // Do not freeze the list before the decode probe has answered.
+            if (this._clientCodecs && window.PlayerStreamManager._decodeCaps) return this._clientCodecs;
             const codecs = [];
             try {
                 const Cls = this.constructor;
@@ -210,10 +263,13 @@
             // Chromium's canPlayType is optimistic: it reports "probably" for HEVC
             // even when no decoder is installed (no OS codec / HEVC extension), and
             // the element then renders a black frame. MSE.isTypeSupported lies the
-            // same way. So a Chromium UA never "proves" HEVC here; it gets the
-            // server transcode instead. Safari/WebKit genuinely decodes HEVC.
+            // same way. So for Chromium only the mediaCapabilities probe (hardware
+            // decode of Main 10 4K, see probeDecodeCapabilities) proves HEVC; before
+            // it has answered, or when it says no, the server transcodes.
+            // Safari/WebKit genuinely decodes HEVC.
             if (ua.indexOf('chrome') !== -1 || ua.indexOf('chromium') !== -1 || ua.indexOf('crios') !== -1) {
-                return false;
+                const caps = window.PlayerStreamManager && window.PlayerStreamManager._decodeCaps;
+                return !!(caps && caps.hevcMain10Hw);
             }
             try {
                 var video = document.createElement('video');
@@ -729,6 +785,7 @@
             const hls = new Hls(hlsConfig);
             p._hlsInstance = hls;
             p._hlsNetworkRetries = 0;
+            p._hlsMediaRecoveries = 0;
 
             p._showLoading(loadingMessage);
             hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
@@ -812,6 +869,25 @@
                         }
                     }
                 } else {
+                    // Media errors (a failed append or parse, a decoder hiccup) are
+                    // usually recoverable in place: recoverMediaError() rebuilds the
+                    // MediaSource and continues from the current position. Try that
+                    // twice, the second time also swapping the AAC codec signalling,
+                    // before paying for a whole new server transcode.
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && p._hlsMediaRecoveries < 2) {
+                        p._hlsMediaRecoveries++;
+                        console.warn('[SimplePlayer] HLS media error - recovering in place ('
+                            + p._hlsMediaRecoveries + '/2)');
+                        try {
+                            if (p._hlsMediaRecoveries === 2 && typeof hls.swapAudioCodec === 'function') {
+                                hls.swapAudioCodec();
+                            }
+                            hls.recoverMediaError();
+                            return;
+                        } catch (e) {
+                            console.error('[SimplePlayer] HLS in-place recovery failed', e);
+                        }
+                    }
                     if (fallbackToDirect) {
                         hls.destroy();
                         p._hlsInstance = null;
@@ -838,6 +914,15 @@
             dbg('[SimplePlayer] Falling back to direct stream');
 
             this.clearStreamErrorHandlers();
+            // Leaving HLS: stop its server encoder and forget the session. Kept, the
+            // encoder ran next to the new transcode until the reaper found it, and
+            // the live session id sent later seeks and stall recovery straight back
+            // into the HLS path that had just failed.
+            if (p._hlsInstance) {
+                try { p._hlsInstance.destroy(); } catch (e) { /* already gone */ }
+                p._hlsInstance = null;
+            }
+            this.destroyLocalHlsSession();
 
             const absTime = Math.max(0, p.streamStartOffset > 0 ? p.lastKnownGoodPosition + p.streamStartOffset : p.lastKnownGoodPosition);
             p.streamStartOffset = absTime;

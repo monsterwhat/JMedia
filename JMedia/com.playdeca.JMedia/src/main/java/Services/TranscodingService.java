@@ -942,10 +942,10 @@ public class TranscodingService {
             return true;
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
-        // Cache key versioned ("v6") so decisions made by the previous logic
-        // (v5: trusted the Windows Chromium HEVC probe) don't survive within a
+        // Cache key versioned ("v7") so decisions made by the previous logic
+        // (v6: never trusted a Windows Chromium HEVC proof) don't survive within a
         // running session.
-        String cacheKey = "v6|" + clientProvenHevc + "|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
+        String cacheKey = "v7|" + clientProvenHevc + "|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
         
         Boolean cached = transcodeNeededCache.get(cacheKey);
         if (cached != null) {
@@ -965,15 +965,16 @@ public class TranscodingService {
                 String ua = userAgent.toLowerCase(Locale.ROOT);
 
                 if (ua.contains("windows") && !ua.contains("firefox")) {
-                    // Chromium/Edge on Windows: only trust OS HEVC when the client
-                    // proved Main 10 MSE playback (?nativeHevc=1). The Microsoft HEVC
-                    // Video Extension is absent on most machines, and nothing in the
-                    // UA distinguishes those that have it — serving copy by default
-                    // produced unplayable streams (MSE fatal -> fallback loop).
-                    // Trusting the probe left Windows Chromium black on machines
-                    // whose GPU/driver cannot actually decode Main 10 HEVC.
-                    // Always transcode to H.264; the GPU encoder keeps this cheap.
-                    result = true;
+                    // Chromium/Edge on Windows: copy HEVC only when the client proved
+                    // it. The old proof (canPlayType / MSE.isTypeSupported) said yes
+                    // on machines whose GPU/driver could not decode Main 10, leaving a
+                    // black player, so this used to transcode unconditionally. The
+                    // client now proves it with mediaCapabilities.decodingInfo():
+                    // HEVC Main 10 4K, supported AND power-efficient (hardware), which
+                    // Chromium only reports when its GPU decoder handles that profile.
+                    // A client whose copy still fails escalates to forceTranscode and
+                    // stops advertising HEVC (remembered in the browser).
+                    result = !clientProvenHevc;
                 } else if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
                     result = false;  // macOS native VideoToolbox
                 } else if (isIOSClient(userAgent)) {
