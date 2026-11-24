@@ -211,9 +211,12 @@
                     canvas: canvas,
                     subContent: content,
                     workerUrl: JASSUB_BASE + 'worker/worker.js',
-                    wasmUrl: JASSUB_BASE + 'wasm/jassub-worker.wasm',
+                    // Static .wasm is served by Vert.x as application/octet-stream
+                    // (no MimeMapping entry) and WebAssembly.instantiateStreaming
+                    // rejects it. /wasm/ serves the same files with the correct type.
+                    wasmUrl: '/wasm/jassub-worker.wasm',
                     wasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker.js',
-                    modernWasmUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.wasm',
+                    modernWasmUrl: '/wasm/jassub-worker-modern.wasm',
                     modernWasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.js',
                     availableFonts: { 'liberation sans': JASSUB_BASE + 'default.woff2' },
                     defaultFont: 'liberation sans',
