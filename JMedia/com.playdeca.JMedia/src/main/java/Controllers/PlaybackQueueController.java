@@ -259,7 +259,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         List<Long> cue = state.getCue();
         int cueIndex = state.getCueIndex();
         
-        if (cue == null || cue.isEmpty()) return null;
+        if (cue == null || cue.isEmpty()) {
+            LOG.warn("[advance] STOP reason=cue-null-or-empty manual={}", manualAdvance);
+            return null;
+        }
 
         if (!forward) {
             // 'previous' logic
@@ -293,6 +296,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             }
             if (cue.isEmpty()) {
                 state.setCueIndex(-1);
+                LOG.warn("[advance] STOP reason=index-reset-empty-cue manual={} repeat={}", manualAdvance, state.getRepeatMode());
                 return null;
             }
             state.setCueIndex(0);
@@ -330,7 +334,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
             // Keep index at current position because list shifted
             int nextIdx = Math.min(cueIndex, cue.size() - 1);
             state.setCueIndex(nextIdx);
-            return resolveNextDjSong(state, cue, nextIdx, cue.get(nextIdx), manualAdvance);
+            Long picked = resolveNextDjSong(state, cue, nextIdx, cue.get(nextIdx), manualAdvance);
+            LOG.info("[advance] index={} picked={} manual={} djMode={} cueSize={}",
+                    nextIdx, picked, manualAdvance, state.getDjModeActive(), cue.size());
+            return picked;
         }
 
         // Logic for RepeatMode.ALL or ONE
@@ -370,7 +377,7 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
                     cue == null ? -1 : cue.size(), startIndex);
             return null;
         }
-        if (!hasDjRestriction(state) || cue == null || cue.isEmpty()) {
+        if (manualAdvance || !hasDjRestriction(state) || cue == null || cue.isEmpty()) {
             return fallback;
         }
         Song fallbackSong = songService.find(fallback);
