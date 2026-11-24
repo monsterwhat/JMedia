@@ -207,19 +207,13 @@
                 const userCorrection = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
                 const totalOffset = (p.streamStartOffset || 0) + userCorrection;
 
-                // Font resolution. JASSUB only gets local fonts when the browser
-                // supports the Local Font Access permission; Firefox rejects
-                // 'local-fonts' outright ("not a valid value for PermissionName"),
-                // so a style asking for Segoe UI or Trebuchet MS fell back to the
-                // bundled file with a warning. Register the configured family as an
-                // alias of the bundled font so the name resolves and the fallback is
-                // intentional rather than a failure.
+                // JASSUB matches defaultFont against the *internal* family name of
+                // the bundled woff2 (Liberation Sans), not against the key in
+                // availableFonts. Pointing it at an alias left libass with no
+                // fallback ("failed to find any fallback with glyph 0x0"), so this
+                // stays the real name.
                 const fontUrl = JASSUB_BASE + 'default.woff2';
-                const chosenFont = this.assFontName(savedStyle);
                 const availableFonts = { 'liberation sans': fontUrl };
-                if (chosenFont) {
-                    availableFonts[chosenFont] = fontUrl;
-                }
 
                 // JASSUB 2 has two worker files: workerUrl is its renderer worker,
                 // wasm(Worker)Url the libass WebAssembly and its glue. Passing the glue
@@ -239,7 +233,7 @@
                     modernWasmUrl: '/wasm/jassub-worker-modern.wasm',
                     modernWasmWorkerUrl: JASSUB_BASE + 'wasm/jassub-worker-modern.js',
                     availableFonts: availableFonts,
-                    defaultFont: chosenFont || 'liberation sans',
+                    defaultFont: 'liberation sans',
                     // Local fonts only (with permission); never fetch from Google Fonts.
                     queryFonts: 'local',
                     timeOffset: totalOffset,
@@ -282,10 +276,16 @@
                 r.toString(16).padStart(2, '0').toUpperCase();
         }
 
-        /** Normalised font family name used both in the ASS style and the font map. */
+        /**
+         * The family written into the ASS style. ASS is rendered by libass inside
+         * a worker, which cannot use the browser's installed fonts in Firefox
+         * (Local Font Access is unsupported), and only the bundled font file is
+         * registered there. Naming the bundled family is therefore the honest
+         * choice: what the script asks for is what is drawn, with no missing-font
+         * warning. Honouring Segoe UI requires bundling a metric-compatible clone.
+         */
         assFontName(style) {
-            const raw = (style && style.font) || "'Segoe UI'";
-            return raw.replace(/['"]/g, '').split(',')[0].trim().toLowerCase();
+            return 'liberation sans';
         }
 
         applyStyleToAssContent(content, style) {
