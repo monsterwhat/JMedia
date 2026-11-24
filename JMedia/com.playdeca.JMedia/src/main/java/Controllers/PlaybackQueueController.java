@@ -876,24 +876,24 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         }
 
         List<Long> cue = state.getCue();
-        int cueSize = (cue != null) ? cue.size() : 0;
-        List<Long> songPool;
-        if (Boolean.TRUE.equals(state.getDjModeActive())) {
-            songPool = buildSongPool(state);
-            if (songPool.isEmpty()) {
-                songPool = songService.findAll().stream()
-                        .map(s -> s.id)
-                        .collect(java.util.stream.Collectors.toList());
-                if (songPool.isEmpty()) {
-                    return;
-                }
-            }
-        } else {
-            if (cueSize <= 1) {
+        boolean djActive = Boolean.TRUE.equals(state.getDjModeActive());
+
+        // Queue-first selection. Songs already in the cue are the primary pool, so
+        // a playlist the user queued is reordered rather than replaced. The library
+        // pool (DJ genre/year/BPM, else everything) is only reached when the queue
+        // has no compatible candidate, which is what keeps a deliberate queue from
+        // being overridden by library picks.
+        List<Long> queuePool = (cue != null && cue.size() > 1) ? new ArrayList<>(cue) : new ArrayList<>();
+        List<Long> songPool = queuePool;
+        boolean usingQueue = !queuePool.isEmpty();
+        if (!usingQueue) {
+            if (!djActive) {
                 return;
             }
-            songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
-                    ? state.getOriginalCue() : cue;
+            songPool = libraryPool(state);
+            if (songPool.isEmpty()) {
+                return;
+            }
         }
 
         // ENHANCED SMART SHUFFLE: Multi-candidate scoring with artist/album awareness
@@ -976,35 +976,18 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         exclusions.add(currentSong.id);
 
         // PHASE 1: Get multiple candidates by Genre + BPM
-        List<Song> candidates;
-        if (currentSong.getBpm() > 0) {
-            candidates = songService.findCandidatesByGenreAndBpm(
-                    targetGenre,
-                    currentSong.getBpm(),
-                    bpmTolerance,
-                    exclusions,
-                    songPool,
-                    50 // Keep enough BPM-near candidates for variety scoring
-            );
-        } else {
-            candidates = songService.findCandidatesByGenre(
-                    targetGenre,
-                    exclusions,
-                    songPool,
-                    50
-            );
-        }
+        List<Song> candidates = querySmartCandidates(currentSong, targetGenre, bpmTolerance, exclusions, songPool);
+        candidates = applyBpmRange(state, applySelectionFilters, candidates);
 
-        // Smart Shuffle: enforce explicit BPM range (min <= songBpm <= max) when set
-        if (applySelectionFilters) {
-            int minBpm = state.getDjBpmMin() != null ? state.getDjBpmMin() : 0;
-            int maxBpm = state.getDjBpmMax() != null ? state.getDjBpmMax() : 0;
-            if (minBpm > 0 || maxBpm > 0) {
-                final int lo = minBpm;
-                final int hi = maxBpm;
-                candidates = candidates.stream()
-                        .filter(s -> s.getBpm() >= lo && (hi <= 0 || s.getBpm() <= hi))
-                        .collect(java.util.stream.Collectors.toList());
+        // Queue-first means the library is a fallback, not the default: only when
+        // nothing in the queue matches the target genre/BPM.
+        if (candidates.isEmpty() && usingQueue) {
+            List<Long> library = libraryPool(state);
+            if (!library.isEmpty()) {
+                LOG.debug("[smart] no compatible song in the queue for genre '{}'; falling back to the library pool", targetGenre);
+                songPool = library;
+                candidates = querySmartCandidates(currentSong, targetGenre, bpmTolerance, exclusions, songPool);
+                candidates = applyBpmRange(state, applySelectionFilters, candidates);
             }
         }
 
@@ -1443,6 +1426,49 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 .map(s -> s.id)
                 .distinct()
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * Candidate query used by Smart Shuffle. Extracted so the queue-first attempt
+     * and the library fallback run exactly the same selection.
+     */
+    private List<Song> querySmartCandidates(Song currentSong, String targetGenre, int bpmTolerance,
+                                            List<Long> exclusions, List<Long> pool) {
+        if (currentSong.getBpm() > 0) {
+            return songService.findCandidatesByGenreAndBpm(
+                    targetGenre, currentSong.getBpm(), bpmTolerance, exclusions, pool, 50);
+        }
+        return songService.findCandidatesByGenre(targetGenre, exclusions, pool, 50);
+    }
+
+    /** Explicit BPM range filter (min <= song.bpm <= max) when the user set one. */
+    private List<Song> applyBpmRange(PlaybackState state, boolean applySelectionFilters, List<Song> candidates) {
+        if (!applySelectionFilters) {
+            return candidates;
+        }
+        int minBpm = state.getDjBpmMin() != null ? state.getDjBpmMin() : 0;
+        int maxBpm = state.getDjBpmMax() != null ? state.getDjBpmMax() : 0;
+        if (minBpm <= 0 && maxBpm <= 0) {
+            return candidates;
+        }
+        return candidates.stream()
+                .filter(s -> s.getBpm() >= minBpm && (maxBpm <= 0 || s.getBpm() <= maxBpm))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * Library-wide pool for the Smart Shuffle fallback: the DJ restrictions when
+     * they produce anything, otherwise every song. Never used while the queue
+     * still has a compatible candidate.
+     */
+    private List<Long> libraryPool(PlaybackState state) {
+        List<Long> pool = buildSongPool(state);
+        if (pool.isEmpty()) {
+            pool = songService.findAll().stream()
+                    .map(s -> s.id)
+                    .collect(java.util.stream.Collectors.toList());
+        }
+        return pool;
     }
 
     private void refillCueFromPool(PlaybackState state, Long profileId, boolean manualAdvance) {
