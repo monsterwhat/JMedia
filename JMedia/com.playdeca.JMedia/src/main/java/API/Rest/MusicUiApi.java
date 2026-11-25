@@ -700,9 +700,10 @@ public class MusicUiApi {
                 totalSongs = result.totalCount();
             }
 
-            if (paginatedSongs.isEmpty()) {
-                return "<div class='p-6 has-text-centered opacity-50'><i class='pi pi-info-circle mb-3' style='font-size: 2rem;'></i><p>No songs found in this library.</p></div>";
-            }
+            /* Empty results fall through to the fragment, which owns the copy:
+               it can tell a search, a letter and an empty playlist apart, and the
+               search dropdown styles .empty-state-container. A hardcoded string
+               here used to win and always said "No songs found in this library." */
 
             boolean hasMore = (long) page * limit < totalSongs;
             int nextPage = page + 1;
