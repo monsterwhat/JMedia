@@ -32,6 +32,28 @@ body.music-page {
     --standard-text-dim: rgba(255, 255, 255, 0.5);
     --glass-bg: rgba(255, 255, 255, 0.05);
     --glass-border: rgba(255, 255, 255, 0.1);
+    /* Also pin the generic theme text tokens: elements that simply inherit their
+       colour (player title/artist, DJ panel hints) otherwise take --mobile-text,
+       which is #363636 in light mode - dark letters on the dark dock surface. */
+    --mobile-text: #f5f5f5;
+    --text-color: #f5f5f5;
+    color: var(--standard-text);
+}
+
+/* Explicit contrast for the "now playing" hero and the Smart Shuffle panel. */
+body.music-page .music-hero-title,
+body.music-page .music-hero-badge,
+body.music-page #songTitle,
+body.music-page .dj-settings-title,
+body.music-page .dj-settings-group-title,
+body.music-page #djModeIndicatorText {
+    color: var(--standard-text, #f5f5f5) !important;
+}
+
+body.music-page .music-hero-artist,
+body.music-page #songArtist,
+body.music-page .dj-settings-hint {
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.6)) !important;
 }
 
 /* ---------------- Container: pinned to viewport, transparent, click-through ---------------- */
@@ -277,19 +299,20 @@ body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-play
 }
 
 body.music-page #musicPlayerContainer .mobile-volume-wrapper {
+    /* No pill of its own: the volume button lives inside the dock pill, so a
+       background/border here read as a second concentric circle. */
     width: auto;
-    height: 3.8rem;   /* matches .mobile-player-controls pill height */
-    padding: 0 0.75rem;
+    height: auto;
+    padding: 0;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    border-radius: 999px;
-    background: var(--glass-bg, rgba(24, 24, 32, 0.85));
-    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
 }
 
 body.music-page #musicPlayerContainer .mobile-volume-wrapper .mobile-btn {
@@ -498,11 +521,12 @@ body.music-page .music-hero {
 
 /* ---------------- CENTER — Standalone search pill (next to the dock) ---------------- */
 body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper {
-    position: absolute !important;
-    left: 50% !important;
+    /* Positioned by .mobile-dock-row; keep only the pill's own look. */
+    position: static !important;
+    left: auto !important;
     top: auto;
-    bottom: 1rem;
-    transform: translateX(calc(-50% + 11.5rem)); /* just right of the center dock */
+    bottom: auto;
+    transform: none !important;
     width: auto;
     height: 3.8rem;   /* matches .mobile-player-controls pill height */
     padding: 0 0.75rem;
@@ -565,8 +589,161 @@ body.music-page.dock-search-open #musicPlayerContainer .dock-search-shell {
 }
 
 body.music-page.dock-search-open #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-controls,
-body.music-page.dock-search-open #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper {
+body.music-page.dock-search-open #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper,
+body.music-page.dock-search-open #musicPlayerContainer .mobile-player:not(.expanded) .mobile-gear-wrapper,
+body.music-page.dock-search-open #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
     display: none !important;
+}
+
+/* ---------------- CENTER — Standalone settings pill (mirror of the search pill) ---------------- */
+body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-gear-wrapper {
+    /* Positioned by .mobile-dock-row; keep only the pill's own look. */
+    position: static !important;
+    left: auto !important;
+    top: auto;
+    bottom: auto;
+    transform: none !important;
+    width: auto;
+    height: 3.8rem;
+    padding: 0 0.75rem;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--glass-bg, rgba(24, 24, 32, 0.85));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    pointer-events: auto;
+    z-index: 2;
+}
+
+body.music-page #musicPlayerContainer .mobile-gear-wrapper .mobile-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.15rem;
+    padding: 0;
+    border-radius: 50%;
+}
+
+/* ---------------- Bottom row: gear · dock · search ----------------
+   Laid out as one centered flex row. The old version positioned the two pills
+   with a fixed offset from the centre, which overlapped the dock as soon as the
+   transport buttons were wider than 2 x 11.5rem. Flex removes the guesswork. */
+body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row {
+    position: absolute !important;
+    left: 50% !important;
+    bottom: 1rem;
+    transform: translateX(-50%) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+    max-width: calc(100vw - 2rem);
+    z-index: 2;
+}
+
+body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-gear-wrapper,
+body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-player-controls,
+body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-search-wrapper {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    flex: none;
+}
+
+/* ---------------- Floating back-to-top ---------------- */
+body.music-page .dock-to-top {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(1rem + 4.6rem);
+    width: 2.9rem;
+    height: 2.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    background: var(--glass-bg, rgba(24, 24, 32, 0.9));
+    color: var(--standard-text, #fff);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px) scale(0.96);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+    cursor: pointer;
+    z-index: 1200;
+}
+
+body.music-page .dock-to-top.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-to-top:hover {
+        background: rgba(255, 255, 255, 0.14);
+    }
+}
+
+/* ---------------- Dock action row (Play All / Clear All) ---------------- */
+body.music-page .dock-actions {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 1rem 0.25rem;
+    padding: 0.5rem 0;
+}
+
+body.music-page .dock-actions[hidden] {
+    display: none !important;
+}
+
+body.music-page .dock-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 2.4rem;
+    padding: 0 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--standard-text, #fff);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+body.music-page .dock-action-btn[hidden] {
+    display: none !important;
+}
+
+body.music-page .dock-action-danger {
+    border-color: rgba(241, 70, 104, 0.35);
+    color: #f14668;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-action-btn:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
+    body.music-page .dock-action-danger:hover {
+        background: rgba(241, 70, 104, 0.18);
+    }
 }
 
 body.music-page #musicPlayerContainer .dock-search-shell > .pi-search {
@@ -697,7 +874,7 @@ body.music-page #musicPlayerContainer .mobile-btn i {
    song list as a centered 160px card grid; on the dock we render cinema-style
    square cards (poster + hover play overlay + title/meta), 4 per row.
    Scoped to #mobileSongList — queue/history reuse .mobile-song-item and stay rows. */
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList.mobile-song-list {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent .mobile-song-list, #mobileHistoryContent .mobile-song-list) {
     display: grid !important;
     /* minmax(0, 1fr) — NOT plain 1fr. Plain 1fr = minmax(auto, 1fr): the auto
        minimum is the largest loaded lazy <img>'s intrinsic width in each column
@@ -716,11 +893,11 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
    (display:none !important) — match the rule's specificity so the hide wins
    over the grid above, otherwise albums/genres/queue render below a
    never-hidden song grid and the sidebar buttons appear dead. */
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList.mobile-song-list.is-hidden {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent .mobile-song-list, #mobileHistoryContent .mobile-song-list).is-hidden {
     display: none !important;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-item {
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
@@ -745,7 +922,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
 }
 
 @media (hover: hover) and (pointer: fine) {
-    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover {
+    body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-item:hover {
         transform: translateY(-4px) !important;
         background: transparent !important;
         border-color: transparent !important;
@@ -754,7 +931,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
 }
 
 /* Square poster — aspect ratio forced to 1:1 since song artwork is 8x8, not 16x9 */
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artwork {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-artwork {
     position: relative !important;
     width: 100% !important;
     height: auto !important;
@@ -768,7 +945,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     margin: 0 !important;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artwork img {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-artwork img {
     width: 100% !important;
     height: 100% !important;
     object-fit: cover !important;
@@ -777,7 +954,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
 
 /* Play button on hover — pure CSS (PrimeIcons glyph) so the shared song-item
    fragments stay untouched; only the dock's own stylesheet participates. */
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artwork::after {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-artwork::after {
     content: "\e9b3";
     font-family: "PrimeIcons";
     position: absolute;
@@ -801,12 +978,12 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
 }
 
 @media (hover: hover) and (pointer: fine) {
-    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item:hover .mobile-song-artwork::after {
+    body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-item:hover .mobile-song-artwork::after {
         opacity: 1;
     }
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-info {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-info {
     flex: 1 !important;
     min-width: 0;
     padding: 0 0.25rem !important;
@@ -815,7 +992,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     gap: 0.1rem;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-title {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-title {
     font-size: 0.9rem !important;
     font-weight: 600;
     margin-bottom: 0.1rem !important;
@@ -824,7 +1001,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     text-overflow: ellipsis;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artist {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-artist {
     font-size: 0.78rem !important;
     opacity: 0.7 !important;
     white-space: nowrap;
@@ -832,7 +1009,7 @@ body.music-page #app-content .standard-content .music-main-wrapper #mobileSongLi
     text-overflow: ellipsis;
 }
 
-body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-item.is-flac .mobile-song-artwork {
+body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-item.is-flac .mobile-song-artwork {
     box-shadow: inset 0 0 0 2px #FFD700;
 }
 
@@ -1086,7 +1263,7 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre
 
 /* ---------------- Small screens ---------------- */
 @media (max-width: 640px) {
-    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList.mobile-song-list {
+    body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent .mobile-song-list, #mobileHistoryContent .mobile-song-list) {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 0.9rem !important;
         margin: 0.5rem 0.75rem 1.25rem !important;
@@ -1106,7 +1283,7 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre
         gap: 0.9rem !important;
     }
 
-    body.music-page #app-content .standard-content .music-main-wrapper #mobileSongList .mobile-song-artwork::after {
+    body.music-page #app-content .standard-content .music-main-wrapper :is(#mobileSongList, #mobileQueueContent, #mobileHistoryContent) .mobile-song-artwork::after {
         width: 40px;
         height: 40px;
         font-size: 1rem;
@@ -1148,11 +1325,30 @@ body.music-page #app-content .standard-content .music-main-wrapper .mobile-genre
         height: 3px !important;
     }
 
-    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-search-wrapper,
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-gear-wrapper {
         position: static !important;
         transform: none !important;
         height: 2.95rem;
         padding: 0 0.55rem;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row {
+        position: static !important;
+        transform: none !important;
+        order: 2;
+        margin-left: auto;
+        gap: 0.4rem !important;
+        max-width: 100%;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-player-controls {
+        order: 0;
+        margin-left: 0;
+    }
+
+    body.music-page .dock-to-top {
+        bottom: calc(1rem + 8.2rem);
     }
 
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
@@ -1372,5 +1568,968 @@ body.music-page .dock-nav-classic-btn {
     body.music-page .dock-nav-classic-btn:hover {
         background: rgba(255, 255, 255, 0.12);
         color: #fff;
+    }
+}
+/* ---------------- Dock dialogs (cinema settings look) ----------------
+   Mirrors the video page's settings modal: black rounded panel over a blurred
+   backdrop, section rail on the left, scrolling content on the right. Both the
+   settings and import dialogs use this shell. */
+body.music-page .dock-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    background: rgba(0, 0, 0, 0.8);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+body.music-page .dock-dialog {
+    position: fixed;
+    z-index: 1401;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -48%) scale(0.98);
+    width: min(980px, 94vw);
+    max-height: min(86vh, 900px);
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.25s ease;
+}
+
+body.music-page .dock-dialog-backdrop.is-open,
+body.music-page .dock-dialog.is-open {
+    opacity: 1;
+    visibility: visible;
+}
+
+body.music-page .dock-dialog.is-open {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+body.music-page .dock-dialog-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    z-index: 30;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    opacity: 0.75;
+    transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-dialog-close:hover {
+        background: rgba(255, 255, 255, 0.12);
+        opacity: 1;
+    }
+}
+
+body.music-page .dock-dialog-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+}
+
+body.music-page .dock-dialog-side {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 0.6rem;
+}
+
+body.music-page .dock-dialog-nav {
+    display: flex;
+    flex-direction: row;
+    gap: 0.25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.music-page .dock-dialog-nav::-webkit-scrollbar {
+    display: none;
+}
+
+body.music-page .dock-dialog-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0.45rem 0.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+body.music-page .dock-dialog-tab.is-active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-dialog-tab:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.06);
+    }
+}
+
+body.music-page .dock-dialog-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 1.25rem 1.25rem;
+}
+
+body.music-page .dock-dialog-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #fff;
+    margin: 0 0 0.5rem;
+    padding-right: 2.5rem;
+}
+
+body.music-page .dock-dialog-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+}
+
+body.music-page .dock-dialog-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2rem 0.25rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+body.music-page .dock-dialog-error {
+    margin: 1rem 0.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 0.5rem;
+    background: rgba(241, 70, 104, 0.15);
+    border: 1px solid rgba(241, 70, 104, 0.35);
+    color: #f14668;
+    font-size: 0.9rem;
+}
+
+body.music-page.dock-dialog-open {
+    overflow: hidden;
+}
+
+@media (min-width: 768px) {
+    body.music-page .dock-dialog-layout {
+        flex-direction: row;
+        min-height: 460px;
+    }
+
+    body.music-page .dock-dialog-layout.dock-dialog-single {
+        flex-direction: column;
+    }
+
+    body.music-page .dock-dialog-side {
+        width: 210px;
+        flex: 0 0 210px;
+        border-bottom: none;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 1rem 0.6rem;
+        overflow-y: auto;
+    }
+
+    body.music-page .dock-dialog-nav {
+        flex-direction: column;
+        overflow-x: visible;
+    }
+
+    body.music-page .dock-dialog-tab {
+        width: 100%;
+    }
+}
+
+@media (max-width: 767px) {
+    body.music-page .dock-dialog {
+        width: 100vw;
+        max-width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        border: none;
+        top: 0;
+        left: 0;
+        transform: none;
+    }
+
+    body.music-page .dock-dialog.is-open {
+        transform: none;
+    }
+}
+/* ---------------- Settings inside the dialog ----------------
+   views/settings.html assumes it owns the scroll area (.settings-main-wrapper is
+   overflow-y:auto with 3rem padding and a 120px bottom pad). Inside the dialog
+   that creates a nested scroller that clips tall panes such as Sessions, so the
+   wrapper is flattened and the dialog's own scroll area does the scrolling. */
+body.music-page .dock-dialog-scroll {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Each settings card scrolls its own tables sideways. Letting the whole pane
+   scroll horizontally put the scrollbar at the bottom of the dialog, below the
+   second card, which is why the sessions table looked clipped. */
+body.music-page .dock-dialog-scroll .glass-box {
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+body.music-page .dock-dialog-scroll .settings-main-wrapper {
+    overflow: visible !important;
+    padding: 0.25rem 0 1rem !important;
+    min-height: 0 !important;
+}
+
+body.music-page .dock-dialog-scroll .settings-main {
+    max-width: 100% !important;
+    margin: 0 !important;
+}
+
+body.music-page .dock-dialog-scroll .tab-content,
+body.music-page .dock-dialog-scroll .tab-pane,
+body.music-page .dock-dialog-scroll .glass-box {
+    height: auto !important;
+    max-height: none !important;
+}
+
+/* Wide admin tables (sessions, users, xtream) scroll sideways instead of
+   being clipped by the dialog edge. */
+body.music-page .dock-dialog-scroll table.table {
+    min-width: 640px;
+}
+
+body.music-page .dock-dialog-scroll .table-container {
+    overflow-x: auto;
+}
+/* The injected settings view brings its own <h1>Settings</h1> and breadcrumbs;
+   the dialog already has a title, so drop the duplicates. */
+body.music-page .dock-dialog-scroll .settings-main > h1.title,
+body.music-page .dock-dialog-scroll #breadcrumb-nav {
+    display: none !important;
+}
+
+/* AI Subtitles: the grids are nested scrollers with a fixed height inside the
+   fragment, which is why that pane felt clipped and would not scroll sideways.
+   Let them flow in the dialog's own scroll area and reflow to its width. */
+body.music-page .dock-dialog-scroll #aiVideoGrid,
+body.music-page .dock-dialog-scroll #aiShowEpisodesGrid {
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+body.music-page .dock-dialog-scroll #aiVideoGrid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+    gap: 0.75rem !important;
+}
+
+body.music-page .dock-dialog-scroll #aiShowEpisodesGrid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+    gap: 0.5rem !important;
+}
+
+/* Long unbroken content (paths, video refs) wraps instead of forcing the pane
+   wider than the dialog. */
+body.music-page .dock-dialog-scroll .glass-box,
+body.music-page .dock-dialog-scroll .tab-pane {
+    min-width: 0;
+}
+
+body.music-page .dock-dialog-scroll .glass-box code,
+body.music-page .dock-dialog-scroll .glass-box pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+/* Same duplication in the import fragment: it ships its own page heading. */
+body.music-page #dockImportContent h2.title {
+    display: none !important;
+}
+/* ---------------- Browse sidebar: follow the app's sidebar-position setting ----------------
+   The setting (Settings > UI Preferences > Sidebar Position) slides the shell
+   sidebar left/right; the Browse panel mirrors it so the dock behaves the same. */
+body.music-page .episode-sidebar.from-left {
+    right: auto;
+    left: 0;
+    transform: translateX(-100%);
+    border-left: none;
+    border-right: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+}
+
+body.music-page .episode-sidebar.from-left.open {
+    transform: translateX(0);
+}
+/* ---------------- Queue / History cards: match the song cards ----------------
+   Queue rows carry an extra remove button and drag styles, and the card itself
+   was not a positioning context, so those items rendered larger/loose compared
+   with All Music. Normalise the box and anchor the remove button to the card. */
+body.music-page #app-content .standard-content .music-main-wrapper #mobileQueueContent .mobile-song-item,
+body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent .mobile-song-item {
+    position: relative !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper #mobileQueueContent .mobile-song-artwork,
+body.music-page #app-content .standard-content .music-main-wrapper #mobileHistoryContent .mobile-song-artwork {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1 !important;
+}
+
+body.music-page #app-content .standard-content .music-main-wrapper #mobileQueueContent .mobile-queue-remove {
+    top: 6px;
+    right: 6px;
+}
+
+/* Play All / Clear All: right-aligned, level with the first row of cards. */
+body.music-page .dock-actions {
+    justify-content: flex-end;
+}
+/* ---------------- Phones (<=640px) — measured on an iPhone 13 viewport ----------------
+   Two problems observed on device:
+   1) the dock row wrapped into three lines (gear / controls / search), pushing the
+      transport controls ~55px below the viewport bottom;
+   2) the hero took 68svh, leaving almost no room for the list. */
+@media (max-width: 640px) {
+    body.music-page .music-hero {
+        height: clamp(300px, 52svh, 62svh);
+    }
+
+    body.music-page .music-hero-artwork {
+        width: clamp(140px, 27svh, 200px);
+    }
+
+    body.music-page .music-hero-inner {
+        gap: 0.8rem;
+        padding: 1rem 1.25rem 2.5rem;
+    }
+
+    /* One line: gear · controls · search */
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row {
+        position: static !important;
+        transform: none !important;
+        order: 2;
+        width: 100%;
+        max-width: 100%;
+        flex-wrap: nowrap !important;
+        justify-content: space-between !important;
+        gap: 0.25rem !important;
+        margin-left: 0;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-gear-wrapper,
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-search-wrapper {
+        height: 2.6rem;
+        padding: 0 0.3rem;
+        flex: 0 0 auto;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row .mobile-btn {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        font-size: 0.95rem;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row .mobile-btn-primary {
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+        font-size: 1.1rem;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-controls {
+        flex: 0 1 auto;
+        padding: 0.2rem 0.35rem !important;
+        gap: 0 !important;
+    }
+}
+/* ---------------- Dialog content: dark-surface typography ----------------
+   views/settings.html is written for the light settings page: Bulma paints
+   .title/h1-h6 with #363636 and .table with a white background, both of which
+   read as dark-on-dark (or jarring white blocks) inside the dock dialog. */
+body.music-page .dock-dialog-scroll h1,
+body.music-page .dock-dialog-scroll h2,
+body.music-page .dock-dialog-scroll h3,
+body.music-page .dock-dialog-scroll h4,
+body.music-page .dock-dialog-scroll h5,
+body.music-page .dock-dialog-scroll h6,
+body.music-page .dock-dialog-scroll .title {
+    color: var(--standard-text, #f5f5f5) !important;
+}
+
+body.music-page .dock-dialog-scroll .label,
+body.music-page .dock-dialog-scroll .help {
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.65)) !important;
+}
+
+body.music-page .dock-dialog-scroll .table {
+    background-color: transparent !important;
+    color: var(--standard-text, #f5f5f5) !important;
+}
+
+body.music-page .dock-dialog-scroll .table th {
+    color: var(--standard-text, #f5f5f5) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background-color: transparent !important;
+}
+
+body.music-page .dock-dialog-scroll .table td {
+    color: var(--standard-text, #f5f5f5) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.music-page .dock-dialog-scroll .table tr:hover td {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+body.music-page .dock-dialog-scroll .table td,
+body.music-page .dock-dialog-scroll .table th {
+    white-space: nowrap;
+}
+
+/* Phones: the faded info pill still occupied its box, leaving the progress bar
+   floating ~100px above the dock when the hero is on screen. */
+@media (max-width: 640px) {
+    body.music-page.dock-at-top #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
+        display: none !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        margin: 0 0.35rem;
+    }
+}
+/* Phones: the progress block was 59px tall (bar + padding) and its extra height
+   pushed the bar away from the dock; the Browse toggle also sat on top of the
+   hero artwork instead of the corner. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        height: 14px !important;
+        max-height: 14px !important;
+        min-height: 14px !important;
+        flex: 0 0 auto !important;
+        padding: 0 !important;
+        margin: 0 0.35rem 0.45rem !important;
+    }
+
+    body.music-page #dockNavBtn {
+        position: fixed;
+        top: calc(env(safe-area-inset-top, 0px) + 0.6rem);
+        right: 0.75rem;
+        z-index: 300;
+    }
+}
+/* Phones: pin the progress bar directly on top of the dock row instead of letting
+   it float in the flow (an invisible info pill left a ~60px gap under it). */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        position: absolute !important;
+        left: 0.7rem !important;
+        right: 0.7rem !important;
+        top: auto !important;
+        bottom: calc(0.65rem + 3rem) !important;
+        width: auto !important;
+        height: 14px !important;
+        max-height: 14px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        transform: none !important;
+        flex: none !important;
+        z-index: 3;
+    }
+}
+/* Phones, final layout: progress bar and dock row only. The info pill repeats
+   what the hero already shows, and keeping it pushed the bar away from the dock. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-player-info {
+        display: none !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) {
+        padding-top: 0.35rem !important;
+        gap: 0.25rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        position: static !important;
+        width: auto !important;
+        height: 14px !important;
+        max-height: 14px !important;
+        min-height: 14px !important;
+        margin: 0 0.35rem !important;
+        padding: 0 !important;
+        transform: none !important;
+        flex: 0 0 auto !important;
+        bottom: auto !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+    }
+}
+/* ResponsivePlayer writes an inline height/min-height on .mobile-player (44px+
+   touch targets), which left ~39px of dead space and centred the dock row away
+   from the progress bar. On phones the dock must shrink-wrap instead. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        align-content: flex-start !important;
+        justify-content: flex-start !important;
+    }
+}
+/* #musicPlayerContainer lays its children out in a row, so the progress block was
+   being placed at the far LEFT (that stray green dot). Pin it above the dock on
+   phones instead: the dock row sits ~10px from the bottom and is ~48px tall. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        position: fixed !important;
+        left: 0.75rem !important;
+        right: 0.75rem !important;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 62px) !important;
+        top: auto !important;
+        width: auto !important;
+        height: 14px !important;
+        max-height: 14px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        transform: none !important;
+        flex: none !important;
+        z-index: 4;
+    }
+}
+/* Phones: the progress bar is moved into .mobile-dock-row (see music-dock.js)
+   and spans the first line; the pills wrap onto the second line. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-dock-row {
+        flex-wrap: wrap !important;
+        row-gap: 0.2rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-progress-container.in-dock-row,
+body.music-page #musicPlayerContainer .mobile-player .mobile-dock-row > .mobile-progress-container.in-dock-row {
+        position: static !important;
+        flex: 1 1 100% !important;
+        width: auto !important;
+        height: 14px !important;
+        max-height: 14px !important;
+        min-height: 14px !important;
+        margin: 0 0.3rem !important;
+        padding: 0 !important;
+        transform: none !important;
+        bottom: auto !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+        order: -1;
+        z-index: 3;
+    }
+}
+/* Phones: #musicPlayerContainer lays its children out as a row and the player is
+   re-rendered by the music bundle, which kept re-parenting the progress block
+   into a stray line at the bottom-left. Hide it on phones until the dock gets a
+   dedicated progress slot; desktop/tablet keep the existing bar. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-progress-container {
+        display: none !important;
+    }
+}
+/* Phones: trim the dialog padding so admin tables get the width back. */
+@media (max-width: 640px) {
+    body.music-page .dock-dialog-main {
+        padding: 0.6rem 0.65rem 0.9rem;
+    }
+
+    body.music-page .dock-dialog-scroll .glass-box {
+        padding: 1rem !important;
+    }
+
+    body.music-page .dock-dialog-side {
+        padding: 0.35rem 0.4rem;
+    }
+}
+/* Table cells wrap their tags/code (the session IP pills broke across two lines
+   even though the cell is nowrap). */
+body.music-page .dock-dialog-scroll .table .tag,
+body.music-page .dock-dialog-scroll .table code,
+body.music-page .dock-dialog-scroll .table .tag * {
+    white-space: nowrap !important;
+    word-break: normal !important;
+}
+/* ---------------- Empty hero (nothing playing) ----------------
+   logo.png is a wordmark; stretched across the hero as a blurred backdrop it
+   looked like a giant logo on phones. Empty state gets a neutral gradient and a
+   small, dim mark instead. */
+.music-hero.is-empty {
+    background:
+        radial-gradient(120% 100% at 50% 0%, #17171e 0%, #0a0a0a 62%),
+        var(--standard-bg, #0a0a0a);
+}
+
+.music-hero.is-empty .music-hero-backdrop,
+.music-hero.is-empty .music-hero-shade {
+    display: none !important;
+}
+
+.music-hero.is-empty .music-hero-artwork {
+    width: clamp(84px, 13svh, 120px) !important;
+    border-radius: 22px;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+    opacity: 0.35;
+}
+
+.music-hero.is-empty .music-hero-title {
+    font-size: clamp(1.35rem, 3.2svh, 2rem);
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.55)) !important;
+}
+/* ---------------- Navbar logo size (music-dock only) ----------------
+   A shared `width: 100%`-style rule was sizing logo.png to the whole navbar
+   container: measured 366x366px on an iPhone 11, making the bar 398px tall.
+   Cap the logo and let the bar shrink to it. */
+body.music-page .cinema-nav {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: 72px;
+}
+
+body.music-page .cinema-nav-left {
+    flex: 0 0 auto !important;
+    min-width: 0;
+}
+
+body.music-page .cinema-nav-logo {
+    width: auto !important;
+    height: auto !important;
+    flex: 0 0 auto !important;
+}
+
+body.music-page .cinema-nav-logo-img {
+    height: 30px !important;
+    width: auto !important;
+    max-height: 30px !important;
+    max-width: 120px !important;
+    object-fit: contain !important;
+}
+/* Volume lives in the dock only on desktop; on phones (and small tablets) it is
+   hidden, matching body.volume-controllable's intent and freeing dock width. */
+@media (max-width: 900px) {
+    body.music-page #musicPlayerContainer .mobile-volume-wrapper {
+        display: none !important;
+    }
+}
+/* The Browse toggle belongs to the navbar (it was fixed to the corner while the
+   logo was inflating the bar to 398px). With the logo capped the bar is 62px, so
+   keep the button in normal nav flow. */
+@media (max-width: 640px) {
+    body.music-page #dockNavBtn {
+        position: static !important;
+        top: auto !important;
+        right: auto !important;
+        z-index: auto;
+    }
+}
+/* ---------------- Phones/tablets: full-bleed content ----------------
+   The shell keeps a 50px collapsed sidebar rail in the flex row even at mobile
+   widths, which left the hero and grid 50px narrower than the viewport (a dead
+   strip on the right). The dock page navigates via the Browse panel, so drop the
+   rail and let the main column take the full width. */
+@media (max-width: 900px) {
+    body.music-page .standard-sidebar {
+        display: none !important;
+    }
+
+    body.music-page .standard-layout,
+    body.music-page .standard-layout.sidebar-right {
+        flex-direction: column !important;
+    }
+
+    body.music-page .standard-main,
+    body.music-page .standard-layout.sidebar-right .standard-main {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 auto !important;
+        margin: 0 !important;
+    }
+
+    body.music-page #app-content,
+    body.music-page .standard-content,
+    body.music-page .music-main-wrapper,
+    body.music-page .music-hero {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+/* The shell reserves 50px of right padding on .standard-main for the collapsed
+   sidebar rail; with the rail hidden the content must use the full width. */
+@media (max-width: 900px) {
+    body.music-page .standard-main,
+    body.music-page .standard-layout.sidebar-right .standard-main {
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+}
+/* The last two rail allowances: .standard-content keeps 50px of right padding and
+   the fixed player sets right: 50px, so both the song grid and the dock sat ~25px
+   left of centre. The rail is hidden on the dock page at these widths. */
+@media (max-width: 900px) {
+    body.music-page .standard-content,
+    body.music-page .standard-layout .standard-content,
+    body.music-page .standard-layout.sidebar-right .standard-content,
+    body.music-page .standard-layout.collapsed.sidebar-right .standard-content {
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+
+    body.music-page #musicPlayerContainer.persistent-music-player {
+        left: 0 !important;
+        right: 0 !important;
+        width: auto !important;
+    }
+}
+/* ---------------- Phones: full-screen now-playing hero ----------------
+   At the top the hero fills the whole viewport; scrolling reveals the library.
+   The fixed navbar sits over it, so the content is inset top and bottom. */
+@media (max-width: 640px) {
+    body.music-page .music-hero {
+        height: 100vh;
+        height: 100svh;
+        min-height: 100vh;
+        min-height: 100svh;
+        max-height: none;
+    }
+
+    body.music-page .music-hero-inner {
+        height: 100%;
+        justify-content: center;
+        gap: 1.1rem;
+        padding: 4.75rem 1.25rem 6.5rem;
+    }
+
+    body.music-page .music-hero-artwork {
+        width: min(58vw, 38svh);
+    }
+
+    body.music-page .music-hero-title {
+        font-size: clamp(1.6rem, 5.4vw, 2.3rem);
+    }
+}
+
+/* Phones: gear + search live inside the dock pill, so hide the outer pills. */
+@media (max-width: 640px) {
+    /* Only the gear's outer pill disappears; the search keeps its pill. */
+    body.music-page #musicPlayerContainer .mobile-player .mobile-dock-row > .mobile-gear-wrapper,
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-gear-wrapper {
+        display: none !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row {
+        justify-content: center !important;
+    }
+
+    /* The gear inside the pill matches the transport buttons. */
+    body.music-page #musicPlayerContainer .mobile-player-controls > #dockSettingsBtn {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        font-size: 1rem;
+        flex: 0 0 auto;
+    }
+}
+/* ---------------- Infinite-scroll loader ----------------
+   Each list ends with a .scroll-sentinel carrying an htmx indicator that is
+   hidden until the request fires. Make it a visible spinner + label so the gap
+   before the next page arrives reads as "loading", not "end of list". */
+body.music-page .scroll-sentinel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    grid-column: 1 / -1;
+    min-height: 56px;
+    padding: 0.75rem 0 1.5rem;
+}
+
+body.music-page .scroll-sentinel .scroll-loader {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+body.music-page .scroll-sentinel.htmx-request .scroll-loader {
+    opacity: 1;
+}
+
+body.music-page .scroll-sentinel .skeleton-scroll-loader {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #48c774;
+    background: none;
+    animation: dock-loader-spin 0.8s linear infinite;
+}
+
+body.music-page .scroll-sentinel.htmx-request .scroll-loader::after {
+    content: 'Loading more…';
+    color: var(--standard-text-dim, rgba(255, 255, 255, 0.6));
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+@keyframes dock-loader-spin {
+    to { transform: rotate(360deg); }
+}
+/* ---------------- Sort bar ---------------- */
+body.music-page .dock-sortbar {
+    position: sticky;
+    top: 0;
+    z-index: 41;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem 0.25rem;
+}
+
+body.music-page .dock-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 2.1rem;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--standard-text, #fff);
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    body.music-page .dock-sort-btn:hover {
+        background: rgba(255, 255, 255, 0.14);
+    }
+}
+
+/* Phones: dock row centred as a pair, search pill the same thickness. */
+@media (max-width: 640px) {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row,
+    body.music-page #musicPlayerContainer .mobile-dock-row {
+        justify-content: center !important;
+        gap: 0.5rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-player-controls {
+        margin-left: 0 !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-search-wrapper {
+        margin-right: 0 !important;
+        height: 3rem !important;
+        padding: 0 0.7rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-search-wrapper .mobile-btn {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        font-size: 1rem;
+    }
+}
+/* ---------------- A–Z jump rail ---------------- */
+body.music-page .dock-alpha {
+    position: fixed;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 45;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 4px 2px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    max-height: 62vh;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+body.music-page .dock-alpha::-webkit-scrollbar {
+    display: none;
+}
+
+body.music-page .dock-alpha-btn {
+    width: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--standard-text, #fff);
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1.35;
+    cursor: pointer;
+    opacity: 0.9;
+}
+
+body.music-page .dock-alpha-btn.is-empty {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+@media (max-width: 900px) {
+    body.music-page .dock-alpha {
+        display: flex;
     }
 }

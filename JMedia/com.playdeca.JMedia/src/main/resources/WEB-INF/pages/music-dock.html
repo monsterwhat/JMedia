@@ -35,7 +35,7 @@
         <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
-        <link rel="stylesheet" href="/css/music-dock.css?v=18">
+        <link rel="stylesheet" href="/css/music-dock.css?v=59">
         <link rel="stylesheet" href="/css/subtitle-styling.css">
         <link rel="stylesheet" href="/css/video-sidebar.css">
         <link rel="stylesheet" href="/css/episode-sidebar.css">
@@ -77,7 +77,7 @@
         <!-- MobileApp (mobile music UI) moved to /js/music-bundle-loader.js -->
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
-        <script src="/js/music-dock.js?v=5" defer></script>
+        <script src="/js/music-dock.js?v=24" defer></script>
 
         <!-- First-paint splash (inline so it renders before external assets). -->
         <style>
@@ -322,7 +322,7 @@
             <!-- Main Content Area (Shell) -->
             <div class="standard-main">
                 <!-- Music Hero (ultrawide, driven by the currently playing song) -->
-                <section class="music-hero" id="musicHero">
+                <section class="music-hero is-empty" id="musicHero">
                     <img class="music-hero-backdrop" id="musicHeroBackdrop" src="/logo.png" alt="" style="background: #0a0a0a;">
                     <div class="music-hero-shade"></div>
                     <div class="music-hero-inner">
@@ -338,6 +338,31 @@
                 </section>
 
                 <!-- Views will be injected here (Header + Content) -->
+                <!-- Playlist / queue actions (the injected search bars are hidden on
+                     the dock page, so their action buttons are proxied here) -->
+                <div class="dock-actions" id="dockActions" hidden>
+                    <button type="button" class="dock-action-btn" id="dockPlayAllBtn" hidden>
+                        <i class="pi pi-play"></i><span>Play All</span>
+                    </button>
+                    <button type="button" class="dock-action-btn dock-action-danger" id="dockClearQueueBtn" hidden>
+                        <i class="pi pi-trash"></i><span>Clear All</span>
+                    </button>
+                </div>
+
+                <!-- Sort bar: direction (left) + field (right) -->
+                <div class="dock-sortbar" id="dockSortBar">
+                    <button type="button" class="dock-sort-btn" id="dockSortDirBtn" title="Sort direction">
+                        <i class="pi pi-sort-amount-down" id="dockSortDirIcon"></i>
+                    </button>
+                    <button type="button" class="dock-sort-btn" id="dockSortFieldBtn" title="Sort by">
+                        <i class="pi pi-sort-alpha-down" id="dockSortFieldIcon"></i>
+                        <span id="dockSortFieldLabel">A–Z</span>
+                    </button>
+                </div>
+
+                <!-- A–Z jump rail (phones) -->
+                <nav class="dock-alpha" id="dockAlpha" aria-label="Jump to letter"></nav>
+
                 <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"><div class="skeleton-shell"><div class="field has-addons m-2"><div class="control is-expanded"><div class="skeleton-block is-skeleton" style="height:2em;border-radius:999px;"></div></div><div class="control"><div class="skeleton-block is-skeleton" style="width:60px;height:2em;border-radius:999px;"></div></div></div><div class="is-flex is-flex-wrap-wrap px-3 py-2" style="gap:0.75rem;"><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div></div></div></div>
 
                 <!-- Persistent Player -->
@@ -352,24 +377,32 @@
                             </div>
                         </div>
                         
-                        <div class="mobile-player-controls">
-                            <button id="shuffleBtn" class="mobile-btn"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
-                            <button id="djModeBtn" class="mobile-btn" title="Toggle DJ Mode (Seamless Transitions)"><i id="djModeIcon" class="pi pi-headphones"></i></button>
-                            <button id="prevBtn" class="mobile-btn"><i class="pi pi-step-backward"></i></button>
-                            <button id="playPauseBtn" class="mobile-btn mobile-btn-primary"><i id="playPauseIcon" class="pi pi-play"></i></button>
-                            <button id="nextBtn" class="mobile-btn"><i class="pi pi-step-forward"></i></button>
-                            <button id="repeatBtn" class="mobile-btn"><i id="repeatIcon" class="pi pi-refresh"></i></button>
-                            <div class="mobile-volume-wrapper">
-                            <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
-                            <div class="volume-slider-container">
-                            <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+                        <!-- One centered row: gear · controls · search.
+                             Laid out with flex so the pills can never overlap the dock
+                             regardless of how many transport buttons are visible. -->
+                        <div class="mobile-dock-row">
+                            <div class="mobile-gear-wrapper">
+                                <button id="dockSettingsBtn" class="mobile-btn" title="Settings"><i class="pi pi-cog"></i></button>
                             </div>
-                            </div>
-                        </div>
 
-                        <!-- Standalone search pill (next to the center dock, not inside it) -->
-                        <div class="mobile-search-wrapper">
-                            <button id="dockSearchBtn" class="mobile-btn" title="Search Music"><i id="dockSearchIcon" class="pi pi-search"></i></button>
+                            <div class="mobile-player-controls">
+                                <button id="shuffleBtn" class="mobile-btn"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                                <button id="djModeBtn" class="mobile-btn" title="Toggle DJ Mode (Seamless Transitions)"><i id="djModeIcon" class="pi pi-headphones"></i></button>
+                                <button id="prevBtn" class="mobile-btn"><i class="pi pi-step-backward"></i></button>
+                                <button id="playPauseBtn" class="mobile-btn mobile-btn-primary"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                                <button id="nextBtn" class="mobile-btn"><i class="pi pi-step-forward"></i></button>
+                                <button id="repeatBtn" class="mobile-btn"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                                <div class="mobile-volume-wrapper">
+                                <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
+                                <div class="volume-slider-container">
+                                <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+                                </div>
+                                </div>
+                            </div>
+
+                            <div class="mobile-search-wrapper">
+                                <button id="dockSearchBtn" class="mobile-btn" title="Search Music"><i id="dockSearchIcon" class="pi pi-search"></i></button>
+                            </div>
                         </div>
 
                         <!-- Glass search shell (video-style liquid glass: typing area + results dropdown) -->
@@ -494,19 +527,70 @@
             </div>
             <div class="episode-sidebar-header">
                 <span class="episode-sidebar-title">Browse</span>
-                <button type="button" class="episode-sidebar-close" id="dockNavClose" aria-label="Close"><i class="pi pi-times"></i></button>
+                <div class="dock-nav-header-actions">
+                    <button type="button" class="episode-sidebar-close" id="dockThemeToggle"
+                            aria-label="Toggle light or dark theme" title="Light / dark">
+                        <i class="pi pi-moon" id="dockThemeIcon"></i>
+                    </button>
+                    <button type="button" class="episode-sidebar-close" id="dockNavClose" aria-label="Close"><i class="pi pi-times"></i></button>
+                </div>
             </div>
             <div class="episode-sidebar-list dock-nav-list">
+                <button type="button" class="dock-nav-item active" id="dockNavAll"><i class="pi pi-play-circle"></i> All Music</button>
                 <button type="button" class="dock-nav-item" data-dock-tab="albums"><i class="pi pi-disc"></i> Albums</button>
                 <button type="button" class="dock-nav-item" data-dock-tab="genres"><i class="pi pi-tags"></i> Genres</button>
                 <button type="button" class="dock-nav-item" data-dock-tab="playlists"><i class="pi pi-list"></i> Playlists</button>
                 <button type="button" class="dock-nav-item" data-dock-tab="queue"><i class="pi pi-list"></i> Queue</button>
                 <button type="button" class="dock-nav-item" data-dock-tab="history"><i class="pi pi-history"></i> History</button>
+                <button type="button" class="dock-nav-item" id="dockNavImport"><i class="pi pi-download"></i> Import</button>
+                <button type="button" class="dock-nav-item" id="dockNavSettings"><i class="pi pi-cog"></i> Settings</button>
             </div>
             <div class="dock-nav-footer">
                 <button type="button" class="dock-nav-classic-btn" id="dockClassicPageBtn"><i class="pi pi-th-large"></i> Classic Music Page</button>
             </div>
         </div>
+
+        <!-- Settings dialog — mirrors the video cinema settings modal:
+             left section rail, content area, no iframe (an embedded app booted a
+             second audio engine and played music twice). -->
+        <div class="dock-dialog-backdrop" id="dockSettingsBackdrop"></div>
+        <div class="dock-dialog" id="dockSettingsModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Settings">
+            <button type="button" class="dock-dialog-close" id="dockSettingsClose" aria-label="Close settings">
+                <i class="pi pi-times"></i>
+            </button>
+            <div class="dock-dialog-layout">
+                <aside class="dock-dialog-side">
+                    <nav class="dock-dialog-nav" id="dockSettingsTabs" aria-label="Settings sections"></nav>
+                </aside>
+                <div class="dock-dialog-main">
+                    <h2 class="dock-dialog-title">Settings</h2>
+                    <div class="dock-dialog-scroll" id="dockSettingsContent">
+                        <div class="dock-dialog-loading"><i class="pi pi-spin pi-spinner"></i><span>Loading settings…</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import dialog — same shell, single column -->
+        <div class="dock-dialog-backdrop" id="dockImportBackdrop"></div>
+        <div class="dock-dialog" id="dockImportModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Import">
+            <button type="button" class="dock-dialog-close" id="dockImportClose" aria-label="Close import">
+                <i class="pi pi-times"></i>
+            </button>
+            <div class="dock-dialog-layout dock-dialog-single">
+                <div class="dock-dialog-main">
+                    <h2 class="dock-dialog-title">Import</h2>
+                    <div class="dock-dialog-scroll" id="dockImportContent">
+                        <div class="dock-dialog-loading"><i class="pi pi-spin pi-spinner"></i><span>Loading import…</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Back to top (appears once you scroll down) -->
+        <button type="button" class="dock-to-top" id="dockToTop" aria-label="Back to top" title="Back to top">
+            <i class="pi pi-arrow-up"></i>
+        </button>
 
         <!-- Shared Modals -->
         <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 2000000;"></div>

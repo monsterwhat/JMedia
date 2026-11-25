@@ -11,7 +11,6 @@
             touchTargetSize: 44, // Minimum touch target size in pixels
             swipeThreshold: 50, // Minimum swipe distance
             longPressDuration: 500, // Long press duration in ms
-            pullToRefreshThreshold: 100, // Pull to refresh threshold
             autoHideDelay: 2000, // Auto-hide UI elements delay
             animationDuration: 300 // Animation duration in ms
         },
@@ -244,117 +243,11 @@
          * Setup mobile-specific gestures
          */
         setupMobileGestures: function() {
-            // Pull to refresh
-            this.setupPullToRefresh();
-            
             // Swipe to dismiss
             this.setupSwipeToDismiss();
             
             // Double tap to like/favorite
             this.setupDoubleTapGestures();
-        },
-        
-        /**
-         * Setup pull to refresh gesture
-         */
-        setupPullToRefresh: function() {
-            let startY = 0;
-            let isPulling = false;
-            let pullDirectionConfirmed = false;
-            const pullThreshold = this.settings.pullToRefreshThreshold;
-            const directionThreshold = 10;
-            
-            const getScrollableContainer = () => {
-                const songList = document.getElementById('mobileSongList');
-                if (!songList) return null;
-                // Walk up to find the nearest scrollable ancestor
-                let el = songList;
-                while (el && el !== document.body) {
-                    const style = getComputedStyle(el);
-                    const overflowY = style.overflowY;
-                    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
-                        return el;
-                    }
-                    el = el.parentElement;
-                }
-                return null;
-            };
-            
-            document.addEventListener('touchstart', (e) => {
-                const container = getScrollableContainer();
-                const scrollTop = container ? container.scrollTop : 0;
-                if (scrollTop <= 0) {
-                    startY = e.touches[0].clientY;
-                    isPulling = true;
-                    pullDirectionConfirmed = false;
-                } else {
-                    isPulling = false;
-                }
-            });
-            
-            document.addEventListener('touchmove', (e) => {
-                if (!isPulling) return;
-                
-                const currentY = e.touches[0].clientY;
-                const deltaY = currentY - startY;
-                
-                // Confirm direction on first significant movement
-                if (!pullDirectionConfirmed && Math.abs(deltaY) > directionThreshold) {
-                    if (deltaY < 0) {
-                        // Finger moved up - normal scroll, cancel pull-to-refresh
-                        isPulling = false;
-                        return;
-                    }
-                    pullDirectionConfirmed = true;
-                }
-                
-                const container = getScrollableContainer();
-                const scrollTop = container ? container.scrollTop : 0;
-                if (pullDirectionConfirmed && deltaY > 0 && scrollTop <= 0) {
-                    e.preventDefault();
-                    
-                    // Visual feedback
-                    const songList = document.getElementById('mobileSongList');
-                    if (songList) {
-                        songList.style.transform = `translateY(${Math.min(deltaY * 0.5, pullThreshold)}px)`;
-                    }
-                }
-            }, { passive: false });
-            
-            document.addEventListener('touchend', (e) => {
-                if (!isPulling || !pullDirectionConfirmed) {
-                    isPulling = false;
-                    return;
-                }
-                
-                isPulling = false;
-                
-                const container = getScrollableContainer();
-                const scrollTop = container ? container.scrollTop : 0;
-                
-                const currentY = e.changedTouches[0].clientY;
-                const deltaY = currentY - startY;
-                
-                // Reset transform
-                const songList = document.getElementById('mobileSongList');
-                if (songList) {
-                    songList.style.transform = '';
-                }
-                
-                // Only trigger refresh if we're still at the top and threshold exceeded
-                if (scrollTop <= 0 && deltaY > pullThreshold) {
-                    this.triggerRefresh();
-                }
-            });
-            
-            document.addEventListener('touchcancel', () => {
-                isPulling = false;
-                pullDirectionConfirmed = false;
-                const songList = document.getElementById('mobileSongList');
-                if (songList) {
-                    songList.style.transform = '';
-                }
-            });
         },
         
         /**
@@ -546,44 +439,6 @@
                 });
                 
                 lazyImages.forEach(img => imageObserver.observe(img));
-            }
-        },
-        
-        /**
-         * Trigger refresh - reloads the current view
-         */
-        triggerRefresh: function() {
-            window.Helpers.log('MobileAdapter: Triggering refresh');
-            
-            // Visual feedback
-            if (window.showToast) {
-                window.showToast('Refreshing...', 'info', 2000);
-            }
-            
-            const songList = document.getElementById('mobileSongList');
-            const queueContent = document.getElementById('mobileQueueContent');
-            const historyContent = document.getElementById('mobileHistoryContent');
-            
-            // Detect which view is active and reload it
-            if (queueContent && !queueContent.classList.contains('is-hidden')) {
-                if (typeof switchToTab === 'function') {
-                    switchToTab('queue');
-                }
-            } else if (historyContent && !historyContent.classList.contains('is-hidden')) {
-                if (typeof switchToTab === 'function') {
-                    switchToTab('history');
-                }
-            } else if (songList && !songList.classList.contains('is-hidden')) {
-                // Music library - find which playlist is active
-                const activePlaylist = document.querySelector('.nav-sub-item.active');
-                let playlistId = 0;
-                if (activePlaylist && activePlaylist.id) {
-                    const match = activePlaylist.id.match(/nav-playlist-(\d+)/);
-                    if (match) playlistId = parseInt(match[1]);
-                }
-                if (typeof loadMobilePlaylistSongs === 'function') {
-                    loadMobilePlaylistSongs(playlistId);
-                }
             }
         },
         

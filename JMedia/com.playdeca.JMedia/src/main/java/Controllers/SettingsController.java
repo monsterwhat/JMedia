@@ -133,7 +133,7 @@ public class SettingsController implements Serializable {
     private String musicLibraryPath;
 
     private static final Set<String> SUPPORTED_AUDIO_EXTENSIONS = Set.of(
-        ".mp3", ".flac", ".m4a", ".ogg", ".wav"
+        ".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus", ".aac", ".aiff", ".aif"
     );
 
     // Music scan pool — virtual threads (I/O-bound: file walk, ffprobe subprocess wait,
