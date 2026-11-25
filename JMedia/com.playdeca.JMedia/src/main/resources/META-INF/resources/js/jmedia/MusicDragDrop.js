@@ -11,10 +11,7 @@
     const JMedia = window.JMedia = window.JMedia || {};
     const THRESHOLD = 12;
     const HOLD_MS = 350;
-    /* Only a vertical pull this long, with the browser not scrolling, is treated
-       as "this was a scroll, not a lift". Horizontal travel never cancels, so
-       aiming at the drawer while holding works. */
-    const HOLD_SCROLL_SLOP = 48;
+
     const SOURCE_SELECTOR = '.mobile-song-item[data-song-id], .mobile-album-card, .mobile-playlist-card';
     const INTERACTIVE_SELECTOR = 'button, a, input, textarea, select, .mobile-queue-remove, .mobile-context-menu';
     const DRAG_BODY_CLASS = 'music-dragging';
@@ -206,16 +203,12 @@
         const dx = e.clientX - pending.x;
         const dy = e.clientY - pending.y;
 
-        // Waiting for the lift. Movement must NOT abandon the gesture on its own:
-        // a real scroll is reported by the browser as pointercancel (the rows say
-        // touch-action: pan-y), and horizontal movement is how you head for the
-        // drawer. The only case left is a long vertical pull the browser refused
-        // to scroll (already at an edge), which is a scroll attempt, not a drag.
+        // Waiting for the lift. Movement alone must never abandon the gesture: a
+        // real scroll arrives as pointercancel from the browser (the rows declare
+        // touch-action: pan-y), and while the lift is pending the page is still
+        // free to scroll. Any distance guard here just killed the drag for people
+        // who start moving towards the drawer before the hold elapses.
         if (state.holdTimer) {
-            if (Math.abs(dy) > HOLD_SCROLL_SLOP && Math.abs(dy) > Math.abs(dx)) {
-                cancelHold();
-                state.pending = null;
-            }
             return;
         }
 
@@ -1212,6 +1205,18 @@
 
     document.addEventListener('pointerdown', onPointerDown, { passive: true });
     document.addEventListener('pointermove', onPointerMove, { passive: false });
+
+    /* touch-action: pan-y is what lets a song row scroll the list, but it also
+       means the first vertical move after a lift is claimed by the browser as a
+       pan: it fires pointercancel and the drag dies (the ghost vanished and the
+       page scrolled instead). Because the lift only happens after a stationary
+       hold, no pan has started yet, so cancelling the default here is enough to
+       keep the pointer stream alive for the rest of the drag - including moving
+       down the drawer to a playlist. */
+    document.addEventListener('touchmove', function (e) {
+        if (!state.session) return;
+        if (e.cancelable) e.preventDefault();
+    }, { passive: false });
     document.addEventListener('pointerup', onPointerUp, { passive: true });
     document.addEventListener('pointercancel', onPointerCancel, { passive: true });
     window.addEventListener('blur', teardownAbortedDrag, { passive: true });
