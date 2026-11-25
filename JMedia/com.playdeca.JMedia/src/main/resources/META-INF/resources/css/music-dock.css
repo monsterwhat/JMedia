@@ -2658,3 +2658,122 @@ body.music-page .dock-alpha-bubble.is-visible {
 body.music-page .dock-alpha-bubble.is-empty {
     color: rgba(255, 255, 255, 0.45);
 }
+
+/* ---------------- Search results: compact one-line rows in a clear panel ----------------
+   The fragment reuses .mobile-song-item, whose card layout (artwork stacked over the
+   text) only makes sense inside the library grid. In the dropdown that produced 83px
+   towers with the text hugging the left edge, so lay the row out properly here. */
+body.music-page #musicPlayerContainer .dock-search-dropdown {
+    /* Fully opaque: at 97% the hero text behind the panel survived as ghost text. */
+    background: #101014;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 1.15rem;
+    padding: 0.4rem;
+    max-height: min(58vh, 420px);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.55);
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown::-webkit-scrollbar {
+    display: none;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.7rem;
+    width: 100%;
+    min-height: 0;
+    padding: 0.4rem 0.55rem;
+    border-radius: 0.75rem;
+    border: 1px solid transparent;
+    text-align: left;
+    animation: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* FLAC: a quiet left tick, not a full gold frame (which read as "selected"). */
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-item.is-flac {
+    border: 1px solid transparent !important;
+    box-shadow: inset 3px 0 0 rgba(255, 215, 0, 0.6);
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-item:active,
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-item.is-playing {
+    background: rgba(72, 199, 116, 0.16);
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-artwork {
+    flex: 0 0 42px;
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px;
+    max-width: 42px;
+    margin: 0 !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-artwork img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-title {
+    font-size: 0.86rem !important;
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .mobile-song-artist {
+    font-size: 0.72rem !important;
+    line-height: 1.25;
+    opacity: 0.62 !important;
+    margin: 0 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Empty state / end of results: centred, quiet */
+body.music-page #musicPlayerContainer .dock-search-dropdown .empty-state-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 1.7rem 1rem;
+    text-align: center;
+    border: none;
+    background: transparent;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .empty-state-icon {
+    font-size: 1.4rem;
+    opacity: 0.4;
+    margin: 0;
+}
+
+body.music-page #musicPlayerContainer .dock-search-dropdown .empty-state-text {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    margin: 0;
+}

@@ -75,13 +75,7 @@ public class NavigationController {
     public Response serveVideoClassic() {
         return servePage("index.html", "Video classic page (SPA)");
     }
-    
-    @GET
-    @Path("/music-dock")
-    public Response serveMusicDock() {
-        return servePage("music-dock.html", "Music dock page (SPA)");
-    }
-    
+        
     @GET
     @Path("/setup")
     public Response serveSetup() {

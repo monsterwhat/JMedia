@@ -3,6 +3,8 @@
         <i class="pi pi-search-minus empty-state-icon"></i>
         {#if letter}
             <p class="empty-state-text">No songs starting with &ldquo;{letter}&rdquo;.</p>
+        {#else if search}
+            <p class="empty-state-text">Nothing matches &ldquo;{search}&rdquo;.</p>
         {#else if playlistId == 0}
             <p class="empty-state-text">No songs found in your library.</p>
             <a href="/settings" class="button is-success is-outlined">
