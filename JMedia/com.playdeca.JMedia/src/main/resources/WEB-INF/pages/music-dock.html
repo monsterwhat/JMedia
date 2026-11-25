@@ -35,8 +35,9 @@
         <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
-        <link rel="stylesheet" href="/css/music-dock.css?v=62">
+        <link rel="stylesheet" href="/css/music-dock.css?v=63">
         <link rel="stylesheet" href="/css/subtitle-styling.css">
+        <script>window.__DOCK_PAGE__ = true;</script>
         <link rel="stylesheet" href="/css/video-sidebar.css">
         <link rel="stylesheet" href="/css/episode-sidebar.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
@@ -73,7 +74,7 @@
              moved to /js/music-bundle-loader.js (music-only). -->
         <script src="/js/jmedia/Breadcrumbs.js" defer></script>
         <script src="/js/jmedia/PageChrome.js" defer></script>
-        <script src="/js/jmedia/App.js?v=3" defer></script>
+        <script src="/js/jmedia/App.js?v=4" defer></script>
         <!-- MobileApp (mobile music UI) moved to /js/music-bundle-loader.js -->
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
@@ -547,7 +548,7 @@
                 <a href="/video" class="dock-nav-item" id="dockNavVideo"><i class="pi pi-video"></i> Video</a>
             </div>
             <div class="dock-nav-footer">
-                <button type="button" class="dock-nav-classic-btn" id="dockClassicPageBtn"><i class="pi pi-th-large"></i> Classic Music Page</button>
+                <a href="/music-classic" class="dock-nav-classic-btn" id="dockClassicPageBtn"><i class="pi pi-th-large"></i> Music Classic</a>
             </div>
         </div>
 

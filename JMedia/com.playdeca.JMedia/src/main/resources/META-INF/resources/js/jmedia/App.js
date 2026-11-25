@@ -91,6 +91,15 @@
 
         handleRoute() {
             const path = window.location.pathname;
+
+            // The default music page is the dock, which is its own document. A
+            // music route reached inside the SPA (an old link, a stale
+            // pushState) has to become a real page load. The dock itself also
+            // runs this router, so it opts out with window.__DOCK_PAGE__.
+            if (!window.__DOCK_PAGE__ && (path === '/' || path === '/music')) {
+                window.location.replace('/music');
+                return;
+            }
             // Route-split guard: music-bundle-loader.js skips ~1 MB of music JS on
             // /video* routes. Switching client-side to a music-capable view from
             // there would render the music UI with no engine (no AudioEngine, no
@@ -101,7 +110,9 @@
                 return;
             }
             let viewName = this.routes[path] || 'music';
-            if (path.startsWith('/video-classic')) {
+            if (path.startsWith('/music-classic')) {
+                viewName = 'music';
+            } else if (path.startsWith('/video-classic')) {
                 viewName = 'video-classic';
             } else if (path.startsWith('/video-test')) {
                 // Old bookmark redirect — preserve query params
@@ -185,7 +196,10 @@
                 this.currentView = viewName;
 
                 const viewLabels = { music: 'Music', video: 'Video', 'video-classic': 'Video Classic', settings: 'Settings', import: 'Import' };
-                if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
+                const label = window.location.pathname.indexOf('/music-classic') === 0
+                    ? 'Music Classic'
+                    : (viewLabels[viewName] || viewName);
+                if (window.Breadcrumbs) window.Breadcrumbs.set([label]);
 
                 const isVideoPage = viewName === 'video' || viewName === 'video-classic';
                 // cinema-mode.js hides the music shell with inline styles and

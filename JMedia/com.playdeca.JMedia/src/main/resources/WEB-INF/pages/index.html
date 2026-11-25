@@ -77,7 +77,7 @@
              moved to /js/music-bundle-loader.js (music-only). -->
         <script src="/js/jmedia/Breadcrumbs.js" defer></script>
         <script src="/js/jmedia/PageChrome.js" defer></script>
-        <script src="/js/jmedia/App.js?v=3" defer></script>
+        <script src="/js/jmedia/App.js?v=4" defer></script>
         <!-- MobileApp (mobile music UI) moved to /js/music-bundle-loader.js -->
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
@@ -245,8 +245,11 @@
                     <!-- 3. Music Group (Primary for Music View) -->
                     <div class="nav-group" id="music-nav-group">
                         <p class="nav-label">Music Library</p>
-                        <a href="javascript:void(0)" class="nav-item active" id="nav-music" onclick="window.app.navigate('/')">
+                        <a href="/music" class="nav-item" id="nav-music-dock">
                             <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item active" id="nav-music" onclick="window.app.navigate('/music-classic')">
+                            <i class="pi pi-th-large"></i> <span>Music Classic</span>
                         </a>
                         <a href="javascript:void(0)" class="nav-item" id="nav-music-albums" onclick="window.switchToTab('albums')">
                             <i class="pi pi-book"></i> <span>Albums</span>
@@ -293,7 +296,7 @@
                     <!-- 6. Video-only Music Group (Simple link for Video View) -->
                     <div class="nav-group" id="video-music-group" style="display: none;">
                         <p class="nav-label">Music Library</p>
-                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/')">
+                        <a href="/music" class="nav-item">
                             <i class="pi pi-play-circle"></i> <span>Music</span>
                         </a>
                     </div>

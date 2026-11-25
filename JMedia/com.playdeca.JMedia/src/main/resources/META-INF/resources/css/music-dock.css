@@ -1554,6 +1554,8 @@ body.music-page .dock-nav-classic-btn {
     justify-content: center;
     gap: 0.5rem;
     width: 100%;
+    box-sizing: border-box;
+    text-decoration: none;
     padding: 0.65rem 1rem;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(255, 255, 255, 0.06);

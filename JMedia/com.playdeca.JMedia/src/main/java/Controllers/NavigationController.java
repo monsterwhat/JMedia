@@ -13,9 +13,26 @@ public class NavigationController {
     
     private static final Logger logger = Logger.getLogger(NavigationController.class);
     
+    /**
+     * The site root is now the music dock (the default music page). The SPA shell
+     * still serves /video, /settings, /import and the two classic pages.
+     */
     @GET
     public Response serveIndex(@Context UriInfo uriInfo) {
-        return servePage("index.html", "Index page");
+        return servePage("music-dock.html", "Music dock page (SPA)");
+    }
+
+    @GET
+    @Path("/music")
+    public Response serveMusic() {
+        return servePage("music-dock.html", "Music dock page (SPA)");
+    }
+
+    /** The old music UI, kept at its own URL the way /video-classic is. */
+    @GET
+    @Path("/music-classic")
+    public Response serveMusicClassic() {
+        return servePage("index.html", "Music classic page (SPA)");
     }
     
     @GET
