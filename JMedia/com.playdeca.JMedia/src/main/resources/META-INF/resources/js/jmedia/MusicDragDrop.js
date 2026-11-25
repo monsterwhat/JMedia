@@ -1172,7 +1172,8 @@
        not). While the finger rests in a zone the list keeps moving, because a
        still finger emits no pointermove events. */
     const AUTO_SCROLL_EDGE = 88;
-    const AUTO_SCROLL_MAX = 18;
+    const AUTO_SCROLL_MAX = 9;   /* px per frame at the very edge (~540 px/s) */
+    const AUTO_SCROLL_MIN = 1.5; /* px per frame entering the band (~90 px/s) */
 
     function autoScrollDrawer(y) {
         const body = document.querySelector('.music-drop-body');
@@ -1183,9 +1184,9 @@
         const rect = body.getBoundingClientRect();
         let speed = 0;
         if (y < rect.top + AUTO_SCROLL_EDGE) {
-            speed = -Math.min(AUTO_SCROLL_MAX, 4 + (rect.top + AUTO_SCROLL_EDGE - y) / 5);
+            speed = -Math.min(AUTO_SCROLL_MAX, AUTO_SCROLL_MIN + (rect.top + AUTO_SCROLL_EDGE - y) / 10);
         } else if (y > rect.bottom - AUTO_SCROLL_EDGE) {
-            speed = Math.min(AUTO_SCROLL_MAX, 4 + (y - (rect.bottom - AUTO_SCROLL_EDGE)) / 5);
+            speed = Math.min(AUTO_SCROLL_MAX, AUTO_SCROLL_MIN + (y - (rect.bottom - AUTO_SCROLL_EDGE)) / 10);
         }
         state.autoScrollSpeed = speed;
         if (speed) startAutoScrollLoop();
