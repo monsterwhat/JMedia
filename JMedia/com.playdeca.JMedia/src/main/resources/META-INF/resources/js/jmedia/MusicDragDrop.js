@@ -11,7 +11,10 @@
     const JMedia = window.JMedia = window.JMedia || {};
     const THRESHOLD = 12;
     const HOLD_MS = 350;
-    const HOLD_SLOP = 10;
+    /* Only a vertical pull this long, with the browser not scrolling, is treated
+       as "this was a scroll, not a lift". Horizontal travel never cancels, so
+       aiming at the drawer while holding works. */
+    const HOLD_SCROLL_SLOP = 48;
     const SOURCE_SELECTOR = '.mobile-song-item[data-song-id], .mobile-album-card, .mobile-playlist-card';
     const INTERACTIVE_SELECTOR = 'button, a, input, textarea, select, .mobile-queue-remove, .mobile-context-menu';
     const DRAG_BODY_CLASS = 'music-dragging';
@@ -203,10 +206,13 @@
         const dx = e.clientX - pending.x;
         const dy = e.clientY - pending.y;
 
-        // Waiting for the lift: any real movement means this is a scroll/tap,
-        // not a drag intent. Songs do not start dragging on a swipe.
+        // Waiting for the lift. Movement must NOT abandon the gesture on its own:
+        // a real scroll is reported by the browser as pointercancel (the rows say
+        // touch-action: pan-y), and horizontal movement is how you head for the
+        // drawer. The only case left is a long vertical pull the browser refused
+        // to scroll (already at an edge), which is a scroll attempt, not a drag.
         if (state.holdTimer) {
-            if (Math.abs(dx) > HOLD_SLOP || Math.abs(dy) > HOLD_SLOP) {
+            if (Math.abs(dy) > HOLD_SCROLL_SLOP && Math.abs(dy) > Math.abs(dx)) {
                 cancelHold();
                 state.pending = null;
             }

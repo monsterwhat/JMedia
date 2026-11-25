@@ -148,13 +148,29 @@
         if (label) label.textContent = dockSort.by === 'title' ? 'A–Z' : 'Newest';
     }
 
+    /* The playlist currently shown in #mobileSongList. MusicIndex keeps this in
+       window.mobileSongListState; the DOM attribute is only a fallback, because
+       an empty (or freshly swapped) list has no item to read it from and the old
+       code silently fell back to 0 = the whole library. */
+    function currentPlaylistId(list) {
+        var state = window.mobileSongListState;
+        if (state && state.view === 'list' && state.playlistId !== undefined && state.playlistId !== null) {
+            return String(state.playlistId);
+        }
+        var first = list ? list.querySelector('.mobile-song-item') : null;
+        if (first) {
+            var attr = first.getAttribute('data-playlist-id');
+            if (attr !== null && attr !== '') return attr;
+        }
+        return '0';
+    }
+
     function applySort() {
         var profileId = activeProfileId();
         var list = document.getElementById('mobileSongList');
         if (!profileId || !list || !window.htmx) return;
 
-        var first = list.querySelector('.mobile-song-item');
-        var playlistId = first ? (first.getAttribute('data-playlist-id') || '0') : '0';
+        var playlistId = currentPlaylistId(list);
         var url = '/api/music/ui/mobile-tbody/' + profileId + '/' + playlistId +
             '?page=1&limit=50&sortBy=' + encodeURIComponent(dockSort.by) +
             '&sortDirection=' + encodeURIComponent(dockSort.dir) +
@@ -178,10 +194,7 @@
         var list = document.getElementById('mobileSongList');
         if (!profileId || !list || !window.htmx) return;
 
-        var first = list.querySelector('.mobile-song-item');
-        var playlistId = first
-            ? (first.getAttribute('data-playlist-id') || '0')
-            : String((window.mobileSongListState && window.mobileSongListState.playlistId) || 0);
+        var playlistId = currentPlaylistId(list);
 
         var url = '/api/music/ui/mobile-tbody/' + profileId + '/' + playlistId +
             '?page=1&limit=50&sortBy=' + encodeURIComponent(dockSort.by) +
@@ -424,6 +437,19 @@
 
             renderAlphaRail();
             loadLetterCounts();
+
+            /* Anything else that reloads the list (a playlist, a tab, a search)
+               drops the letter filter, otherwise the next sort would re-apply a
+               letter that belonged to the view the user just left. */
+            document.addEventListener('htmx:afterRequest', function (evt) {
+                var xhr = evt.detail && evt.detail.xhr;
+                var url = xhr && xhr.responseURL ? xhr.responseURL : '';
+                if (!url || url.indexOf('mobile-tbody') === -1) return;
+                if (url.indexOf('letter=') === -1 && alphaActive) {
+                    alphaActive = '';
+                    renderAlphaRail();
+                }
+            });
 
             if (typeof window.MutationObserver !== 'function') return;
             var pending = false;

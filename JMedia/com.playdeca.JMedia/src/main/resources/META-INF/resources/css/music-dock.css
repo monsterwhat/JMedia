@@ -1495,6 +1495,8 @@ body.music-page .dock-nav-item {
     align-items: center;
     gap: 12px;
     width: 100%;
+    box-sizing: border-box;
+    text-decoration: none;
     padding: 12px 14px;
     border: none;
     background: transparent;
