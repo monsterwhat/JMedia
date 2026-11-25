@@ -31,7 +31,9 @@
         overlay: null,
         suppressClick: null,
         suppressClickTimer: null,
-        autoScrollTimer: null
+        autoScrollFrame: null,
+        autoScrollSpeed: 0,
+        pointer: null
     };
 
     try {
@@ -382,6 +384,8 @@
     }
 
     function cleanupDrag() {
+        stopAutoScroll();
+        state.pointer = null;
         const session = state.session;
         if (session) {
             if (session.ghost && session.ghost.parentNode) {
@@ -440,6 +444,14 @@
     }
 
     function updateDropTarget(x, y) {
+        state.pointer = { x: x, y: y };
+        refreshOptionAt(x, y);
+        autoScrollDrawer(y);
+    }
+
+    /* Highlight the option under the finger. Split out of updateDropTarget so the
+       auto-scroll loop can re-run it while the list slides under a still finger. */
+    function refreshOptionAt(x, y) {
         const session = state.session;
         if (!session) return;
         const option = optionAt(x, y);
@@ -449,7 +461,6 @@
             session.lastOption = option;
             refreshPreview();
         }
-        autoScrollDrawer(y);
     }
 
     function refreshPreview() {
@@ -1155,11 +1166,56 @@
 
     // --------------------------------------------------------------- auto-scroll
 
+    /* Edge zones are measured from the drawer body itself, so "up" works inside
+       the list instead of only above it (it used to need y < 110, while the body
+       starts at ~146 - which is why dragging down worked and coming back up did
+       not). While the finger rests in a zone the list keeps moving, because a
+       still finger emits no pointermove events. */
+    const AUTO_SCROLL_EDGE = 88;
+    const AUTO_SCROLL_MAX = 18;
+
     function autoScrollDrawer(y) {
         const body = document.querySelector('.music-drop-body');
-        if (!body) return;
-        if (y < 110) body.scrollTop -= 16;
-        else if (y > window.innerHeight - 150) body.scrollTop += 16;
+        if (!body) {
+            state.autoScrollSpeed = 0;
+            return;
+        }
+        const rect = body.getBoundingClientRect();
+        let speed = 0;
+        if (y < rect.top + AUTO_SCROLL_EDGE) {
+            speed = -Math.min(AUTO_SCROLL_MAX, 4 + (rect.top + AUTO_SCROLL_EDGE - y) / 5);
+        } else if (y > rect.bottom - AUTO_SCROLL_EDGE) {
+            speed = Math.min(AUTO_SCROLL_MAX, 4 + (y - (rect.bottom - AUTO_SCROLL_EDGE)) / 5);
+        }
+        state.autoScrollSpeed = speed;
+        if (speed) startAutoScrollLoop();
+    }
+
+    function startAutoScrollLoop() {
+        if (state.autoScrollFrame) return;
+        const step = function () {
+            state.autoScrollFrame = null;
+            const body = document.querySelector('.music-drop-body');
+            const speed = state.autoScrollSpeed || 0;
+            if (!body || !state.session || !speed) return;
+            const before = body.scrollTop;
+            body.scrollTop = before + speed;
+            if (body.scrollTop === before) {
+                state.autoScrollSpeed = 0;   // hit either end
+                return;
+            }
+            if (state.pointer) refreshOptionAt(state.pointer.x, state.pointer.y);
+            state.autoScrollFrame = window.requestAnimationFrame(step);
+        };
+        state.autoScrollFrame = window.requestAnimationFrame(step);
+    }
+
+    function stopAutoScroll() {
+        state.autoScrollSpeed = 0;
+        if (state.autoScrollFrame) {
+            window.cancelAnimationFrame(state.autoScrollFrame);
+            state.autoScrollFrame = null;
+        }
     }
 
     // --------------------------------------------------------------- click guard
