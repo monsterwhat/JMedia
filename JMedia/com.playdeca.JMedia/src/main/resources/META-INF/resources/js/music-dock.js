@@ -157,7 +157,8 @@
         var playlistId = first ? (first.getAttribute('data-playlist-id') || '0') : '0';
         var url = '/api/music/ui/mobile-tbody/' + profileId + '/' + playlistId +
             '?page=1&limit=50&sortBy=' + encodeURIComponent(dockSort.by) +
-            '&sortDirection=' + encodeURIComponent(dockSort.dir);
+            '&sortDirection=' + encodeURIComponent(dockSort.dir) +
+            (alphaActive ? '&letter=' + encodeURIComponent(alphaActive) : '');
 
         window.htmx.ajax('GET', url, { target: list, swap: 'innerHTML' });
     }
@@ -167,52 +168,244 @@
        time). Letters with no loaded song are dimmed; tapping scrolls to the
        first match. */
     var ALPHA_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    var alphaCounts = null;   // { A: 412, ... } from the server, null until loaded
+    var alphaActive = '';     // letter currently filtering the list ('' = everything)
+    var alphaScrub = null;    // live press-and-hold gesture
 
-    function songLetter(item) {
-        var titleEl = item.querySelector('.mobile-song-title');
-        var text = (titleEl ? titleEl.textContent : item.textContent || '').trim();
-        var stripped = text.replace(/^[^A-Za-z0-9]+/, '');
-        if (!stripped) return null;
-        var ch = stripped[0].toUpperCase();
-        return /[A-Z]/.test(ch) ? ch : '#';
+    /* Server-side filter: re-render the list for one letter (or the whole library). */
+    function requestLetter(letter) {
+        var profileId = activeProfileId();
+        var list = document.getElementById('mobileSongList');
+        if (!profileId || !list || !window.htmx) return;
+
+        var first = list.querySelector('.mobile-song-item');
+        var playlistId = first
+            ? (first.getAttribute('data-playlist-id') || '0')
+            : String((window.mobileSongListState && window.mobileSongListState.playlistId) || 0);
+
+        var url = '/api/music/ui/mobile-tbody/' + profileId + '/' + playlistId +
+            '?page=1&limit=50&sortBy=' + encodeURIComponent(dockSort.by) +
+            '&sortDirection=' + encodeURIComponent(dockSort.dir) +
+            (letter ? '&letter=' + encodeURIComponent(letter) : '');
+
+        window.htmx.ajax('GET', url, { target: list, swap: 'innerHTML' });
     }
 
-    function buildAlphaRail() {
-        var rail = document.getElementById('dockAlpha');
-        var list = document.getElementById('mobileSongList');
-        if (!rail || !list) return;
+    function applyLetter(letter) {
+        var next = (letter && letter !== alphaActive) ? letter : '';
+        alphaActive = next;
+        renderAlphaRail();
+        requestLetter(next);
+        if (document.body.classList.contains('dock-search-open')) {
+            document.body.classList.remove('dock-search-open');
+        }
+    }
 
-        var firstIndex = {};
-        list.querySelectorAll('.mobile-song-item').forEach(function(item) {
-            var letter = songLetter(item);
-            if (letter && !(letter in firstIndex)) firstIndex[letter] = item;
+    function loadLetterCounts() {
+        var profileId = activeProfileId();
+        if (!profileId) return;
+
+        fetch('/api/music/ui/mobile-letter-counts/' + encodeURIComponent(profileId), {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+        }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        }).then(function (data) {
+            alphaCounts = data || {};
+            renderAlphaRail();
+        }).catch(function (err) {
+            console.warn('[MusicDock] letter counts unavailable, showing every letter:', err);
         });
+    }
+
+    function renderAlphaRail() {
+        var rail = document.getElementById('dockAlpha');
+        if (!rail) return;
 
         var letters = ALPHA_LETTERS.concat(['#']);
-        var signature = letters.map(function(l) { return firstIndex[l] ? l : '.'; }).join('');
-        if (rail.dataset.signature === signature && rail.children.length === letters.length) return;
-
-        rail.innerHTML = '';
-        letters.forEach(function(letter) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'dock-alpha-btn' + (firstIndex[letter] ? '' : ' is-empty');
-            btn.textContent = letter;
-            btn.setAttribute('aria-label', 'Jump to ' + letter);
-            btn.addEventListener('click', function() {
-                var list = document.getElementById('mobileSongList');
-                var items = list ? list.querySelectorAll('.mobile-song-item') : [];
-                for (var k = 0; k < items.length; k++) {
-                    if (songLetter(items[k]) === letter) {
-                        items[k].scrollIntoView({ block: 'center', behavior: 'smooth' });
-                        return;
-                    }
-                }
-                buildAlphaRail();
+        if (rail.children.length !== letters.length) {
+            rail.innerHTML = '';
+            letters.forEach(function (letter) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'dock-alpha-btn';
+                btn.dataset.letter = letter;
+                btn.textContent = letter;
+                btn.setAttribute('aria-label', 'Show songs starting with ' + letter);
+                btn.addEventListener('click', function (e) {
+                    /* Pointer taps are handled by the scrub gesture (e.detail > 0);
+                       this keeps keyboard activation working. */
+                    if (e.detail !== 0) return;
+                    applyLetter(letter);
+                });
+                rail.appendChild(btn);
             });
-            rail.appendChild(btn);
+            bindAlphaScrub(rail);
+        }
+
+        letters.forEach(function (letter, i) {
+            var btn = rail.children[i];
+            if (!btn) return;
+            var count = alphaCounts ? (alphaCounts[letter] || 0) : null;
+            btn.classList.toggle('is-empty', count === 0);
+            btn.classList.toggle('is-active', letter === alphaActive);
         });
-        rail.dataset.signature = signature;
+    }
+
+    /* ---------------- press-and-hold scrub ---------------- */
+
+    function alphaStep(rail) {
+        var btns = rail.children;
+        if (!btns.length) return 0;
+        if (btns.length < 2) return btns[0].getBoundingClientRect().height || 14;
+        var step = btns[1].getBoundingClientRect().top - btns[0].getBoundingClientRect().top;
+        return step > 0 ? step : 14;
+    }
+
+    function alphaIndexForY(rail, clientY) {
+        var btns = rail.children;
+        if (!btns.length) return 0;
+        var first = btns[0].getBoundingClientRect();
+        var idx = Math.round((clientY - (first.top + first.height / 2)) / alphaStep(rail));
+        return Math.max(0, Math.min(btns.length - 1, idx));
+    }
+
+    function alphaClamp(rail, value) {
+        return Math.max(0, Math.min(rail.children.length - 1, value));
+    }
+
+    function alphaBubble() {
+        var bubble = document.getElementById('dockAlphaBubble');
+        if (!bubble) {
+            bubble = document.createElement('div');
+            bubble.id = 'dockAlphaBubble';
+            bubble.className = 'dock-alpha-bubble';
+            bubble.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(bubble);
+        }
+        return bubble;
+    }
+
+    function showAlphaBubble(letter, clientY) {
+        var rail = document.getElementById('dockAlpha');
+        var bubble = alphaBubble();
+        bubble.textContent = letter;
+        bubble.classList.toggle('is-empty', !!(alphaCounts && !alphaCounts[letter]));
+
+        var size = bubble.offsetWidth || 66;
+        var railLeft = rail ? rail.getBoundingClientRect().left : window.innerWidth;
+        /* left/top are the bubble's centre (CSS translate(-50%, -50%)). */
+        var x = Math.max(size / 2 + 10, railLeft - size / 2 - 12);
+        var y = Math.min(window.innerHeight - size / 2 - 10, Math.max(size / 2 + 10, clientY));
+        bubble.style.left = x + 'px';
+        bubble.style.top = y + 'px';
+        bubble.classList.add('is-visible');
+    }
+
+    function hideAlphaBubble() {
+        var bubble = document.getElementById('dockAlphaBubble');
+        if (bubble) bubble.classList.remove('is-visible');
+    }
+
+    function paintAlphaScrub() {
+        if (!alphaScrub) return;
+        var rail = alphaScrub.rail;
+        var idx = alphaClamp(rail, Math.round(alphaScrub.pos));
+        var btn = rail.children[idx];
+        if (!btn) return;
+
+        if (alphaScrub.pressed !== btn) {
+            if (alphaScrub.pressed) alphaScrub.pressed.classList.remove('is-pressed');
+            btn.classList.add('is-pressed');
+            alphaScrub.pressed = btn;
+        }
+
+        if (alphaScrub.holding) {
+            showAlphaBubble(btn.dataset.letter, alphaScrub.lastY);
+        }
+    }
+
+    function bindAlphaScrub(rail) {
+        if (rail._alphaScrubBound) return;
+        rail._alphaScrubBound = true;
+
+        rail.addEventListener('pointerdown', function (e) {
+            if (typeof e.button === 'number' && e.button > 0) return;
+            e.preventDefault();
+
+            alphaScrub = {
+                rail: rail,
+                pos: alphaIndexForY(rail, e.clientY),
+                lastY: e.clientY,
+                moved: false,
+                holding: false,
+                pressed: null,
+                pointerId: e.pointerId,
+                timer: window.setTimeout(function () {
+                    if (!alphaScrub) return;
+                    alphaScrub.holding = true;
+                    rail.classList.add('is-scrubbing');
+                    paintAlphaScrub();
+                }, 110)
+            };
+
+            try {
+                rail.setPointerCapture(e.pointerId);
+            } catch (err) {
+                console.debug('[MusicDock] pointer capture unavailable for the A-Z rail:', err);
+            }
+
+            paintAlphaScrub();
+        });
+
+        rail.addEventListener('pointermove', function (e) {
+            var scrub = alphaScrub;
+            if (!scrub || e.pointerId !== scrub.pointerId) return;
+            e.preventDefault();
+
+            var dy = e.clientY - scrub.lastY;
+            scrub.lastY = e.clientY;
+            if (Math.abs(dy) > 0.5) scrub.moved = true;
+
+            /* Sliding away from the rail (to the left) lowers the gain, so the
+               same finger travel covers fewer letters — fine-grained picking. */
+            var leftness = Math.max(0, rail.getBoundingClientRect().right - e.clientX);
+            var gain = 1 / (1 + leftness / 36);
+
+            scrub.pos = alphaClamp(rail, scrub.pos + (dy / alphaStep(rail)) * gain);
+            paintAlphaScrub();
+        });
+
+        function endScrub(e) {
+            var scrub = alphaScrub;
+            if (!scrub || (e && typeof e.pointerId === 'number' && e.pointerId !== scrub.pointerId)) return;
+
+            alphaScrub = null;
+            window.clearTimeout(scrub.timer);
+            if (scrub.pressed) scrub.pressed.classList.remove('is-pressed');
+            rail.classList.remove('is-scrubbing');
+            hideAlphaBubble();
+
+            try {
+                rail.releasePointerCapture(scrub.pointerId);
+            } catch (err) {
+                console.debug('[MusicDock] pointer capture already released:', err);
+            }
+
+            var btn = rail.children[alphaClamp(rail, Math.round(scrub.pos))];
+            if (!btn) return;
+            var letter = btn.dataset.letter;
+            if (btn.classList.contains('is-empty') && letter !== alphaActive) return;
+            applyLetter(letter);
+        }
+
+        rail.addEventListener('pointerup', endScrub);
+        rail.addEventListener('pointercancel', endScrub);
+        rail.addEventListener('lostpointercapture', function (e) {
+            /* Fired after an explicit release too; endScrub is a no-op by then. */
+            if (alphaScrub) endScrub(e);
+        });
     }
 
     function setupAlphaRail() {
@@ -229,16 +422,17 @@
                 return;
             }
 
-            buildAlphaRail();
+            renderAlphaRail();
+            loadLetterCounts();
 
             if (typeof window.MutationObserver !== 'function') return;
             var pending = false;
-            var observer = new window.MutationObserver(function() {
+            var observer = new window.MutationObserver(function () {
                 if (pending) return;
                 pending = true;
-                window.requestAnimationFrame(function() {
+                window.requestAnimationFrame(function () {
                     pending = false;
-                    buildAlphaRail();
+                    renderAlphaRail();
                 });
             });
             /* The list node itself is replaced when the view reloads, so watch the

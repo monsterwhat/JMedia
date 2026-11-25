@@ -2459,19 +2459,40 @@ body.music-page .dock-sort-btn {
     }
 }
 
-/* Phones: dock row centred as a pair, search pill the same thickness. */
+/* Phones: the playback pill is the thing that sits dead centre; the search pill
+   hangs to its right without pulling the row off-centre. A 3-column grid with
+   equal 1fr shoulders does that without measuring the dock. */
 @media (max-width: 640px) {
     body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row,
     body.music-page #musicPlayerContainer .mobile-dock-row {
-        justify-content: center !important;
-        gap: 0.5rem !important;
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        flex-wrap: nowrap !important;
+        row-gap: 0 !important;
+        column-gap: 0 !important;
+        justify-content: stretch !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-progress-container.in-dock-row {
+        grid-column: 1 / -1;
+        grid-row: 1;
     }
 
     body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-player-controls {
+        grid-column: 2;
+        grid-row: 2;
+        justify-self: center;
         margin-left: 0 !important;
     }
 
-    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-search-wrapper {
+    /* Same specificity as the earlier `margin: 0 !important` rule so the gap
+       between the dock and the search pill actually survives. */
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-search-wrapper {
+        grid-column: 3;
+        grid-row: 2;
+        justify-self: start;
+        margin-left: 0.5rem !important;
         margin-right: 0 !important;
         height: 3rem !important;
         padding: 0 0.7rem !important;
@@ -2483,6 +2504,37 @@ body.music-page .dock-sort-btn {
         min-width: 36px !important;
         min-height: 36px !important;
         font-size: 1rem;
+    }
+}
+
+/* 390-400px phones: trim the search pill so the dock stays centred and the pill
+   still clears the screen edge. */
+@media (max-width: 400px) {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row > .mobile-search-wrapper {
+        padding: 0 0.35rem !important;
+    }
+}
+
+/* Below ~375px the centred dock and the search pill no longer fit side by side
+   without clipping, so fall back to centring the pair. */
+@media (max-width: 374px) {
+    body.music-page #musicPlayerContainer .mobile-player:not(.expanded) .mobile-dock-row,
+    body.music-page #musicPlayerContainer .mobile-dock-row {
+        display: flex !important;
+        flex-direction: row;
+        justify-content: center !important;
+        column-gap: 0.5rem !important;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-player-controls,
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-search-wrapper {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    body.music-page #musicPlayerContainer .mobile-dock-row > .mobile-search-wrapper {
+        margin-left: 0 !important;
+        padding: 0 0.7rem !important;
     }
 }
 /* ---------------- A–Z jump rail ---------------- */
@@ -2532,4 +2584,73 @@ body.music-page .dock-alpha-btn.is-empty {
     body.music-page .dock-alpha {
         display: flex;
     }
+}
+
+/* ---------------- A-Z rail: press-and-hold scrub ---------------- */
+body.music-page .dock-alpha {
+    right: 0;
+    width: 26px;
+    padding: 6px 0;
+    gap: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+body.music-page .dock-alpha-btn {
+    width: 26px;
+    height: 13px;
+    line-height: 13px;
+    font-size: 0.6rem;
+    transition: transform 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+body.music-page .dock-alpha.is-scrubbing {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+body.music-page .dock-alpha-btn.is-pressed {
+    transform: scale(1.5);
+    color: #fff;
+    opacity: 1 !important;
+}
+
+body.music-page .dock-alpha-btn.is-active {
+    color: var(--standard-primary, #3ddc97);
+    opacity: 1 !important;
+}
+
+body.music-page .dock-alpha-bubble {
+    position: fixed;
+    z-index: 120;
+    width: 66px;
+    height: 66px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%) scale(0.86);
+    border-radius: 20px;
+    background: rgba(18, 18, 22, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    color: #fff;
+    font-size: 2.1rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+body.music-page .dock-alpha-bubble.is-visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+body.music-page .dock-alpha-bubble.is-empty {
+    color: rgba(255, 255, 255, 0.45);
 }

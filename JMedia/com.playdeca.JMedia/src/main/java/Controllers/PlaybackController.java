@@ -535,8 +535,22 @@ public class PlaybackController {
         return songService.findAll(page, limit, search, sortBy, sortDirection);
     }
 
+    public SongService.PaginatedSongs getSongs(int page, int limit, String search, String sortBy,
+                                               String sortDirection, String letter) {
+        return songService.findAll(page, limit, search, sortBy, sortDirection, letter);
+    }
+
+    public java.util.Map<String, Long> getLetterCounts() {
+        return songService.countByInitialLetter();
+    }
+
     public PlaylistService.PaginatedPlaylistSongs getSongsByPlaylist(Long playlistId, int page, int limit, String search, String sortBy, String sortDirection) {
         return playlistService.findSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+    }
+
+    public PlaylistService.PaginatedPlaylistSongs getSongsByPlaylist(Long playlistId, int page, int limit, String search,
+                                                                     String sortBy, String sortDirection, String letter) {
+        return playlistService.findSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, letter);
     }
 
     public Song findSong(Long id) {

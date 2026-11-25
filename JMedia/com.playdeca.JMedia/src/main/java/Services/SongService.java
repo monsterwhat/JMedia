@@ -264,18 +264,36 @@ public class SongService {
     }
 
     public PaginatedSongs findAll(int page, int limit, String search, String sortBy, String sortDirection) {
+        return findAll(page, limit, search, sortBy, sortDirection, null);
+    }
+
+    /** A-Z rail: filter by the first character of the title ('#' = not a letter). */
+    public PaginatedSongs findAll(int page, int limit, String search, String sortBy, String sortDirection, String letter) {
         // Projection query: never touches lyrics, artworkBase64, or SongAnalysis
         StringBuilder baseQuery = new StringBuilder(
                 "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) FROM Song s");
 
         StringBuilder whereClause = new StringBuilder();
+        java.util.List<String> conditions = new java.util.ArrayList<>();
+        boolean filterByLetter = letter != null && !letter.isBlank();
+        boolean hashBucket = filterByLetter && "#".equals(letter.trim());
+
+        if (filterByLetter) {
+            conditions.add(hashBucket
+                ? "COALESCE(LOWER(SUBSTRING(s.title, 1, 1)), '') NOT BETWEEN 'a' AND 'z'"
+                : "LOWER(SUBSTRING(s.title, 1, 1)) = :letterChar");
+        }
 
         if (search != null && !search.isBlank()) {
-            whereClause.append(" WHERE LOWER(s.title) LIKE :search OR ")
-                    .append("LOWER(s.artist) LIKE :search OR ")
-                    .append("LOWER(s.album) LIKE :search OR ")
-                    .append("LOWER(s.albumArtist) LIKE :search OR ")
-                    .append("s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch)");
+            conditions.add("(LOWER(s.title) LIKE :search OR "
+                    + "LOWER(s.artist) LIKE :search OR "
+                    + "LOWER(s.album) LIKE :search OR "
+                    + "LOWER(s.albumArtist) LIKE :search OR "
+                    + "s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch))");
+        }
+
+        if (!conditions.isEmpty()) {
+            whereClause.append(" WHERE ").append(String.join(" AND ", conditions));
         }
 
         StringBuilder orderByClause = new StringBuilder(" ORDER BY ");
@@ -299,28 +317,72 @@ public class SongService {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
             query.setParameter("normSearch", "%" + search.toLowerCase() + "%");
         }
+        if (filterByLetter && !hashBucket) {
+            query.setParameter("letterChar", letter.trim().toLowerCase().substring(0, 1));
+        }
 
         List<SongListItem> songs = query
                 .setFirstResult((page - 1) * limit)
                 .setMaxResults(limit)
                 .getResultList();
-        long totalCount = countAll(search);
+        long totalCount = countAll(search, letter);
         return new PaginatedSongs(songs, totalCount);
     }
 
     public long countAll(String search) {
+        return countAll(search, null);
+    }
+
+    /**
+     * Song counts bucketed by the first character of the title ('A'-'Z', everything
+     * else folded into '#'). Used by the A-Z rail so it can dim letters that have no
+     * songs without having to load the whole library.
+     */
+    public java.util.Map<String, Long> countByInitialLetter() {
+        java.util.List<Object[]> rows = em.createQuery(
+                "SELECT LOWER(SUBSTRING(s.title, 1, 1)), COUNT(s) FROM Song s "
+                        + "WHERE s.title IS NOT NULL GROUP BY LOWER(SUBSTRING(s.title, 1, 1))",
+                Object[].class).getResultList();
+
+        java.util.Map<String, Long> counts = new java.util.HashMap<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || row[1] == null) {
+                continue;
+            }
+            String first = row[0] == null ? "" : row[0].toString();
+            String bucket = (first.length() == 1 && first.charAt(0) >= 'a' && first.charAt(0) <= 'z')
+                    ? first.toUpperCase()
+                    : "#";
+            counts.merge(bucket, ((Number) row[1]).longValue(), Long::sum);
+        }
+        return counts;
+    }
+
+    public long countAll(String search, String letter) {
         String countQuery = "SELECT COUNT(s) FROM Song s";
         String whereClause = "";
 
         if (search != null && !search.isBlank()) {
-            whereClause = " WHERE LOWER(s.title) LIKE :search OR "
+            whereClause = " WHERE (LOWER(s.title) LIKE :search OR "
                     + "LOWER(s.artist) LIKE :search OR "
                     + "LOWER(s.album) LIKE :search OR "
                     + "LOWER(s.albumArtist) LIKE :search OR "
-                    + "s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch)";
+                    + "s.id IN (SELECT sg.song.id FROM SongGenre sg WHERE LOWER(sg.genreName) LIKE :normSearch))";
+        }
+
+        boolean filterByLetter = letter != null && !letter.isBlank();
+        boolean hashBucket = filterByLetter && "#".equals(letter.trim());
+        if (filterByLetter) {
+            whereClause += (whereClause.isEmpty() ? " WHERE " : " AND ")
+                + (hashBucket
+                    ? "COALESCE(LOWER(SUBSTRING(s.title, 1, 1)), '') NOT BETWEEN 'a' AND 'z'"
+                    : "LOWER(SUBSTRING(s.title, 1, 1)) = :letterChar");
         }
 
         jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery + whereClause, Long.class);
+        if (filterByLetter && !hashBucket) {
+            query.setParameter("letterChar", letter.trim().toLowerCase().substring(0, 1));
+        }
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
             query.setParameter("normSearch", "%" + search.toLowerCase() + "%");

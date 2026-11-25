@@ -176,6 +176,12 @@ public class PlaylistService {
     }
 
     public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit, String search, String sortBy, String sortDirection) {
+        return findSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, null);
+    }
+
+    /** A-Z rail: filter by the first character of the title ('#' = not a letter). */
+    public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit, String search,
+                                                      String sortBy, String sortDirection, String letter) {
         Playlist playlist = find(playlistId);
         if (playlist == null) {
             return new PaginatedPlaylistSongs(List.of(), 0);
@@ -189,6 +195,14 @@ public class PlaylistService {
         if (search != null && !search.isBlank()) {
             baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR ")
                     .append(SongService.genreNormExpr()).append(" LIKE :normSearch)");
+        }
+
+        boolean filterByLetter = letter != null && !letter.isBlank();
+        boolean hashBucket = filterByLetter && "#".equals(letter.trim());
+        if (filterByLetter) {
+            baseQuery.append(hashBucket
+                ? " AND COALESCE(LOWER(SUBSTRING(s.title, 1, 1)), '') NOT BETWEEN 'a' AND 'z'"
+                : " AND LOWER(SUBSTRING(s.title, 1, 1)) = :letterChar");
         }
 
         baseQuery.append(" ORDER BY ");
@@ -213,13 +227,20 @@ public class PlaylistService {
             songsQuery.setParameter("search", "%" + search.toLowerCase() + "%");
             songsQuery.setParameter("normSearch", "%" + SongService.normalizeGenre(search) + "%");
         }
+        if (filterByLetter && !hashBucket) {
+            songsQuery.setParameter("letterChar", letter.trim().toLowerCase().substring(0, 1));
+        }
 
         List<SongListItem> songs = songsQuery.getResultList();
-        long totalCount = countSongsByPlaylist(playlistId, search);
+        long totalCount = countSongsByPlaylist(playlistId, search, letter);
         return new PaginatedPlaylistSongs(songs, totalCount);
     }
 
     public long countSongsByPlaylist(Long playlistId, String search) {
+        return countSongsByPlaylist(playlistId, search, null);
+    }
+
+    public long countSongsByPlaylist(Long playlistId, String search, String letter) {
         Playlist playlist = find(playlistId); // find is access-aware
         if (playlist == null) {
             return 0;
@@ -231,8 +252,19 @@ public class PlaylistService {
             countQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR " + SongService.genreNormExpr() + " LIKE :normSearch)");
         }
 
+        boolean filterByLetter = letter != null && !letter.isBlank();
+        boolean hashBucket = filterByLetter && "#".equals(letter.trim());
+        if (filterByLetter) {
+            countQuery.append(hashBucket
+                ? " AND COALESCE(LOWER(SUBSTRING(s.title, 1, 1)), '') NOT BETWEEN 'a' AND 'z'"
+                : " AND LOWER(SUBSTRING(s.title, 1, 1)) = :letterChar");
+        }
+
         jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery.toString(), Long.class)
                 .setParameter("playlistId", playlistId);
+        if (filterByLetter && !hashBucket) {
+            query.setParameter("letterChar", letter.trim().toLowerCase().substring(0, 1));
+        }
 
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");

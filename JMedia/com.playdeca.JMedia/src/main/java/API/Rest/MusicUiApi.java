@@ -23,6 +23,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
 
 import java.util.ArrayList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,8 @@ import java.util.function.Function;
 @Path("/api/music/ui")
 @Produces(MediaType.TEXT_HTML)
 public class MusicUiApi {
+
+    private static final Logger LOGGER = Logger.getLogger(MusicUiApi.class.getName());
 
     @Inject
     private PlaybackController playbackController;
@@ -534,7 +538,8 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
-            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection,
+            @jakarta.ws.rs.QueryParam("letter") @jakarta.ws.rs.DefaultValue("") String letter) {
 
         try {
             long playlistId = (id == null) ? 0L : id;
@@ -543,11 +548,11 @@ public class MusicUiApi {
             long totalSongs;
 
             if (playlistId == 0) {
-                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             } else {
-                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             }
@@ -576,10 +581,13 @@ public class MusicUiApi {
                     .data("search", search)
                     .data("sortBy", sortBy)
                     .data("sortDirection", sortDirection)
+                    .data("letter", letter == null ? "" : letter)
                     .data("profileId", String.valueOf(profileId))
                     .render();
         } catch (Exception e) {
-            System.out.println("Error: " + e.getLocalizedMessage());
+            LOGGER.log(Level.SEVERE, "mobile-tbody failed (profile=" + profileId + ", id=" + id
+                    + ", page=" + page + ", limit=" + limit + ", search=" + search
+                    + ", sortBy=" + sortBy + ", sortDirection=" + sortDirection + ", letter=" + letter + ")", e);
             return null;
         }
     }
@@ -594,7 +602,8 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
-            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection,
+            @jakarta.ws.rs.QueryParam("letter") @jakarta.ws.rs.DefaultValue("") String letter) {
 
         try {
             long playlistId = (id == null) ? 0L : id;
@@ -603,11 +612,11 @@ public class MusicUiApi {
             long totalSongs;
 
             if (playlistId == 0) {
-                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             } else {
-                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             }
@@ -644,6 +653,24 @@ public class MusicUiApi {
         }
     }
 
+    /**
+     * Song counts per initial letter for the A-Z rail: {"A": 412, ..., "#": 97}.
+     * Profile-scoped path so the client can build it the same way as the other
+     * mobile fragments; the library itself is shared.
+     */
+    @GET
+    @Path("/mobile-letter-counts/{profileId}")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public java.util.Map<String, Long> getMobileLetterCounts(@PathParam("profileId") Long profileId) {
+        try {
+            return playbackController.getLetterCounts();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "mobile-letter-counts failed (profile=" + profileId + ")", e);
+            return java.util.Map.of();
+        }
+    }
+
     @GET
     @Path("/mobile-tbody/{profileId}/{id}")
     @Blocking
@@ -654,7 +681,8 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
-            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection,
+            @jakarta.ws.rs.QueryParam("letter") @jakarta.ws.rs.DefaultValue("") String letter) {
 
         try {
             long playlistId = (id == null) ? 0L : id;
@@ -663,11 +691,11 @@ public class MusicUiApi {
             long totalSongs;
 
             if (playlistId == 0) {
-                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             } else {
-                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             }
@@ -695,10 +723,13 @@ public class MusicUiApi {
                     .data("search", search)
                     .data("sortBy", sortBy)
                     .data("sortDirection", sortDirection)
+                    .data("letter", letter == null ? "" : letter)
                     .data("profileId", String.valueOf(profileId))
                     .render();
         } catch (Exception e) {
-            System.out.println("Error: " + e.getLocalizedMessage());
+            LOGGER.log(Level.SEVERE, "mobile-tbody failed (profile=" + profileId + ", id=" + id
+                    + ", page=" + page + ", limit=" + limit + ", search=" + search
+                    + ", sortBy=" + sortBy + ", sortDirection=" + sortDirection + ", letter=" + letter + ")", e);
             return null;
         }
     }
@@ -713,7 +744,8 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
-            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection,
+            @jakarta.ws.rs.QueryParam("letter") @jakarta.ws.rs.DefaultValue("") String letter) {
 
         try {
             long playlistId = (id == null) ? 0L : id;
@@ -722,11 +754,11 @@ public class MusicUiApi {
             long totalSongs;
 
             if (playlistId == 0) {
-                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             } else {
-                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection, letter);
                 paginatedSongs = result.songs();
                 totalSongs = result.totalCount();
             }
@@ -747,12 +779,14 @@ public class MusicUiApi {
                     .data("search", search)
                     .data("sortBy", sortBy)
                     .data("sortDirection", sortDirection)
+                    .data("letter", letter == null ? "" : letter)
                     .data("profileId", String.valueOf(profileId))
                     .data("genre", "")
                     .data("genreEncoded", "")
                     .render();
         } catch (Exception e) {
-            System.out.println("Error: " + e.getLocalizedMessage());
+            LOGGER.log(Level.WARNING, "mobile-tbody-more failed (profile=" + profileId + ", id=" + id
+                    + ", page=" + page + ", limit=" + limit + ", letter=" + letter + ")", e);
             return "<div class='scroll-end'>— end —</div>";
         }
     }
