@@ -573,6 +573,25 @@
         if (btn) btn.classList.add('active');
     }
 
+    /* Browse -> a tab swaps the list but the page stayed where it was: from the
+       full-screen hero the new list is entirely below the fold, and from further
+       down the old offset landed you mid-list. Always bring the library top into
+       view (the sort bar when it is shown, otherwise the content area). */
+    function scrollToLibraryTop() {
+        var bar = document.getElementById('dockSortBar');
+        var target = (bar && bar.getBoundingClientRect().height > 0) ? bar : document.getElementById('app-content');
+        if (!target) return;
+        var top = target.getBoundingClientRect().top +
+            (window.pageYOffset || document.documentElement.scrollTop || 0);
+        if (!(top > 1)) return;
+        try {
+            window.scrollTo({ top: top, behavior: 'smooth' });
+        } catch (e) {
+            console.warn('[MusicDock] smooth scroll unavailable, jumping to the library:', e && e.message ? e.message : e);
+            window.scrollTo(0, top);
+        }
+    }
+
     function closeDockNav() {
         if (dockNavSidebar) dockNavSidebar.classList.remove('open');
         if (dockNavBackdrop) dockNavBackdrop.classList.remove('active');
@@ -1204,11 +1223,15 @@
                     }
                 }
                 closeDockNav();
+                scrollToLibraryTop();
             });
         });
 
         var allItem = document.getElementById('dockNavAll');
-        if (allItem) allItem.addEventListener('click', showAllMusic);
+        if (allItem) allItem.addEventListener('click', function() {
+            showAllMusic();
+            scrollToLibraryTop();
+        });
 
         var importItem = document.getElementById('dockNavImport');
         if (importItem) importItem.addEventListener('click', function() { openImportDialog(); });
