@@ -613,6 +613,13 @@
                 }
             };
             
+            /* Playback is also started outside _startPlayback (direct el.play()),
+               so count tracks here. _maybeRecycleDeck ignores repeat events for
+               the same song (seeks/resumes). */
+            el.addEventListener('play', () => {
+                this._maybeRecycleDeck(el);
+            });
+
             el.onerror = (e) => {
                 console.error('AudioEngine: Element error', el.id, e);
                 if (window.SynchronizationManager) {
