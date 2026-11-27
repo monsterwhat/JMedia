@@ -2797,3 +2797,13 @@ body.music-page .music-drop-drawer {
 body.music-page .music-drop-drawer .music-drop-search {
     border-color: var(--mobile-border);
 }
+
+/* The dragged row is a clone of the song item and paints itself with
+   --mobile-surface too, so it had the same white-on-white problem. */
+body.music-page .music-drag-ghost {
+    --mobile-surface: #1b1b20;
+    --mobile-border: rgba(255, 255, 255, 0.12);
+    --mobile-text: #f5f5f5;
+    background: var(--mobile-surface);
+    color: var(--mobile-text);
+}
