@@ -577,19 +577,54 @@
        full-screen hero the new list is entirely below the fold, and from further
        down the old offset landed you mid-list. Always bring the library top into
        view (the sort bar when it is shown, otherwise the content area). */
-    function scrollToLibraryTop() {
+    function libraryTopOffset() {
         var bar = document.getElementById('dockSortBar');
         var target = (bar && bar.getBoundingClientRect().height > 0) ? bar : document.getElementById('app-content');
-        if (!target) return;
-        var top = target.getBoundingClientRect().top +
+        if (!target) return null;
+        return target.getBoundingClientRect().top +
             (window.pageYOffset || document.documentElement.scrollTop || 0);
-        if (!(top > 1)) return;
+    }
+
+    function scrollToLibraryTop() {
+        var top = libraryTopOffset();
+        if (top === null || top <= 1) return;
         try {
             window.scrollTo({ top: top, behavior: 'smooth' });
         } catch (e) {
             console.warn('[MusicDock] smooth scroll unavailable, jumping to the library:', e && e.message ? e.message : e);
             window.scrollTo(0, top);
         }
+    }
+
+    /* The tab fragment arrives a few hundred ms after the click, which changes the
+       page height and can stop the smooth scroll short (measured 105px on an
+       iPhone 11). Re-assert the target once the swap settles; the timeout covers
+       a tab that does not fetch anything. */
+    var libraryJumpTimer = null;
+
+    function jumpToLibraryAfterSwap() {
+        var settled = false;
+        function finish() {
+            if (settled) return;
+            settled = true;
+            document.removeEventListener('htmx:afterSettle', finish);
+            if (libraryJumpTimer) {
+                window.clearTimeout(libraryJumpTimer);
+                libraryJumpTimer = null;
+            }
+            var top = libraryTopOffset();
+            if (top === null) return;
+            var drift = Math.abs((window.pageYOffset || 0) - top);
+            if (drift <= 24) return;
+            try {
+                window.scrollTo({ top: top, behavior: 'smooth' });
+            } catch (e) {
+                console.warn('[MusicDock] could not re-align the library:', e && e.message ? e.message : e);
+                window.scrollTo(0, top);
+            }
+        }
+        document.addEventListener('htmx:afterSettle', finish);
+        libraryJumpTimer = window.setTimeout(finish, 1500);
     }
 
     function closeDockNav() {
@@ -1224,6 +1259,7 @@
                 }
                 closeDockNav();
                 scrollToLibraryTop();
+                jumpToLibraryAfterSwap();
             });
         });
 
@@ -1231,6 +1267,7 @@
         if (allItem) allItem.addEventListener('click', function() {
             showAllMusic();
             scrollToLibraryTop();
+            jumpToLibraryAfterSwap();
         });
 
         var importItem = document.getElementById('dockNavImport');
