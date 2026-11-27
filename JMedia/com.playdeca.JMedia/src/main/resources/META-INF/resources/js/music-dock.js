@@ -581,8 +581,13 @@
         var bar = document.getElementById('dockSortBar');
         var target = (bar && bar.getBoundingClientRect().height > 0) ? bar : document.getElementById('app-content');
         if (!target) return null;
-        return target.getBoundingClientRect().top +
-            (window.pageYOffset || document.documentElement.scrollTop || 0);
+        /* The navbar is fixed: leave its height above the target, otherwise the
+           sort bar lands underneath it. */
+        var nav = document.querySelector('.cinema-nav');
+        var navH = nav ? nav.getBoundingClientRect().height : 0;
+        var top = target.getBoundingClientRect().top +
+            (window.pageYOffset || document.documentElement.scrollTop || 0) - navH;
+        return Math.max(0, top);
     }
 
     function scrollToLibraryTop() {
