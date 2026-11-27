@@ -2779,3 +2779,21 @@ body.music-page #musicPlayerContainer .dock-search-dropdown .empty-state-text {
     opacity: 0.6;
     margin: 0;
 }
+
+/* ---------------- Drag & drop drawer on the dock ----------------
+   The drawer paints itself with --mobile-surface and its text with --mobile-text.
+   The dock pins --mobile-text to #f5f5f5 (dark cinema palette) but --mobile-surface
+   still comes from :root, which is the LIGHT value: in light mode the panel was
+   #f8f9fa behind #f5f5f5 text, i.e. white on white. Pin the drawer's own tokens
+   (they inherit to its children) so the overlay is dark in either theme. */
+body.music-page .music-drop-drawer {
+    --mobile-surface: #1b1b20;
+    --mobile-border: rgba(255, 255, 255, 0.12);
+    --mobile-text: #f5f5f5;
+    background: var(--mobile-surface);
+    color: var(--mobile-text);
+}
+
+body.music-page .music-drop-drawer .music-drop-search {
+    border-color: var(--mobile-border);
+}
