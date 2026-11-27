@@ -525,6 +525,7 @@
                 return (p && typeof p.catch === 'function') ? p : Promise.resolve();
             }).then(() => {
                 this._lastLocalPlayAt = Date.now();
+                this._maybeRecycleDeck(el);
                 return true;
             }).catch((err) => {
                 // A skip replaces the source while an earlier play() is still
@@ -618,6 +619,93 @@
                     window.SynchronizationManager.setFlag('isUpdatingAudioSource', false);
                 }
             };
+        },
+
+        /**
+         * Firefox keeps per-element decoder/media-cache state for far longer than
+         * Chrome: a long listening session grows to several GB even though the page
+         * holds no song data (DOM count and JS heap stay flat, idle memory is flat,
+         * and a bare <audio> that only swaps src shows the same growth). The one
+         * lever the page has is to throw the element away: rebuild the deck that is
+         * NOT playing, which drops its decoder state and its buffered stream.
+         *
+         * Only the idle element is replaced, so playback is never interrupted, and
+         * a deck is recycled at most once per RECYCLE_EVERY tracks.
+         */
+        RECYCLE_EVERY: 4,
+        _tracksSinceRecycle: 0,
+        _lastRecycledSongId: null,
+
+        _maybeRecycleDeck: function(activeEl) {
+            try {
+                const songId = activeEl && activeEl._currentSongId != null ? String(activeEl._currentSongId) : null;
+                if (!songId || songId === this._lastRecycledSongId) return;   // same song (seek/resume)
+                this._lastRecycledSongId = songId;
+
+                if (++this._tracksSinceRecycle < this.RECYCLE_EVERY) return;
+                this._tracksSinceRecycle = 0;
+
+                this._recycleIdleDeck();
+            } catch (err) {
+                console.warn('[AudioEngine] deck recycle skipped:', err && err.message ? err.message : err);
+            }
+        },
+
+        _recycleIdleDeck: function() {
+            const idle = this.getInactivePlayer();
+            if (!idle || !idle.paused) return;                       // never pull a playing deck
+            if (this._isCrossfading) return;                          // fade in progress
+            if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) return;
+
+            const isPrimary = (idle === this.audio);
+            const deckName = isPrimary ? 'audioPlayer' : 'audioPlayerNext';
+            const nodes = this.nodes || {};
+
+            // drop any pending DJ preload for this deck
+            this._nextPreloadReady = false;
+            this._nextPreloadFailed = false;
+            if (this._nextPreloadTimer) {
+                clearTimeout(this._nextPreloadTimer);
+                this._nextPreloadTimer = null;
+            }
+
+            try { idle.pause(); } catch (err) { console.warn('[AudioEngine] recycle pause failed', err); }
+            try { idle.removeAttribute('src'); idle.load(); } catch (err) { console.warn('[AudioEngine] recycle unload failed', err); }
+            try {
+                const node = isPrimary ? nodes.p1 : nodes.p2;
+                if (node && typeof node.disconnect === 'function') node.disconnect();
+            } catch (err) { console.warn('[AudioEngine] recycle disconnect failed', err); }
+
+            if (idle.parentNode) idle.parentNode.removeChild(idle);
+
+            const el = document.createElement('audio');
+            el.id = deckName;
+            el.crossOrigin = 'anonymous';
+            el.preload = 'auto';
+            el.setAttribute('playsinline', '');
+            el.setAttribute('webkit-playsinline', '');
+            el.volume = 1.0;
+            document.body.appendChild(el);
+
+            if (isPrimary) this.audio = el; else this.audioNext = el;
+
+            if (this.ctx) {
+                try {
+                    const src = this.ctx.createMediaElementSource(el);
+                    if (isPrimary) {
+                        this.nodes.p1 = src;
+                        if (this.nodes.low1) src.connect(this.nodes.low1);
+                    } else {
+                        this.nodes.p2 = src;
+                        if (this.nodes.low2) src.connect(this.nodes.low2);
+                    }
+                } catch (err) {
+                    console.warn('[AudioEngine] recycle re-route failed (element still usable)', err);
+                }
+            }
+
+            this.setupAudioEvents(el);
+            window.Helpers?.log?.('[AudioEngine] Recycled idle deck ' + deckName);
         },
 
         getActivePlayer: function() {
