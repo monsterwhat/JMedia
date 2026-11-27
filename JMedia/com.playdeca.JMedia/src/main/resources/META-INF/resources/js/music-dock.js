@@ -1129,7 +1129,13 @@
        /music/genre/{key}. The page opens the matching view on boot (after login,
        the 307 carries the full path), and browsing updates the address bar so the
        link can just be copied. */
+    /* Read the deep link before anything else runs: the app's own boot calls
+       loadMobilePlaylistSongs(0), which would push /music over it. */
+    var bootMusicRoute = (window.MusicRoutes) ? window.MusicRoutes.parse(window.location.pathname) : null;
+    var routeBootPending = !!(bootMusicRoute && bootMusicRoute.view !== 'all');
+
     function musicRouteNavigate(kind, id) {
+        if (routeBootPending) return;   // never overwrite the deep link during boot
         try {
             if (!window.MusicRoutes) return;
             var url = window.MusicRoutes[kind + 'Url'](id);
@@ -1140,9 +1146,9 @@
         }
     }
 
-    function applyMusicRoute() {
-        if (!window.MusicRoutes) return;
-        var route = window.MusicRoutes.parse(window.location.pathname);
+    function applyMusicRoute(explicitRoute) {
+        if (!window.MusicRoutes) return false;
+        var route = explicitRoute || window.MusicRoutes.parse(window.location.pathname);
         if (!route || route.view === 'all') return false;
 
         var list = document.getElementById('mobileSongList');
@@ -1196,6 +1202,7 @@
         wrap('showSongDetail', 'song');
 
         window.addEventListener('popstate', function () {
+            routeBootPending = false;
             var route = window.MusicRoutes.parse(window.location.pathname);
             if (!route || route.view === 'all') {
                 if (window.loadMobilePlaylistSongs) window.loadMobilePlaylistSongs(0);
@@ -1204,11 +1211,27 @@
             applyMusicRoute();
         });
 
+        if (!routeBootPending) {
+            return;   // /music or the library: nothing to open
+        }
+
         var attempts = 25;
         (function openRoute() {
-            if (applyMusicRoute()) return;
+            if (applyMusicRoute(bootMusicRoute)) {
+                routeBootPending = false;
+                try {
+                    var canonical = window.MusicRoutes[bootMusicRoute.view + 'Url'](bootMusicRoute.id);
+                    if (canonical && window.location.pathname !== canonical) {
+                        window.history.replaceState({ music: bootMusicRoute.view, id: bootMusicRoute.id }, '', canonical);
+                    }
+                } catch (e) {
+                    console.warn('[MusicDock] could not restore the deep link:', e && e.message ? e.message : e);
+                }
+                return;
+            }
             if (--attempts <= 0) {
-                console.warn('[MusicDock] route target never became ready:', window.location.pathname);
+                console.warn('[MusicDock] route target never became ready:', bootMusicRoute);
+                routeBootPending = false;
                 return;
             }
             window.setTimeout(openRoute, 200);
