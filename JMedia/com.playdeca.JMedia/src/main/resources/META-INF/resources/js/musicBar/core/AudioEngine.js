@@ -643,6 +643,7 @@
         _tracksSinceRecycle: 0,
         _lastRecycledSongId: null,
         _recyclePending: false,
+        _recycleTimer: null,
 
         _maybeRecycleDeck: function(activeEl) {
             try {
@@ -653,17 +654,42 @@
                 // DJ mode keeps a crossfade going, so the deck is busy exactly when the
                 // counter expires. Try again on the next track instead of dropping it.
                 if (this._recyclePending) {
-                    if (this._recycleIdleDeck()) this._recyclePending = false;
+                    if (this._recycleIdleDeck()) {
+                        this._recyclePending = false;
+                    } else {
+                        this._scheduleRecycleRetry();
+                    }
                     return;
                 }
 
                 if (++this._tracksSinceRecycle < this.RECYCLE_EVERY) return;
                 this._tracksSinceRecycle = 0;
 
-                if (!this._recycleIdleDeck()) this._recyclePending = true;
+                if (!this._recycleIdleDeck()) {
+                    this._recyclePending = true;
+                    this._scheduleRecycleRetry();
+                }
             } catch (err) {
                 console.warn('[AudioEngine] deck recycle skipped:', err && err.message ? err.message : err);
             }
+        },
+
+        /**
+         * A crossfade keeps both decks playing, so the recycle cannot run at the
+         * exact moment the counter expires. Retry a few seconds later (the fade is
+         * short) until one deck is idle again.
+         */
+        _scheduleRecycleRetry: function() {
+            if (this._recycleTimer) return;
+            this._recycleTimer = setTimeout(() => {
+                this._recycleTimer = null;
+                if (!this._recyclePending) return;
+                if (this._recycleIdleDeck()) {
+                    this._recyclePending = false;
+                } else if (this._recyclePending) {
+                    this._scheduleRecycleRetry();
+                }
+            }, 3000);
         },
 
         _recycleIdleDeck: function() {
