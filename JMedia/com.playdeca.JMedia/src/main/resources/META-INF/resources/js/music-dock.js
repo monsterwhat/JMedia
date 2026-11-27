@@ -1124,6 +1124,97 @@
         }
     }
 
+        /* ---------------- Shareable URLs ----------------
+       /music/playlist/{id}, /music/song/{id}, /music/album/{id}, /music/artist/{id},
+       /music/genre/{key}. The page opens the matching view on boot (after login,
+       the 307 carries the full path), and browsing updates the address bar so the
+       link can just be copied. */
+    function musicRouteNavigate(kind, id) {
+        try {
+            if (!window.MusicRoutes) return;
+            var url = window.MusicRoutes[kind + 'Url'](id);
+            if (window.location.pathname === url) return;
+            window.history.pushState({ music: kind, id: id }, '', url);
+        } catch (e) {
+            console.warn('[MusicDock] could not update the address bar:', e && e.message ? e.message : e);
+        }
+    }
+
+    function applyMusicRoute() {
+        if (!window.MusicRoutes) return;
+        var route = window.MusicRoutes.parse(window.location.pathname);
+        if (!route || route.view === 'all') return false;
+
+        var list = document.getElementById('mobileSongList');
+        if (!list) return false;   // app not ready yet
+
+        switch (route.view) {
+            case 'playlist':
+                if (window.loadMobilePlaylistSongs) window.loadMobilePlaylistSongs(route.id);
+                break;
+            case 'album':
+                if (window.showAlbumPageById) window.showAlbumPageById(route.id, null);
+                break;
+            case 'artist':
+                if (window.showArtistPageById) window.showArtistPageById(route.id, null);
+                break;
+            case 'song':
+                if (window.showSongDetail) window.showSongDetail(route.id);
+                break;
+            case 'genre':
+                if (window.loadGenreSongs) window.loadGenreSongs(route.id);
+                break;
+            default:
+                return false;
+        }
+        scrollToLibraryTop();
+        return true;
+    }
+
+    function setupMusicRouting() {
+        if (!window.MusicRoutes || setupMusicRouting._done) return;
+        setupMusicRouting._done = true;
+
+        function wrap(name, kind) {
+            var fn = window[name];
+            if (typeof fn !== 'function' || fn._musicRouteWrapped) return;
+            var wrapped = function () {
+                var result = fn.apply(this, arguments);
+                var id = arguments[0];
+                if (id !== undefined && id !== null && String(id) !== '') {
+                    musicRouteNavigate(kind, id);
+                }
+                return result;
+            };
+            wrapped._musicRouteWrapped = true;
+            window[name] = wrapped;
+        }
+
+        wrap('loadMobilePlaylistSongs', 'playlist');
+        wrap('showAlbumPageById', 'album');
+        wrap('showArtistPageById', 'artist');
+        wrap('showSongDetail', 'song');
+
+        window.addEventListener('popstate', function () {
+            var route = window.MusicRoutes.parse(window.location.pathname);
+            if (!route || route.view === 'all') {
+                if (window.loadMobilePlaylistSongs) window.loadMobilePlaylistSongs(0);
+                return;
+            }
+            applyMusicRoute();
+        });
+
+        var attempts = 25;
+        (function openRoute() {
+            if (applyMusicRoute()) return;
+            if (--attempts <= 0) {
+                console.warn('[MusicDock] route target never became ready:', window.location.pathname);
+                return;
+            }
+            window.setTimeout(openRoute, 200);
+        })();
+    }
+
     function setupBackToTop() {        var btn = document.getElementById('dockToTop');
         if (!btn) return;
         var ticking = false;
@@ -1361,7 +1452,8 @@
                     console.warn('[MusicDock] Music bundle was skipped; music globals unavailable.');
                     return;
                 }
-                wireMusicState();
+                                wireMusicState();
+                setupMusicRouting();
             }).catch(function (err) {
                 console.warn('[MusicDock] Music bundle not ready:', err && err.message ? err.message : err);
                 wireMusicState();

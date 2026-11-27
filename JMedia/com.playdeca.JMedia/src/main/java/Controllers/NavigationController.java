@@ -28,6 +28,22 @@ public class NavigationController {
         return servePage("music-dock.html", "Music dock page (SPA)");
     }
 
+        /** Any /music/<kind>/<id> loads the dock; the page's router opens the view. */
+    @GET
+    @Path("/music/{rest:.*}")
+    public Response serveMusicDeepLink() {
+        return servePage("music-dock.html", "Music dock page (SPA)");
+    }
+
+    /** Old music URLs keep working: send them to the equivalent dock URL. */
+    @GET
+    @Path("/music-classic/{rest:.*}")
+    public Response serveMusicClassicDeepLink(@jakarta.ws.rs.PathParam("rest") String rest) {
+        return Response.status(Response.Status.FOUND)
+                .header("Location", "/music/" + (rest == null ? "" : rest))
+                .build();
+    }
+
     /** The old music UI, kept at its own URL the way /video-classic is. */
     @GET
     @Path("/music-classic")
