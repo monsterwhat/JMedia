@@ -911,10 +911,14 @@ public class SongService {
         }
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
+        // Implicit join (HQL has no ad-hoc LEFT JOIN ON without a mapped
+        // association). Empty albums cannot appear anyway: they are removed by
+        // the cleanup pass.
         var q = em.createQuery(
             "SELECT new Services.SongService.AlbumCard(a.id, a.name, a.artist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate)) "
-                + "FROM Album a LEFT JOIN Song s ON s.albumId = a.id "
-                + "WHERE LOWER(a.name) LIKE :search OR LOWER(a.artist) LIKE :search "
+                + "FROM Album a, Song s "
+                + "WHERE s.albumId = a.id "
+                + "AND (LOWER(a.name) LIKE :search OR LOWER(a.artist) LIKE :search) "
                 + "GROUP BY a.id, a.name, a.artist" + order,
             AlbumCard.class);
         q.setParameter("search", search == null || search.isBlank() ? "%%" : "%" + search.toLowerCase() + "%");
