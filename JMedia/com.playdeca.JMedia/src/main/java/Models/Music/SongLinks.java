@@ -117,6 +117,37 @@ public final class SongLinks {
         }
     }
 
+        /** Look up an existing album id; null when the pair is unknown. */
+    public static Long findAlbumId(String name, String artist, EntityManager em) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String nameKey = normalize(name);
+        String artistKey = normalize(artist == null ? "" : artist);
+        return em.createQuery("SELECT a.id FROM Album a WHERE a.nameKey = :nk AND a.artistKey = :ak", Long.class)
+                .setParameter("nk", nameKey)
+                .setParameter("ak", artistKey)
+                .setMaxResults(1)
+                .getResultList()
+                .stream().findFirst().orElse(null);
+    }
+
+    /** Look up an existing artist id; null when the name is unknown. */
+    public static Long findArtistId(String name, EntityManager em) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return em.createQuery("SELECT a.id FROM Artist a WHERE a.nameKey = :nk", Long.class)
+                .setParameter("nk", normalize(name))
+                .setMaxResults(1)
+                .getResultList()
+                .stream().findFirst().orElse(null);
+    }
+
+    public static long ensureArtistId(String name, EntityManager em) {
+        return artistIdFor(em, name == null ? "Unknown Artist" : name.trim());
+    }
+
     private static Long artistIdFor(EntityManager em, String name) {
         String nameKey = normalize(name);
         Long cached = ARTIST_IDS.get(nameKey);

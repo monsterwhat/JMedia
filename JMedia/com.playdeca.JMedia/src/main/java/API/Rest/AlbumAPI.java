@@ -54,11 +54,13 @@ public class AlbumAPI {
     @Inject
     MetadataWriteService metadataWriteService;
 
-    public record AlbumOption(String album, String albumArtist, Long firstSongId,
-                              long songCount, String year) {}
+        public record AlbumOption(Long id, String album, String albumArtist, Long firstSongId,
+                              Long songCount, String year) {}
 
     public static class AssignAlbumRequest {
-        public List<Long> songIds;
+                public List<Long> songIds;
+        /** Existing album to drop into (preferred); name/artist is for "New album". */
+        public Long albumId;
         public String album;
         public String albumArtist;
         public boolean writeTags;
@@ -78,17 +80,16 @@ public class AlbumAPI {
         int safeOffset = Math.max(0, offset);
         int page = (safeOffset / safeLimit) + 1;
 
-        SongService.PaginatedAlbums result = songService.findAlbums(page, safeLimit, search, "album", "asc");
+                SongService.PaginatedAlbums result = songService.findAlbums(page, safeLimit, search, "album", "asc");
         List<AlbumOption> items = new ArrayList<>();
-        for (Object[] row : result.albums()) {
-            String year = row[4] != null ? row[4].toString() : "";
-            if (year.length() >= 4) year = year.substring(0, 4);
+        for (SongService.AlbumCard card : result.albums()) {
             items.add(new AlbumOption(
-                    (String) row[0],
-                    (String) row[1],
-                    (Long) row[2],
-                    (Long) row[3],
-                    year
+                    card.id(),
+                    card.name(),
+                    card.artist(),
+                    card.firstSongId(),
+                    card.songCount(),
+                    card.getYear()
             ));
         }
 
@@ -109,14 +110,25 @@ public class AlbumAPI {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("songIds is required")).build();
         }
-        if (request.album == null || request.album.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("album is required")).build();
+                String album;
+        String albumArtist;
+        if (request.albumId != null) {
+            Models.Music.Album target = Models.Music.Album.findById(request.albumId);
+            if (target == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Album not found")).build();
+            }
+            album = target.name;
+            albumArtist = (target.artist == null || target.artist.isBlank()) ? null : target.artist;
+        } else {
+            if (request.album == null || request.album.isBlank()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("albumId or album is required")).build();
+            }
+            album = request.album.trim();
+            albumArtist = request.albumArtist == null || request.albumArtist.isBlank()
+                    ? null : request.albumArtist.trim();
         }
-
-        String album = request.album.trim();
-        String albumArtist = request.albumArtist == null || request.albumArtist.isBlank()
-                ? null : request.albumArtist.trim();
 
         int updated = songService.assignAlbum(request.songIds, album, albumArtist);
         LOG.info("Assigned {} songs to album '{}' (artist={}) for profile {}",

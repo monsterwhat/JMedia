@@ -95,10 +95,11 @@
                 count: 1
             };
         }
-        if (el.classList.contains('mobile-album-card')) {
+                if (el.classList.contains('mobile-album-card')) {
             const name = el.dataset.albumName || 'Album';
             return {
                 type: 'album',
+                albumId: el.dataset.albumId || null,
                 albumName: name,
                 albumArtist: el.dataset.albumArtist || '',
                 label: 'Album · ' + name,
@@ -123,11 +124,18 @@
         if (source._idsPromise) return source._idsPromise;
 
         const pid = profileId();
-        if (source.type === 'album') {
-            const url = '/api/music/ui/collection-song-ids/' + pid
-                + '?type=album&value=' + encodeURIComponent(source.albumName)
-                + '&albumArtist=' + encodeURIComponent(source.albumArtist || '');
-            source._idsPromise = fetchJson(url).then(function (data) {
+                if (source.type === 'album') {
+            const byId = function (albumId) {
+                return fetchJson('/api/music/ui/album/' + encodeURIComponent(albumId) + '/song-ids');
+            };
+            const request = source.albumId
+                ? byId(source.albumId)
+                : fetchJson('/api/music/ui/ids/album?name=' + encodeURIComponent(source.albumName)
+                        + '&artist=' + encodeURIComponent(source.albumArtist || ''))
+                    .then(function (resolved) {
+                        return resolved && resolved.id ? byId(resolved.id) : { songIds: [] };
+                    });
+            source._idsPromise = request.then(function (data) {
                 return data.songIds || (data.data && data.data.songIds) || [];
             });
         } else if (source.type === 'playlist') {
@@ -739,7 +747,8 @@
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'music-drop-item music-drop-album';
-            item.dataset.dropKind = 'album';
+                        item.dataset.dropKind = 'album';
+            item.dataset.albumId = a.id != null ? String(a.id) : '';
             item.dataset.albumName = a.album || '';
             item.dataset.albumArtist = a.albumArtist || '';
             item.dataset.songCount = a.songCount || '';
@@ -839,8 +848,9 @@
                 toast('No songs to move', 'warning');
                 return;
             }
-            const album = option.dataset.albumName || '';
+                        const album = option.dataset.albumName || '';
             const artist = option.dataset.albumArtist || '';
+            const albumId = option.dataset.albumId || null;
             const proceed = source.type === 'song'
                 ? Promise.resolve(true)
                 : confirmModal('Move ' + ids.length + ' song' + (ids.length === 1 ? '' : 's') + ' into “' + album + '”?');
@@ -848,7 +858,7 @@
                 if (!ok) return;
                 promptAlbumTags(album, artist, ids.length).then(function (choice) {
                     if (!choice) return;
-                    assignAlbum(ids, album, artist, choice.writeTags);
+                                        assignAlbum(ids, album, artist, choice.writeTags, albumId);
                 });
             });
         }).catch(function (err) {
@@ -903,9 +913,10 @@
         });
     }
 
-    function assignAlbum(ids, album, artist, writeTags) {
+        function assignAlbum(ids, album, artist, writeTags, albumId) {
         postJson('/api/music/albums/assign', {
             songIds: ids,
+            albumId: albumId || null,
             album: album,
             albumArtist: artist,
             writeTags: !!writeTags

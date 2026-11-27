@@ -108,7 +108,8 @@
                 return {
                     type: 'album',
                     value: el.dataset.albumName,
-                    albumArtist: (el.dataset.albumArtist && el.dataset.albumArtist !== 'null' && el.dataset.albumArtist !== 'undefined') ? el.dataset.albumArtist : '',
+                                    albumId: (el.dataset.albumId && el.dataset.albumId !== 'null' && el.dataset.albumId !== 'undefined') ? el.dataset.albumId : null,
+                albumArtist: (el.dataset.albumArtist && el.dataset.albumArtist !== 'null' && el.dataset.albumArtist !== 'undefined') ? el.dataset.albumArtist : '',
                     firstSongId: (el.dataset.firstSongId && el.dataset.firstSongId !== 'null' && el.dataset.firstSongId !== 'undefined') ? el.dataset.firstSongId : null,
                     element: el
                 };
@@ -428,8 +429,19 @@
             this.mousePosition = null;
         }
 
-        fetchCollectionSongIds(type, value, albumArtist) {
+                fetchCollectionSongIds(type, value, albumArtist, albumId) {
             const profileId = JMedia.Helpers.getActiveProfileId();
+            if (type === 'album') {
+                if (!albumId) {
+                    return Promise.resolve([]);
+                }
+                return window.fetch(`/api/music/ui/album/${encodeURIComponent(albumId)}/song-ids`)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => (data && Array.isArray(data.songIds)) ? data.songIds : []);
+            }
             const params = new URLSearchParams();
             params.set('type', type);
             params.set('value', value == null ? '' : String(value));
@@ -539,7 +551,7 @@
                         if (window.playAlbum) window.playAlbum(t.firstSongId);
                     } else {
                         const profileId = JMedia.Helpers.getActiveProfileId();
-                        this.fetchCollectionSongIds('album', t.value, t.albumArtist)
+                                                this.fetchCollectionSongIds('album', t.value, t.albumArtist, t.albumId)
                             .then(ids => {
                                 if (ids && ids.length) {
                                     JMedia.PlaybackApi.select(ids[0], profileId);
@@ -573,9 +585,10 @@
                 case 'queue-album':
                 case 'queue-genre': {
                     const type = action === 'queue-album' ? 'album' : 'genre';
-                    const albumArtist = type === 'album' ? t.albumArtist : null;
-                    const profileId = JMedia.Helpers.getActiveProfileId();
-                    this.fetchCollectionSongIds(type, t.value, albumArtist)
+                                    const albumArtist = type === 'album' ? t.albumArtist : null;
+                const albumId = type === 'album' ? t.albumId : null;
+                const profileId = JMedia.Helpers.getActiveProfileId();
+                                    this.fetchCollectionSongIds(type, t.value, albumArtist, albumId)
                         .then(ids => {
                             if (!ids || !ids.length) {
                                 console.warn('[MobileContextMenu] No songs found to queue');
@@ -607,7 +620,7 @@
                 case 'playlist-genre': {
                     const type = action === 'playlist-album' ? 'album' : 'genre';
                     const albumArtist = type === 'album' ? t.albumArtist : null;
-                    this.fetchCollectionSongIds(type, t.value, albumArtist)
+                                    this.fetchCollectionSongIds(type, t.value, albumArtist, albumId)
                         .then(ids => {
                             if (!ids || !ids.length) {
                                 console.warn('[MobileContextMenu] No songs found for playlist');

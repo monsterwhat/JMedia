@@ -1,6 +1,7 @@
 {#for s in songs}
 <div class="mobile-song-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}"
      data-playlist-id="{playlistId}"
+         data-album-id="{s.albumId}"
      style="cursor: pointer; --i: {s_index};">
     <div class="mobile-song-artwork">
         <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">

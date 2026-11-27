@@ -53,8 +53,11 @@ public class MusicUiApi {
     @Inject
     private QueueAPI queueAPI; // Inject the Queue API
 
-    @Inject
+        @Inject
     SongService songService;
+
+    @Inject
+    Services.AlbumLinkService albumLinkService;
 
     @Inject
     Services.MusicGenreBackfillService genreBackfillService;
@@ -1208,14 +1211,51 @@ public class MusicUiApi {
     public Response getCollectionSongIds(@PathParam("profileId") Long profileId,
             @QueryParam("type") String type, @QueryParam("value") String value,
             @QueryParam("albumArtist") String albumArtist) {
-        List<Long> ids;
-        if ("album".equalsIgnoreCase(type)) {
-            ids = songService.findSongIdsByAlbum(value, albumArtist);
-        } else if ("genre".equalsIgnoreCase(type)) {
+                List<Long> ids;
+        if ("genre".equalsIgnoreCase(type)) {
             ids = songService.findSongIdsByGenre(value);
         } else {
             ids = List.of();
         }
+        return Response.ok(Map.of("songIds", ids, "count", ids.size())).build();
+    }
+
+        /**
+     * Resolve a display name to the identity row. Internal helper for views whose
+     * data only carries names (song detail, player artist link); navigation itself
+     * is always by id. Returns {} when the name is unknown - it never creates rows.
+     */
+    @GET
+    @Path("/ids/{kind}")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response resolveId(@PathParam("kind") String kind,
+                              @QueryParam("name") String name,
+                              @QueryParam("artist") String artist) {
+        if (name == null || name.isBlank()) {
+            return Response.ok(Map.of()).build();
+        }
+        Long id = "album".equalsIgnoreCase(kind)
+                ? albumLinkService.albumIdForName(name.trim(), artist == null ? null : artist.trim())
+                : albumLinkService.findArtistId(name.trim());
+        return Response.ok(id == null ? Map.of() : Map.of("id", id)).build();
+    }
+
+    /**
+     * Song ids of one album, addressed by its stable id (drag & drop sources,
+     * "play all" from an album card).
+     */
+    @GET
+    @Path("/album/{albumId}/song-ids")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getAlbumSongIds(@PathParam("albumId") Long albumId) {
+        Models.Music.Album album = (albumId == null) ? null : Models.Music.Album.findById(albumId);
+        if (album == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(API.ApiResponse.error("Album not found")).build();
+        }
+        List<Long> ids = songService.findSongIdsByAlbumId(albumId);
         return Response.ok(Map.of("songIds", ids, "count", ids.size())).build();
     }
 
@@ -1283,7 +1323,7 @@ public class MusicUiApi {
 
     public record AlbumInfo(String name, Long artwork, String year) {}
 
-    public record RecommendedArtist(String name, Long artwork, int songCount) {}
+        public record RecommendedArtist(Long id, String name, Long artwork, int songCount) {}
     
     // Builder for RecommendedArtist since we need to modify songCount during processing
     private static class RecommendedArtistBuilder {
@@ -1302,33 +1342,34 @@ public class MusicUiApi {
             return this;
         }
         
-        public RecommendedArtist build() {
-            return new RecommendedArtist(name, artwork, songCount);
+                public RecommendedArtist build() {
+            return new RecommendedArtist(null, name, artwork, songCount);
         }
     }
 
-    @GET
-    @Path("/album-artist/{profileId}/{artistName}")
+        @GET
+    @Path("/artist/{profileId}/{artistId}")
     @Blocking
     public String getAlbumArtistPage(
             @PathParam("profileId") Long profileId,
-            @PathParam("artistName") String artistName) {
-        
-        if (artistName == null || artistName.isBlank()) {
+            @PathParam("artistId") Long artistId) {
+
+        Models.Music.Artist artistEntity = (artistId == null) ? null : Models.Music.Artist.findById(artistId);
+        if (artistEntity == null) {
             return "<div class='p-6 has-text-centered'><p>Artist not found</p></div>";
         }
 
-        String normalizedArtist = artistName.trim();
-        String searchPattern = "%" + normalizedArtist.toLowerCase() + "%";
+        String normalizedArtist = artistEntity.name;
+        String exactArtist = normalizedArtist.toLowerCase();
 
-        // Find songs where artist OR albumArtist matches (case-insensitive)
+        // Exact match on artist or albumArtist: same set as before, scoped by row.
         List<Song> allSongs = Song.list(
-            "LOWER(artist) LIKE ?1 OR LOWER(albumArtist) LIKE ?1", 
-            searchPattern
+            "LOWER(artist) = ?1 OR LOWER(albumArtist) = ?1",
+            exactArtist
         );
 
         if (allSongs.isEmpty()) {
-            return "<div class='p-6 has-text-centered'><p>No songs found for artist: " + artistName + "</p></div>";
+            return "<div class='p-6 has-text-centered'><p>No songs found for artist: " + artistEntity.name + "</p></div>";
         }
 
         // Get unique albums with their artwork (first song's artwork for each album)
@@ -1424,28 +1465,25 @@ public class MusicUiApi {
                 .render();
     }
 
-    @GET
-    @Path("/album/{profileId}/{albumName}")
+        @GET
+    @Path("/album/{profileId}/{albumId}")
     @Blocking
     public String getAlbumPage(
             @PathParam("profileId") Long profileId,
-            @PathParam("albumName") String albumName) {
-        
-        if (albumName == null || albumName.isBlank()) {
+            @PathParam("albumId") Long albumId) {
+
+        Models.Music.Album album = (albumId == null) ? null : Models.Music.Album.findById(albumId);
+        if (album == null) {
             return "<div class='p-6 has-text-centered'><p>Album not found</p></div>";
         }
 
-        String normalizedAlbum = albumName.trim();
-        String searchPattern = "%" + normalizedAlbum.toLowerCase() + "%";
+        String normalizedAlbum = album.name;
 
-        // Find songs where album matches (case-insensitive)
-        List<Song> allSongs = Song.list(
-            "LOWER(album) LIKE ?1", 
-            searchPattern
-        );
+        // The id is the identity now, so the page is exactly the album's songs.
+        List<Song> allSongs = Song.list("albumId = ?1", albumId);
 
         if (allSongs.isEmpty()) {
-            return "<div class='p-6 has-text-centered'><p>No songs found for album: " + albumName + "</p></div>";
+            return "<div class='p-6 has-text-centered'><p>No songs found for album: " + album.name + "</p></div>";
         }
 
         // Sort by track number
@@ -1584,7 +1622,7 @@ public class MusicUiApi {
                             }
                         }
                     }
-                    tempArtists.add(new RecommendedArtist(artistNameEntry, artwork, data[0]));
+                    tempArtists.add(new RecommendedArtist(albumLinkService.artistIdForName(artistNameEntry), artistNameEntry, artwork, data[0]));
                 }
 
                 recommendedArtists = tempArtists.stream()
@@ -1605,7 +1643,7 @@ public class MusicUiApi {
                             }
                         }
                     }
-                    tempArtists.add(new RecommendedArtist(artistNameEntry, artwork, data[0]));
+                    tempArtists.add(new RecommendedArtist(albumLinkService.artistIdForName(artistNameEntry), artistNameEntry, artwork, data[0]));
                 }
                 
                 // Sort by song count descending and take top 7
@@ -1616,9 +1654,13 @@ public class MusicUiApi {
             }
         }
 
+                Long albumArtistId = albumLinkService.artistIdForName(album.artist);
+
         return albumFragment
+                .data("albumId", albumId)
                 .data("albumName", normalizedAlbum)
                 .data("artistName", artistName)
+                .data("albumArtistId", albumArtistId)
                 .data("albumArtwork", albumArtwork)
                 .data("year", year)
                 .data("songs", allSongs)
@@ -1633,7 +1675,7 @@ public class MusicUiApi {
 
     // ── Album Grid (mobile) ──
 
-    public record AlbumCard(String name, String artist, Long firstSongId, long songCount, String year) {}
+    
 
     @GET
     @Path("/mobile-albums/{profileId}")
@@ -1647,13 +1689,7 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         SongService.PaginatedAlbums result = songService.findAlbums(page, limit, search, sortBy, sortDirection);
-        List<AlbumCard> cards = result.albums().stream()
-            .map(row -> {
-                String y = row[4] != null ? row[4].toString() : "";
-                if (y.length() >= 4) y = y.substring(0, 4);
-                return new AlbumCard((String) row[0], (String) row[1], (Long) row[2], (Long) row[3], y);
-            })
-            .toList();
+                List<SongService.AlbumCard> cards = result.albums();
 
         boolean hasMore = (long) page * limit < result.totalCount();
         int nextPage = page + 1;
@@ -1685,13 +1721,7 @@ public class MusicUiApi {
         if (result.albums().isEmpty()) {
             return "<div class='scroll-end'>— end —</div>";
         }
-        List<AlbumCard> cards = result.albums().stream()
-            .map(row -> {
-                String y = row[4] != null ? row[4].toString() : "";
-                if (y.length() >= 4) y = y.substring(0, 4);
-                return new AlbumCard((String) row[0], (String) row[1], (Long) row[2], (Long) row[3], y);
-            })
-            .toList();
+                List<SongService.AlbumCard> cards = result.albums();
 
         boolean hasMore = (long) page * limit < result.totalCount();
         int nextPage = page + 1;

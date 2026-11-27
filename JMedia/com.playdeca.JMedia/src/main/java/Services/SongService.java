@@ -273,7 +273,7 @@ public class SongService {
     public PaginatedSongs findAll(int page, int limit, String search, String sortBy, String sortDirection, String letter) {
         // Projection query: never touches lyrics, artworkBase64, or SongAnalysis
         StringBuilder baseQuery = new StringBuilder(
-                "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) FROM Song s");
+                "SELECT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber, s.albumId) FROM Song s");
 
         StringBuilder whereClause = new StringBuilder();
         java.util.List<String> conditions = new java.util.ArrayList<>();
@@ -890,45 +890,56 @@ public class SongService {
 
     // ── Album browsing ──
 
-    public record PaginatedAlbums(List<Object[]> albums, long totalCount) {}
+    /** One row of the album grid: a real Album id plus its display data. */
+    public record AlbumCard(Long id, String name, String artist, Long firstSongId,
+                            Long songCount, String releaseDate) {
+        /** First four characters of the release date, for the grid meta line. */
+        public String getYear() {
+            return releaseDate != null && releaseDate.length() >= 4 ? releaseDate.substring(0, 4) : "";
+        }
+    }
+
+    public record PaginatedAlbums(List<AlbumCard> albums, long totalCount) {}
 
     public PaginatedAlbums findAlbums(int page, int limit, String search, String sortBy, String sortDirection) {
-        String where = " WHERE s.album IS NOT NULL AND s.album != ''";
-        if (search != null && !search.isBlank()) {
-            where += " AND (LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.artist) LIKE :search)";
-        }
         String order = " ORDER BY ";
         switch (sortBy) {
-            case "album": default: order += "LOWER(s.album)"; break;
-            case "artist": order += "LOWER(s.albumArtist)"; break;
+            case "album": default: order += "LOWER(a.name)"; break;
+            case "artist": order += "LOWER(a.artist)"; break;
             case "year": order += "MAX(s.releaseDate)"; break;
             case "songCount": order += "COUNT(s.id)"; break;
         }
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
         var q = em.createQuery(
-            "SELECT s.album, s.albumArtist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate) FROM Song s" + where + " GROUP BY s.album, s.albumArtist" + order,
-            Object[].class);
-        if (search != null && !search.isBlank()) {
-            q.setParameter("search", "%" + search.toLowerCase() + "%");
-        }
-        List<Object[]> albums = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
-        long total = countAlbums(search);
-        return new PaginatedAlbums(albums, total);
+            "SELECT new Services.SongService.AlbumCard(a.id, a.name, a.artist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate)) "
+                + "FROM Album a LEFT JOIN Song s ON s.albumId = a.id "
+                + "WHERE LOWER(a.name) LIKE :search OR LOWER(a.artist) LIKE :search "
+                + "GROUP BY a.id, a.name, a.artist" + order,
+            AlbumCard.class);
+        q.setParameter("search", search == null || search.isBlank() ? "%%" : "%" + search.toLowerCase() + "%");
+        List<AlbumCard> albums = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
+        return new PaginatedAlbums(albums, countAlbums(search));
     }
 
     public long countAlbums(String search) {
-        String where = " WHERE s.album IS NOT NULL AND s.album != ''";
-        if (search != null && !search.isBlank()) {
-            where += " AND (LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.artist) LIKE :search)";
-        }
         var q = em.createQuery(
-            "SELECT COUNT(DISTINCT s.album || '::' || COALESCE(s.albumArtist, '')) FROM Song s" + where,
+            "SELECT COUNT(a) FROM Album a WHERE LOWER(a.name) LIKE :search OR LOWER(a.artist) LIKE :search",
             Long.class);
-        if (search != null && !search.isBlank()) {
-            q.setParameter("search", "%" + search.toLowerCase() + "%");
-        }
+        q.setParameter("search", search == null || search.isBlank() ? "%%" : "%" + search.toLowerCase() + "%");
         return q.getSingleResult();
+    }
+
+    @Transactional
+    public List<Long> findSongIdsByAlbumId(Long albumId) {
+        if (albumId == null) {
+            return List.of();
+        }
+        return em.createQuery(
+                        "SELECT s.id FROM Song s WHERE s.albumId = :id ORDER BY s.discNumber, s.trackNumber, s.title",
+                        Long.class)
+                .setParameter("id", albumId)
+                .getResultList();
     }
 
     // ── Genre browsing ──
@@ -1114,7 +1125,7 @@ public class SongService {
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
         List<SongListItem> songs = em.createQuery(
-                "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+                "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber, s.albumId) " +
                 "FROM Song s JOIN s.genres sg WHERE sg.genreKey IN :keys" + order, SongListItem.class)
                 .setParameter("keys", keys)
                 .setFirstResult((page - 1) * limit)
@@ -1174,7 +1185,7 @@ public class SongService {
 
         String key = Utils.GenreNormalizer.key(genre);
         List<SongListItem> songs = em.createQuery(
-            "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber) " +
+            "SELECT DISTINCT new Models.Music.SongListItem(s.id, s.title, s.artist, s.album, s.durationSeconds, s.path, s.dateAdded, s.trackNumber, s.albumId) " +
             "FROM Song s JOIN s.genres sg WHERE sg.genreKey = :key" + order, SongListItem.class)
             .setParameter("key", key)
             .setFirstResult((page - 1) * limit).setMaxResults(limit)

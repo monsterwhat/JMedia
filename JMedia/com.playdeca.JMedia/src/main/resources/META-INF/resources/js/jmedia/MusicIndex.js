@@ -594,11 +594,13 @@
             .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="pi pi-refresh"></i> Fetch Metadata'; } });
     };
 
-    window.showArtistPage = function(artistName) {
+        /* Artist and album pages are addressed by their stable row id. */
+    window.showArtistPageById = function(artistId, artistLabel) {
         const songList = document.getElementById('mobileSongList');
-        if (!songList || !artistName) return;
+        if (!songList || !artistId) return;
         window.mobileSongListState.search = document.getElementById('musicSearchInput')?.value || '';
         window.mobileSongListState.view = 'artist';
+        window.mobileSongListState.artistId = String(artistId);
         ['mobileAlbumContent', 'mobileGenreContent', 'mobilePlaylistContent', 'mobileQueueContent', 'mobileHistoryContent'].forEach(id => {
             document.getElementById(id)?.classList.add('is-hidden');
         });
@@ -606,21 +608,22 @@
         songList.classList.remove('is-hidden');
         songList.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
         const profileId = JMedia.Helpers.getActiveProfileId();
-        const encodedArtist = encodeURIComponent(artistName);
         if (window.htmx) {
-            window.htmx.ajax('GET', `/api/music/ui/album-artist/${profileId}/${encodedArtist}`, {
+            window.htmx.ajax('GET', `/api/music/ui/artist/${profileId}/${encodeURIComponent(artistId)}`, {
                 target: '#mobileSongList', swap: 'innerHTML'
             });
         }
-        (function(a) { musicBreadcrumbPush(a, function() { window.showArtistPage(a); }); })(artistName);
+        const label = artistLabel || 'Artist';
+        musicBreadcrumbPush(label, function() { window.showArtistPageById(artistId, label); });
     };
 
-    window.showAlbumPage = function(albumName) {
+    window.showAlbumPageById = function(albumId, albumLabel) {
         const songList = document.getElementById('mobileSongList');
-        if (!songList || !albumName) return;
+        if (!songList || !albumId) return;
         window.mobileSongListState.search = document.getElementById('musicSearchInput')?.value || '';
         window.mobileSongListState.view = 'album';
-        window.mobileSongListState.albumName = albumName;
+        window.mobileSongListState.albumId = String(albumId);
+        window.mobileSongListState.albumName = albumLabel || '';
         ['mobileAlbumContent', 'mobileGenreContent', 'mobilePlaylistContent', 'mobileQueueContent', 'mobileHistoryContent'].forEach(id => {
             document.getElementById(id)?.classList.add('is-hidden');
         });
@@ -628,13 +631,52 @@
         songList.classList.remove('is-hidden');
         songList.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
         const profileId = JMedia.Helpers.getActiveProfileId();
-        const encodedAlbum = encodeURIComponent(albumName);
         if (window.htmx) {
-            window.htmx.ajax('GET', `/api/music/ui/album/${profileId}/${encodedAlbum}`, {
+            window.htmx.ajax('GET', `/api/music/ui/album/${profileId}/${encodeURIComponent(albumId)}`, {
                 target: '#mobileSongList', swap: 'innerHTML'
             });
         }
-        (function(a) { musicBreadcrumbPush(a, function() { window.showAlbumPage(a); }); })(albumName);
+        const label = albumLabel || 'Album';
+        musicBreadcrumbPush(label, function() { window.showAlbumPageById(albumId, label); });
+    };
+
+    /* Internal callers (song detail, player, breadcrumbs) only know display
+       names; resolve them to the row id first, then navigate by id. */
+    window.showArtistPage = function(artistNameOrId) {
+        const value = String(artistNameOrId == null ? '' : artistNameOrId).trim();
+        if (!value) return;
+        if (/^\d+$/.test(value)) return window.showArtistPageById(value, null);
+
+        const profileId = JMedia.Helpers.getActiveProfileId();
+        fetch(`/api/music/ui/ids/artist?name=${encodeURIComponent(value)}`, { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.id) {
+                    window.showArtistPageById(data.id, value);
+                } else {
+                    console.warn('[MusicIndex] artist not found in the library:', value);
+                    if (window.showToast) window.showToast('Artist not found', 'info');
+                }
+            })
+            .catch(err => console.error('[MusicIndex] artist id lookup failed', err));
+    };
+
+    window.showAlbumPage = function(albumNameOrId) {
+        const value = String(albumNameOrId == null ? '' : albumNameOrId).trim();
+        if (!value) return;
+        if (/^\d+$/.test(value)) return window.showAlbumPageById(value, window.mobileSongListState.albumName || null);
+
+        fetch(`/api/music/ui/ids/album?name=${encodeURIComponent(value)}`, { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.id) {
+                    window.showAlbumPageById(data.id, value);
+                } else {
+                    console.warn('[MusicIndex] album not found in the library:', value);
+                    if (window.showToast) window.showToast('Album not found', 'info');
+                }
+            })
+            .catch(err => console.error('[MusicIndex] album id lookup failed', err));
     };
 
     window.playAlbum = function(firstSongId) {

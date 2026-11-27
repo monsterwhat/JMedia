@@ -11,7 +11,7 @@
         </div>
         <div class="album-page-info">
             <h1 class="album-page-name">{albumName}</h1>
-            <p class="album-page-artist" onclick="window.showArtistPage(window.albumBackArtist)">{artistName}</p>
+            <p class="album-page-artist" onclick="if (window.albumBackArtistId) window.showArtistPageById(window.albumBackArtistId, window.albumBackArtist)">{artistName}</p>
             <p class="album-page-meta">{year} &middot; {songCount} songs &middot; {totalDuration}</p>
         </div>
     </div>
@@ -44,7 +44,7 @@
         </h2>
         <div class="album-page-recommended-list">
             {#for artist in recommendedArtists}
-            <div class="album-page-recommended-item" onclick="window.showArtistPage('{artist.name}')">
+            <div class="album-page-recommended-item" onclick="window.showArtistPageById('{artist.id}', '{artist.name}')">
                 <div class="album-page-recommended-artwork">
                     <img src="{artworkUrl.apply(artist.artwork)}" loading="lazy" alt="{artist.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                 </div>
@@ -61,4 +61,5 @@
 
 <script>
     window.albumBackArtist = "{artistName}";
+                window.albumBackArtistId = "{albumArtistId ?: ''}";
 </script>

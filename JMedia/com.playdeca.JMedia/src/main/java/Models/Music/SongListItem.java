@@ -25,14 +25,23 @@ public class SongListItem {
     public int durationSeconds;
     public String path;
     public java.time.LocalDateTime dateAdded;
-    public int trackNumber;
+        public int trackNumber;
+    /** Album row id, so list rows can link/navigate without a name lookup. */
+    public Long albumId;
+
 
     public SongListItem() {
     }
 
-    public SongListItem(Long id, String title, String artist, String album,
+        public SongListItem(Long id, String title, String artist, String album,
                         int durationSeconds, String path,
                         java.time.LocalDateTime dateAdded, int trackNumber) {
+        this(id, title, artist, album, durationSeconds, path, dateAdded, trackNumber, null);
+    }
+
+    public SongListItem(Long id, String title, String artist, String album,
+                        int durationSeconds, String path,
+                        java.time.LocalDateTime dateAdded, int trackNumber, Long albumId) {
         this.id = id;
         this.title = title;
         this.artist = artist;
@@ -41,6 +50,7 @@ public class SongListItem {
         this.path = path;
         this.dateAdded = dateAdded;
         this.trackNumber = trackNumber;
+        this.albumId = albumId;
     }
 
     @JsonIgnore

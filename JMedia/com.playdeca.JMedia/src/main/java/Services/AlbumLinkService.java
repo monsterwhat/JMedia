@@ -110,6 +110,27 @@ public class AlbumLinkService {
         return result;
     }
 
+        /** Existing album id for a display name/artist pair; null when unknown. */
+    @Transactional
+    public Long albumIdForName(String name, String artist) {
+        return Models.Music.SongLinks.findAlbumId(name, artist, em);
+    }
+
+    /** Existing artist id for a display name; null when unknown. */
+    @Transactional
+    public Long findArtistId(String name) {
+        return Models.Music.SongLinks.findArtistId(name, em);
+    }
+
+    /** Resolve (creating if needed) the artist row for an album's albumArtist. */
+    @Transactional
+    public Long artistIdForName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return Models.Music.SongLinks.ensureArtistId(name.trim(), em);
+    }
+
     @Transactional
     public Map<String, Object> cleanupEmpty() {
         int albums = em.createNativeQuery(
