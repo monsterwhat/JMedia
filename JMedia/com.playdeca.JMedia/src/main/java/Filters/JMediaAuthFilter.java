@@ -177,7 +177,12 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
         }
 
         // For web pages, redirect to login
-        String originalUrl = uriInfo.getRequestUri().toString();
+        // Relative path + query only: the login page's sanitiser rejects absolute
+        // URLs, which silently dropped every deep link back to "/" after sign-in.
+        String originalUrl = uriInfo.getRequestUri().getRawPath();
+        if (uriInfo.getRequestUri().getRawQuery() != null && !uriInfo.getRequestUri().getRawQuery().isBlank()) {
+            originalUrl += "?" + uriInfo.getRequestUri().getRawQuery();
+        }
         String loginUrl = "/login.html?redirect=" + java.net.URLEncoder.encode(originalUrl, java.nio.charset.StandardCharsets.UTF_8);
 
         LOG.info("🛑 Access Denied to '{}': Redirecting to login.html", path);
