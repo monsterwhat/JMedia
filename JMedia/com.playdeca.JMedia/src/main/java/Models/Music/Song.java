@@ -43,6 +43,14 @@ public class Song extends PanacheEntity {
 
     private String artworkPath;
 
+    /**
+     * Identity of the album/artist rows this song belongs to. Resolved by
+     * SongLinks from the tagged strings below (which stay the display/search
+     * source of truth); plain ids to keep every Song read free of lazy loads.
+     */
+    private Long albumId;
+    private Long artistId;
+
     @com.fasterxml.jackson.annotation.JsonIgnore
     @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private SongAnalysis analysis;

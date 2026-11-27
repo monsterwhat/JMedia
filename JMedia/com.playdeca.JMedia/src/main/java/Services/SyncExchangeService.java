@@ -90,7 +90,8 @@ public class SyncExchangeService {
                     if (remoteSong.updatedAt != null && localSong.getUpdatedAt() != null
                             && remoteSong.updatedAt.isAfter(localSong.getUpdatedAt())) {
                         updateSongFromSyncData(localSong, remoteSong);
-                        musicEm.merge(localSong);
+                        Models.Music.SongLinks.link(localSong, musicEm);
+            musicEm.merge(localSong);
                         try {
                             songEnrichmentService.save(localSong);
                         } catch (Exception cacheException) {

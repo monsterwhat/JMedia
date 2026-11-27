@@ -51,6 +51,7 @@ public class SongService {
 
     @Transactional
     public void save(Song song) {
+        Models.Music.SongLinks.link(song, em);
         song.setUpdatedAt(java.time.LocalDateTime.now());
         if (song.id == null || em.find(Song.class, song.id) == null) {
             em.persist(song);
@@ -238,6 +239,7 @@ public class SongService {
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Song persistSongInNewTx(Song song) {
+        Models.Music.SongLinks.link(song, em);
         song.setUpdatedAt(java.time.LocalDateTime.now());
         if (song.id == null || em.find(Song.class, song.id) == null) {
             em.persist(song);
