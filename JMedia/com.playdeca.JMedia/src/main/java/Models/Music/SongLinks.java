@@ -43,14 +43,25 @@ public final class SongLinks {
         if (song == null || em == null) {
             return;
         }
+        long[] ids = resolveIds(song.getAlbum(), song.getAlbumArtist(), song.getArtworkPath(),
+                song.getReleaseDate(), song.getArtist(), em);
+        song.setAlbumId(ids[0]);
+        song.setArtistId(ids[1]);
+    }
 
-        String albumName = orFallback(song.getAlbum(), "Unknown Album");
-        String albumArtist = song.getAlbumArtist() == null ? "" : song.getAlbumArtist().trim();
-        Long albumId = albumIdFor(em, albumName, albumArtist, song.getArtworkPath(), song.getReleaseDate());
-        song.setAlbumId(albumId);
-
-        String artistName = orFallback(song.getArtist(), "Unknown Artist");
-        song.setArtistId(artistIdFor(em, artistName));
+    /**
+     * Resolve (creating when needed) the album/artist ids for a set of tags
+     * without touching a Song entity. Used by the backfill, which then writes the
+     * ids with a bulk update so JPA lifecycle callbacks do not fire for 12k rows.
+     */
+    public static long[] resolveIds(String album, String albumArtist, String artwork,
+                                    String releaseDate, String artist, EntityManager em) {
+        String albumName = orFallback(album, "Unknown Album");
+        String albumArtistValue = albumArtist == null ? "" : albumArtist.trim();
+        long albumId = albumIdFor(em, albumName, albumArtistValue, artwork, releaseDate);
+        String artistName = orFallback(artist, "Unknown Artist");
+        long artistId = artistIdFor(em, artistName);
+        return new long[]{albumId, artistId};
     }
 
     private static Long albumIdFor(EntityManager em, String name, String artist, String artwork, String releaseDate) {

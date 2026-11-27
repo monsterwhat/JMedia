@@ -73,8 +73,12 @@ public class Song extends PanacheEntity {
         java.util.List<Utils.GenreNormalizer.Genre> resolved = Utils.GenreNormalizer.resolveAll(genre);
         boolean same = genres != null && genres.size() == resolved.size();
         if (same) {
-            for (int i = 0; i < resolved.size(); i++) {
-                if (!resolved.get(i).key().equals(genres.get(i).genreKey)) {
+            java.util.Set<String> existing = new java.util.HashSet<>();
+            for (SongGenre link : genres) {
+                existing.add(link.genreKey);
+            }
+            for (Utils.GenreNormalizer.Genre g : resolved) {
+                if (!existing.contains(g.key())) {
                     same = false;
                     break;
                 }

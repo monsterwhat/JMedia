@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 
 /**
  * One-off / maintenance work for the Album + Artist identity rows.
@@ -31,45 +32,80 @@ public class AlbumLinkService {
     @PersistenceContext(unitName = "music")
     private EntityManager em;
 
-    @Transactional
+    /**
+     * Link every song that predates the entities. Songs are read in batches, their
+     * ids resolved through the album/artist cache, and the two columns written with
+     * a bulk update: a bulk update bypasses @PreUpdate, so this pass cannot trigger
+     * the per-song genre re-sync (which is what made a normal entity flush die on
+     * the UK_SONG_GENRES_SONG_KEY index). Idempotent: only unlinked rows are read.
+     */
+    /**
+     * Link every song that predates the entities. One transaction per batch keeps
+     * this well inside the transaction timeout, and the ids are written with a
+     * bulk update so @PreUpdate does not fire for 12k rows (a normal flush there
+     * re-synced genres and collided on UK_SONG_GENRES_SONG_KEY). Resumable: only
+     * unlinked rows are read, so an interrupted run continues where it stopped.
+     */
     public Map<String, Object> backfill(int batchSize) {
-        int batch = Math.max(50, Math.min(batchSize, 1000));
-
-        long total = em.createQuery("SELECT COUNT(s) FROM Song s", Long.class).getSingleResult();
+        final int batch = Math.max(50, Math.min(batchSize, 1000));
+        final long total = QuarkusTransaction.requiringNew()
+                .call(() -> em.createQuery("SELECT COUNT(s) FROM Song s", Long.class).getSingleResult());
         long linked = 0;
-        int passes = 0;
 
-        while (passes++ < 10_000) {
-            List<Song> songs = em.createQuery(
-                            "SELECT s FROM Song s WHERE s.albumId IS NULL OR s.artistId IS NULL ORDER BY s.id",
-                            Song.class)
-                    .setMaxResults(batch)
-                    .getResultList();
-            if (songs.isEmpty()) {
+        while (true) {
+            final long[] processed = {0};
+            final boolean more = QuarkusTransaction.requiringNew().call(() -> {
+                List<Song> songs = em.createQuery(
+                                "SELECT s FROM Song s WHERE s.albumId IS NULL OR s.artistId IS NULL ORDER BY s.id",
+                                Song.class)
+                        .setMaxResults(batch)
+                        .getResultList();
+                if (songs.isEmpty()) {
+                    return false;
+                }
+
+                List<Object[]> pairs = new java.util.ArrayList<>(songs.size());
+                for (Song song : songs) {
+                    long[] ids = Models.Music.SongLinks.resolveIds(song.getAlbum(), song.getAlbumArtist(),
+                            song.getArtworkPath(), song.getReleaseDate(), song.getArtist(), em);
+                    pairs.add(new Object[]{song.id, ids[0], ids[1]});
+                }
+                em.flush();
+                em.clear();
+
+                for (Object[] pair : pairs) {
+                    em.createQuery("UPDATE Song s SET s.albumId = :a, s.artistId = :r WHERE s.id = :id")
+                            .setParameter("a", (Long) pair[1])
+                            .setParameter("r", (Long) pair[2])
+                            .setParameter("id", (Long) pair[0])
+                            .executeUpdate();
+                }
+                em.flush();
+                em.clear();
+                processed[0] = songs.size();
+                return true;
+            });
+
+            if (!more) {
                 break;
             }
-            for (Song song : songs) {
-                SongLinks.link(song, em);
-            }
-            em.flush();
-            em.clear();
-            linked += songs.size();
+            linked += processed[0];
             if (linked % 2000 < batch) {
                 LOGGER.info("[AlbumLink] backfill linked " + linked + " / " + total);
             }
         }
 
-        long albums = em.createQuery("SELECT COUNT(a) FROM Album a", Long.class).getSingleResult();
-        long artists = em.createQuery("SELECT COUNT(a) FROM Artist a", Long.class).getSingleResult();
-        long unlinked = em.createQuery(
-                "SELECT COUNT(s) FROM Song s WHERE s.albumId IS NULL OR s.artistId IS NULL", Long.class).getSingleResult();
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("songs", total);
-        result.put("linked", linked);
-        result.put("albums", albums);
-        result.put("artists", artists);
-        result.put("unlinkedRemaining", unlinked);
+        final long linkedFinal = linked;
+        Map<String, Object> result = QuarkusTransaction.requiringNew().call(() -> {
+            Map<String, Object> counts = new LinkedHashMap<>();
+            counts.put("songs", total);
+            counts.put("linked", linkedFinal);
+            counts.put("albums", em.createQuery("SELECT COUNT(a) FROM Album a", Long.class).getSingleResult());
+            counts.put("artists", em.createQuery("SELECT COUNT(a) FROM Artist a", Long.class).getSingleResult());
+            counts.put("unlinkedRemaining", em.createQuery(
+                    "SELECT COUNT(s) FROM Song s WHERE s.albumId IS NULL OR s.artistId IS NULL", Long.class).getSingleResult());
+            return counts;
+        });
         LOGGER.info("[AlbumLink] backfill done: " + result);
         return result;
     }
