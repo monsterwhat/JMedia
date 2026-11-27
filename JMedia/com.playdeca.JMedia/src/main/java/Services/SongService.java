@@ -911,18 +911,26 @@ public class SongService {
         }
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
-        // Implicit join (HQL has no ad-hoc LEFT JOIN ON without a mapped
-        // association). Empty albums cannot appear anyway: they are removed by
-        // the cleanup pass.
+        // Row projection rather than a constructor expression: Hibernate cannot
+        // instantiate a record nested in a CDI bean class ("Could not resolve class").
         var q = em.createQuery(
-            "SELECT new Services.SongService.AlbumCard(a.id, a.name, a.artist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate)) "
+            "SELECT a.id, a.name, a.artist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate) "
                 + "FROM Album a, Song s "
                 + "WHERE s.albumId = a.id "
                 + "AND (LOWER(a.name) LIKE :search OR LOWER(a.artist) LIKE :search) "
                 + "GROUP BY a.id, a.name, a.artist" + order,
-            AlbumCard.class);
+            Object[].class);
         q.setParameter("search", search == null || search.isBlank() ? "%%" : "%" + search.toLowerCase() + "%");
-        List<AlbumCard> albums = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
+        List<AlbumCard> albums = q.setFirstResult((page - 1) * limit).setMaxResults(limit)
+                .getResultList().stream()
+                .map(row -> new AlbumCard(
+                        (Long) row[0],
+                        (String) row[1],
+                        (String) row[2],
+                        (Long) row[3],
+                        (Long) row[4],
+                        (String) row[5]))
+                .toList();
         return new PaginatedAlbums(albums, countAlbums(search));
     }
 
