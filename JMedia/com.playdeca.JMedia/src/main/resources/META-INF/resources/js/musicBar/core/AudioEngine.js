@@ -642,6 +642,7 @@
         RECYCLE_EVERY: 4,
         _tracksSinceRecycle: 0,
         _lastRecycledSongId: null,
+        _recyclePending: false,
 
         _maybeRecycleDeck: function(activeEl) {
             try {
@@ -649,10 +650,17 @@
                 if (!songId || songId === this._lastRecycledSongId) return;   // same song (seek/resume)
                 this._lastRecycledSongId = songId;
 
+                // DJ mode keeps a crossfade going, so the deck is busy exactly when the
+                // counter expires. Try again on the next track instead of dropping it.
+                if (this._recyclePending) {
+                    if (this._recycleIdleDeck()) this._recyclePending = false;
+                    return;
+                }
+
                 if (++this._tracksSinceRecycle < this.RECYCLE_EVERY) return;
                 this._tracksSinceRecycle = 0;
 
-                this._recycleIdleDeck();
+                if (!this._recycleIdleDeck()) this._recyclePending = true;
             } catch (err) {
                 console.warn('[AudioEngine] deck recycle skipped:', err && err.message ? err.message : err);
             }
@@ -660,9 +668,9 @@
 
         _recycleIdleDeck: function() {
             const idle = this.getInactivePlayer();
-            if (!idle || !idle.paused) return;                       // never pull a playing deck
-            if (this._isCrossfading) return;                          // fade in progress
-            if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) return;
+            // Only the paused deck is safe to pull; during a crossfade both decks are
+            // playing, which is exactly what `paused` catches.
+            if (!idle || !idle.paused) return false;
 
             const isPrimary = (idle === this.audio);
             const deckName = isPrimary ? 'audioPlayer' : 'audioPlayerNext';
@@ -713,6 +721,7 @@
 
             this.setupAudioEvents(el);
             window.Helpers?.log?.('[AudioEngine] Recycled idle deck ' + deckName);
+            return true;
         },
 
         getActivePlayer: function() {
