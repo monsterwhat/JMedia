@@ -2063,8 +2063,11 @@ public class VideoService {
     @Transactional
     public Map<String, Object> cleanLeadingBracketTitles(boolean dryRun, int limit) {
         int pageSize = Math.max(1, Math.min(limit, 5000));
+        // Legacy rows can carry NULL in the flag column even though the entity
+        // field is a primitive boolean, so "= false" alone silently skips them.
         List<Video> candidates = Video.<Video>find(
-                "(title like '[%' or episodeTitle like '[%') and titleManuallyEdited = false")
+                "(title like '[%' or episodeTitle like '[%')"
+                        + " and (titleManuallyEdited is null or titleManuallyEdited = false)")
                 .page(0, pageSize).list();
 
         int changed = 0;
