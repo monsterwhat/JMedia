@@ -1,5 +1,6 @@
 package API.Rest;
 
+import API.ApiResponse;
 import Services.VideoService;
 import Services.VideoQueryService;
 import Services.VideoImportService;
@@ -438,6 +439,26 @@ public class VideoManagementApi {
                 + "\",\"processed\":" + s.get("processed")
                 + ",\"repaired\":" + s.get("repaired")
                 + ",\"total\":" + s.get("total") + "}").build();
+    }
+
+    /**
+     * Strips a leading "[Release-Group]" prefix from stored video titles
+     * ("[Judas] Bleach - 257" -> "Bleach - 257"). New scans already clean the
+     * prefix; this repairs rows imported before the fix. Pass dryRun=true to
+     * preview the changes without writing. Admin only.
+     */
+    @POST
+    @Path("/titles/clean-brackets")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response cleanBracketedTitles(@Context jakarta.ws.rs.core.HttpHeaders headers,
+                                         @QueryParam("dryRun") @DefaultValue("false") boolean dryRun,
+                                         @QueryParam("limit") @DefaultValue("5000") int limit) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\":\"Admin access required\"}")
+                    .build();
+        }
+        return Response.ok(ApiResponse.success(videoService.cleanLeadingBracketTitles(dryRun, limit))).build();
     }
 
     /**

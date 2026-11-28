@@ -650,4 +650,47 @@ public class SmartNamingServiceTest {
         assertNotEquals("extra", result.contentType,
                 "'Ovation' must not be read as an OVA marker");
     }
+
+    // ── Leading release-group tags ─────────────────────────────────────────
+
+    @Test
+    void testLeadingBracketTagIsStrippedFromExtrasTitle() {
+        // Grouped episode inside a season sub-folder: the file name becomes the
+        // title, but the release-group prefix must not survive.
+        String filename = "[Judas] Bleach - 257.mkv";
+        String relativePath = "TV Shows/Bleach (2004) [tmdbid-30984]/Season 1/"
+                + "Bleach 252-279 [BD 1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs]/"
+                + "[Judas] Bleach - 257.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("Bleach - 257", result.title,
+                "release group prefix must be removed from the title");
+    }
+
+    @Test
+    void testLeadingBracketTagIsStrippedFromFeaturetteTitle() {
+        String filename = "[Judas] Bleach - NCED 25 - Last Moment.mkv";
+        String relativePath = "TV Shows/Bleach (2004) [tmdbid-30984]/Season 1/"
+                + "Bleach 280-308 [BD 1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs]/Extras/"
+                + "[Judas] Bleach - NCED 25 - Last Moment.mkv";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("Bleach - NCED 25 - Last Moment", result.title);
+    }
+
+    @Test
+    void testStripLeadingBracketTagsHandlesStackedTags() {
+        assertEquals("Bleach - 257",
+                SmartNamingService.stripLeadingBracketTags("[Judas] Bleach - 257"));
+        assertEquals("Show - 01",
+                SmartNamingService.stripLeadingBracketTags("[Group][1080p] Show - 01"));
+        assertEquals("Show",
+                SmartNamingService.stripLeadingBracketTags("Show"));
+        assertEquals("",
+                SmartNamingService.stripLeadingBracketTags("[Judas]"));
+    }
 }

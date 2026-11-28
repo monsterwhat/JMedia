@@ -1463,7 +1463,12 @@ public class SmartNamingService {
                                String mediaType, PathAnalysis pathAnalysis, String showName) {
         
         if (pathAnalysis.subFolder != null) {
-            return filename.replaceFirst("\\.[^.]+$", "");
+            // Extras / grouped episodes keep their file name as the title, but a
+            // release-group prefix is never part of it: "[Judas] Bleach - NCED 25
+            // - Last Moment" must read "Bleach - NCED 25 - Last Moment".
+            String rawName = filename.replaceFirst("\\.[^.]+$", "");
+            String withoutTags = stripLeadingBracketTags(rawName);
+            return withoutTags.isEmpty() ? rawName : withoutTags;
         }
 
         if ("movie".equals(mediaType)) {
@@ -1629,6 +1634,25 @@ public class SmartNamingService {
                 .replaceAll("\\s+", " ").trim();
     }
 
+    /**
+     * Removes leading release-group / release-tag brackets from a display name.
+     * Scene releases prefix the show with the group ("[Judas] Bleach - 257.mp4")
+     * and sometimes stack tags ("[Group][1080p] Show - 01"). Only leading groups
+     * are removed: a bracket later in the name is usually part of the title.
+     * Returns "" when the whole name was made of tags; callers decide whether
+     * that means "keep the raw name" or "no title".
+     */
+    public static String stripLeadingBracketTags(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw;
+        Matcher matcher = LEADING_BRACKETS_PATTERN.matcher(cleaned);
+        while (matcher.find()) {
+            cleaned = cleaned.substring(matcher.end());
+            matcher = LEADING_BRACKETS_PATTERN.matcher(cleaned);
+        }
+        return cleaned.trim();
+    }
+
     public static String cleanShowName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return "Unknown Show";
@@ -1721,7 +1745,7 @@ public class SmartNamingService {
         Matcher qualityParenMatcher = Pattern.compile("(?i)\\s*\\(\\d{3,4}p[\\s-]*[a-z]*\\)\\s*$").matcher(cleaned);
         cleaned = qualityParenMatcher.replaceAll("");
         
-        cleaned = LEADING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = stripLeadingBracketTags(cleaned);
         cleaned = TRAILING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
         cleaned = METADATA_BRACKETS_PATTERN.matcher(cleaned).replaceAll(" ");
         cleaned = Pattern.compile("(?i)\\s*\\([\\d]p[\\s-]*[a-z]*\\)\\s*$").matcher(cleaned).replaceAll("");
@@ -1750,7 +1774,7 @@ public class SmartNamingService {
         // Remove file extension first
         cleaned = FILE_EXTENSION_PATTERN.matcher(cleaned).replaceAll("");
 
-        cleaned = LEADING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = stripLeadingBracketTags(cleaned);
         cleaned = METADATA_BRACKETS_PATTERN.matcher(cleaned).replaceAll(" ");
 
         // Structural metadata cut: find the first release metadata term and remove everything from there.

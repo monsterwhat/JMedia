@@ -2046,6 +2046,71 @@ public class VideoService {
         }
     }
 
+    /**
+     * One-off maintenance: strips a leading "[Release-Group]" prefix from stored
+     * display titles ("[Judas] Bleach - 257" -> "Bleach - 257"). Older scans
+     * produced these because the extras/sub-folder naming branch used the raw
+     * file name. New scans strip the prefix at naming time; this repairs rows
+     * that are already in the database.
+     *
+     * <p>Manually edited titles are never touched. A title that consisted only
+     * of brackets becomes null so the UI composes it from series/season/episode.
+     *
+     * @param dryRun when true nothing is written; the report still shows what
+     *               would change
+     * @param limit  maximum number of rows to inspect in this call
+     */
+    @Transactional
+    public Map<String, Object> cleanLeadingBracketTitles(boolean dryRun, int limit) {
+        int pageSize = Math.max(1, Math.min(limit, 5000));
+        List<Video> candidates = Video.<Video>find(
+                "(title like '[%' or episodeTitle like '[%') and titleManuallyEdited = false")
+                .page(0, pageSize).list();
+
+        int changed = 0;
+        List<Map<String, String>> samples = new ArrayList<>();
+        for (Video video : candidates) {
+            String newTitle = cleanBracketPrefix(video.title);
+            String newEpisodeTitle = cleanBracketPrefix(video.episodeTitle);
+            boolean titleChanged = !Objects.equals(newTitle, video.title);
+            boolean episodeChanged = !Objects.equals(newEpisodeTitle, video.episodeTitle);
+            if (!titleChanged && !episodeChanged) {
+                continue;
+            }
+            changed++;
+            if (samples.size() < 10) {
+                samples.add(Map.of(
+                        "id", String.valueOf(video.id),
+                        "before", String.valueOf(video.title),
+                        "after", String.valueOf(newTitle)));
+            }
+            if (!dryRun) {
+                if (titleChanged) video.title = newTitle;
+                if (episodeChanged) video.episodeTitle = newEpisodeTitle;
+                video.dateModified = LocalDateTime.now();
+                video.persist();
+            }
+        }
+
+        LOGGER.info("Bracket title cleanup: scanned={}, changed={}, dryRun={}",
+                candidates.size(), changed, dryRun);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scanned", candidates.size());
+        result.put("changed", changed);
+        result.put("dryRun", dryRun);
+        result.put("samples", samples);
+        return result;
+    }
+
+    /** Strips leading release tags, mapping an all-bracket title to null. */
+    private static String cleanBracketPrefix(String title) {
+        if (title == null) return null;
+        String cleaned = SmartNamingService.stripLeadingBracketTags(title);
+        if (cleaned.equals(title)) return title;
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
     @Transactional
     public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type, String showImdbId, String imdbId) {
         Video video = Video.findById(id);
